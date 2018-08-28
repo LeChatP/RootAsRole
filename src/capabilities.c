@@ -260,22 +260,36 @@ Return 0 on success, -1 on failure.
 */
 int add_permitted_capabilities_to_file(const int fd, int nb_caps, 
                                         const cap_value_t *capabilities){
-    cap_t caps;
+    int return_code = -1;
+    cap_t caps = NULL;
 
     //Init an empty capabilities state
-	caps = cap_init();
-	if (caps == NULL) return -1;
+    if((caps = cap_init()) == NULL){
+        goto free_rscs;
+    }
     
-    //Add the capabilities in the permitted set, then
+    //Add the capabilities in the permitted set, with
+    //a fix on the linux implementation 
+    //(diff btwn kernel and linux headers)
+    if (cap_set_flag(caps, CAP_PERMITTED, nb_caps, capabilities, CAP_SET)){
+        //set the caps that are ok one by one
+        const cap_value_t *cap;
+        for(cap = capabilities; cap < capabilities + nb_caps; cap++){
+            if(cap_set_flag(caps, CAP_PERMITTED, 1, cap, CAP_SET)){
+                fprintf(stderr, "Warning: cannot use capability N°%d.\n", *cap);
+            }
+        }
+    } 
+
     //Set the caps of the file
-    if (cap_set_flag(caps, CAP_PERMITTED, nb_caps, capabilities, CAP_SET)
-                    || cap_set_fd(fd, caps)) {
-		cap_free(caps);
-		return -1;
-	}else{
-	    cap_free(caps);
-	    return 0;
-	}
+    if (cap_set_fd(fd, caps)) {
+        goto free_rscs;
+    }
+    return_code = 0;
+	 
+  free_rscs:
+    cap_free(caps);
+    return return_code;	
 }
 
 /* 
