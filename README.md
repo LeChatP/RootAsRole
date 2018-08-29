@@ -257,9 +257,13 @@ You might be interested to know how we implement the sr tool. So here is the alg
 
 ![Screenshot](doc/SrWorkflow.png)
 
-In terms of capabilities calucations by Linux Kernel, here is what happens:
+Here is how sr_aux works:
 
-![Screenshot](doc/calculations.jpg)
+![Screenshot](doc/Sr_auxWorkflow.png)
+
+In terms of capabilities calucations by Linux Kernel, you can read this page to know how Linux kernel calculates the capabilities in different scenarios:
+
+https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipulation.md
 
 To Do List
 ===========
