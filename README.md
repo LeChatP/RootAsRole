@@ -148,6 +148,9 @@ In addition, one can also remove the bit s from its executables. Here we give an
 Why our module is better than setcap and pam_cap.so
 ===========
 
+We give here several scenarios that illustrate that our module is better than setcap and pam_cap.so:
+
+
 Scenario 1
 -----
 A user contacts his administrator to give him a privilege that allows him running an HTTP server that is developed using Python. His script needs the privilege CAP_NET_BIND_SERVICE to bind the server socket to 80 port.  Without our module, the administrator has two options: (1)  Use setcap command to inject the privilege into Python interpreter or (2) use pam_cap.so to attribute the CAP_NET_BIND_SERVICE to the user and then inject this privilege in the inheritable and effective sets of the interpreter. Both solutions have security problems because in the case of option (1), the Python interpreter can be used by any another user with this privilege. In the case of option (2) other python scripts run by the legitimate user will have the same privilege.
