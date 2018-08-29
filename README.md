@@ -136,7 +136,7 @@ Linux is not yet a full privileged system. It has a special treatment for the ro
 
 However, one can use our module to obtain similar results to su and sudo commands:
 
-1- 'sr -r root' is equivalent to 'su' command, as it permits to obtain a privileged shell with the full list or root privileges.
+1- 'sr -r root' is equivalent to 'su' command, as it permits to obtain a privileged shell with the full list of root privileges.
 
 2- 'sr -r root -c command' is equivalent to 'sudo command', as it permits to run a command with the full list of root privileges.
 
