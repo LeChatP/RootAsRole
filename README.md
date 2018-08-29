@@ -132,7 +132,8 @@ If we modify the configuration to assign role1 that conains cap_net_raw privileg
 
 Why our module is better than sudo, su and setuid-root programs
 ===========
-Sudo, su and setuid-root bit allows programs to run with the full list of root privileges. Here we give an example for removing the bit s from passwd program.
+Linux is not yet a full privileged system. It has a special treatment for the root user. Whenever a process has in its effective uid the value 0, it will be given the the whole list of root privileges. Sudo, su and setuid-root bit give the possibility to programs to have an effective uid equal to 0. Thus, these programs are run with the full list of root privilege, although that these programs need only one part of these privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job.
+Here we give an example for removing the bit s from ping program.
 
 
 Why our module is better than setcap and pam_cap.so
