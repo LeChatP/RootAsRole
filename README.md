@@ -39,11 +39,17 @@ Usage
 Usage : sr -r role [-n] [-c command] [-u user] [-h]
 
 -r, --role=role        the capabilities role to use
+
 -c, --command=command  launch the command instead of a bash shell
+
 -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo)
--u, --user=user        substitue the user (reserved to administrators).\n");
+
+-u, --user=user        substitue the user (reserved to administrators)
+
 -i, --info             print the commands the user is able to process within the role and quit
+
 -h, --help             print this help and quit.
+
 
 After the installation you will find a file called capabilityRole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
