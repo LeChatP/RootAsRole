@@ -263,7 +263,7 @@ In terms of capabilities calucations by Linux Kernel, here is what happens:
 
 To Do List
 ===========
-1- enahnce the treatement of commands so that when an administrator defines for a user a command without arguments, the user can run the command with any arguements. Our current version of code makes an exact comparaison with the command node, this should be extended to handle more correctly the arguments:
+1- enhance the treatement of commands so that when an administrator defines for a user a command without arguments, the user can run the command with any arguements. Our current version of code makes an exact comparaison with the command node, this should be extended to handle more correctly the arguments:
 
 	a-We should extend the structure of capablityRole.xml to include argument nodes.
 	
