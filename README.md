@@ -28,7 +28,7 @@ How to Build
     
     2. cd switchRole
     
-    3. sudo ./configure.sh
+    3. sudo sh ./configure.sh
     
     4. make
     
