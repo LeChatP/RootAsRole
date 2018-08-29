@@ -289,7 +289,12 @@ To Do List
 	
 2-enhance the -i option to print out the roles and the associtated commands for a user. When a user invoques sr  with only -i option he can get this information.
 
-3-add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time wherer a user can assume roles. 
+3-add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles. 
+
+4- create a command to help users figure out what are privileges needed by program. A possible solution is to use kprobe to trace cap_capable() in the kernel.
+
+5- find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use krpobe or to develop  LSM hooks.
+
 
 References
 ==========
