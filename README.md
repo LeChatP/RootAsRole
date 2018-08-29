@@ -24,7 +24,7 @@ Installation
 How to Build
 ------------
 
-	1. git clone https://github.com/guillaumeDaumas/switchRole
+	1. git clone https://github.com/guillaumeDaumas/RootAsRole
     
     2. cd switchRole
     
