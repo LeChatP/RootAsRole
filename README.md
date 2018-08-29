@@ -264,10 +264,15 @@ In terms of capabilities calucations by Linux Kernel, here is what happens:
 To Do List
 ===========
 1- enahnce the treatement of commands so that when an administrator defines for a user a command without arguments, the user can run the command with any arguements. Our current version of code makes an exact comparaison with the command node, this should be extended to handle more correctly the arguments:
+
 	a-We should extend the structure of capablityRole.xml to include argument nodes.
+	
 	b-our code must first compare whether the right command is used and then compare whether the authorized arguments are used or not.
+	
 	c-if there is no arguments precised along with the command, our code should authorise any arguments with the command.
+	
 2-enhance the -i option to print out the roles and the associtated commands for a user. When a user invoques sr  with only -i option he can get this information.
+
 3-add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time wherer a user can assume roles. 
 
 References
