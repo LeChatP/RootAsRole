@@ -255,7 +255,7 @@ How sr works
 ===========
 You might be interested to know how we implement the sr tool. So here is the algorithm: 
 
-![Screenshot](doc/algorithm3.jpg)
+![Screenshot](doc/Sr Workflow.png)
 
 In terms of capabilities calucations by Linux Kernel, here is what happens:
 
