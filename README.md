@@ -50,7 +50,7 @@ Usage : sr -r role [-n] [-c command] [-u user] [-h]
 
 	-c, --command=command  launch the command instead of a bash shell
 
-	-n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no 				       special treatment to root user (uid 0)
+	-n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no special treatment to root user (uid 0)
 
 	-u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
 
