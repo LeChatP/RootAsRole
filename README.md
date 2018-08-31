@@ -301,7 +301,7 @@ https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipula
 
 To Do List
 ===========
-1- enhance the treatement of commands so that when an administrator defines for a user a command without arguments, the user can run the command with any arguements. Our current version of code makes an exact comparaison with the command node, this should be extended to handle more correctly the arguments:
+1- enhance the treatement of commands so that when an administrator defines for a user a command without arguments, the user can run the command with any arguments. Our current version of code makes an exact comparaison with the command node, this should be extended to handle more correctly the arguments:
 
 	a-We should extend the structure of capablityRole.xml to include argument nodes.
 	
@@ -309,7 +309,7 @@ To Do List
 	
 	c-if there is no arguments precised along with the command, our code should authorise any arguments with the command.
 	
-2-enhance the -i option to print out the roles and the associtated commands for a user. When a user invoques sr  with only -i option he can get this information.
+2-enhance the -i option to print out the roles and the associtated commands for a user. When a user calls sr  with only -i option he can get this information.
 
 3-add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles. 
 
@@ -318,6 +318,8 @@ To Do List
 5- find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use krpobe or to develop  LSM hooks.
 
 6-give the possibility to all users and all groups to run programs with some privileges. For example, an administrator wants to authorise all users to use ping program. In this case, he can edit the capabilityRole.xml to define a role that has cap_net_raw. In the user and group nodes, the administrator can use the character * for repersenting the list of all users and groups. Users can then use sr to assume the role and run the ping program, but they don't need to authenticate themselves to assume the role.
+
+7-today only root user can assume the role of other users. This is should be extended to give the possiblity to any user who has the privileges cap_setuid, cap_setgid, cap_setfcap and cap_dac_override  to assume the roles of any user. This feature can be used for service management. Right now, even a user with root role can not assume the roles of other users because sr tool has two privileges in its extended attributes. According to capabilities calculation rules sr is considered as privileged file and it will not acquire as consequence the values of the shell's ambient. As consequence, it is important to build a new wrapper like sr_admin that doesn't have any privileges in its extended attributes. In this case, sr_admin will get a copy of its shell's ambient. So sr_admin will be able to have cap_setuid, cap_setgid, cap_setfcap and cap_dac_override when it is run by a shell that has these values in its ambient.  After that sr_admin should create a temporary file of sr tool, and then add the cap_setuid, cap_setgid and cap_dac_override in the extended attributes of the sr temporary file (sr has already cap_setfcap and setpcap) and makes an exec call to sr by passing at least the roles and user arguments. Optionally, sr_admin can pass also noroot and command arguments. Technically, sr_admin needs only cap_setfcap to be able to write the privileges in the sr temporary file but it should verify that user who runs it has cap_setuid, cap_setgid, cap_setfcap and cap_dac_override as sr tool will use these privileges when running the commands on behalf of other users. If the user's shell has these privileges in its effective set, sr_admin accept the request of the user to assume the roles of other users and it will write cap_setuid, cap_setgid and cap_dac_override in the extended attributes of sr temporary file, in addition to cap_setfcap and cap_setpcap that already exist in the extended attributes of sr temporary file.
 
 
 References
