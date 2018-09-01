@@ -71,6 +71,22 @@ Retrieve the next element of collection. Return NULL if no element is to
 iterate.
 */
 static xmlNodePtr xci_next(xml_collection_iterator it);
+
+/*
+Given a command, extract the program: do not take care of left spaces, neither
+the right spaces and/or options related to the program.
+Set begin_prg and len_prg and return 0 on success, or -1 on failure;
+*/
+static int extract_program_from_command(xmlChar *cmd, 
+        xmlChar **begin_prg, int *len_prg);
+
+/*
+Return 1 if the given command match the referenced command, 0 otherwise
+If the ref command does not include any options, thus any option in the given
+command is allowed. Otherwise, the given command must match both the program
+name and the sequence of options (in the same order!)
+*/
+static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given);
  
 /*
 Get the role node matchin the role name from the xml configuration file
@@ -120,7 +136,7 @@ has been found in the xml doc, -1 if an other error happened.
 A command is valid if urc->command is NULL and no command are defined in 
 the node OR if urc->command is among the commands defined in the node.
 */
-static int check_valid_command(user_role_capabilities_t *urc, 
+static int check_valid_command_from_commands(user_role_capabilities_t *urc, 
                                 xmlNodePtr matching_item_node);
                                 
 /*
@@ -711,6 +727,64 @@ static xmlNodePtr xci_next(xml_collection_iterator it){
     }
     return saved_node;
 }
+
+/*
+Given a command, extract the program: do not take care of left spaces, neither
+the right spaces and/or options related to the program.
+Set begin_prg and len_prg and return 0 on success, or -1 on failure;
+*/
+static int extract_program_from_command(xmlChar *cmd, 
+        xmlChar **begin_prg, int *len_prg){
+    //Strip left
+    while(*cmd == ' ' && *cmd == '\t' && *cmd != '\0'){
+        cmd++;
+    }
+    if(*cmd == '\0') return -1;
+    *begin_prg = cmd;
+    //Go until a space or the end is found
+    while(*cmd != ' ' && *cmd != '\t' && *cmd != '\0'){
+        cmd++;
+    }
+    *len_prg = cmd - *begin_prg;
+    return 0;
+}
+
+/*
+Return 1 if the given command match the referenced command, 0 otherwise
+If the ref command does not include any options, thus any option in the given
+command is allowed. Otherwise, the given command must match both the program
+name and the sequence of options (in the same order!)
+*/
+static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given){
+    int len_c_ref;
+    //program of commands relative variables
+    xmlChar *b_p_ref, *b_p_given;
+    int len_p_ref, len_p_given;
+    
+    //Extract c_ref's and c_given's programs
+    if(extract_program_from_command(c_ref, &b_p_ref, &len_p_ref)
+            || extract_program_from_command(c_given, &b_p_given, &len_p_given)){
+        return 0;
+    }
+    //Are c_ref c_given the same program?
+    if(len_p_ref != len_p_given 
+            || xmlStrncmp(b_p_ref, b_p_given, len_p_ref)){
+        return 0;
+    }
+    //If c_ref only contains the command: any option is allowded
+    len_c_ref = xmlStrlen(c_ref);
+    if(b_p_ref + len_p_ref == c_ref + len_c_ref){
+        return 1;
+    }
+    //Otherwise, check that option sequence is EXACTLY the same
+    //Length of ref seq of args is len_c_ref - len_p_ref - (b_p_ref - c_ref)
+    if(xmlStrncmp(b_p_ref + len_p_ref, b_p_given + len_p_given, 
+            len_c_ref - len_p_ref - (b_p_ref - c_ref))){
+        return 0;
+    }else{
+        return 1;
+    }
+}
  
 /*
 Get the role node matchin the role name from the xml configuration file
@@ -826,7 +900,7 @@ static int find_matching_user_node(user_role_capabilities_t *urc,
         if(name != NULL &&  xmlStrEqual(name, xml_user)){
             user_found = 1;
             //for the user_node, check valid command if required
-            return_code = check_valid_command(urc, user_node);
+            return_code = check_valid_command_from_commands(urc, user_node);
         }
         free(name);
     }
@@ -895,7 +969,8 @@ static int find_matching_group_node(user_role_capabilities_t *urc,
             for(i = 0; i < urc->nb_groups; i++){
                 if(xmlStrEqual(xml_groups[i], name)){
                     //Group found, now check if command is valid if required
-                    return_code = check_valid_command(urc, group_node);
+                    return_code = check_valid_command_from_commands(urc, 
+                                group_node);
                     switch(return_code){
                         case 0: //group match, command ok
                             group_found = 1;
@@ -937,7 +1012,7 @@ has been found in the xml doc, -1 if an other error happened.
 A command is valid if urc->command is NULL and no command are defined in 
 the node OR if urc->command is among the commands defined in the node.
 */
-static int check_valid_command(user_role_capabilities_t *urc, 
+static int check_valid_command_from_commands(user_role_capabilities_t *urc, 
                                 xmlNodePtr matching_item_node){
     int return_code = -1;
     xml_collection_iterator it_node;
@@ -971,7 +1046,9 @@ static int check_valid_command(user_role_capabilities_t *urc,
                 textNode = textNode->next){
             if(xmlNodeIsText(textNode)){
                 xmlChar *text = xmlNodeGetContent(textNode);
-                command_found = xmlStrEqual(xml_given_command, text) ? 1 : 0;
+                //Is the given command allowed by the current one?
+                command_found = 
+                        is_command_allowed(text, xml_given_command) ? 1 : 0;
                 free(text);
             }
         }

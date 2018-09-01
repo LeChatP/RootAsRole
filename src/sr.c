@@ -448,7 +448,7 @@ static user_role_capabilities_t *retrieve_urc(const char* role,
             perror("The role does not exist");
             break;
         case -6:
-            perror("This role cannot be used with your user or your groups");
+            perror("This role and command cannot be used with your user or your groups");
             break;
         default:
             perror("An unmanaged error occured");
