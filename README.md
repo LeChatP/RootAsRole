@@ -120,7 +120,7 @@ As you may notice, the user awazan is not able to assume role1.
 ![Screenshot](doc/assumerole1111.png)
 
 
-**Get the List of available commands**
+**Get the List of available commands** (-i option)
 
 A user can know the list of commands that he can use with a role by adding the i option. For example, here the user awazan uses the i option to know the list of commands he can use with the role role1.
 
@@ -131,8 +131,8 @@ Here user awazan can use with role1 the commands tcpdump and iptables.
 ![Screenshot](doc/assumerole11111.png)
 
 
-
-**No Root mode**
+No Root mode (-n option)
+-----
 
 You have the possibility to launch a full capabale shell that doesn't give any special treatment to uid 0. The root user is considered as any other normal user and you can in this case grant him a few privileges in the capabilityRole.xml distributed by our module :
 
