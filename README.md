@@ -89,6 +89,7 @@ As you see here, user awazan can run tcpdump to sniff the traffic of ens160 inte
 ![Screenshot](doc/tcpdumparg2.png)
 
 
+I should be noted that when the administrator doesn't precise any arguments with a command, the user can run the command with any option (s)he wants. 
 
 **Conflictual Situations**
 
