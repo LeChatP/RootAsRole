@@ -84,7 +84,9 @@ Another interesting feature of our module is that it allows controlling indirect
 
 As you see here, user awazan can run tcpdump to sniff the traffic of ens160 interface, but not other interfaces.
 
+![Screenshot](doc/tcpdumparg1.png)
 
+![Screenshot](doc/tcpdumparg2.png)
 
 
 
