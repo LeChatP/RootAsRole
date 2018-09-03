@@ -170,7 +170,9 @@ However, one can use our module to obtain similar results to su and sudo command
 
 As mentionned and illustrated earlier, the advantage of our module is that it allows controlling the list of privileges given to programs.
 
-In addition, one can also remove the bit s from its executables. Here we give an example for removing the bit s from ping program.
+In addition, one can also remove the bit s from its executables. Here we give an example for removing the bit s from ping program. We may have chosen another program such as passwd. We didn't do that because passwd is not compatible with the idea of privileges. In fact, passwd checks whether the real uid is 0 or not. When the real uid is 0 (i.e. process run by root user) the programs allows the root user to change the passwords of any user. When the real uid is not 0, then the user can change only his own password (for more information check the source code of passwfd and especially the variable amroot https://github.com/shadow-maint/shadow/blob/master/src/passwd.c). Passwd program must be thus modified to allow any user who has the convenient privilege to modify the passwords of other users. For example, an administrator may give the privilege cap_dac_override to user awazan only to modify the passwords other users by limiting the use of this privilege to passwd program.
+
+So we select the ping program to show how we can remove the bit s from it.  
 
 
 Why our module is better than setcap and pam_cap.so
