@@ -68,6 +68,9 @@ After that a new shell is opened. This shell contains the capabilities of the ro
 
 ![Screenshot](doc/assumerootrole.png)
 
+Example
+-----
+
 Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1. 
 
 ![Screenshot](doc/configurationexample2.png)
