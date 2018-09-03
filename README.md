@@ -71,12 +71,21 @@ After that a new shell is opened. This shell contains the capabilities of the ro
 Example
 -----
 
-Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1. 
+The advantage of RootAsRole module is that it allows controlling the list of privileges that you use with your programs. The administrator should configure the capabilityRole.xml file to achieve this objective. Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1. 
 
 ![Screenshot](doc/configurationexample2.png)
 
-As you may note, here the user awazan has got a shell with privileged cap_net_raw and cap_sys_nice are activated.
+As you may note, here the user awazan has got a shell with privileges cap_net_raw and cap_sys_nice that are activated.
 ![Screenshot](doc/assumerole1.png)
+
+Another interesting feature of our module is that it allows controlling indirectly the resource on which the privilege will be used. For example,  let's suppose that the administrator wants to let user awazan to use the privilege cap_net_raw only with tcpdump and only on the interface ens160. In this case, the administrator should provide the following configuration file:
+
+![Screenshot](doc/tcpdump1.png)
+
+As you see here, user awazan can run tcpdump to sniff the traffic of ens160 interface, but not other interfaces.
+
+
+
 
 
 **Conflictual Situations**
