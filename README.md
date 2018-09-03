@@ -138,36 +138,25 @@ You have the possibility to launch a full capabale shell that doesn't give any s
 
 `sr -n -r role1`
 
-We use the securebits to provide this functionality. Any set-uid-root program will be run without having any special effect. So in the shell, you can't for example use the ping command without a role that has cap_net_raw privilege.
+We use the securebits to provide this functionality. Any set-uid-root program will be run without having any special effect. So in the shell, you can't for example use the ping command without a role that has cap_net_raw privilege. 
 
-For example, when we launch the sr tool with the root user but without the option -n : 
+Our modules forces the using of -n option when the current user is root. In this case, we are sure that the configuration of the administrator for root user is respected.
 
-![Screenshot](doc/scenarioNoRoot/rootWithoutNoroot.png)
+For example, lets suppose that the administrator has defined the following configuration for root and awazan users. Linux kernel has a special treatment for the root user. In this case, Linux kernel will give the list of all privileges to root user. We don't want that because we consider that the list of privileges should be distributed based on roles idea and not based on the uid of users. For this reason, we force the using of -n option to deactivate the default behaviour of Linux kernel.
 
-as you see, the root user obtains the full list of privileges.
+![Screenshot](doc/scenarioNoRoot/norootconfiguration.png)
 
-Here is the result when we add the -n option : 
+The root user must use "-n" option to assume a role.
 
-![Screenshot](doc/scenarioNoRoot/rootNorootRole1.png)
+![Screenshot](doc/scenarioNoRoot/norootnoption.png).
 
-As you see now, the root user didn't obtain the full list of privileges.
+As you see, the root user obtains only the list of privileges given to him by the administrator.
+
+![Screenshot](doc/scenarioNoRoot/privilegeshell.png).
 
 Under this mode, set-uid-root programs will not have the full list of privileges and they can not be launched.
 
-For example, lets check the result of the ping program. Suppose that we assign the role2 to root user as follows:
-
-![Screenshot](doc/scenarioNoRoot/rootConfRole2.png)
-
-When the root user assume the role2 with -n option, he can't use `ping 0` because cap_net_raw is not present its role.
-
-![Screenshot](doc/scenarioNoRoot/rootRole2NoRootCantPing.png)
-
-If we modify the configuration to assign role1 that conains cap_net_raw privilege to root user, we see that he can now use ping:
-
-![Screenshot](doc/scenarioNoRoot/rootConfRole1.png)
-
-
-![Screenshot](doc/scenarioNoRoot/rootRole1NoRootPing.png).
+![Screenshot](doc/scenarioNoRoot/setuidping.png).
 
 Why our module is better than sudo, su and setuid-root programs
 ===========
