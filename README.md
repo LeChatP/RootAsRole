@@ -170,9 +170,29 @@ However, one can use our module to obtain similar results to su and sudo command
 
 As mentionned and illustrated earlier, the advantage of our module is that it allows controlling the list of privileges given to programs.
 
-In addition, one can also remove the bit s from its executables. Here we give an example for removing the bit s from ping program. We may have chosen another program such as passwd. We didn't do that because passwd is not compatible with the idea of privileges. In fact, passwd checks whether the real uid is 0 or not. When the real uid is 0 (i.e. process run by root user) the programs allows the root user to change the passwords of any user. When the real uid is not 0, then the user can change only his own password (for more information check the source code of passwfd and especially the variable amroot https://github.com/shadow-maint/shadow/blob/master/src/passwd.c). Passwd program must be thus modified to allow any user who has the convenient privilege to modify the passwords of other users. For example, an administrator may give the privilege cap_dac_override to user awazan only to modify the passwords other users by limiting the use of this privilege to passwd program.
+In addition, our module allows removing the bit s from Linux executables. In Linux, different basic commands comes with bit s, such as ping, passwd and mount commands. The bit s (setuid bit) allows a user to run a program with the privileges of program's owner. The owner of ping, passwd and mount commands is root, so any user can run these programs with the root's privileges.
+As an example lets run the passwd command in one shell, and check the list of privilges acquired by this program in another shell.
 
-So we select the ping program to show how we can remove the bit s from it.  
+![Screenshot](doc/passwdprivi.png)
+We notice that passwd possesses the whole list of root privileges, which contitute a big security problem. 
+
+One can use our module to remove the bit s from executables but this will not work for all of them because some of them are coded to check the uid 0 and not the privilges. This is the case of passwd. In fact, passwd checks whether the real uid is 0 or not. When the real uid is 0 (i.e. process run by root user) the programs allows the root user to change the passwords of any user. When the real uid is not 0, then the user can change only his own password (for more information check the source code of passwfd and especially the variable amroot https://github.com/shadow-maint/shadow/blob/master/src/passwd.c). Passwd program must be thus modified to allow any user who has the convenient privilege to modify the passwords of other users. For example, an administrator may give the privilege cap_dac_override to user awazan only to modify the passwords other users by limiting the use of this privilege to passwd program.
+
+We can use our module to remove the bit s from ping because ping is privilege aware. Interestingly, ping's code source has a function called limi_capabilites() (https://github.com/iputils/iputils/blob/master/ping.c). It uses this function to remove the list of of root privileges that it doesn't need because ping needs only cap_net_raw capability. Lets show how we can remove the bit s from ping program:
+
+1- assume the role root using the sr tool
+
+2- we check the ping has the bit s
+
+3- we remove the bit s from ping using the command chmod
+
+4-we quit our privileged shell and we check that we can not use any more the ping program.
+
+5-we re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
+
+6-user awazan assume the role1 with the "-c" option to run ping program. 
+
+It works!
 
 
 Why our module is better than setcap and pam_cap.so
