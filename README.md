@@ -212,7 +212,7 @@ It works!
 Why our module is better than setcap and pam_cap.so
 ===========
 
-We give here several scenarios that illustrate that our module is better than setcap and pam_cap.so:
+We give here several scenarios that illustrate why our module is better than setcap and pam_cap.so. 
 
 
 Scenario 1
