@@ -222,11 +222,11 @@ A user contacts his administrator to give him a privilege that allows him runnin
 
 Here a simple python script that needs to bind a server on the port 80 [9] (the user running the script needs CAP_NET_BIND_SERVICE to do that).
 
-![Screenshot](doc/scenarioPython/codeServer.png)
+![Screenshot](doc/scenarioPython/pythonserver.png)
 
 
 If we try to execute the script without any privilege, we get the expected 'Permission denied'.
-![Screenshot](doc/scenarioPython/connectionFailed.png)
+![Screenshot](doc/scenarioPython/pythonpermissiondenied.png)
 
 
 The first solution consists in using the setcap command in order to attribute the cap_net_bind_service capability to the python interpreter. Doing this create a security problem; now users present in the same system have the same privilege. 
@@ -248,17 +248,16 @@ The administrator has to use setcap command to inject cap_net_bind_service in th
 
 However, in this case all scripts run by the same user will have the same privilege :(
 
-Our solution provides a better alternative. Suppose that the capabilityRole.conf contains the following configuration:
+Our solution provides a better alternative. Suppose that the capabilityRole.xml contains the following configuration:
 
-                                  role1 cap_net_bind_service guillaume none 
+![Screenshot](doc/scenarioPython/pythonconfiguration.png)
+ 
 Then the user needs only to assume role1 using our sr tool and then run his (her) script. (S)he can use other shell to run the other non-privileged scripts.
 
 
-![Screenshot](doc/scenarioPython/connectionWithRole.png)
+![Screenshot](doc/scenarioPython/pythonserverwork.png)
 
 
-
-And as we can see here, python binary doesn't have any capabilities.
 
 Scenario 2 
 -----
