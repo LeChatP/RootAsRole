@@ -174,7 +174,8 @@ In addition, our module allows removing the bit s from Linux executables. In Lin
 As an example lets run the passwd command in one shell, and check the list of privilges acquired by this program in another shell.
 
 ![Screenshot](doc/passwdprivi.png)
-We notice that passwd possesses the whole list of root privileges, which contitute a big security problem. 
+
+We notice that passwd possesses the whole list of root privileges, which constitutes a big security problem. 
 
 One can use our module to remove the bit s from executables but this will not work for all of them because some of them are coded to check the uid 0 and not the privilges. This is the case of passwd. In fact, passwd checks whether the real uid is 0 or not. When the real uid is 0 (i.e. process run by root user) the programs allows the root user to change the passwords of any user. When the real uid is not 0, then the user can change only his own password (for more information check the source code of passwfd and especially the variable amroot https://github.com/shadow-maint/shadow/blob/master/src/passwd.c). Passwd program must be thus modified to allow any user who has the convenient privilege to modify the passwords of other users. For example, an administrator may give the privilege cap_dac_override to user awazan only to modify the passwords other users by limiting the use of this privilege to passwd program.
 
@@ -182,15 +183,30 @@ We can use our module to remove the bit s from ping because ping is privilege aw
 
 1- assume the role root using the sr tool
 
+![Screenshot](doc/assumeroleroot.png)
+
 2- we check the ping has the bit s
+
+![Screenshot](doc/checkbitsping.png)
+
 
 3- we remove the bit s from ping using the command chmod
 
+![Screenshot](doc/removebitsping.png)
+
 4-we quit our privileged shell and we check that we can not use any more the ping program.
+
+![Screenshot](doc/wihtoutbitsping.png)
+
 
 5-we re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
 
+![Screenshot](doc/configurationfilesping.png)
+
+
 6-user awazan assume the role1 with the "-c" option to run ping program. 
+
+![Screenshot](doc/workping.png)
 
 It works!
 
