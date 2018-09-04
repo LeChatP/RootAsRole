@@ -257,6 +257,20 @@ Then the user needs only to assume role1 using our sr tool and then run his (her
 
 ![Screenshot](doc/scenarioPython/pythonserverwork.png)
 
+Suppose that the administrator wants to ensure that his user will run his http server script only on port 80 and not any port. The administrator will ask his user to modify his web server script to take the port number as an argument. Thus the new code will be as following:
+
+![Screenshot](doc/scenarioPython/newhttpserver.png)
+
+After that the administrator will re-edit the capabilityRole.xml file to include the port argument as follows:
+
+![Screenshot](doc/scenarioPython/newconfiguration.png)
+
+As you see, the user will be able then to run his script on port 80 and not any other port.
+
+![Screenshot](doc/scenarioPython/runscriptwithp80.png)
+
+![Screenshot](doc/scenarioPython/runscriptwithp90.png)
+
 
 
 Scenario 2 
