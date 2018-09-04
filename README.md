@@ -183,8 +183,6 @@ We can use our module to remove the bit s from ping because ping is privilege aw
 
 1- assume the role root using the sr tool
 
-![Screenshot](doc/assumeroleroot.png)
-
 2- we check the ping has the bit s
 
 ![Screenshot](doc/checkbitsping.png)
