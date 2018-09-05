@@ -179,25 +179,25 @@ We notice that passwd possesses the whole list of root privileges, which constit
 
 One can use our module to remove the bit s from executables but this will not work for all of them because some of them are coded to check the uid 0 and not the privilges. This is the case of passwd. In fact, passwd checks whether the real uid is 0 or not. When the real uid is 0 (i.e. process run by root user) the programs allows the root user to change the passwords of any user. When the real uid is not 0, then the user can change only his own password (for more information check the source code of passwfd and especially the variable amroot https://github.com/shadow-maint/shadow/blob/master/src/passwd.c). Passwd program must be thus modified to allow any user who has the convenient privilege to modify the passwords of other users. For example, an administrator may give the privilege cap_dac_override to user awazan only to modify the passwords other users by limiting the use of this privilege to passwd program.
 
-We can use our module to remove the bit s from ping because ping is privilege aware. Interestingly, ping's code source has a function called limi_capabilites() (https://github.com/iputils/iputils/blob/master/ping.c). It uses this function to remove the list of of root privileges that it doesn't need because ping needs only cap_net_raw capability. Lets show how we can remove the bit s from ping program:
+We can use our module to remove the bit s from ping because ping is privilege-aware program. Interestingly, ping's code source has a function called limi_capabilites() (https://github.com/iputils/iputils/blob/master/ping.c). It uses this function to remove the list of of root privileges that it doesn't need because ping needs only cap_net_raw capability. Lets show how we can remove the bit s from ping program:
 
 1- assume the role root using the sr tool
 
-2- we check the ping has the bit s
+2- check the ping has the bit s
 
 ![Screenshot](doc/checkbitsping.png)
 
 
-3- we remove the bit s from ping using the command chmod
+3- remove the bit s from ping using the command chmod
 
 ![Screenshot](doc/removebitsping.png)
 
-4-we quit our privileged shell and we check that we can not use any more the ping program.
+4-quit our privileged shell and  check that you can not use any more the ping program.
 
 ![Screenshot](doc/wihtoutbitsping.png)
 
 
-5-we re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
+5-re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
 
 ![Screenshot](doc/configurationfilesping.png)
 
@@ -215,9 +215,9 @@ Why our module is better than setcap and pam_cap.so
 We give here several scenarios that illustrate why our module is better than setcap and pam_cap.so. 
 
 
-Scenario 1
+Scenario 1: running privileged scripts
 -----
-A user contacts his administrator to give him a privilege that allows him running an HTTP server that is developed using Python. His script needs the privilege CAP_NET_BIND_SERVICE to bind the server socket to 80 port.  Without our module, the administrator has two options: (1)  Use setcap command to inject the privilege into Python interpreter or (2) use pam_cap.so to attribute the CAP_NET_BIND_SERVICE to the user and then inject this privilege in the inheritable and effective sets of the interpreter. Both solutions have security problems because in the case of option (1), the Python interpreter can be used by any another user with this privilege. In the case of option (2) other python scripts run by the legitimate user will have the same privilege.
+A user contacts his administrator to give him a privilege that allows him running an HTTP server that is developed using Python. His script needs the privilege CAP_NET_BIND_SERVICE to bind the server socket to 80 port.  Without our module, the administrator has two solutions: (1)  Use setcap command to inject the privilege into Python interpreter or (2) use pam_cap.so to attribute the CAP_NET_BIND_SERVICE to the user and then inject this privilege in the inheritable and effective sets of the interpreter. Both solutions have security problems because in the case of option (1), the Python interpreter can be used by any another user with the attributed privilege. In the case of option (2) other python scripts run by the legitimate user will get the same privilege.
 
 
 Here a simple python script that needs to bind a server on the port 80 [9] (the user running the script needs CAP_NET_BIND_SERVICE to do that).
@@ -226,10 +226,12 @@ Here a simple python script that needs to bind a server on the port 80 [9] (the 
 
 
 If we try to execute the script without any privilege, we get the expected 'Permission denied'.
+
 ![Screenshot](doc/scenarioPython/pythonpermissiondenied.png)
 
 
 The first solution consists in using the setcap command in order to attribute the cap_net_bind_service capability to the python interpreter. Doing this create a security problem; now users present in the same system have the same privilege. 
+
 ![Screenshot](doc/scenarioPython/connectionWithSetcap.png)
 
 The second solution is to use pam_cap.so module, as follows:
