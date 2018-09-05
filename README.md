@@ -170,7 +170,7 @@ However, one can use our module to obtain similar results to su and sudo command
 
 As mentionned and illustrated earlier, the advantage of our module is that it allows controlling the list of privileges given to programs. Sudo and su commands comme with the bit s is set be default.  The bit s (setuid bit) allows a user to run a program with the privileges of program's owner. If the owner of these commands/tools is root, then any user can run these programs with the root's privileges. In Linux, different other basic commands comes with bit s, such as ping, passwd and mount commands. In addition, many third party tools may require the activation of this bit for their tools. Having the bit s set in an executable is dangerous because some tools may provide users with a shell. For example, the command find comes with "-exec" option that allows us to be root:
 
-![Screenshot](doc/rootfindcommand.png)
+![Screenshot](doc/rootfindcommand1.png)
 
 Using our module, an administrator can define a role that contains only the privileges needed by find command. Also the administrator can limit the use of some options of this command so that the user can not use "-exec" option. 
 
