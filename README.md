@@ -275,9 +275,9 @@ As you see, the user will be able then to run his script on port 80 and not any 
 
 
 
-Scenario 2 
+Scenario 2: LD_PRELOAD 
 -----
-Suppose a developer wants to test a program that (s)he has developed in order to reduce the downloading rate on his server. The developer should use the LD_PRELOAD environment variable to load his shared library that intercepts all network calls made by the servers’ processes. With the current capabilities tools, the administrator of the server can use setcap command or pam_cap.so to give the developer cap_net_raw. However, the developer cannot achieve his test because, for security reasons, LD_PRELOAD doesn't work when capabilities are set in the binary file.
+Suppose a developer wants to test a program that (s)he has developed in order to reduce the downloading rate on his server. The developer should use the LD_PRELOAD environment variable to load his shared library that intercepts all network calls made by the servers’ processes. With the current capabilities tools, the administrator of the server can use setcap command or pam_cap.so to give the developer the capability cap_net_raw. However, the developer cannot achieve his test because, for security reasons, LD_PRELOAD doesn't work when capabilities are set in a binary file.
 
 This is an example program which tries to open a raw socket (cap_net_raw needed) [10]:
 
@@ -287,15 +287,15 @@ This is a code which tries to intercept the socket() call [10].
 
 ![Screenshot](doc/scenarPreload/codeCapture.png)
 
-As we can see, we need cap_net_raw to open this socket.
+As we can see, we need the capability cap_net_raw to open this socket.
 
 ![Screenshot](doc/scenarPreload/socketWithoutWithSetcap.png)
 
-But, when the LD_PRELOAD is configured, Linux kernel disable the interception of socket() call. The following figure shows how the interception works correctly after having removed the capability from the binary file (setcap -r), and not correctly when the capacity is re-added to the binary file.
+But, when the LD_PRELOAD is configured, Linux kernel disables the interception of socket() call. The following figure shows how the interception works correctly after having removed the capability from the binary file (setcap -r), and not correctly when the capability is re-added to the binary file.
 
 ![Screenshot](doc/scenarPreload/preloadWithoutWithSetcap.png)
 
-With our module, no need set the capability in the binary file: you can open the socket and intercept the connection.
+With our module, no need to set the capability in the binary file: you can open the socket and intercept the connection.
 
 ![Screenshot](doc/scenarPreload/preloadWithRole.png)
 
