@@ -307,12 +307,12 @@ an administrator wants to attribute a user the privilege to run an apache server
 
 To achieve this objective using our module, the administrator should follow these steps:
 
-	1- Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.xml file. Note that 		cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
+	1- Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.xml file. Note that cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
 
 	2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars and /usr/sbin/apache2
 						   
 	3-User can assume the role and run the apache service using the command sr:
-	sr -r role1  -c 'runapache.sh'
+		sr -r role1  -c 'runapache.sh'
 
 	4-verify that the apache process has only the cap_net_bind_service and cap_dac_override in its effective using this command: cat 	/proc/PID/status
 
