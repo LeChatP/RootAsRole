@@ -232,7 +232,7 @@ If we try to execute the script without any privilege, we get the expected 'Perm
 
 The first solution consists in using the setcap command in order to attribute the cap_net_bind_service capability to the python interpreter. Doing this create a security problem; now users present in the same system have the same privilege. 
 
-![Screenshot](doc/scenarioPython/connectionWithSetcap.png)
+![Screenshot](doc/scenarioPython/solutionWithSetcap.png)
 
 The second solution is to use pam_cap.so module, as follows:
 
