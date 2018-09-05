@@ -171,7 +171,7 @@ However, one can use our module to obtain similar results to su and sudo command
 As mentionned and illustrated earlier, the advantage of our module is that it allows controlling the list of privileges given to programs.
 
 In addition, our module allows removing the bit s from Linux executables. In Linux, different basic commands comes with bit s, such as ping, passwd and mount commands. The bit s (setuid bit) allows a user to run a program with the privileges of program's owner. The owner of ping, passwd and mount commands is root, so any user can run these programs with the root's privileges.
-As an example lets run the passwd command in one shell, and check the list of privilges acquired by this program in another shell.
+As an example lets run the passwd command in one shell, and check the list of privileges acquired by this program in another shell.
 
 ![Screenshot](doc/passwdprivi.png)
 
@@ -246,7 +246,7 @@ The second solution is to use pam_cap.so module, as follows:
 
 	The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the 			interpreter. After that the user can run the script.
 
-![Screenshot](doc/scenarioPython/connectionWithPamCap.png)
+![Screenshot](doc/scenarioPython/WithPamCap.png)
 
 However, in this case all scripts run by the same user will have the same privilege :(
 
