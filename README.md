@@ -331,9 +331,9 @@ An administrator wants to launch a set of services like apache and ssh by giving
 
 To launch the apache service using our module, the administrator should follow these steps:
 
-	1- Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.conf file,
+	1- Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.xml file,
 
-	2- Define a script (lets call it runapache.sh) that has the follwing commands: source /etc/apache2/envvars
+	2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars
 						   /usr/sbin/apache2
 						   
 	3-as a root, run the following command:
