@@ -283,7 +283,7 @@ This is an example program which tries to open a raw socket (cap_net_raw needed)
 
 ![Screenshot](doc/scenarPreload/codeSocket.png)
 
-This is a code which tries to intercept the socket() call [10].
+This is the code that tries to intercept the socket() call [10].
 
 ![Screenshot](doc/scenarPreload/codeCapture.png)
 
@@ -303,18 +303,18 @@ With our module, no need to set the capability in the binary file: you can open 
 
 Scenario 3 
 -----
-an administrator wants to attribute a user the privilege to run an apache server. Without our module, the administrator can use either setcap command to inject the necessary privilege in the binary of apache server (option1) or use pam_cap.so module and setcap command (option2). Both options have problems: All systems' users will get this privilege in the case of option 1. The configuration of the binary apache will be lost after updating the apache package. 
+an administrator wants to attribute a user the privilege to run an apache server. Without our module, the administrator can use either setcap command to inject the necessary privilege in the binary of apache server (option1) or use pam_cap.so module and setcap command (option2). Both options have problems: All systems' users will get this privilege in the case of option 1 and the configuration of the binary apache will be lost after updating the apache package (option 1 and 2). 
 
-To achieve this objective using our module, an admininstrator should follow the following steps:
+To achieve this objective using our module, the administrator should follow these steps:
 
-1- Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.conf file. Note that cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
+	1- Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.xml file. Note that 		cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
 
-2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars and /usr/sbin/apache2
+	2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars and /usr/sbin/apache2
 						   
-3-User can assume the role and run the apache service using the command sr:
-sr -r role1  -c 'runapache.sh'
+	3-User can assume the role and run the apache service using the command sr:
+	sr -r role1  -c 'runapache.sh'
 
-4-verify that the apache process has only the cap_net_bind_service and cap_dac_override in its effective using this command: cat /proc/PID/status
+	4-verify that the apache process has only the cap_net_bind_service and cap_dac_override in its effective using this command: cat 	/proc/PID/status
 
 
 
