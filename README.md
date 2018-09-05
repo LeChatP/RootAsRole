@@ -178,28 +178,28 @@ One can use our module to remove the bit s from executables but this will not wo
 
 We can use our module to remove the bit s from ping because ping is privilege-aware program. Interestingly, ping's code source has a function called limit_capabilites() (https://github.com/iputils/iputils/blob/master/ping.c). It uses this function to remove the list of of root privileges that it doesn't need because ping needs only cap_net_raw capability. Lets show how we can remove the bit s from ping program:
 
-1- assume the role root using the sr tool
+	1- assume the role root using the sr tool
 
-2- check the ping has the bit s
+	2- check the ping has the bit s
 
 ![Screenshot](doc/checkbitsping.png)
 
 
-3- remove the bit s from ping using the command chmod
+	3- remove the bit s from ping using the command chmod
 
 ![Screenshot](doc/removebitsping.png)
 
-4-quit our privileged shell and  check that you can not use any more the ping program.
+	4-quit our privileged shell and  check that you can not use any more the ping program.
 
 ![Screenshot](doc/wihtoutbitsping.png)
 
 
-5-re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
+	5-re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
 
 ![Screenshot](doc/configurationfilesping.png)
 
 
-6-user awazan assume the role1 with the "-c" option to run ping program. 
+	6-user awazan assume the role1 with the "-c" option to run ping program. 
 
 ![Screenshot](doc/workping.png)
 
