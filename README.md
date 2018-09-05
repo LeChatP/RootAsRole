@@ -240,9 +240,9 @@ The administrator sets cap_net_bind_service in the /etc/security/capability.conf
 
 ![Screenshot](doc/scenarioPython/pam_capConf.png)
 
-As you see, the inheriable set of the shell has now the new capability.
+As you see, the inheritable set of the shell has now the new capability.
 
-![Screenshot](doc/scenarioPython/bashPamCap.png)
+![Screenshot](doc/scenarioPython/bashCap.png)
 
 The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the interpreter. After that the user can run the script.
 
