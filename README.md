@@ -236,15 +236,15 @@ The first solution consists in using the setcap command in order to attribute th
 
 The second solution is to use pam_cap.so module, as follows:
 
-		The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
+	The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
 
 ![Screenshot](doc/scenarioPython/capConf.png)
 
-		As you see, the inheritable set of the shell has now the new capability.
+	As you see, the inheritable set of the shell has now the new capability.
 
 ![Screenshot](doc/scenarioPython/bashPamCap.png)
 
-		The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the 			interpreter. After that the user can run the script.
+	The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the 			interpreter. After that the user can run the script.
 
 ![Screenshot](doc/scenarioPython/connectionWithPamCap.png)
 
