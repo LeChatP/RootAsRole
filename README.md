@@ -327,22 +327,22 @@ Two developers create a shared folder in which they stored a common program that
 Service Managment Scenario 
 -----
 
-An administrator wants to launch a set of services like apache and ssh by giving them only the privileges that they need. (S)he may use the command setcap or pam_cap.so to define the necessary privileges in the binary of each service. However all configuration will be lost after an update.
+An administrator wants to launch a set of services like apache and ssh by giving them only the privileges that they need. (S)he may use the command setcap or pam_cap.so to define the necessary privileges in the binary of each service. However all configuration will be lost after updating their respective packages.
 
-To launch the apache service using our module, an admininstrator should follow the following steps:
+To launch the apache service using our module, the administrator should follow these steps:
 
-1- Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.conf file,
+	1- Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.conf file,
 
-2- Define a script (lets call it runapache.sh) that has the follwing commands: source /etc/apache2/envvars
+	2- Define a script (lets call it runapache.sh) that has the follwing commands: source /etc/apache2/envvars
 						   /usr/sbin/apache2
 						   
-3-as a root, run the follwing command:
+	3-as a root, run the following command:
 
-sr -r role1 -u apacheuser -n -c 'runapache.sh'
+		sr -r role1 -u apacheuser -n -c 'runapache.sh'
 
-4-verify that the apache process has only the cap_net_bind_service in its effective using this command: cat /proc/PID/status
+	4-verify that the apache process has only the cap_net_bind_service in its effective using this command: cat /proc/PID/status
 
-How sr works
+How sr and sr_aux work
 ===========
 You might be interested to know how we implement the sr tool. So here is the algorithm: 
 
