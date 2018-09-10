@@ -377,6 +377,8 @@ To Do List
 
 7-Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
 
+8- Use YAML instead of XML
+
 
 References
 ==========
