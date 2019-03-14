@@ -34,7 +34,7 @@ How to Build
 
 	1. git clone https://github.com/SamerW/RootAsRole
     
-    2. cd switchRole
+    2. cd RootAsRole
     
     3. sudo sh ./configure.sh
     
