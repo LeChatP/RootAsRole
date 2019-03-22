@@ -1,10 +1,8 @@
 Authors
 =======
 
-Rémi Venant: remi.venant@gmail.com
-
 Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
-
+Rémi Venant: remi.venant@gmail.com
 Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
 
