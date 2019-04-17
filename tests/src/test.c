@@ -4,12 +4,13 @@ int runTest(Test *element)
 	return (element->impl)();
 }
 
-Test* newTest(int ((*pointer)(void))){
+Test* newTest(int ((*pointer)(void)),char* name){
     Test *test = (Test*) malloc(sizeof(Test));
     test->impl = pointer;
+	test->name = name;
     return test;
 }
-void destroy(Test* element)
+void destroyTest(Test* element)
 {
 	if (element != NULL) {
 		free(element);

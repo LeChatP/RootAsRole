@@ -9,17 +9,18 @@ typedef char byte;
 //TestSuite is subject and Test is Observer
 
 typedef struct __TestSuite {
-    char *name;
     byte size;
-    Test *tests[MAX_TESTS]; 
+    Test *tests[MAX_TESTS];
+    char* name;
 } TestSuite;
 
-TestSuite* newTestSuite(char*); //construct
+TestSuite* newTestSuite(char* name); //construct
 void destroy(TestSuite* element); //destroy
 /**
  * registering Test to pattern
  * @return new size of TestSuite
  */
-int registerTest(TestSuite*,Test*);
+int registerTest(TestSuite *testSuite, Test *test);
+int trigger(TestSuite *suite,int notification);
 
 #endif // ALL_TESTS_H_INCLUDED

@@ -1,3 +1,4 @@
+#include "testScenarios.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -11,20 +12,21 @@
 
 #define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 #define USER_CAP_FILE_SCENARIO1 "tests/resources/scenario1.xml"
-#define USER_CAP_FILE_TEMP "tests/resourcesl/temp.xml"
+#define USER_CAP_FILE_SERVERPY "tests/resources/server.py"
+#define USER_CAP_FILE_TEMP "tests/resources/temp.xml"
 
 	int copy_file(char *old_filename, char  *new_filename)
 	{
         char path[PATH_MAX];
 		FILE  *ptr_old, *ptr_new;
 
-		ptr_old = fopen(old_filename, "rb");
-		ptr_new = fopen(new_filename, "wb");
+		ptr_old = fopen(old_filename, "r");
+		ptr_new = fopen(new_filename, "w");
 
-		if(ptr_old != NULL)
+		if(ptr_old == NULL)
 			return  -1;
 
-		if(ptr_new != NULL)
+		if(ptr_new == NULL)
 		{
 			fclose(ptr_old);
 			return  -1;
@@ -43,26 +45,45 @@
 		return  0;
 	}
 
+    void readFile(char* file){
+        int c;
+        FILE *fff = fopen(file,"r");
+        while(1) {
+            c = fgetc(fff);
+            if( feof(fff) ) {
+                break ;
+            }
+            printf("%c", c);
+        }
+        fclose(fff);
+    }
+
     int before(void){
-        return copy_file(USER_CAP_FILE_ROLE,USER_CAP_FILE_TEMP);
+        char abspath[PATH_MAX];
+        realpath(USER_CAP_FILE_TEMP,abspath);
+        return copy_file(USER_CAP_FILE_ROLE,abspath);
     }
 
     int after(void){
-        return copy_file(USER_CAP_FILE_TEMP,USER_CAP_FILE_ROLE);
+        char abspath[PATH_MAX];
+        realpath(USER_CAP_FILE_TEMP,abspath);
+        return copy_file(abspath,USER_CAP_FILE_ROLE);
     }
 
-    int main(void){
-        int return_code = EXIT_FAILURE;
+    int testScenario1(void){
+        int return_code = 0;
         // firstly, insert configuration for Scenario
         before();
-        char testfile[PATH_MAX];
-        char cwd[PATH_MAX];
-        *cwd = getcwd(cwd, sizeof(cwd));
-        sprintf(testfile,"%s/%s",cwd,USER_CAP_FILE_SCENARIO1);
-        copy_file(testfile,USER_CAP_FILE_ROLE);
+        char abspath[1024];
+        realpath(USER_CAP_FILE_SCENARIO1,abspath);
+        copy_file(abspath,USER_CAP_FILE_ROLE);
+
         char path[1035];
         char command[PATH_MAX];
-        sprintf(command,"/usr/bin/sr -role role1 -c \"python %s/server.py\"",cwd);
+        realpath(USER_CAP_FILE_SERVERPY,abspath);
+        sprintf(command,"/usr/bin/sr -n -r role1 -c \"python %s -p 79\"",abspath);
+        printf("%s\n",command);
+        
 
         // Open the command for reading.
         FILE *fp = popen(command, "r");
@@ -73,7 +94,7 @@
 
         //Read the output a line at a time - output it.
         while (fgets(path, sizeof(path)-1, fp) != NULL) {
-            
+            printf("%s",path);
         }
         // close
         pclose(fp);
@@ -86,5 +107,6 @@
         if(fp != NULL){
             fclose(fp);
         }
+        after();
         exit(return_code);
     }
