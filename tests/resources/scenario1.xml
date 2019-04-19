@@ -16,18 +16,18 @@
 <!ELEMENT command (#PCDATA)>
 ]>
 <capabilityrole>
-	<roles>
+  <roles>
     <role name="role1">
       <capabilities>
         <capability>cap_net_bind_service</capability>
       </capabilities>
       <users>
-        <user name="root">
+        <user name="%s$1">
           <commands>
-            <command>python /bridge/workspaces/C/RootAsRole/tests/resources/server.py -p 79</command>
+            <command>python %s$2 -p %s$3</command>
           </commands>
         </user>
       </users>
     </role>
-	</roles>
+  </roles>
 </capabilityrole>

@@ -14,8 +14,10 @@ def main(argv):
     Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
     httpd = SocketServer.TCPServer(("",PORT),Handler)
     print "serving at port", PORT
-    httpd.serve_forever()
-    httpd.server_close()
-    print "OK"
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        httpd.server_close()
+    print "\nOK"
 if __name__ == "__main__":
     main(sys.argv[1:])
