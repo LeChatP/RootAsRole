@@ -336,21 +336,22 @@ int get_capabilities(user_role_capabilities_t *urc){
     xmlDocPtr conf_doc = NULL; // the configuration xml document tree
     xmlNodePtr role_node = NULL; //The role xml node
 
-    //Check that urc contains at least a role & a user
-    if(urc->role == NULL || urc->user == NULL){
+    //Check that urc contains at least a role & command or a user
+    if( ( urc->role == NULL && urc->command == NULL ) || urc->user == NULL){
         errno = EINVAL;
         return_code = -2;
         goto free_rscs;
     }
+    
     if(ret_fct = get_document_from_urc(urc,conf_doc) && ret_fct != 0){
         return_code = ret_fct;
         goto free_rscs;
     }
-
-    //find the role node in the configuration file
-    //(if the return is -2: role not found, otherwise: other error)  
-    ret_fct = get_role(conf_doc, urc->role, &role_node);
-    switch(ret_fct){
+        //find the role node in the configuration file
+        //(if the return is -2: role not found, otherwise: other error)  
+    if( urc->role == NULL ){
+        ret_fct = find_role_by_command(conf_doc,urc,&role_node);
+        switch(ret_fct){
         case 0:
             break;
         case -1:
@@ -364,6 +365,24 @@ int get_capabilities(user_role_capabilities_t *urc){
             errno = EINVAL;
             return_code = -4;
             goto free_rscs;
+        }
+    }else{
+        ret_fct = get_role(conf_doc, urc->role, &role_node);
+        switch(ret_fct){
+        case 0:
+            break;
+        case -1:
+            return_code = -1;
+            goto free_rscs;
+        case -2:
+            errno = EINVAL;
+            return_code = -5;
+            goto free_rscs;
+        default:
+            errno = EINVAL;
+            return_code = -4;
+            goto free_rscs;
+        }
     }
     //Attemp to match the user or one of the groups with the role 
     //(and take also care of the command if needed)

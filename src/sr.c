@@ -104,9 +104,10 @@ int main(int argc, char *argv[])
 	    return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
-    //Assert a role has been given
-	if (args.role == NULL){
-        
+    //Assert a role or a command has been given 
+	if (args.role == NULL && args.command == NULL){
+        fprintf(stderr, "A role or command is mandatory\n");
+		print_help(0);
         goto free_rscs;
 	}
 	
