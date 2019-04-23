@@ -6,9 +6,18 @@
 #define USER_CAP_FILE_USER_GROUP "tests/resources/testRoles/configuration3.xml"
 #define USER_CAP_FILE_TEMP "tests/resources/temp.xml"
 
+//saving
+static char *password = NULL;
 /**
  * ###### tests for User ######
  */
+
+char *getpassword(void){
+    if(password == NULL){
+        password = getpass("Password:");
+    }
+    return password;
+}
 
 int beforeUser(void){
     char abspath[PATH_MAX];
@@ -30,6 +39,10 @@ int afterUser(void){
 int testFindRoleWithUser(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
+    char command[2048];
+    char *echo = "echo \"\"";
+    sprintf(command,"/usr/bin/sr -n -r %s -c %s > out.log","role1",echo);
     afterUser();
     return return_code;
 }
@@ -39,6 +52,7 @@ int testFindRoleWithUser(void){
 int testFindRoleWithUserInUserArrayConfig(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
     afterUser();
     return return_code;
 }
@@ -48,6 +62,7 @@ int testFindRoleWithUserInUserArrayConfig(void){
 int testFindRoleWithUserInCommandArrayConfig(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
     afterUser();
     return return_code;
 }
@@ -57,6 +72,7 @@ int testFindRoleWithUserInCommandArrayConfig(void){
 int testFindRoleWithUserWrongCommand(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
     afterUser();
     return return_code;
 }
@@ -66,6 +82,7 @@ int testFindRoleWithUserWrongCommand(void){
 int testFindRoleWithWrongUserRightCommand(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
     afterUser();
     return return_code;
 }
@@ -75,6 +92,7 @@ int testFindRoleWithWrongUserRightCommand(void){
 int testFindFirstRoleWithUser(void){
     int return_code = 0;
     beforeUser();
+    char *pass = getpassword();
     afterUser();
     return return_code;
 }
@@ -106,6 +124,7 @@ int afterGroup(void){
 int testFindRoleWithGroup(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -115,6 +134,7 @@ int testFindRoleWithGroup(void){
 int testFindRoleWithGroupArrayUrc(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -124,6 +144,7 @@ int testFindRoleWithGroupArrayUrc(void){
 int testFindRoleWithGroupArrayConfiguration(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -133,6 +154,7 @@ int testFindRoleWithGroupArrayConfiguration(void){
 int testFindRoleWithGroupWithCommandArrayConfiguration(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -142,6 +164,7 @@ int testFindRoleWithGroupWithCommandArrayConfiguration(void){
 int testFindRoleWithGroupWrongCommand(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -151,6 +174,7 @@ int testFindRoleWithGroupWrongCommand(void){
 int testFindRoleWithWrongGroupRightCommand(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -160,6 +184,7 @@ int testFindRoleWithWrongGroupRightCommand(void){
 int testFindFirstRoleWithGroup(void){
     int return_code = 0;
     beforeGroup();
+    char *pass = getpassword();
     afterGroup();
     return return_code;
 }
@@ -191,6 +216,7 @@ int afterGroupUser(void){
 int testFindRoleWithUserAndGroup(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }
@@ -201,6 +227,7 @@ int testFindRoleWithUserAndGroup(void){
 int testFindRoleWithUserAndGroupWrongCommand(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }
@@ -211,6 +238,7 @@ int testFindRoleWithUserAndGroupWrongCommand(void){
 int testFindRoleWithRightUserWrongGroupRightCommand(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }
@@ -221,6 +249,7 @@ int testFindRoleWithRightUserWrongGroupRightCommand(void){
 int testFindRoleWithWrongUserRightGroupRightCommand(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }
@@ -231,6 +260,7 @@ int testFindRoleWithWrongUserRightGroupRightCommand(void){
 int testFindFirstRoleWithUserAndGroup(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }
@@ -239,6 +269,7 @@ int testFindFirstRoleWithUserAndGroup(void){
 int testFindRoleErrorConfiguration(void){
     int return_code = 0;
     beforeGroupUser();
+    char *pass = getpassword();
     afterGroupUser();
     return return_code;
 }

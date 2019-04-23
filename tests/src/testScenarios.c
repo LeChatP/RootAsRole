@@ -50,23 +50,21 @@ void handle_sigint(int sig);
         char command[2060];
         realpath(USER_CAP_FILE_BASH,srpath);
         sprintf(python,"'python %s -p %s'",serverpy,port);
-        sprintf(command,"/usr/bin/sr -n -r %s -c %s > out.log","role1",python);
+        sprintf(command,"/usr/bin/sr -n -r %s -c %s","role1",python);
         int infp, outfp;
         popen2(command,&infp,&outfp);
-        close(outfp);
         write(infp,password,strlen(password));
         close(infp);
         wait(NULL);
         char ligne[1024];
-        FILE *out = fopen("out.log","r");
-        while (fgets(ligne,1024,out) != NULL)   /*  stop sur fin de fichier ou erreur  */
+        while (read(outfp,ligne,sizeof(ligne)) >= 0)   /*  stop sur fin de fichier ou erreur  */
         {
             if(strstr(ligne,"OK") != NULL){
                 return_code = 1;
                 break;
             }
         }
-        
+        close(outfp);
         //free_rcs:
         after();
         return return_code;
