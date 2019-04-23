@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+configuration to tests for Group
+-->
+<!DOCTYPE capabilityrole [
+<!ELEMENT capabilityrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (capabilities, users?, groups?)>
+<!ATTLIST role name ID #REQUIRED>
+<!ELEMENT capabilities (capability*)>
+<!ELEMENT users (user*)>
+<!ELEMENT groups (group*)>
+<!ELEMENT capability (#PCDATA)>
+<!ELEMENT user (commands?)>
+<!ATTLIST user name CDATA #REQUIRED>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ELEMENT command (#PCDATA)>
+]>
+<capabilityrole>
+  <roles>
+    <role name="role1">
+      <groups>
+        <group name="foo">
+          <commands>
+            <command>bar</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="role2">
+      <groups>
+        <group name="foo2">
+          <commands>
+            <command>bar</command>
+          </commands>
+        </group>
+        <group name="foo3">
+          <commands>
+            <command>bar</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="role3">
+      <groups>
+        <group name="foo">
+          <commands>
+            <command>bar</command>
+            <command>bar2</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+  </roles>
+</capabilityrole>

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+configuration to tests for Group and User
+-->
+<!DOCTYPE capabilityrole [
+<!ELEMENT capabilityrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (capabilities, users?, groups?)>
+<!ATTLIST role name ID #REQUIRED>
+<!ELEMENT capabilities (capability*)>
+<!ELEMENT users (user*)>
+<!ELEMENT groups (group*)>
+<!ELEMENT capability (#PCDATA)>
+<!ELEMENT user (commands?)>
+<!ATTLIST user name CDATA #REQUIRED>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ELEMENT command (#PCDATA)>
+]>
+<capabilityrole>
+  <roles>
+    <role name="role1">
+      <users>
+        <user name="ufoo">
+          <commands>
+            <command>bar</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="gfoo">
+          <commands>
+            <command>bar</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="role2">
+      <users>
+        <user name="ufoo2">
+          <commands>
+            <command>ubar</command>
+          </commands>
+        </user>
+        <user name="ufoo3">
+          <commands>
+            <command>ubar</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="gfoo2">
+          <commands>
+            <command>ubar</command>
+          </commands>
+        </group>
+        <group name="gfoo3">
+          <commands>
+            <command>gbar</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="role3">
+      <users>
+        <user name="ufoo">
+          <commands>
+            <command>ubar</command>
+            <command>ubar2</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="gfoo">
+          <commands>
+            <command>gbar</command>
+            <command>gbar2</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+  </roles>
+</capabilityrole>
