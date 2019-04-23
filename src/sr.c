@@ -106,8 +106,7 @@ int main(int argc, char *argv[])
 	}
     //Assert a role has been given
 	if (args.role == NULL){
-        fprintf(stderr, "A role is mandatory\n");
-		print_help(0);
+        
         goto free_rscs;
 	}
 	
