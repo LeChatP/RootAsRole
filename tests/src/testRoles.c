@@ -1,19 +1,36 @@
 #include "testRoles.h"
 
+#define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 #define USER_CAP_FILE_USER "tests/resources/testRoles/configuration1.xml"
 #define USER_CAP_FILE_GROUP "tests/resources/testRoles/configuration2.xml"
 #define USER_CAP_FILE_USER_GROUP "tests/resources/testRoles/configuration3.xml"
+#define USER_CAP_FILE_TEMP "tests/resources/temp.xml"
 
 /**
  * ###### tests for User ######
  */
+
+int beforeUser(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(USER_CAP_FILE_ROLE,abspath);
+    realpath(USER_CAP_FILE_USER,abspath);
+    return copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),NULL,NULL);
+}
+
+int afterUser(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    return copy_file(abspath,USER_CAP_FILE_ROLE);
+}
 
 /** 
  * Test if a role is found with a user
  */
 int testFindRoleWithUser(void){
     int return_code = 0;
-    get_document_from_urc();
+    beforeUser();
+    afterUser();
     return return_code;
 }
 /** 
@@ -21,6 +38,8 @@ int testFindRoleWithUser(void){
  */
 int testFindRoleWithUserInUserArrayConfig(void){
     int return_code = 0;
+    beforeUser();
+    afterUser();
     return return_code;
 }
 /** 
@@ -28,6 +47,8 @@ int testFindRoleWithUserInUserArrayConfig(void){
  */
 int testFindRoleWithUserInCommandArrayConfig(void){
     int return_code = 0;
+    beforeUser();
+    afterUser();
     return return_code;
 }
 /** 
@@ -35,6 +56,8 @@ int testFindRoleWithUserInCommandArrayConfig(void){
  */
 int testFindRoleWithUserWrongCommand(void){
     int return_code = 0;
+    beforeUser();
+    afterUser();
     return return_code;
 }
 /** 
@@ -42,6 +65,8 @@ int testFindRoleWithUserWrongCommand(void){
  */
 int testFindRoleWithWrongUserRightCommand(void){
     int return_code = 0;
+    beforeUser();
+    afterUser();
     return return_code;
 }
 /** 
@@ -49,6 +74,8 @@ int testFindRoleWithWrongUserRightCommand(void){
  */
 int testFindFirstRoleWithUser(void){
     int return_code = 0;
+    beforeUser();
+    afterUser();
     return return_code;
 }
 
@@ -56,11 +83,30 @@ int testFindFirstRoleWithUser(void){
  * ###### tests for Group ######
  */
 
+int beforeGroup(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(USER_CAP_FILE_ROLE,abspath);
+    realpath(USER_CAP_FILE_GROUP,abspath);
+    char **groups;
+    int nb_group;
+    get_group_names(get_username(getuid()),get_group_id(getuid()),nb_group,groups);
+    return copy_file_args(abspath,USER_CAP_FILE_ROLE,groups[0],NULL,NULL);
+}
+
+int afterGroup(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    return copy_file(abspath,USER_CAP_FILE_ROLE);
+}
+
 /** 
  * Test if a role is found with a group
  */
 int testFindRoleWithGroup(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -68,6 +114,8 @@ int testFindRoleWithGroup(void){
  */
 int testFindRoleWithGroupArrayUrc(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -75,6 +123,8 @@ int testFindRoleWithGroupArrayUrc(void){
  */
 int testFindRoleWithGroupArrayConfiguration(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -82,6 +132,8 @@ int testFindRoleWithGroupArrayConfiguration(void){
  */
 int testFindRoleWithGroupWithCommandArrayConfiguration(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -89,6 +141,8 @@ int testFindRoleWithGroupWithCommandArrayConfiguration(void){
  */
 int testFindRoleWithGroupWrongCommand(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -96,6 +150,8 @@ int testFindRoleWithGroupWrongCommand(void){
  */
 int testFindRoleWithWrongGroupRightCommand(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 /** 
@@ -103,6 +159,8 @@ int testFindRoleWithWrongGroupRightCommand(void){
  */
 int testFindFirstRoleWithGroup(void){
     int return_code = 0;
+    beforeGroup();
+    afterGroup();
     return return_code;
 }
 
@@ -110,11 +168,30 @@ int testFindFirstRoleWithGroup(void){
  * ###### tests for User and Group ######
  */
 
+int beforeGroupUser(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(USER_CAP_FILE_ROLE,abspath);
+    realpath(USER_CAP_FILE_USER_GROUP,abspath);
+    char **groups;
+    int nb_group;
+    get_group_names(get_username(getuid()),get_group_id(getuid()),nb_group,groups);
+    return copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),groups[0],NULL);
+}
+
+int afterGroupUser(void){
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    return copy_file(abspath,USER_CAP_FILE_ROLE);
+}
+
 /** 
  * Test if a role is found with a user and a group in urc
  */
 int testFindRoleWithUserAndGroup(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }
 
@@ -123,6 +200,8 @@ int testFindRoleWithUserAndGroup(void){
  */
 int testFindRoleWithUserAndGroupWrongCommand(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }
 
@@ -131,6 +210,8 @@ int testFindRoleWithUserAndGroupWrongCommand(void){
  */
 int testFindRoleWithRightUserWrongGroupRightCommand(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }
 
@@ -139,6 +220,8 @@ int testFindRoleWithRightUserWrongGroupRightCommand(void){
  */
 int testFindRoleWithWrongUserRightGroupRightCommand(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }
 
@@ -147,11 +230,15 @@ int testFindRoleWithWrongUserRightGroupRightCommand(void){
  */
 int testFindFirstRoleWithUserAndGroup(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }
 
 //test result wrong configuration
 int testFindRoleErrorConfiguration(void){
     int return_code = 0;
+    beforeGroupUser();
+    afterGroupUser();
     return return_code;
 }

@@ -22,33 +22,33 @@ configuration to tests for Group
   <roles>
     <role name="role1">
       <groups>
-        <group name="foo">
+        <group name="%s$1">
           <commands>
-            <command>bar</command>
+            <command>echo "role1-group-cmd"</command>
           </commands>
         </group>
       </groups>
     </role>
     <role name="role2">
       <groups>
-        <group name="foo2">
+        <group name="gfoo">
           <commands>
-            <command>bar</command>
+            <command>echo "role2-gfoo-cmd"</command>
           </commands>
         </group>
-        <group name="foo3">
+        <group name="%s$1">
           <commands>
-            <command>bar</command>
+            <command>echo "role2-group-cmd"</command>
           </commands>
         </group>
       </groups>
     </role>
     <role name="role3">
       <groups>
-        <group name="foo">
+        <group name="%s$1">
           <commands>
-            <command>bar</command>
-            <command>bar2</command>
+            <command>echo "role3-group-cmd1"</command>
+            <command>echo "role3-group-cmd2"</command>
           </commands>
         </group>
       </groups>

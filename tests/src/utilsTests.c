@@ -4,7 +4,6 @@
     //implementing popen but returning pid and getting in & out pipes
     pid_t popen2(const char *command, int *infp, int *outfp)
     {
-        printf("%s\n",command);
         int p_stdin[2], p_stdout[2];
         pid_t pid;
         if (pipe(p_stdin) != 0 || pipe(p_stdout) != 0)
@@ -56,6 +55,39 @@
 		fclose(ptr_old);
 		return  0;
 	}
+
+    int copy_file_args(char *old_filename, char  *new_filename,char *arg1,char *arg2,char *arg3)
+	{
+        char path[PATH_MAX];
+		FILE  *ptr_old, *ptr_new;
+		ptr_old = fopen(old_filename, "r");
+		ptr_new = fopen(new_filename, "w");
+        if(arg3 == NULL) arg3 = "";
+        if(arg2 == NULL) arg2 = "";
+        if(arg1 == NULL) arg1 = "";
+		if(ptr_old == NULL)
+			return  -1;
+		if(ptr_new == NULL){
+			fclose(ptr_old);
+			return  -1;
+		}
+		while(fgets(path, sizeof(path)-1, ptr_old)!=NULL){
+            if(strstr(path,"%s$1")!=NULL)
+                strcpy(path,str_replace(path,"%s$1",arg1));
+            if(strstr(path,"%s$2")!=NULL)
+                strcpy(path,str_replace(path,"%s$2",arg2));
+            if(strstr(path,"%s$3")!=NULL)
+                strcpy(path,str_replace(path,"%s$3",arg3));
+			if(!feof(ptr_old))
+				fputs(path, ptr_new);
+			else
+				break;
+		}
+		fclose(ptr_new);
+		fclose(ptr_old);
+		return  0;
+	}
+
     void readFile(char* file){
         int c;
         FILE *fff = fopen(file,"r");

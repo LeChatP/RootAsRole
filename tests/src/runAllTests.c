@@ -20,4 +20,5 @@ int main(void){
 
     trigger(suite1,1);
     trigger(suite2,1);
+    printf("\n=====================\n");
 }

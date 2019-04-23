@@ -1,6 +1,8 @@
 import SimpleHTTPServer
 import SocketServer
 import sys, getopt
+import socket
+
 def main(argv):
     PORT = ''
     try:
@@ -11,13 +13,11 @@ def main(argv):
     for opt, arg in opts:
         if opt == '-p':
             PORT= int(arg)
-    Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
-    httpd = SocketServer.TCPServer(("",PORT),Handler)
     print "serving at port", PORT
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        httpd.server_close()
+    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serversocket.bind((socket.gethostname(), PORT))
+    serversocket.listen(0)
     print "\nOK"
 if __name__ == "__main__":
     main(sys.argv[1:])
+    exit(0)

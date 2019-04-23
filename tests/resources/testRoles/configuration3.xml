@@ -22,60 +22,60 @@ configuration to tests for Group and User
   <roles>
     <role name="role1">
       <users>
-        <user name="ufoo">
+        <user name="%s$1">
           <commands>
-            <command>bar</command>
+            <command>echo "role1-user-cmd"</command>
           </commands>
         </user>
       </users>
       <groups>
-        <group name="gfoo">
+        <group name="%s$2">
           <commands>
-            <command>bar</command>
+            <command>echo "role1-group-cmd"</command>
           </commands>
         </group>
       </groups>
     </role>
     <role name="role2">
       <users>
-        <user name="ufoo2">
-          <commands>
-            <command>ubar</command>
-          </commands>
-        </user>
-        <user name="ufoo3">
-          <commands>
-            <command>ubar</command>
-          </commands>
-        </user>
-      </users>
-      <groups>
-        <group name="gfoo2">
-          <commands>
-            <command>ubar</command>
-          </commands>
-        </group>
-        <group name="gfoo3">
-          <commands>
-            <command>gbar</command>
-          </commands>
-        </group>
-      </groups>
-    </role>
-    <role name="role3">
-      <users>
         <user name="ufoo">
           <commands>
-            <command>ubar</command>
-            <command>ubar2</command>
+            <command>echo "role2-ufoo-cmd"</command>
+          </commands>
+        </user>
+        <user name="%s$1">
+          <commands>
+            <command>echo "role2-user-cmd"</command>
           </commands>
         </user>
       </users>
       <groups>
         <group name="gfoo">
           <commands>
-            <command>gbar</command>
-            <command>gbar2</command>
+            <command>echo "role2-gfoo-cmd"</command>
+          </commands>
+        </group>
+        <group name="%s$2">
+          <commands>
+            <command>echo "role2-group-cmd"</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="role3">
+      <users>
+        <user name="%s$1">
+          <commands>
+            <command>echo "role3-user-cmd1"</command>
+            <command>echo "role3-user-cmd2"</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="%s$2">
+          <commands>
+            <command>echo "role3-group-cmd1"</command>
+            <command>echo "role3-group-cmd2"</command>
           </commands>
         </group>
       </groups>

@@ -22,33 +22,33 @@ configuration to tests for User
   <roles>
     <role name="role1">
       <users>
-        <user name="foo">
+        <user name="%s$1">
           <commands>
-            <command>bar</command>
+            <command>echo "role1-user-cmd"</command>
           </commands>
         </user>
       </users>
     </role>
     <role name="role2">
       <users>
-        <user name="foo2">
+        <user name="foo">
           <commands>
-            <command>bar</command>
+            <command>echo "role2-foo-cmd"</command>
           </commands>
         </user>
-        <user name="foo3">
+        <user name="%s$1">
           <commands>
-            <command>bar</command>
+            <command>echo "role2-user-cmd"</command>
           </commands>
         </user>
       </users>
     </role>
     <role name="role3">
       <users>
-        <user name="foo">
+        <user name="%s$1">
           <commands>
-            <command>bar</command>
-            <command>bar2</command>
+            <command>echo "role3-user-cmd1"</command>
+            <command>echo "role3-user-cmd2"</command>
           </commands>
         </user>
       </users>

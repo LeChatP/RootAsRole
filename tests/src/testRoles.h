@@ -1,5 +1,8 @@
 #ifndef TEST_ROLES_H
 #define TEST_ROLES_H
+#include "../../src/user.h"
+#include "utilsTests.h"
+#include <stdlib.h>
 
 /**
  * ###### tests for User ######
