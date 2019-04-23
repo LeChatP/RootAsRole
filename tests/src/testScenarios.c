@@ -29,7 +29,8 @@ void handle_sigint(int sig);
     int after(void){
         char abspath[PATH_MAX];
         realpath(USER_CAP_FILE_TEMP,abspath);
-        return copy_file(abspath,USER_CAP_FILE_ROLE);
+        copy_file(abspath,USER_CAP_FILE_ROLE);
+        return remove(abspath);
     }
 
     int testScenario1(void){

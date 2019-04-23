@@ -30,7 +30,8 @@ int beforeUser(void){
 int afterUser(void){
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
-    return copy_file(abspath,USER_CAP_FILE_ROLE);
+    copy_file(abspath,USER_CAP_FILE_ROLE);
+    return remove(abspath);
 }
 
 /** 
@@ -115,7 +116,8 @@ int beforeGroup(void){
 int afterGroup(void){
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
-    return copy_file(abspath,USER_CAP_FILE_ROLE);
+    copy_file(abspath,USER_CAP_FILE_ROLE);
+    return remove(abspath);
 }
 
 /** 
@@ -207,7 +209,8 @@ int beforeGroupUser(void){
 int afterGroupUser(void){
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
-    return copy_file(abspath,USER_CAP_FILE_ROLE);
+    copy_file(abspath,USER_CAP_FILE_ROLE);
+    return remove(abspath);
 }
 
 /** 
