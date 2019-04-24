@@ -3,6 +3,9 @@
 #include "../../src/user.h"
 #include "utilsTests.h"
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 /**
  * ###### tests for User ######
@@ -58,10 +61,6 @@ int testFindRoleWithGroupWithCommandArrayConfiguration(void);
  */
 int testFindRoleWithGroupWrongCommand(void);
 /** 
- * Test if a role isn't found with a wrong group in urc
- */
-int testFindRoleWithWrongGroupRightCommand(void);
-/** 
  * Test if the first role is found with a group in urc
  */
 int testFindFirstRoleWithGroup(void);
@@ -70,32 +69,8 @@ int testFindFirstRoleWithGroup(void);
  * ###### tests for User and Group ######
  */
 
-/** 
- * Test if a role is found with a user and a group in urc
- */
-int testFindRoleWithUserAndGroup(void);
-
 /**
- * Test if role is not found if command is wrong with user and group
+ * TODO: Test if role with user is selected in first
  */
-int testFindRoleWithUserAndGroupWrongCommand(void);
-
-/**
- * Test if Role is found for User when group is wrong
- */
-int testFindRoleWithRightUserWrongGroupRightCommand(void);
-
-/**
- * Test if Role is found for Group when User is wrong
- */
-int testFindRoleWithWrongUserRightGroupRightCommand(void);
-
-/**
- * Test if the first Role is found for User when user and group match
- */
-int testFindFirstRoleWithUserAndGroup(void);
-
-//test result wrong configuration
-int testFindRoleErrorConfiguration(void);
 
 #endif //TEST_ROLES_H

@@ -8,6 +8,10 @@
         pid_t pid;
         if (pipe(p_stdin) != 0 || pipe(p_stdout) != 0)
             return -1;
+        if(fd_set_blocking(p_stdout[READ],0)==0){
+            printf("Cannot set non_blocking command output\n");
+            return -1;
+        }
         pid = fork();
         if (pid < 0)return pid;
         else if (pid == 0){
@@ -114,4 +118,17 @@
             memcpy(p, b, lenb);
         }
         return str;
+    }
+
+    int fd_set_blocking(int fd, int blocking) {
+        /* Save the current flags */
+        int flags = fcntl(fd, F_GETFD);
+        if (flags == -1)
+            return 0;
+
+        if (blocking)
+            flags &= ~O_NONBLOCK;
+        else
+            flags |= O_NONBLOCK;
+        return fcntl(fd, F_SETFL, flags) != -1;
     }

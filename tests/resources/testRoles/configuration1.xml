@@ -20,7 +20,8 @@ configuration to tests for User
 ]>
 <capabilityrole>
   <roles>
-    <role name="role1">
+    <role name="r0le1"> <!-- 0 is not a bug, it's for test -->
+      <capabilities/>
       <users>
         <user name="%s$1">
           <commands>
@@ -30,6 +31,7 @@ configuration to tests for User
       </users>
     </role>
     <role name="role2">
+      <capabilities/>
       <users>
         <user name="foo">
           <commands>
@@ -44,11 +46,22 @@ configuration to tests for User
       </users>
     </role>
     <role name="role3">
+      <capabilities/>
       <users>
         <user name="%s$1">
           <commands>
             <command>echo "role3-user-cmd1"</command>
             <command>echo "role3-user-cmd2"</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="role1">
+     <capabilities/>
+      <users>
+        <user name="%s$1">
+          <commands>
+            <command>echo "role1-user-cmd"</command>
           </commands>
         </user>
       </users>

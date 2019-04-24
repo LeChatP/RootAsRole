@@ -41,14 +41,6 @@ typedef struct _xml_collection_iterator *xml_collection_iterator;
 /******************************************************************************
  *                      PRIVATE FUNCTIONS DECLARATION                         *
  ******************************************************************************/
-/**
- * getting xmlDoc from urc
- * return -1 if error occur
- * return -3 if document is incorrect
- * return -4 if document is invalid
- * return 0 if success
- */
-static int get_document_from_urc(user_role_capabilities_t *urc, xmlDocPtr);
 /*
 Create a new iterator on collection nodes: an xml structure composed of a node
 of name collection_name that includes nodes of name element_name. The
@@ -333,18 +325,38 @@ return :
 int get_capabilities(user_role_capabilities_t *urc){
     int return_code = -1; //the return code of the function
     int ret_fct; //return of sub functions
+    xmlParserCtxtPtr parser_ctxt = NULL; // the parser context
+    int parser_options;
     xmlDocPtr conf_doc = NULL; // the configuration xml document tree
     xmlNodePtr role_node = NULL; //The role xml node
-
-    //Check that urc contains at least a role & command or a user
-    if( ( urc->role == NULL && urc->command == NULL ) || urc->user == NULL){
+    
+    //Check that urc contains at least a role & a user
+    if(urc->role == NULL || urc->user == NULL){
         errno = EINVAL;
         return_code = -2;
         goto free_rscs;
     }
-    
-    if(ret_fct = get_document_from_urc(urc,conf_doc) && ret_fct != 0){
-        return_code = ret_fct;
+    //Create a parser context
+    if((parser_ctxt = xmlNewParserCtxt()) == NULL){
+        return_code = -1;
+        goto free_rscs;
+    }
+    //open and read the xml configuration file
+    parser_options = XML_PARSE_DTDVALID;
+    #ifndef SR_DEBUG
+    //When not on debug, inhibit warning and error printout from libxml
+    parser_options |= XML_PARSE_NOERROR | XML_PARSE_NOWARNING;
+    #endif
+    if((conf_doc = xmlCtxtReadFile(parser_ctxt, USER_CAP_FILE_ROLE, NULL, 
+                                    parser_options)) == NULL){
+        errno = EINVAL;
+        return_code = -3;
+        goto free_rscs;
+    }
+    //Check if the XML file is valid regarding the DTD
+    if (parser_ctxt->valid == 0){ 
+        errno = EINVAL;
+        return_code = -4;
         goto free_rscs;
     }
         //find the role node in the configuration file
@@ -635,46 +647,6 @@ void print_urc(const user_role_capabilities_t *urc){
  *                      PRIVATE FUNCTIONS DEFINITION                          *
  ******************************************************************************/
 
-static int get_document_from_urc(user_role_capabilities_t *urc, xmlDocPtr conf_doc){
-    int return_code = -1;
-    xmlParserCtxtPtr parser_ctxt = NULL; // the parser context
-    int parser_options;
-    conf_doc = NULL;
-    
-    //Create a parser context
-    if((parser_ctxt = xmlNewParserCtxt()) == NULL){
-        return_code = -1;
-        goto free_rscs;
-    }
-    //open and read the xml configuration file
-    parser_options = XML_PARSE_DTDVALID;
-    #ifndef SR_DEBUG
-    //When not on debug, inhibit warning and error printout from libxml
-    parser_options |= XML_PARSE_NOERROR | XML_PARSE_NOWARNING;
-    #endif
-    if((conf_doc = xmlCtxtReadFile(parser_ctxt, USER_CAP_FILE_ROLE, NULL, 
-                                    parser_options)) == NULL){
-        errno = EINVAL;
-        return_code = -3;
-        goto free_rscs;
-    }
-    //Check if the XML file is valid regarding the DTD
-    if (parser_ctxt->valid == 0){ 
-        errno = EINVAL;
-        return_code = -4;
-        goto free_rscs;
-    }
-
-    return_code = 0;
-
-    free_rscs:
-    if(parser_ctxt != NULL){
-        xmlFreeParserCtxt(parser_ctxt);
-    }
-    xmlCleanupParser();
-    return return_code;
-}
-
 
 /*
 Create a new iterator on collection nodes: an xml structure composed of a node
@@ -851,18 +823,12 @@ char* str_replace(char* str, char* a, char* b)
     }
     return str;
 }
-int concat(const char *str1, const char *str2, char *result)
+void concat(char *dest, const char *src)
 {
-    char * new_str = calloc(sizeof(char),strlen(str1)+strlen(str2)+1);
-    if(new_str!= NULL){
-        new_str[0] = '\0';   // ensures the memory is an empty string
-        strcat(new_str,str1);
-        strcat(new_str,str2);
-    } else {
-        return -1;
-    }
-    result = new_str;
-    return 0;
+    char *tmp = (char*) realloc((void*)dest,sizeof(dest)+strlen(src));
+    if(!tmp) exit(1);
+    dest = tmp;
+    dest = strncat(dest,src,strlen(src));
 }
 
 xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
@@ -893,26 +859,33 @@ xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
 static int find_role_by_command(xmlDocPtr conf_doc, user_role_capabilities_t *urc,xmlNodePtr *role_node){
     int return_code = -1;
     //xpath for finding the right role, user and command easily
-    xmlXPathContextPtr context;
 	xmlXPathObjectPtr result;
     char *expressionFormat = "//roles[users/user[@name=%s]/commands/command/text()=%s or groups/group[not(@name)]/commands/command/text()=%s]";
-    char *expression = "\0";
+    char *expression = (char *) calloc(strlen(expressionFormat)-6+strlen(urc->user)+strlen(urc->command)*2+1,sizeof(char));
+    expression[0]= '\0';
     sprintf(expression,expressionFormat,urc->user,urc->command,urc->command);
     if(urc->nb_groups > 0){
-        char *groups= "\0";
+        char *groups = calloc(1,sizeof(char));
+            groups = '\0';
         for(int i = 0 ; i < urc->nb_groups; i++){
-            char *group = "\0";
-            concat("@name = \"",urc->groups[i],group);
-            if(i <= urc->nb_groups-1) concat(group,"\" or ",group);
-            else concat(group,"\"",group);
-            concat(groups,group,groups);
+            char *tmp = "@name = \"";
+            int j = strlen(urc->groups[i]);
+            char *group = (char *) calloc(strlen(tmp)+j+1,sizeof(char));
+            group = tmp;
+            group = strncat(group,urc->groups[i],j);
+            if(i <= urc->nb_groups-1) concat(group,"\" or ");
+            else concat(group,"\"");
+            concat(groups,group);
+            free(group);
         }
         str_replace(expression,"not(@name)",groups);
+        free(groups);
     }
+    
     xmlChar *xpath = (xmlChar*) expression;
-	xmlXPathObjectPtr result = getnodeset(conf_doc,xpath);
+	result = getnodeset(conf_doc,xpath);
     if(result){
-        role_node = result->nodesetval->nodeTab[0];
+        *role_node = result->nodesetval->nodeTab[0];
         return_code = 0;
     }else{
         return_code = -2;

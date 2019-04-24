@@ -282,16 +282,18 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
 Print Help message
 */
 static void print_help(int long_help){
-    printf("Usage : sr -r role [-n] [-c command] [-u user] [-h]\n");
+    printf("Usage : sr [-r role | -c command] [-n] [-u user] [-h] [-v]\n");
     if (long_help){
         printf("Use a role to provide capabilities to a shell or a command.\n");
         printf("Options:\n");
-        printf(" -r, --role=role        the capabilities role to use.\n");
-        printf(" -c, --command=command  launch the command instead of a bash shell.\n");
+        printf(" -r, --role=role        the capabilities role to use.*\n");
+        printf(" -c, --command=command  launch the command instead of a bash shell.*\n");
         printf(" -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo).\n");
         printf(" -u, --user=user        substitue the user (reserved to administrators).\n");
         printf(" -i, --info             print the commands the user is able to process within the role and quit.\n");
+        printf(" -v, --version          show the actual version of RootAsRole");
         printf(" -h, --help             print this help and quit.\n");
+        printf("* must specify one of these arguments at least");
     }
 }
 

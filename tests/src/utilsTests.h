@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <linux/limits.h>
 #include <string.h>
+#include <fcntl.h>
 #define READ   0
 #define WRITE  1
 
@@ -35,5 +36,15 @@
      * replace a matched in str to b
      */
     char* str_replace(char* str, char* a, char* b);
+
+    /** 
+     * Set a file descriptor to blocking or non-blocking mode.
+     *
+     * @param fd The file descriptor
+     * @param blocking 0:non-blocking mode, 1:blocking mode
+     *
+     * @return 1:success, 0:failure.
+     */
+    int fd_set_blocking(int fd, int blocking);
 
 #endif

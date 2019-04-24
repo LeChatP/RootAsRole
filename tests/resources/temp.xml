@@ -20,9 +20,9 @@
     <role name="role1">
       <capabilities>
         <capability>cap_net_bind_service</capability>
-      </capabilities>
+      </capabilities>    
       <users>
-        <user name="">
+        <user name="lechatp">
           <commands>
             <command>python /bridge/workspaces/C/RootAsRole/tests/resources/server.py -p 79</command>
           </commands>

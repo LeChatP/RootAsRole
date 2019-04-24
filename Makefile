@@ -5,7 +5,7 @@ COMP = gcc
 SRC_DIR := src
 OBJ_DIR := obj
 BIN_DIR := bin
-DEBUGOPTIONS :=  #debug option
+DEBUGOPTIONS := -g -Wextra -Werror #debug option
 
 COMPOPTIONS = -Wall -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
 LDOPTIONS := -Wall -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)

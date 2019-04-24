@@ -58,7 +58,7 @@ void handle_sigint(int sig);
         close(infp);
         wait(NULL);
         char ligne[1024];
-        while (read(outfp,ligne,sizeof(ligne)) >= 0)   /*  stop sur fin de fichier ou erreur  */
+        while (read(outfp,ligne,sizeof(ligne)) > 0)   /*  stop sur fin de fichier ou erreur  */
         {
             if(strstr(ligne,"OK") != NULL){
                 return_code = 1;
@@ -66,7 +66,6 @@ void handle_sigint(int sig);
             }
         }
         close(outfp);
-        //free_rcs:
         after();
         return return_code;
     }
