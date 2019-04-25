@@ -330,8 +330,8 @@ int get_capabilities(user_role_capabilities_t *urc){
     xmlDocPtr conf_doc = NULL; // the configuration xml document tree
     xmlNodePtr role_node = NULL; //The role xml node
     
-    //Check that urc contains at least a role & a user
-    if(urc->role == NULL || urc->user == NULL){
+    //Check that urc contains at least a role (or a command) & a user
+    if((urc->role == NULL && urc->command == NULL) || urc->user == NULL){
         errno = EINVAL;
         return_code = -2;
         goto free_rscs;
@@ -365,6 +365,7 @@ int get_capabilities(user_role_capabilities_t *urc){
         ret_fct = find_role_by_command(conf_doc,urc,&role_node);
         switch(ret_fct){
         case 0:
+            urc->role = (char*) role_node->properties->children->content;
             break;
         case -1:
             return_code = -1;
@@ -811,24 +812,30 @@ static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given){
     }
 }
 
+char *concat(char *str, char *s2){
+        int len = 0;
+        char *s = NULL;
+        if (str != NULL)
+                len = strlen(str);
+        len += strlen(s2) + 1 * sizeof(*s2);
+        s = realloc(str, len);
+        strcat(s, s2);
+        return s;
+}
+
 char* str_replace(char* str, char* a, char* b)
 {
+    
+    int increment = 1;
     int len  = strlen(str);
     int lena = strlen(a), lenb = strlen(b);
-    for (char* p = str; (p = strstr(p, a)); ++p) {
-        if (lena != lenb) // shift end as needed
-            memmove(p+lenb, p+lena,
-                len - (p - str) + lenb);
+    if(strstr(b,a) != NULL)increment = lenb;
+    for (char* p = str; (p = strstr(p, a)); p+=increment) {
+        if (lena != lenb)
+            memmove(p+lenb, p+lena, len - (p - str) + lenb);
         memcpy(p, b, lenb);
     }
     return str;
-}
-void concat(char *dest, const char *src)
-{
-    char *tmp = (char*) realloc((void*)dest,sizeof(dest)+strlen(src));
-    if(!tmp) exit(1);
-    dest = tmp;
-    dest = strncat(dest,src,strlen(src));
 }
 
 xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
@@ -841,6 +848,7 @@ xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
 		return NULL;
 	}
 	result = xmlXPathEvalExpression(xpath, context);
+    free(xpath);
 	xmlXPathFreeContext(context);
 	if (result == NULL) {
 		return NULL;
@@ -852,43 +860,63 @@ xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
 	}
 	return result;
 }
+static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlNodePtr *role_node){
+    int return_code = -1;
+    xmlXPathObjectPtr result;
+    char *expressionFormatUser = "//role[users/user[@name=\"%s\"]/commands/command/text()='%s']";
+    char *expression = (char *) calloc(strlen(expressionFormatUser)-4+strlen(user)+strlen(command)+1,sizeof(char));
+    sprintf(expression,expressionFormatUser,user,command);
+	result = getnodeset(conf_doc,(xmlChar*) expression);
+    if(result){
+        *role_node = result->nodesetval->nodeTab[0];
+        return_code = 0;
+    }else{
+        return_code = -2;
+    }
+    free(result);
+    
+    return return_code;
+}
+static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups, char *command,xmlNodePtr *role_node){
+    int return_code = -1;
+    xmlXPathObjectPtr result;
+    char *expression = NULL;
+    char *expressionFormatGroup = "//role[groups/group[not(@name)]/commands/command/text()=%s]";
+    char *tmpexpression = (char *) calloc(strlen(expressionFormatGroup)-2+strlen(command)+1,sizeof(char));
+    char *name = "@name = \"";
+    char *tmpgroups = calloc(strlen(name),sizeof(char));
+    sprintf(tmpexpression,expressionFormatGroup,command);
+    if(nb_groups > 0){
+        for(int i = 0 ; i < nb_groups; i++){
+            tmpgroups = concat(tmpgroups,name);
+            tmpgroups = concat(tmpgroups,groups[i]);
+            if(i < nb_groups-1) tmpgroups = concat(tmpgroups,"\" or ");
+            else tmpgroups = concat(tmpgroups,"\"");
+        }
+        expression = str_replace(tmpexpression,"not(@name)",tmpgroups);
+    }
+    xmlChar *xpath = (xmlChar*) expression;
+    result = getnodeset(conf_doc,xpath);
+    if(result){
+        *role_node = result->nodesetval->nodeTab[0];
+        return_code = 0;
+    }else{
+        return_code = -2;
+    }
+    free(result);
+    return return_code;
+}
 /**
  * find the first role that matching command, user and group
  * @return -2 if the role wasn't found
  */
 static int find_role_by_command(xmlDocPtr conf_doc, user_role_capabilities_t *urc,xmlNodePtr *role_node){
     int return_code = -1;
+    *role_node = NULL;
     //xpath for finding the right role, user and command easily
-	xmlXPathObjectPtr result;
-    char *expressionFormat = "//roles[users/user[@name=%s]/commands/command/text()=%s or groups/group[not(@name)]/commands/command/text()=%s]";
-    char *expression = (char *) calloc(strlen(expressionFormat)-6+strlen(urc->user)+strlen(urc->command)*2+1,sizeof(char));
-    expression[0]= '\0';
-    sprintf(expression,expressionFormat,urc->user,urc->command,urc->command);
-    if(urc->nb_groups > 0){
-        char *groups = calloc(1,sizeof(char));
-            groups = '\0';
-        for(int i = 0 ; i < urc->nb_groups; i++){
-            char *tmp = "@name = \"";
-            int j = strlen(urc->groups[i]);
-            char *group = (char *) calloc(strlen(tmp)+j+1,sizeof(char));
-            group = tmp;
-            group = strncat(group,urc->groups[i],j);
-            if(i <= urc->nb_groups-1) concat(group,"\" or ");
-            else concat(group,"\"");
-            concat(groups,group);
-            free(group);
-        }
-        str_replace(expression,"not(@name)",groups);
-        free(groups);
-    }
-    
-    xmlChar *xpath = (xmlChar*) expression;
-	result = getnodeset(conf_doc,xpath);
-    if(result){
-        *role_node = result->nodesetval->nodeTab[0];
-        return_code = 0;
-    }else{
-        return_code = -2;
+    return_code = find_role_for_user(conf_doc,urc->user,urc->command,role_node);
+    if(return_code){
+        return_code = find_role_for_group(conf_doc,urc->groups,urc->nb_groups,urc->command,role_node);
     }
     return return_code;
 }

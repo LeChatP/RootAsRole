@@ -438,7 +438,7 @@ static user_role_capabilities_t *retrieve_urc(const char* role,
 	        goto free_rscs;
             break;
         case -2:
-            perror("Missing given role or user");
+            perror("Missing given role or command or user");
             break;
         case -3:
             perror("Missing configuration file or syntax error in it");
