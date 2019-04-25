@@ -22,8 +22,8 @@ configuration to tests for User
   <roles>
     <role name="r0le1"> <!-- 0 is not a bug, it's for test -->
       <capabilities>
-        <capability></capability>
-      </capabilities>
+				<capability>*</capability>
+ 			</capabilities>
       <users>
         <user name="%s$1">
           <commands>
@@ -33,7 +33,9 @@ configuration to tests for User
       </users>
     </role>
     <role name="role2">
-      <capabilities/>
+      <capabilities>
+				<capability>*</capability>
+ 			</capabilities>
       <users>
         <user name="foo">
           <commands>
@@ -48,7 +50,9 @@ configuration to tests for User
       </users>
     </role>
     <role name="role3">
-      <capabilities/>
+      <capabilities>
+				<capability>*</capability>
+ 			</capabilities>
       <users>
         <user name="%s$1">
           <commands>
@@ -59,7 +63,9 @@ configuration to tests for User
       </users>
     </role>
     <role name="role1">
-     <capabilities/>
+      <capabilities>
+				<capability>*</capability>
+ 			</capabilities>
       <users>
         <user name="%s$1">
           <commands>
