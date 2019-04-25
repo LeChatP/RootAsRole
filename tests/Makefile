@@ -47,7 +47,10 @@ $(BINS): | $(BIN_DIR)
 $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
-build: $(BIN_DIR)/runTests
+build_sr:
+	cd ../ && sudo make install
+
+build: $(BIN_DIR)/runTests build_sr
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR)

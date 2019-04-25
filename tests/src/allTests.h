@@ -3,13 +3,14 @@
 #define MAX_TESTS 20
 #include "test.h"
 #include <setjmp.h>
-typedef char byte;
+#include <execinfo.h>
+typedef unsigned char ubyte;
 
 //application of Observer design pattern
 //TestSuite is subject and Test is Observer
 
 typedef struct __TestSuite {
-    byte size;
+    ubyte size;
     Test *tests[MAX_TESTS];
     char* name;
 } TestSuite;
