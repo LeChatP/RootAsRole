@@ -7,6 +7,7 @@ Rémi Venant: remi.venant@gmail.com
 
 Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
+Eddie Billoir : eddie.billoir@gmail.com
 
 Intro
 =====

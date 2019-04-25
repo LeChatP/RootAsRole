@@ -54,4 +54,3 @@ build: $(BIN_DIR)/runTests build_sr
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR)
-	
