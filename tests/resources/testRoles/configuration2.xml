@@ -7,7 +7,7 @@ configuration to tests for Group
 <!ELEMENT roles (role*)>
 <!ELEMENT role (capabilities, users?, groups?)>
 <!ATTLIST role name ID #REQUIRED>
-<!ELEMENT capabilities (capability*)>
+<!ELEMENT capabilities (capability+)>
 <!ELEMENT users (user*)>
 <!ELEMENT groups (group*)>
 <!ELEMENT capability (#PCDATA)>
