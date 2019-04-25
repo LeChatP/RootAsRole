@@ -31,6 +31,7 @@ typedef struct _arguments_t {
     char *command;
     int noroot;
     int info;
+    int version;
     int help;
 } arguments_t;
 
@@ -99,6 +100,10 @@ int main(int argc, char *argv[])
 		print_help(0);
         goto free_rscs;
 	}
+    if(args.version){
+        printf("RootAsRole V%s\n",RAR_VERSION);
+        goto free_rscs;
+    }
 	if(args.help){
 	    print_help(1);
 	    return_code = EXIT_SUCCESS;
@@ -231,11 +236,12 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
             {"command", required_argument, 0,   'c'},
             {"no-root", no_argument,       0,   'n'},
             {"info",    no_argument,       0,   'i'},
+            {"version", no_argument,       0,   'v'},
             {"help",    no_argument,       0,   'h'},
             {0,         0,                 0,   0}
         };
 
-        c = getopt_long(argc, argv, "r:u:c:nih", long_options, &option_index);
+        c = getopt_long(argc, argv, "r:u:c:nivh", long_options, &option_index);
         if(c == -1) break;
     
         switch(c){
@@ -256,6 +262,9 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
                 break;
             case 'h':
                 args->help = 1;
+                break;
+            case 'v':
+                args->version = 1;
                 break;
             default:
                 return -1;
