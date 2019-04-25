@@ -27,7 +27,7 @@ the built executable is located at tests/bin/runTests
 
 ## List of Actual tests
 
-### _Tests of Testing Observer System (intrinsic Test)
+### Tests of Testing Observer System (intrinsic Test)
 
 * Test if Test type is properly attached to TestSuite
 * Test if Test type collection is properly attached to TestSuite
@@ -37,31 +37,27 @@ the built executable is located at tests/bin/runTests
 * Test if all successful tests are identified
 * Test if mixing failing and successful tests are identified
 
-### _Tests scenarios from README
+### Tests scenarios from README
 
 * Test Scenario 1
 
-### _Tests command without Role specified
+### Tests command without Role specified
 
-#### __Tests for User capabilities
-
-* Test if a role is found with a user
-* Test if a role is found with a user in user array in configuration
-* Test if a role is found with a user with command array in configuration
-* Test if a role isn't found with a user and wrong command
-* Test if a role isn't found with a wrong user but right command
-* Test if the first role is found with a user
-
-#### __Tests for Group
-
-* Test if a role is found with a group
-* Test if a role is found with a group array for user (Require user executing has more than one group)
-* Test if a role is found with a group array in configuration
-* Test if a role is found for command with a command array in configuration
-* Test if a role isn't found with a wrong command in configuration
-* Test if the first role is found with a group in configuration
-
-#### TO-DO: __Tests for User And Group
+* Tests for User capabilities
+  * Test if a role is found with a user
+  * Test if a role is found with a user in user array in configuration
+  * Test if a role is found with a user with command array in configuration
+  * Test if a role isn't found with a user and wrong command
+  * Test if a role isn't found with a wrong user but right command
+  * Test if the first role is found with a user
+* Tests for Group
+  * Test if a role is found with a group
+  * Test if a role is found with a group array for user (Require user executing has more than one group)
+  * Test if a role is found with a group array in configuration
+  * Test if a role is found for command with a command array in configuration
+  * Test if a role isn't found with a wrong command in configuration
+  * Test if the first role is found with a group in configuration
+* **TO-DO: Tests for User And Group**
 
 ## Contributing
 
