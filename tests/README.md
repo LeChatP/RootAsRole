@@ -14,16 +14,21 @@ Eddie Billoir : eddie.billoir@gmail.com
 
 This part of project is a system to test the sr command, by listening output of sr command and replacing configuration file by testing into default configuration path "/etc/security/capabilitiesRoles.xml" .
 This system use simple Observer design pattern style to work : TestSuite is Subject and Test is Observer.
+If you don't know how works Observer design pattern it simple handle the execution of list of functions.
+Listening output is done by making asynchronous pipes. You need also to give write access permission of main config (located at /etc/security/capabilityRole.xml) to your user.
+Tests are executed as your user, don't forget to save your last configuration before executing tests.
 
 ## Run tests
 
-To build the executable simple run in tests/ directory
+### How to build
 
 ```Bash
 make build
 ```
 
-the built executable is located at tests/bin/runTests
+### Usage
+
+the executable is located at tests/bin/runTests, simple run it and see tests running
 
 ## List of Actual tests
 
