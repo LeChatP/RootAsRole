@@ -375,8 +375,8 @@ int get_capabilities(user_role_capabilities_t *urc){
             return_code = -1;
             goto free_rscs;
         case -2:
-            errno = EINVAL;
-            return_code = -5;
+            errno = EACCES;
+            return_code = -6;
             goto free_rscs;
         default:
             errno = EINVAL;
@@ -852,7 +852,6 @@ xmlXPathObjectPtr getnodeset (xmlDocPtr doc, xmlChar *xpath){
 		return NULL;
 	}
 	result = xmlXPathEvalExpression(xpath, context);
-    free(xpath);
 	xmlXPathFreeContext(context);
 	if (result == NULL) {
 		return NULL;
@@ -885,7 +884,7 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
     int return_code = -1;
     xmlXPathObjectPtr result;
     char *expression = NULL;
-    char *expressionFormatGroup = "//role[groups/group[not(@name)]/commands/command/text()=%s]";
+    char *expressionFormatGroup = "//role[groups/group[not(@name)]/commands/command/text()='%s']";
     char *tmpexpression = (char *) calloc(strlen(expressionFormatGroup)-2+strlen(command)+1,sizeof(char));
     char *name = "@name = \"";
     char *tmpgroups = calloc(strlen(name),sizeof(char));
