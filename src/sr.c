@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
             return_code = EXIT_SUCCESS;
         }
         //delete the sr_aux temporary file
-        printf("End of role %s session.\n", args.role);
+        printf("End of role %s session.\n", urc->role);
         if(remove(sr_aux_filepath)){
             perror("Error while deleting temporary sr_aux file");
             return_code = EXIT_FAILURE;

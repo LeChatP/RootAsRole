@@ -363,9 +363,13 @@ int get_capabilities(user_role_capabilities_t *urc){
         //(if the return is -2: role not found, otherwise: other error)  
     if( urc->role == NULL ){
         ret_fct = find_role_by_command(conf_doc,urc,&role_node);
+        int string_len;
         switch(ret_fct){
         case 0:
-            urc->role = (char*) role_node->properties->children->content;
+            string_len = strlen((char*) role_node->properties->children->content) + 1;
+            if((urc->role = malloc(string_len * sizeof(char))) == NULL) 
+                goto free_rscs;
+            strncpy(urc->role, role_node->properties->children->content, string_len);
             break;
         case -1:
             return_code = -1;
