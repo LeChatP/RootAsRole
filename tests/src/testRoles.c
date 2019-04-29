@@ -142,6 +142,7 @@ int testFindRoleWithWrongUserRightCommand(void){
     while (read(outfp,ligne,sizeof(ligne)) >= 0)
     {
         if(strstr(ligne,name) != NULL){
+            printf("%s\n",strstr(ligne,name));
             return_code = 0;
             break;
         }else{
@@ -204,7 +205,7 @@ int afterGroup(void){
 int testFindRoleWithGroup(void){
     int return_code = 0;
     beforeGroup();
-    char *name = "role1-user-cmd";
+    char *name = "role1-group-cmd";
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
@@ -236,7 +237,7 @@ int testFindRoleWithGroupArrayUrc(void){
         printf("cannot test groupArray because %s isn't in more than 1 group",get_username(getuid()));
         return -1;
     }
-    char *name = "role1-user-cmd";
+    char *name = "role1-group-cmd";
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
@@ -277,7 +278,7 @@ int testFindRoleWithGroupArrayConfiguration(void){
 int testFindRoleWithGroupWithCommandArrayConfiguration(void){
     int return_code = 0;
     beforeGroup();
-    char *name = "role3-user-cmd2";
+    char *name = "role3-group-cmd2";
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
@@ -321,7 +322,7 @@ int testFindRoleWithGroupWrongCommand(void){
 int testFindFirstRoleWithGroup(void){
     int return_code = 0;
     beforeGroup();
-    char *name = "role1-user-cmd";
+    char *name = "role1-group-cmd";
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];

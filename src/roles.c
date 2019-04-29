@@ -868,7 +868,6 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlN
     char *expressionFormatUser = "//role[users/user[@name=\"%s\"]/commands/command/text()='%s' or count(users/user[@name=\"%s\" and count(commands)=0])>0]";
     char *expression = (char *) calloc(strlen(expressionFormatUser)-4+strlen(user)+strlen(command)+1,sizeof(char));
     sprintf(expression,expressionFormatUser,user,command,user);
-    printf("%s\n",expression);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
@@ -915,7 +914,6 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
         orexpression = str_replace(orexpression,23 ,strlen(notname),tmpgroups);
         expression = concat(tmpexpression,orexpression);
     }
-    printf("%s\n",expression);
     context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
