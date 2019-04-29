@@ -865,7 +865,7 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlN
     xmlXPathObjectPtr result;
     xmlXPathContextPtr context;
     char *expressionFormatUser = "//role[users/user[@name=\"%s\"]/commands/command/text()='%s' or count(users/user[@name=\"%s\" and count(commands)=0])>0]";
-    char *expression = (char *) calloc(strlen(expressionFormatUser)-4+strlen(user)+strlen(command)+1,sizeof(char));
+    char *expression = (char *) malloc(strlen(expressionFormatUser)-4+strlen(user)*2+strlen(command)+1*sizeof(char));
     sprintf(expression,expressionFormatUser,user,command,user);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
