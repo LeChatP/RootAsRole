@@ -38,7 +38,7 @@ Our module has been tested only on Ubuntu>=16.04 and Debian platforms.
 
 ### Usage
 
-Usage : sr -r role [-n] [-c command] [-u user] [-h]
+Usage : sr [-r role | -c command] [-n] [-u user] [-v] [-h]
 
     -r, --role=role        the capabilities role to assume
 
@@ -49,6 +49,8 @@ Usage : sr -r role [-n] [-c command] [-u user] [-h]
     -u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
 
     -i, --info             print the commands the user is able to process within the role and quit
+
+    -v, --version          print the version of RAR
 
     -h, --help             print this help and quit.
 
