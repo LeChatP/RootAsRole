@@ -910,8 +910,10 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
             else tmpgroups = concat(tmpgroups,"\"");
         }
         char *notname = "not(@name)";
-        tmpexpression = str_replace(tmpexpression,20,strlen(notname),tmpgroups);
-        orexpression = str_replace(orexpression,23 ,strlen(notname),tmpgroups);
+        int position1 = strstr(expressionFormatGroup,notname) - expressionFormatGroup;
+        int position2 = strstr(orexpression,notname) - orexpression;
+        tmpexpression = str_replace(tmpexpression,position1,strlen(notname),tmpgroups);
+        orexpression = str_replace(orexpression,position2,strlen(notname),tmpgroups);
         expression = concat(tmpexpression,orexpression);
     }
     context = xmlXPathNewContext(conf_doc);
