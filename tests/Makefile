@@ -8,11 +8,11 @@ SR_OBJ_DIR := ../obj
 OBJ_DIR := obj
 SR_BIN_DIR:= ../bin
 BIN_DIR := bin
-DEBUGOPTIONS := -g
+DEBUGOPTIONS := -g # -Wextra -Werror
 
-COMPOPTIONS = -Wall -Wextra -Werror -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
-LDOPTIONS := -Wall -Wextra -Werror -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)
-SR_LDOPTIONS := -Wall -Wextra -Werror -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTIONS)
+COMPOPTIONS = -Wall -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
+LDOPTIONS := -Wall -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)
+SR_LDOPTIONS := -Wall -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTIONS)
 EXECUTABLES := runTests
 
 SR_OBJS = $(addprefix $(SR_OBJ_DIR)/, user.o)

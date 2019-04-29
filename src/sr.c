@@ -225,7 +225,7 @@ Parse input arguments and check arguments validity (in length)
 return 0 on success, -1 on unknown arguments, -2 on invalid argument
 */
 static int parse_arg(int argc, char **argv, arguments_t *args){
-    *args = (arguments_t) {NULL, NULL, NULL, 0, 0, 0};
+    *args = (arguments_t) {NULL, NULL, NULL, 0, 0, 0, 0};
     
     while(1){
         int option_index = 0;
@@ -357,7 +357,7 @@ static int verify_user(char **user, uid_t *user_id, gid_t *group_id,
         }else{
             //retrieve the user_id of the given user
             *user_id = get_user_id(given_user); 
-            if(*user_id < 0){
+            if(*user_id == (unsigned int) -1){
                 perror("Error retrieving id of the user.");
                 goto free_rscs_on_error;
             }
@@ -390,7 +390,7 @@ static int verify_user(char **user, uid_t *user_id, gid_t *group_id,
 	}
 	
 	//Eventualy for both cases, retrieve the id of the user group
-	if((*group_id = get_group_id(*user_id)) == -1){
+	if((*group_id = get_group_id(*user_id)) == (unsigned int) -1){
 	    perror("Cannot retrieve user group id");
 	    goto free_rscs_on_error;
 	}
@@ -460,6 +460,9 @@ static user_role_capabilities_t *retrieve_urc(const char* role,
             break;
         case -6:
             perror("This role and command cannot be used with your user or your groups");
+            break;
+        case -7:
+            perror("Command is not found in configuration or not allowed");
             break;
         default:
             perror("An unmanaged error occured");
