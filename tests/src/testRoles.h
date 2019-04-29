@@ -66,6 +66,20 @@ int testFindRoleWithGroupWrongCommand(void);
 int testFindFirstRoleWithGroup(void);
 
 /**
+ * ###### Specific tests ######
+ */
+
+/**
+ * test if match when no command is specified to a user
+ */
+int testFindUserRoleNoCommandInConfiguration();
+
+/**
+ * test if match when no command is specified to a group
+ */
+int testFindGroupRoleNoCommandInConfiguration();
+
+/**
  * ###### tests for User and Group ######
  */
 

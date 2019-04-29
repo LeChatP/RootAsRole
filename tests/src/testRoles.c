@@ -4,6 +4,7 @@
 #define USER_CAP_FILE_USER "tests/resources/testRoles/configuration1.xml"
 #define USER_CAP_FILE_GROUP "tests/resources/testRoles/configuration2.xml"
 #define USER_CAP_FILE_USER_GROUP "tests/resources/testRoles/configuration3.xml"
+#define USER_CAP_FILE_NO_CMD_SPEC "tests/resources/testRoles/configuration4.xml"
 #define USER_CAP_FILE_TEMP "tests/resources/temp.xml"
 
 //saving
@@ -336,6 +337,64 @@ int testFindFirstRoleWithGroup(void){
     }
     
     afterGroup();
+    return return_code;
+}
+
+/**
+ * test if match when no command is specified to a user
+ */
+int testFindUserRoleNoCommandInConfiguration(){
+    int return_code = 0;
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(USER_CAP_FILE_ROLE,abspath);
+    realpath(USER_CAP_FILE_NO_CMD_SPEC,abspath);
+    copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),"null",NULL);
+
+    char *name = "anyCommand";
+    int outfp;
+    sr_echo_command(name,&outfp);
+    char ligne[1024];
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,name) != NULL){
+            return_code = 1;
+            break;
+        }
+    }
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(abspath,USER_CAP_FILE_ROLE);
+    remove(abspath);
+    return return_code;
+}
+
+/**
+ * test if match when no command is specified to a group
+ */
+int testFindGroupRoleNoCommandInConfiguration(){
+    int return_code = 0;
+    char abspath[PATH_MAX];
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(USER_CAP_FILE_ROLE,abspath);
+    realpath(USER_CAP_FILE_NO_CMD_SPEC,abspath);
+    char **groups = NULL;
+    int nb_group = 0;
+    get_group_names(get_username(getuid()),get_group_id(getuid()),&nb_group,&groups);
+    copy_file_args(abspath,USER_CAP_FILE_ROLE,"null",groups[0],NULL);
+    char *name = "anyCommand";
+    int outfp;
+    sr_echo_command(name,&outfp);
+    char ligne[1024];
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,name) != NULL){
+            return_code = 1;
+            break;
+        }
+    }
+    realpath(USER_CAP_FILE_TEMP,abspath);
+    copy_file(abspath,USER_CAP_FILE_ROLE);
+    remove(abspath);
     return return_code;
 }
 

@@ -369,7 +369,6 @@ int get_capabilities(user_role_capabilities_t *urc){
         case 0:
             xrole = xmlNodeGetContent(role_node->properties->children);
             string_len = strlen((char *)xrole) + 1;
-            printf("%s\n",xrole);
             if((urc->role = malloc(string_len * sizeof(char))) == NULL) 
                 goto free_rscs;
             strncpy(urc->role, (char *) xrole, string_len);

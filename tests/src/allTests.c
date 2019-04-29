@@ -19,15 +19,20 @@ int trigger(TestSuite *suite,int notification){
             if(notification)printf("\033[0;34mrunning test %s()\033[0m\n",suite->tests[i]->name);
             if(return_code){
                 return_code = ((suite->tests[i]->impl)());
-                if((!return_code) && notification) printf("\033[1;31mCe test a échoué\033[0m\n");
+                if((!return_code) && notification) printf("\033[1;31mThis test failed.\033[0m\n");
             }else{
-                if((!(suite->tests[i]->impl)())&& notification) printf("\033[1;31mCe test a échoué\033[0m\n");
+                if((!(suite->tests[i]->impl)())&& notification) printf("\033[1;31mThis test failed.\033[0m\n");
             }
         }
     }else // catch
     { 
         printStacktrace(callstack); //print stacktrace
         return 0;
+    }
+    if(return_code && notification){
+        printf("\033[1;32mEvery Tests passed for %s !\033[0m\n",suite->name);
+    }else if (notification){
+        printf("\033[1;31mSome tests Failed in %s !\033[0m\n",suite->name);
     }
     return return_code;
 }

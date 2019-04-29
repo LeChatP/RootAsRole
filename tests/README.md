@@ -62,6 +62,9 @@ the executable is located at tests/bin/runTests, simple run it and see tests run
   * Test if a role is found for command with a command array in configuration
   * Test if a role isn't found with a wrong command in configuration
   * Test if the first role is found with a group in configuration
+* Specific tests
+  * test if match when no command is specified to a user in configuration
+  * test if match when no command is specified to a group in configuration
 * **TO-DO: Tests for User And Group**
 
 ## Contributing
