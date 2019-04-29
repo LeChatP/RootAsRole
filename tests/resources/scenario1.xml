@@ -20,7 +20,7 @@
     <role name="role1">
       <capabilities>
         <capability>cap_net_bind_service</capability>
-      </capabilities>    
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>

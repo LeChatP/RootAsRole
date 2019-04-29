@@ -21,7 +21,9 @@ configuration to tests for Group and User
 <capabilityrole>
   <roles>
     <role name="role1">
-      <capabilities>\n				<capability>*</capability>\n 			</capabilities>
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>
@@ -38,7 +40,9 @@ configuration to tests for Group and User
       </groups>
     </role>
     <role name="role2">
-      <capabilities>\n				<capability>*</capability>\n 			</capabilities>
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="ufoo">
           <commands>
@@ -65,7 +69,9 @@ configuration to tests for Group and User
       </groups>
     </role>
     <role name="role3">
-      <capabilities>\n				<capability>*</capability>\n 			</capabilities>
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>

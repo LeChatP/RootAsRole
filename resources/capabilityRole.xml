@@ -18,15 +18,15 @@
 <capabilityrole>
 	<roles>
 		<role name="root">
- 			<capabilities>
+			<capabilities>
 				<capability>*</capability>
- 			</capabilities>
- 			<users>
- 				<user name="ROOTADMINISTRATOR"/>
- 			</users>
- 		</role>
-		
-	<!--	
+			</capabilities>
+			<users>
+				<user name="ROOTADMINISTRATOR"/>
+			</users>
+		</role>
+
+		<!--	
 		<role name="role1">
 			<capabilities>
 				<capability>cap_net_raw</capability>

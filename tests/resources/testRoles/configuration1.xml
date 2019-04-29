@@ -20,10 +20,10 @@ configuration to tests for User
 ]>
 <capabilityrole>
   <roles>
-    <role name="r0le1"> <!-- 0 is not a bug, it's for test -->
+    <role name="r0le1">      <!-- 0 is not a bug, it's for test -->
       <capabilities>
-				<capability>*</capability>
- 			</capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>
@@ -34,8 +34,8 @@ configuration to tests for User
     </role>
     <role name="role2">
       <capabilities>
-				<capability>*</capability>
- 			</capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="foo">
           <commands>
@@ -51,8 +51,8 @@ configuration to tests for User
     </role>
     <role name="role3">
       <capabilities>
-				<capability>*</capability>
- 			</capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>
@@ -64,8 +64,8 @@ configuration to tests for User
     </role>
     <role name="role1">
       <capabilities>
-				<capability>*</capability>
- 			</capabilities>
+        <capability>*</capability>
+      </capabilities>
       <users>
         <user name="%s$1">
           <commands>
