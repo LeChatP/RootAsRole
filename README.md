@@ -1,5 +1,6 @@
-Authors
-=======
+# RootAsRole : Avoiding su and sudo
+
+## Authors
 
 Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
 
@@ -9,70 +10,60 @@ Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
 Eddie Billoir : eddie.billoir@gmail.com
 
-Intro
-=====
+## Intro
+
 Traditionally, administering Linux systems is based on the existence of one powerful user (called super user) who detains alone the full list of system’s privileges.  This vision has been criticized because all programs executed in the context of the super user obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, needs only the privilege cap_net_raw to run. However, by executing it in the context of super user, tcpdump obtains the full list of systems’ privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e. sniff packet networks). An attacker may exploit vulnerabilities of tcpdump to compromise the whole system, when the process of tcpdump possesses the full list of root privileges.
 
 As consequence, a POSIX draft (POSIX draft 1003.1e) has been proposed in order to distribute the privileges of super user into processes by giving them only the privileges they need [11]. The proposal defines for each process three sets of bitmaps called Inheritable (i), Permitted (p) and Effective (e).  This model has not been adopted officially, but it has been integrated into the kernel of Linux since 1998. 
 
-However, for different reasons this model has not been used widely. Firstly, Linux capability model suffers from different technical problems because of the use of extended attributes to store privileges in the executables (problem 1). Secondly, System administrators don’t have a tool that allows them to distribute the privileges into Linux users in fine-grained manner (problem 2). Fine-grained privilege distribution should give the administrators the ability to decide which privileges to give to users, which programs (e.g. tcpdump) users can use these privileges and on which resources these privileges can be applied (e.g. network interface eth0).  Thirdly, Linux doesn’t provide a tool that permits to Linux users to know the privilege that an application asks for (problem 3). Fourthly, Linux comes with some basic commands that are not comptaible with privileges, such as passwd command (problem 4). As a consequence, the majority of Linux users still use su and sudo commands to run privileged applications because the super user model has the advantage of being easy to use. 
+However, for different reasons this model has not been used widely. Firstly, Linux capability model suffers from different technical problems because of the use of extended attributes to store privileges in the executables (problem 1). Secondly, System administrators don’t have a tool that allows them to distribute the privileges into Linux users in fine-grained manner (problem 2). Fine-grained privilege distribution should give the administrators the ability to decide which privileges to give to users, which programs (e.g. tcpdump) users can use these privileges and on which resources these privileges can be applied (e.g. network interface eth0).  Thirdly, Linux doesn’t provide a tool that permits to Linux users to know the privilege that an application asks for (problem 3). Fourthly, Linux comes with some basic commands that are not compatible with privileges, such as passwd command (problem 4). As a consequence, the majority of Linux users still use su and sudo commands to run privileged applications because the super user model has the advantage of being easy to use. 
 
 Recently, a new privilege set called Ambient has been integrated into the kernel of Linux in order to cope with the technical problems related to the sorting of privileges in the extended attributes of executables. However, Linux doesn’t provide solutions to handle the problem 2,3 and 4.
 
-
 Root As Role (RAR) module implements a role based approach for distributing Linux capabilities into Linux users. It provides a soluton to problem 2. Our module contains a tool called sr (switch role) that allows users to control the list of privileges they give to programs. Thus, with our module Linux users can stop using sudo and su commands that don't allow controlling the list of privileges to give to programs. There are already some tools that permit to control the list of privileges to give to programs such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivaiton scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our module leverages a new capability set added to Linux kernel, called Ambient Set. Using this module, administrators can group a set of Linux capabilities in roles and give them to their users. For security reasons, users don’t get the attributed roles by default, they should activate them using the command sr (switch role). Our module is compatible with pam_cap.so. So administrators can continue using pam_cap.so along with our module. Concretely, our module allows respecting the least privilege principle by giving the users the possibility to control the list of privileges they give to their programs.  
 
+## Tested Platforms
 
-Tested Platforms
-===========
-Our module has been tested only on Ubuntu and Debian platforms.
+Our module has been tested only on Ubuntu>=16.04 and Debian platforms.
 
-Installation
-===========
+## Installation
 
-How to Build
-------------
+### How to Build
 
-	1. git clone https://github.com/SamerW/RootAsRole
-    
-    2. cd RootAsRole
-    
-    3. sudo sh ./configure.sh
-    
-    4. make
-    
-    5. sudo make install
-    
-Usage
------
+  1. git clone https://github.com/SamerW/RootAsRole
+  2. cd RootAsRole
+  3. sudo sh ./configure.sh
+  4. make
+  5. sudo make install
+
+### Usage
+
 Usage : sr -r role [-n] [-c command] [-u user] [-h]
 
-	-r, --role=role        the capabilities role to assume
+    -r, --role=role        the capabilities role to assume
 
-	-c, --command=command  launch the command instead of a bash shell
+    -c, --command=command  launch the command instead of a bash shell
 
-	-n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no special treatment to root user (uid 0)
+    -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no special treatment to root user (uid 0)
 
-	-u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
+    -u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
 
-	-i, --info             print the commands the user is able to process within the role and quit
+    -i, --info             print the commands the user is able to process within the role and quit
 
-	-h, --help             print this help and quit.
-
+    -h, --help             print this help and quit.
 
 After the installation you will find a file called capabilityRole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
 To edit the configuration file you must first assume the root role using the sr tool. The role root is defined by default with the list of all privileges. To assume the role Root, type in your shell the following command :
-`sr -r root` 
+`sr -r root`
 
 After that a new shell is opened. This shell contains the capabilities of the role that has been taken by the user. You can then edit capabilityRole.xml file to define your own roles (/etc/security/capabilityRole.xml).
 
 ![Screenshot](doc/assumerootrole.png)
 
-Example
------
+### Example
 
-The advantage of RootAsRole module is that it allows controlling the list of privileges that you use with your programs. The administrator should configure the capabilityRole.xml file to achieve this objective. Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1. 
+The advantage of RootAsRole module is that it allows controlling the list of privileges that you use with your programs. The administrator should configure the capabilityRole.xml file to achieve this objective. Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1.
 
 ![Screenshot](doc/configurationexample2.png)
 
@@ -89,18 +80,17 @@ As you see here, user awazan can run tcpdump to sniff the traffic of ens160 inte
 
 ![Screenshot](doc/tcpdumparg2.png)
 
+It should be noted that when the administrator doesn't precise any arguments with a command, the user can run the command with any option (s)he wants.
 
-It should be noted that when the administrator doesn't precise any arguments with a command, the user can run the command with any option (s)he wants. 
+#### Conflictual Situations
 
-**Conflictual Situations**
-
-A conflict may be created when the list of programs defined at the user level is different from the list of programs defined at group level. For exemple, here the list of programs of remi is different from the list of programs for the group secretary that belongs to remi's groups. In this case, the configurtion at the user level has more prioirity and user remi can only run tcpdump and iptables with this role but not printer program. The rational behind this is that we consider that configuration at user level help administrators to add exceptions to the treatment of groups.
+A conflict may be created when the list of programs defined at the user level is different from the list of programs defined at group level. For exemple, here the list of programs of remi is different from the list of programs for the group secretary that belongs to remi's groups. In this case, the configuration at the user level has more priority and user remi can only run tcpdump and iptables with this role but not printer program. The rational behind this is that we consider that configuration at user level help administrators to add exceptions to the treatment of groups.
 
 For example, suppose that we have edited our configuration file as following:
 
 ![Screenshot](doc/configurationexample3.png)
 
-User awazan is member of adm group. So here we have conflitual situation because user awazan can run only tcpdump with this role, whereas his group allows him to have a privileged shell. As explained before, we give more priority to configuration of the user awazan. So in this case user awazan will be only able to run tcpdump, although that the other members of his group will be able to have a privileged shell.
+User awazan is member of adm group. So here we have conflictual situation because user awazan can run only tcpdump with this role, whereas his group allows him to have a privileged shell. As explained before, we give more priority to configuration of the user awazan. So in this case user awazan will be only able to run tcpdump, although that the other members of his group will be able to have a privileged shell.
 
 ![Screenshot](doc/assumerole11.png)
 
@@ -120,8 +110,7 @@ As you may notice, the user awazan is not able to assume role1.
 
 ![Screenshot](doc/assumerole1111.png)
 
-
-**Get the List of available commands** (-i option)
+#### Get the List of available commands (-i option)
 
 A user can know the list of commands that he can use with a role by adding the i option. For example, here the user awazan uses the i option to know the list of commands he can use with the role role1.
 
@@ -131,15 +120,13 @@ Here user awazan can use with role1 the commands tcpdump and iptables.
 
 ![Screenshot](doc/assumerole11111.png)
 
+#### No Root mode (-n option)
 
-No Root mode (-n option)
------
-
-You have the possibility to launch a full capabale shell that doesn't give any special treatment to uid 0. The root user is considered as any other normal user and you can in this case grant him a few privileges in the capabilityRole.xml distributed by our module :
+You have the possibility to launch a full capable shell that doesn't give any special treatment to uid 0. The root user is considered as any other normal user and you can in this case grant him a few privileges in the capabilityRole.xml distributed by our module :
 
 `sr -n -r role1`
 
-We use the securebits to provide this functionality. Any set-uid-root program will be run without having any special effect. So in the shell, you can't for example use the ping command without a role that has cap_net_raw privilege. 
+We use the secure-bits to provide this functionality. Any set-uid-root program will be run without having any special effect. So in the shell, you can't for example use the ping command without a role that has cap_net_raw privilege. 
 
 Our modules forces the using of -n option when the current user is root. In this case, we are sure that the configuration of the administrator for root user is respected.
 
@@ -159,15 +146,15 @@ Under this mode, set-uid-root programs will not have the full list of privileges
 
 ![Screenshot](doc/scenarioNoRoot/setuidping.png).
 
-Why our module is better than sudo, su and setuid-root programs
-===========
+## Why our module is better than sudo, su and setuid-root programs
+
 Linux is not yet a full privileged system. It has a special treatment for the root user. Whenever a process has in its effective uid the value 0, it will be given the the whole list of root privileges. Sudo, su and setuid-root bit give the possibility to programs to have an effective uid equal to 0. Thus, these programs are run with the full list of root privilege, although that these programs need only one part of these privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job.
 
 However, one can use our module to obtain similar results to su and sudo commands:
 
-	1- 'sr -r root' is equivalent to 'su' command, as it permits to obtain a privileged shell with the full list of root privileges.
+   1. 'sr -r root' is equivalent to 'su' command, as it permits to obtain a privileged shell with the full list of root privileges.
 
-	2- 'sr -r root -c command' is equivalent to 'sudo command', as it permits to run a command with the full list of root privileges.
+   2. 'sr -r root -c command' is equivalent to 'sudo command', as it permits to run a command with the full list of root privileges.
 
 Sudo and su commands come with the bit s  set by default.  The bit s (setuid bit) allows a user to run a program with the privileges of program's owner. If the owner of these commands/tools is root, then any user can run these programs with the root's privileges. In Linux, different other basic commands have the bit s by default, such as ping, passwd and mount commands. In addition, many third party tools may require the activation of this bit for their tools. Having the bit s set in an executable is dangerous especially  when these tools provide users with a shell or allow them to execute arbitrary commands. For example, the command find comes with "-exec" option that allows us to be root:
 
@@ -181,70 +168,61 @@ Lets remove the bit s from ping because ping is privilege-aware program. Interes
 
 Lets show how we can remove the bit s from ping program and use our module to run ping program securely:
 
-	1- assume the role root using the sr tool
+   1. assume the role root using the sr tool
 
-	2- check the ping has the bit s
+   2. check the ping has the bit s
 
-![Screenshot](doc/checkbitsping.png)
+      ![Screenshot](doc/checkbitsping.png)
 
+   3. remove the bit s from ping using the command chmod
 
-	3- remove the bit s from ping using the command chmod
+      ![Screenshot](doc/removebitsping.png)
 
-![Screenshot](doc/removebitsping.png)
+   4. quit our privileged shell and  check that you can not use any more the ping program.
 
-	4-quit our privileged shell and  check that you can not use any more the ping program.
+      ![Screenshot](doc/wihtoutbitsping.png)
 
-![Screenshot](doc/wihtoutbitsping.png)
+   5. re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
 
+      ![Screenshot](doc/configurationfilesping.png)
 
-	5-re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
+   6. User awazan assume the role1 with the "-c" option to run ping program. 
 
-![Screenshot](doc/configurationfilesping.png)
-
-
-	6-user awazan assume the role1 with the "-c" option to run ping program. 
-
-![Screenshot](doc/workping.png)
+      ![Screenshot](doc/workping.png)
 
 It works!
 
-
-Why our module is better than setcap and pam_cap.so
-===========
+## Why our module is better than setcap and pam_cap.so
 
 We give here several scenarios that illustrate why our module is better than setcap and pam_cap.so. 
 
+### Scenario 1: running privileged scripts
 
-Scenario 1: running privileged scripts
------
 A user contacts his administrator to give him a privilege that allows him running an HTTP server that is developed using Python. His script needs the privilege CAP_NET_BIND_SERVICE to bind the server socket to 80 port.  Without our module, the administrator has two solutions: (1)  Use setcap command to inject the privilege into Python interpreter or (2) use pam_cap.so to attribute the CAP_NET_BIND_SERVICE to the user and then inject this privilege in the inheritable and effective sets of the interpreter. Both solutions have security problems because in the case of option (1), the Python interpreter can be used by any another user with the attributed privilege. In the case of option (2) other python scripts run by the legitimate user will get the same privilege.
-
 
 Here is a simple python script that needs to bind a server on the port 80 [9] (the user running the script needs CAP_NET_BIND_SERVICE to do that).
 
 ![Screenshot](doc/scenarioPython/pythonserver.png)
 
-
 If we try to execute the script without any privilege, we get the expected 'Permission denied'.
 
 ![Screenshot](doc/scenarioPython/pythonpermissiondenied.png)
 
-
-The first solution consists in using the setcap command in order to attribute the cap_net_bind_service capability to the python interpreter. Doing this create a security problem; now users present in the same system have the same privilege. 
+The first solution consists in using the setcap command in order to attribute the cap_net_bind_service capability to the python interpreter. Doing this create a security problem; now users present in the same system have the same privilege.
 
 ![Screenshot](doc/scenarioPython/solutionWithSetcap.png)
 
 The second solution is to use pam_cap.so module, as follows:
 
-	The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
+    The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
 
 ![Screenshot](doc/scenarioPython/capConf.png)
 
-	As you see, the inheritable set of the shell has now the new capability.
+    As you see, the inheritable set of the shell has now the new capability.
 
 ![Screenshot](doc/scenarioPython/bashPamCap.png)
 
-	The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the 			interpreter. After that the user can run the script.
+    The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the interpreter. After that the user can run the script.
 
 ![Screenshot](doc/scenarioPython/WithPamCap.png)
 
@@ -253,9 +231,8 @@ However, in this case all scripts run by the same user will have the same privil
 Our solution provides a better alternative. Suppose that the capabilityRole.xml contains the following configuration:
 
 ![Screenshot](doc/scenarioPython/pythonconfiguration.png)
- 
-Then the user needs only to assume role1 using our sr tool and then run his (her) script. (S)he can use other shell to run the other non-privileged scripts.
 
+Then the user needs only to assume role1 using our sr tool and then run his (her) script. (S)he can use other shell to run the other non-privileged scripts.
 
 ![Screenshot](doc/scenarioPython/pythonserverwork.png)
 
@@ -273,10 +250,8 @@ As you see, the user will be able then to run his script on port 80 and not any 
 
 ![Screenshot](doc/scenarioPython/runscriptwithp90.png)
 
+### Scenario 2: LD_PRELOAD
 
-
-Scenario 2: LD_PRELOAD 
------
 Suppose a developer wants to test a program that (s)he has developed in order to reduce the downloading rate on his server. The developer should use the LD_PRELOAD environment variable to load his shared library that intercepts all network calls made by the servers’ processes. With the current capabilities tools, the administrator of the server can use setcap command or pam_cap.so to give the developer the capability cap_net_raw. However, the developer cannot achieve his test because, for security reasons, LD_PRELOAD doesn't work when capabilities are set in a binary file.
 
 This is an example program which tries to open a raw socket (cap_net_raw needed) [10]:
@@ -299,52 +274,67 @@ With our module, no need to set the capability in the binary file: you can open 
 
 ![Screenshot](doc/scenarPreload/preloadWithRole.png)
 
+### Scenario 3
 
-
-Scenario 3 
------
-an administrator wants to attribute a user the privilege to run an apache server. Without our module, the administrator can use either setcap command to inject the necessary privilege in the binary of apache server (option1) or use pam_cap.so module and setcap command (option2). Both options have problems: All systems' users will get this privilege in the case of option 1 and the configuration of the binary apache will be lost after updating the apache package (option 1 and 2). 
+an administrator wants to attribute a user the privilege to run an apache server. Without our module, the administrator can use either setcap command to inject the necessary privilege in the binary of apache server (option1) or use pam_cap.so module and setcap command (option2). Both options have problems: All systems' users will get this privilege in the case of option 1 and the configuration of the binary apache will be lost after updating the apache package (option 1 and 2).
 
 To achieve this objective using our module, the administrator should follow these steps:
 
-	1- Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.xml file. Note that cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
+   1. Grant the privilege cap_bet_bind_service, cap_dac_override to the user by editing capabilityRole.xml file. Note that cap_dac_override is not mandatory if the administraor changes the ownership of the log files.
 
-	2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars and /usr/sbin/apache2
-						   
-	3-User can assume the role and run the apache service using the command sr:
-		sr -r role1  -c 'runapache.sh'
+   2. Define a script (lets call it runapache.sh) that has the following commands: 
 
-	4-verify that the apache process has only the cap_net_bind_service and cap_dac_override in its effective using this command: cat 	/proc/PID/status
+      ```sh
+          source /etc/apache2/envvars
+          /usr/sbin/apache2
+      ```
 
+   3. User can assume the role and run the apache service using the command sr:
 
+      ```sh
+          sr -r role1  -c 'runapache.sh'
+      ```
 
-Scenario 4 
------
+   4. Verify that the apache process has only the cap_net_bind_service and cap_dac_override in its effective using this command:
+
+      ```sh
+          cat /proc/PID/status
+      ```
+
+### Scenario 4
+
 Two developers create a shared folder in which they stored a common program that they develop together. This program requires cap_net_raw privilege. The developers have to mount their shared folder using NFS v3.  This scenario is not feasible with the current tools because NFS v3 doesn’t support extended attributes. 
 
-
-
-Service Managment Scenario 
------
+### Service Management Scenario
 
 An administrator wants to launch a set of services like apache and ssh by giving them only the privileges that they need. (S)he may use the command setcap or pam_cap.so to define the necessary privileges in the binary of each service. However all configuration will be lost after updating their respective packages.
 
 To launch the apache service using our module, the administrator should follow these steps:
 
-	1- Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.xml file,
+   1. Grant the privilege cap_bet_bind_service to the user by editing capabilityRole.xml file,
 
-	2- Define a script (lets call it runapache.sh) that has the following commands: source /etc/apache2/envvars
-						   /usr/sbin/apache2
-						   
-	3-as a root, run the following command:
+   2. Define a script (lets call it runapache.sh) that has the following commands:
 
-		sr -r role1 -u apacheuser -n -c 'runapache.sh'
+        ```sh
+        source /etc/apache2/envvars
+        /usr/sbin/apache
+        ```
 
-	4-verify that the apache process has only the cap_net_bind_service in its effective using this command: cat /proc/PID/status
+   3. As a root, run the following command:
 
-How sr and sr_aux work
-===========
-You might be interested to know how we implement the sr tool. So here is the algorithm: 
+        ```sh
+            sr -r role1 -u apacheuser -n -c 'runapache.sh'
+        ```
+
+   4. Verify that the apache process has only the cap_net_bind_service in its effective using this command: 
+
+        ```sh
+        cat /proc/PID/status
+        ```
+
+## How sr and sr_aux work
+
+You might be interested to know how we implement the sr tool. So here is the algorithm:
 
 ![Screenshot](doc/SrWorkflow.png)
 
@@ -352,46 +342,39 @@ Here is how sr_aux works:
 
 ![Screenshot](doc/Sr_auxWorkflow.png)
 
-In terms of capabilities calucations by Linux Kernel, you can read this page to know how Linux kernel calculates the capabilities in different scenarios:
+In terms of capabilities calculations by Linux Kernel, you can read this page to know how Linux kernel calculates the capabilities in different scenarios:
 
 https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipulation.md
 
-Limitations
-===========
+## Limitations
 
-1- we handle the arguments of commands in a very basic way. In fact, when an administrator limits the use of a role to a command with a list of arguments, the user must provide exactly the same commands with the list of arguments in the same order as they are defined in the capabilityRole.xml file. Handling the arguments of commands in more flexible way is a very complex task. Commands have different formats for arguments; the same argument may have different names;some arguments may take values, others not; values of arguments have different formats, etc. 
+1. we handle the arguments of commands in a very basic way. In fact, when an administrator limits the use of a role to a command with a list of arguments, the user must provide exactly the same commands with the list of arguments in the same order as they are defined in the capabilityRole.xml file. Handling the arguments of commands in more flexible way is a very complex task. Commands have different formats for arguments; the same argument may have different names;some arguments may take values, others not; values of arguments have different formats, etc. 
 
+## To Do List
 
-To Do List
-===========
-1-enhance the -i option to print out the roles and the associtated commands for a user. When a user calls sr  with only -i option he can get this information.
+1. Enhance the -i option to print out the roles and the associated commands for a user. When a user calls sr  with only -i option he can get this information.
 
-2-add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles. 
+2. Add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles. 
 
-3- create a command to help users figure out what are privileges needed by program. A possible solution is to use kprobe to trace cap_capable() in the kernel.
+3. Create a command to help users figure out what are privileges needed by program. A possible solution is to use kprobe to trace cap_capable() in the kernel.
 
-4- find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use krpobe or to develop  LSM hooks.
+4. Find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use krpobe or to develop  LSM hooks.
 
-5-give the possibility to all users and all groups to run programs with some privileges. For example, an administrator wants to authorise all users to use ping program. In this case, he can edit the capabilityRole.xml to define a role that has cap_net_raw. In the user and group nodes, the administrator can use the character * for repersenting the list of all users and groups. Users can then use sr to assume the role and run the ping program, but they don't need to authenticate themselves to assume the role.
+5. Give the possibility to all users and all groups to run programs with some privileges. For example, an administrator wants to authorise all users to use ping program. In this case, he can edit the capabilityRole.xml to define a role that has cap_net_raw. In the user and group nodes, the administrator can use the character * for repersenting the list of all users and groups. Users can then use sr to assume the role and run the ping program, but they don't need to authenticate themselves to assume the role.
 
-6-today only root user can assume the role of other users. This is should be extended to give the possiblity to any user who has the privileges cap_setuid, cap_setgid, cap_setfcap and cap_dac_override  to assume the roles of any user. This feature can be used for service management. Right now, even a user with root role can not assume the roles of other users because sr tool has two privileges in its extended attributes. According to capabilities calculation rules sr is considered as privileged file and it will not acquire as consequence the values of the shell's ambient. As consequence, it is important to build a new wrapper like sr_admin that doesn't have any privileges in its extended attributes. In this case, sr_admin will get a copy of its shell's ambient. So sr_admin will be able to have cap_setuid, cap_setgid, cap_setfcap and cap_dac_override when it is run by a shell that has these values in its ambient.  After that sr_admin should create a temporary file of sr tool, and then add the cap_setuid, cap_setgid and cap_dac_override in the extended attributes (permitted set) of the sr temporary file (sr has already cap_setfcap and setpcap) and makes an exec call to sr by passing at least the roles and user arguments. Optionally, sr_admin can pass also noroot and command arguments. Technically, sr_admin needs only cap_setfcap to be able to write the privileges in the sr temporary file but it should verify that user who runs it has cap_setuid, cap_setgid, cap_setfcap and cap_dac_override as sr tool will use these privileges when running the commands on behalf of other users. If the user's shell has these privileges in its effective set, sr_admin accept the request of the user to assume the roles of other users and it will write cap_setuid, cap_setgid and cap_dac_override in the extended attributes of sr temporary file, in addition to cap_setfcap and cap_setpcap that already exist in the extended attributes of sr temporary file.  A modification to sr code is also required to consider this feature that is reserved today to root user.
+6. Today only root user can assume the role of other users. This is should be extended to give the possibility to any user who has the privileges cap_setuid, cap_setgid, cap_setfcap and cap_dac_override  to assume the roles of any user. This feature can be used for service management. Right now, even a user with root role can not assume the roles of other users because sr tool has two privileges in its extended attributes. According to capabilities calculation rules sr is considered as privileged file and it will not acquire as consequence the values of the shell's ambient. As consequence, it is important to build a new wrapper like sr_admin that doesn't have any privileges in its extended attributes. In this case, sr_admin will get a copy of its shell's ambient. So sr_admin will be able to have cap_setuid, cap_setgid, cap_setfcap and cap_dac_override when it is run by a shell that has these values in its ambient.  After that sr_admin should create a temporary file of sr tool, and then add the cap_setuid, cap_setgid and cap_dac_override in the extended attributes (permitted set) of the sr temporary file (sr has already cap_setfcap and setpcap) and makes an exec call to sr by passing at least the roles and user arguments. Optionally, sr_admin can pass also noroot and command arguments. Technically, sr_admin needs only cap_setfcap to be able to write the privileges in the sr temporary file but it should verify that user who runs it has cap_setuid, cap_setgid, cap_setfcap and cap_dac_override as sr tool will use these privileges when running the commands on behalf of other users. If the user's shell has these privileges in its effective set, sr_admin accept the request of the user to assume the roles of other users and it will write cap_setuid, cap_setgid and cap_dac_override in the extended attributes of sr temporary file, in addition to cap_setfcap and cap_setpcap that already exist in the extended attributes of sr temporary file.  A modification to sr code is also required to consider this feature that is reserved today to root user.
 
-7-Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
+7. Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
 
-8- Use YAML instead of XML
+8. Use YAML instead of XML
 
-
-References
-==========
+## References
 
 [1] PAM repository : https://github.com/linux-pam/linux-pam
 
 [2] libcap repository : https://github.com/mhiramat/libcap
 
-
-
-Very helpfull site, where you can find some informations about PAM, libcap and the capabilities:
-
+Very helpful site, where you can find some informations about PAM, libcap and the capabilities:
 
 [3] Original paper about capabilities : https://pdfs.semanticscholar.org/6b63/134abca10b49661fe6a9a590a894f7c5ee7b.pdf
 
@@ -403,9 +386,7 @@ Very helpfull site, where you can find some informations about PAM, libcap and t
 
 [7] Article about how PAM is working : https://artisan.karma-lab.net/petite-introduction-a-pam
 
-[8] A very helpfull code about how to create a PAM module : https://github.com/beatgammit/simple-pam
-
-
+[8] A very helpful code about how to create a PAM module : https://github.com/beatgammit/simple-pam
 
 Source of the scenarios code:
 
@@ -413,4 +394,4 @@ Source of the scenarios code:
 
 [10] Where I have found the simple PRELOAD code : https://fishi.devtail.io/weblog/2015/01/25/intercepting-hooking-function-calls-shared-c-libraries/
 
-[11] Serge E.Hallyn, Andrew G.Morgan, “Linux capabilities: making them work”, The Linux Symposium, Ottawa, ON, Canada (2008), https://www.kernel.org/doc/ols/2008/ols2008v1-pages-163-172.pdf
+[11] Serge E.Hallyn, Andrew G.Morgan, “Linux capabilities: making them work”, The Linux Symposium, Ottawa, ON, Canada (2008), https://www.kernel.org/doc/ols/2008/ols2008v1.pages-163.172.pdf
