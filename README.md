@@ -24,7 +24,7 @@ Root As Role (RAR) module implements a role based approach for distributing Linu
 
 ## Tested Platforms
 
-Our module has been tested only on Ubuntu>=16.04 and Debian platforms.
+Our module has been tested only on Ubuntu>=16.04 (Kernel 4.3) and Debian platforms.
 
 ## Installation
 
