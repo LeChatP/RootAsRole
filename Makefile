@@ -39,7 +39,7 @@ $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
 #run as root
-install: checkroot $(addprefix $(BIN_DIR)/,sr sr_aux)
+install: $(addprefix $(BIN_DIR)/,sr sr_aux)
 	cp $(BIN_DIR)/sr /usr/bin/sr
 	setcap cap_setfcap,cap_setpcap+p /usr/bin/sr
 	cp $(BIN_DIR)/sr_aux /usr/bin/sr_aux
