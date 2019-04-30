@@ -38,7 +38,8 @@ $(BINS): | $(BIN_DIR)
 $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
-install: $(addprefix $(BIN_DIR)/,sr sr_aux)
+#run as root
+install: checkroot $(addprefix $(BIN_DIR)/,sr sr_aux)
 	cp $(BIN_DIR)/sr /usr/bin/sr
 	setcap cap_setfcap,cap_setpcap+p /usr/bin/sr
 	cp $(BIN_DIR)/sr_aux /usr/bin/sr_aux
@@ -46,10 +47,12 @@ install: $(addprefix $(BIN_DIR)/,sr sr_aux)
 # append debug mode for debugger
 debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
 
+#run as root
 build-test: install
 	cd tests&&make build&&cd ..
 	chmod go+w /etc/security/capabilityRole.xml
 
+#run as user
 run-test:
 	./tests/bin/runTests
 	chmod go-w /etc/security/capabilityRole.xml
