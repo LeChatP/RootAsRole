@@ -1,4 +1,4 @@
-Authors
+Contributors
 =======
 
 Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
