@@ -46,6 +46,12 @@ install: $(addprefix $(BIN_DIR)/,sr sr_aux)
 # append debug mode for debugger
 debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
 
+test: install
+	cd tests&&make build&&cd..
+	chmod go+w /etc/security/capabilitiesRole.xml
+	./tests/bin/runTests
+	chmod go-w /etc/security/capabilitiesRole.xml
+
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux
 
