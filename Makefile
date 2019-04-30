@@ -50,13 +50,12 @@ debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
 #run as root
 build-test: install
 	cd tests&&make build&&cd ..
-	chmod go+w /etc/security/capabilityRole.xml
+	chmod o+w /etc/security/capabilityRole.xml
 
 #run as user
 run-test:
 	./tests/bin/runTests
-	echo "\033[31;1;4;5;7mfor security reasons, please remove write access to /etc/security/capabilityRole.xml after testing RootAsRole\033[0m"
-
+	
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux
 
