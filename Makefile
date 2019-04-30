@@ -55,7 +55,7 @@ build-test: install
 #run as user
 run-test:
 	./tests/bin/runTests
-	chmod go-w /etc/security/capabilityRole.xml
+	echo "\033[31;1;4;5;7mfor security reasons, please remove write access to /etc/security/capabilityRole.xml after testing RootAsRole\033[0m"
 
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux
