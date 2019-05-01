@@ -1,5 +1,15 @@
 #include "utilsTests.h"
 
+    //saving
+    static char *password = NULL;
+
+    char *getpassword(void){
+        if(password == NULL){
+            password = getpass("Password:");
+        }
+        return password;
+    }
+
     //https://dzone.com/articles/simple-popen2-implementation
     //implementing popen but returning pid and getting in & out pipes
     pid_t popen2(const char *command, int *infp, int *outfp)

@@ -11,6 +11,9 @@
 #define READ   0
 #define WRITE  1
 
+    //ask for pass if not already asked
+    extern char *getpassword(void);
+
     /** https://dzone.com/articles/simple-popen2-implementation
      * implementing popen but returning pid and getting in & out pipes
      * infp and outfp can be null

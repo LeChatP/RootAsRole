@@ -7,18 +7,6 @@
 #define USER_CAP_FILE_NO_CMD_SPEC "tests/resources/testRoles/configuration4.xml"
 #define USER_CAP_FILE_TEMP "tests/resources/temp.xml"
 
-//saving
-static char *password = NULL;
-/**
- * ###### tests for User ######
- */
-
-char *getpassword(void){
-    if(password == NULL){
-        password = getpass("Password:");
-    }
-    return password;
-}
 
 int beforeUser(void){
     char abspath[PATH_MAX];

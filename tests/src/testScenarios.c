@@ -46,7 +46,7 @@ void handle_sigint(int sig);
         username = get_username(getuid());
         copy_file_args(abspath,USER_CAP_FILE_ROLE,username,serverpy,port);
         char python[1037];
-        char *password = getpass("Password:");
+        char *password = getpassword();
         char srpath[1000];
         char command[2060];
         realpath(USER_CAP_FILE_BASH,srpath);
