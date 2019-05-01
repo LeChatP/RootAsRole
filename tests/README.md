@@ -119,17 +119,73 @@ So in example :
     char *temppath = NULL;
     realpath("tests/resource/temp.xml",temppath);
     int saving_result = copy_file("/etc/security/capabilityRole.xml",temppath);
-    char **args = {get_username(getuid())};
-    int copy_result = copy_file_args("tests/resource/scenario1.xml",1,args);
+    int sizeargs = 1;
+    char *args[sizeargs] = {get_username(getuid())};
+    realpath("tests/resource/example.xml",temppath);
+    int copy_result = copy_file_args(temppath,sizeargs,args);
 ```
 
 This save the actual configuration and copy the scenario1 configuration test to /etc/security/capabilityRole.xml and replace %1$s parameter to username.
 
 Now that we have right configuration to test command, we can listen output of sr command.
-To do that, I created a function which automatically fill password when asking :
+To do that, I created a function which automatically fill password when asking in sr and WAIT for ending.
 
 ```C
-    //exec sr with args return pid and output pipe
-    pid_t sr_command(char *args, int *outfp);
+    /**
+     * executes sr command and output pid with output pipe
+     * and wait for exit
+     * Warning : pipe may not listen everything
+     */
+    void sr_command(char *args, int *outfp);
+    /**
+     * execute echo in sr command, useful to see if configuration allow a command or not
+     * and wait for exit
+     */
+    void sr_echo_command(char *name, int *outfp);
 ```
 
+So by example :
+
+```C
+    char *name = "hello world!";
+    sr_echo_command(name,&outfp);
+    char ligne[1024];
+    while (read(outfp,ligne,sizeof(ligne)) >= 0) //outfp pipe is not blocked
+    {
+        if(strstr(ligne,name) != NULL){
+            printf("hello world successfully read");
+            break;
+        }
+    }
+```
+
+this will execute sr command which execute echo command and verify that the echo has successfully executed.
+Finally, your test must return 0 if fail or other if success. Here's the final example :
+
+```C
+    int testSRTestExample(){
+        char *temppath = NULL;
+        realpath("tests/resource/temp.xml",temppath);
+        int saving_result = copy_file("/etc/security/capabilityRole.xml",temppath);
+        int sizeargs = 1;
+        char *args[sizeargs] = {get_username(getuid())};
+        realpath("tests/resource/example.xml",temppath);
+        int copy_result = copy_file_args(temppath,sizeargs,args);
+        char *name = "hello world!";
+        sr_echo_command(name,&outfp);
+        char ligne[1024];
+        while (read(outfp,ligne,sizeof(ligne)) >= 0) //outfp pipe is not blocked
+        {
+            if(strstr(ligne,name) != NULL){
+                printf("hello world successfully read");
+                break;
+            }
+        }
+    }
+
+    int main(void){
+        TestSuite suite = newTestSuite("My Example Test Suite");
+        registerTest(suite,&testSRTestExample,"Example Test");
+        return trigger(suite,1); // trigger and verbose tests
+    }
+```
