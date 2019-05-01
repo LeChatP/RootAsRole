@@ -10,6 +10,28 @@
         return password;
     }
 
+    void sr_command(char *args, int *outfp){
+        char *pass = getpassword();
+        char *command = malloc(strlen(args)+14);
+        sprintf(command,"/usr/bin/sr %s",args);
+        int infp;
+        popen2(command,&infp,outfp);
+        write(infp,pass,strlen(pass));
+        close(infp);
+        wait(NULL);
+    }
+
+    void sr_echo_command(char *name, int *outfp){
+        char *pass = getpassword();
+        char *command = malloc(strlen(name)+26);
+        sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
+        int infp;
+        popen2(command,&infp,outfp);
+        write(infp,pass,strlen(pass));
+        close(infp);
+        wait(NULL);
+    }
+
     //https://dzone.com/articles/simple-popen2-implementation
     //implementing popen but returning pid and getting in & out pipes
     pid_t popen2(const char *command, int *infp, int *outfp)
@@ -60,25 +82,19 @@
 			return  -1;
 		}
 		while(fgets(path, sizeof(path)-1, ptr_old)!=NULL){
-			if(!feof(ptr_old))
-				fputs(path, ptr_new);
-			else
-				break;
+			fputs(path, ptr_new);
 		}
 		fclose(ptr_new);
 		fclose(ptr_old);
 		return  0;
 	}
 
-    int copy_file_args(char *old_filename, char  *new_filename,char *arg1,char *arg2,char *arg3)
+    int copy_file_args(char *old_filename, char  *new_filename,int nb_args,char **args)
 	{
         char path[PATH_MAX];
 		FILE  *ptr_old, *ptr_new;
 		ptr_old = fopen(old_filename, "r");
 		ptr_new = fopen(new_filename, "w");
-        if(arg3 == NULL) arg3 = "";
-        if(arg2 == NULL) arg2 = "";
-        if(arg1 == NULL) arg1 = "";
 		if(ptr_old == NULL)
 			return  -1;
 		if(ptr_new == NULL){
@@ -86,16 +102,17 @@
 			return  -1;
 		}
 		while(fgets(path, sizeof(path)-1, ptr_old)!=NULL){
-            if(strstr(path,"%s$1")!=NULL)
-                strcpy(path,str_replace(path,"%s$1",arg1));
-            if(strstr(path,"%s$2")!=NULL)
-                strcpy(path,str_replace(path,"%s$2",arg2));
-            if(strstr(path,"%s$3")!=NULL)
-                strcpy(path,str_replace(path,"%s$3",arg3));
-			if(!feof(ptr_old))
-				fputs(path, ptr_new);
-			else
-				break;
+            for(int i = 0 ; i < nb_args;i++){
+                char *paramFormat = "%%%d$s";
+                size_t needed = snprintf(NULL, 0, paramFormat, i)+1;
+                char *param = malloc(needed);
+                sprintf(param,paramFormat,i+1);
+                if(strstr(path,param)!=NULL){
+                    strcpy(path,str_replace(path,param,args[i]));
+                }
+                free(param);
+            }
+			fputs(path, ptr_new);
 		}
 		fclose(ptr_new);
 		fclose(ptr_old);

@@ -100,13 +100,13 @@ Every tests must return int, which 0 means fail and any other value means succes
 The tests needs to be executed with the current user which execute tests. So to test the sr command we need to set up configuration in function of current user and in function of test.
 Before replacing configuration file with the testing one, the best practice is to copy the actual configuration to a temporary file, to preserve the real configuration (and the root role, that's important).
 To copy/replace file securely, I execute these manipulations as root role of sr. So if copy fail, it means that sr command doesn't work. It means also that the initial configuration to test needs the root role described in default configuration.
-It means also that every test configuration 
+It means also that every test configuration.
 
 ```C
     /**
-     * copy file old_filename to new_filename and replace %s$1, %s$2, %s$3 to arg1, arg2, arg3
+     * copy file old_filename to new_filename and replace every arguments by array order
      */
-    int copy_file_args(char *old_filename, char  *new_filename,char *arg1,char *arg2,char *arg3);
+    int copy_file_args(char *old_filename, char  *new_filename,int nb_args, char **args);
     /**
      * copy file old_filename to new_filename
      */
@@ -118,16 +118,18 @@ So in example :
 ```C
     char *temppath = NULL;
     realpath("tests/resource/temp.xml",temppath);
-    int saving_result = rar_copy_file("/etc/security/capabilityRole.xml",temppath);
-    int copy_result = rar_copy_file_and_replace_args("tests/resource/scenario1.xml",2,{get_username(getuid()),temppath});
+    int saving_result = copy_file("/etc/security/capabilityRole.xml",temppath);
+    char **args = {get_username(getuid())};
+    int copy_result = copy_file_args("tests/resource/scenario1.xml",1,args);
 ```
 
-This save the actual configuration and copy the scenario1 configuration test to /etc/security/capabilityRole.xml and replace %1 parameter to username.
+This save the actual configuration and copy the scenario1 configuration test to /etc/security/capabilityRole.xml and replace %1$s parameter to username.
 
 Now that we have right configuration to test command, we can listen output of sr command.
-To do that, I created a function :
+To do that, I created a function which automatically fill password when asking :
 
 ```C
     //exec sr with args return pid and output pipe
     pid_t sr_command(char *args, int *outfp);
 ```
+

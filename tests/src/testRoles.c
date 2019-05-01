@@ -13,7 +13,8 @@ int beforeUser(void){
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
     realpath(USER_CAP_FILE_USER,abspath);
-    copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),NULL,NULL);
+    char *args[1] = {get_username(getuid())};
+    copy_file_args(abspath,USER_CAP_FILE_ROLE,1,args);
     return 0;
 }
 
@@ -22,18 +23,6 @@ int afterUser(void){
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(abspath,USER_CAP_FILE_ROLE);
     return remove(abspath);
-}
-
-pid_t sr_echo_command(char *name, int *outfp){
-    char *pass = getpassword();
-    char command[64];
-    sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
-    int infp;
-    popen2(command,&infp,outfp);
-    write(infp,pass,strlen(pass));
-    close(infp);
-    wait(NULL);
-    return 0;
 }
 
 /** 
@@ -178,7 +167,8 @@ int beforeGroup(void){
     char **groups = NULL;
     int nb_group = 0;
     get_group_names(get_username(getuid()),get_group_id(getuid()),&nb_group,&groups);
-    return copy_file_args(abspath,USER_CAP_FILE_ROLE,groups[0],NULL,NULL);
+    char *args[1] = {groups[0]};
+    return copy_file_args(abspath,USER_CAP_FILE_ROLE,1,args);
 }
 
 int afterGroup(void){
@@ -221,7 +211,8 @@ int testFindRoleWithGroupArrayUrc(void){
     char **groups = NULL;
     int nb_group = 0;
     get_group_names(get_username(getuid()),get_group_id(getuid()),&nb_group,&groups);
-    if(nb_group > 1) copy_file_args(abspath,USER_CAP_FILE_ROLE,groups[1],NULL,NULL);
+    char *args[1] = {groups[1]};
+    if(nb_group > 1) copy_file_args(abspath,USER_CAP_FILE_ROLE,1,args);
     else {
         printf("cannot test groupArray because %s isn't in more than 1 group",get_username(getuid()));
         return -1;
@@ -337,7 +328,8 @@ int testFindUserRoleNoCommandInConfiguration(){
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
     realpath(USER_CAP_FILE_NO_CMD_SPEC,abspath);
-    copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),"null",NULL);
+    char *args[1] = {get_username(getuid())};
+    copy_file_args(abspath,USER_CAP_FILE_ROLE,1,args);
 
     char *name = "anyCommand";
     int outfp;
@@ -368,7 +360,8 @@ int testFindGroupRoleNoCommandInConfiguration(){
     char **groups = NULL;
     int nb_group = 0;
     get_group_names(get_username(getuid()),get_group_id(getuid()),&nb_group,&groups);
-    copy_file_args(abspath,USER_CAP_FILE_ROLE,"null",groups[0],NULL);
+    char *args[2] = {"null",groups[0]};
+    copy_file_args(abspath,USER_CAP_FILE_ROLE,2,args);
     char *name = "anyCommand";
     int outfp;
     sr_echo_command(name,&outfp);
@@ -398,7 +391,8 @@ int beforeGroupUser(void){
     char **groups = NULL;
     int nb_group = 0;
     get_group_names(get_username(getuid()),get_group_id(getuid()),&nb_group,&groups);
-    return copy_file_args(abspath,USER_CAP_FILE_ROLE,get_username(getuid()),groups[0],NULL);
+    char *args[2] = {get_username(getuid()),groups[0]};
+    return copy_file_args(abspath,USER_CAP_FILE_ROLE,2,args);
 }
 
 int afterGroupUser(void){

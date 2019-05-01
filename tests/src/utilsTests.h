@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <linux/limits.h>
+#include <sys/wait.h>
 #include <string.h>
 #include <fcntl.h>
 #define READ   0
@@ -13,6 +14,19 @@
 
     //ask for pass if not already asked
     extern char *getpassword(void);
+
+    /**
+     * executes sr command and output pid with output pipe
+     * and wait for exit
+     * Warning : pipe may not listen everything
+     */
+    void sr_command(char *args, int *outfp);
+
+    /**
+     * execute echo in sr command, useful to see if configuration allow a command or not
+     * and wait for exit
+     */
+    void sr_echo_command(char *name, int *outfp);
 
     /** https://dzone.com/articles/simple-popen2-implementation
      * implementing popen but returning pid and getting in & out pipes
@@ -26,10 +40,10 @@
     int copy_file(char *old_filename, char  *new_filename);
 
     /**
-     * copy file old_filename to new_filename and replace %s$1, %s$2, %s$3 to arg1, arg2, arg3
+     * copy file old_filename to new_filename and replace every arguments specified in document
      */
-    int copy_file_args(char *old_filename, char  *new_filename,char *arg1,char *arg2,char *arg3);
-    
+    int copy_file_args(char *old_filename, char  *new_filename,int nb_args,char **args);
+
     /**
      * Read file with filename
      */

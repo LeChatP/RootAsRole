@@ -9,7 +9,6 @@
 #include <stddef.h>
 #include <assert.h>
 #include <signal.h>
-#include <sys/wait.h>
 #include <stdarg.h>
 
 #define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
@@ -38,25 +37,18 @@ void handle_sigint(int sig);
         char *port = "79";
         // firstly, insert configuration for Scenario
         before();
-        char abspath[1024];
+        char abspath[512];
         realpath(USER_CAP_FILE_SCENARIO1,abspath);
-        char serverpy[1024];
+        char serverpy[512];
         realpath(USER_CAP_FILE_SERVERPY,serverpy);
         char *username = NULL;
         username = get_username(getuid());
-        copy_file_args(abspath,USER_CAP_FILE_ROLE,username,serverpy,port);
-        char python[1037];
-        char *password = getpassword();
-        char srpath[1000];
-        char command[2060];
-        realpath(USER_CAP_FILE_BASH,srpath);
-        sprintf(python,"'python %s -p %s'",serverpy,port);
-        sprintf(command,"/usr/bin/sr -n -r %s -c %s","role1",python);
-        int infp, outfp;
-        popen2(command,&infp,&outfp);
-        write(infp,password,strlen(password));
-        close(infp);
-        wait(NULL);
+        char *args[3] = {username,serverpy,port};
+        copy_file_args(abspath,USER_CAP_FILE_ROLE,3,args);
+        char python[2060];
+        sprintf(python,"-r role1 -c 'python %s -p %s'",serverpy,port);
+        int outfp;
+        sr_command(python,&outfp);
         char ligne[1024];
         while (read(outfp,ligne,sizeof(ligne)) > 0)   /*  stop sur fin de fichier ou erreur  */
         {

@@ -22,9 +22,9 @@
         <capability>cap_net_bind_service</capability>
       </capabilities>
       <users>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
-            <command>python %s$2 -p %s$3</command>
+            <command>python %2$s -p %3$s</command>
           </commands>
         </user>
       </users>

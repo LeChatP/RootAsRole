@@ -15,10 +15,6 @@ static int haswriteaccess(){
 }
 
 int main(void){
-    if(!haswriteaccess()){
-        printf("You don't have the permission to run these tests\nPlease use sr to run this command\n");
-        exit(-1);
-    }
     //testObserver
     TestSuite *suite1 = newTestSuite("ObserverTest");
     registerTest(suite1,newTest(&testTestSubjectAttached,"TestSubjectAttached"));
@@ -56,6 +52,10 @@ int main(void){
     registerTest(noroleSuite,newTest(&testFindGroupRoleNoCommandInConfiguration,"FindGroupRoleNoCommandInConfiguration"));
 
     trigger(suite1,1);
+    if(!haswriteaccess()){
+        printf("You don't have the permission to run these tests\nPlease use sr to run this command\n");
+        exit(-1);
+    }
     trigger(suite2,1);
     trigger(noroleSuite,1);
     printf("\n=========End of tests============\n");

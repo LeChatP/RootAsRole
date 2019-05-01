@@ -25,7 +25,7 @@ configuration to tests for Group
         <capability>*</capability>
       </capabilities>
       <groups>
-        <group name="%s$2"/>
+        <group name="%2$s"/>
       </groups>
     </role>
     <role name="role2"> <!-- role to test false-positives -->
@@ -38,7 +38,7 @@ configuration to tests for Group
             <command>echo "role2-gfoo-cmd"</command>
           </commands>
         </user>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
             <command>echo "role2-user-cmd"</command>
           </commands>
@@ -50,7 +50,7 @@ configuration to tests for Group
             <command>echo "role2-gfoo-cmd"</command>
           </commands>
         </group>
-        <group name="%s$2">
+        <group name="%2$s">
           <commands>
             <command>echo "role2-group-cmd"</command>
           </commands>
@@ -62,7 +62,7 @@ configuration to tests for Group
         <capability>*</capability>
       </capabilities>
       <users>
-        <user name="%s$1"/>
+        <user name="%1$s"/>
       </users>
     </role>
   </roles>

@@ -25,7 +25,7 @@ configuration to tests for User
         <capability>*</capability>
       </capabilities>
       <users>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
             <command>echo "role1-user-cmd"</command>
           </commands>
@@ -42,7 +42,7 @@ configuration to tests for User
             <command>echo "role2-foo-cmd"</command>
           </commands>
         </user>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
             <command>echo "role2-user-cmd"</command>
           </commands>
@@ -54,7 +54,7 @@ configuration to tests for User
         <capability>*</capability>
       </capabilities>
       <users>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
             <command>echo "role3-user-cmd1"</command>
             <command>echo "role3-user-cmd2"</command>
@@ -67,7 +67,7 @@ configuration to tests for User
         <capability>*</capability>
       </capabilities>
       <users>
-        <user name="%s$1">
+        <user name="%1$s">
           <commands>
             <command>echo "role1-user-cmd"</command>
           </commands>
