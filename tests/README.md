@@ -18,6 +18,8 @@ If you don't know how works Observer design pattern it simple handle the executi
 Listening output is done by making asynchronous pipes. You need also to give write access permission of main config (located at /etc/security/capabilityRole.xml) to your user.
 Tests are executed as your user, don't forget to save your last configuration before executing tests.
 
+Every tests aren't optimized or well coded, and hardcode can be used. Tests can be written with the ugliest code ever but it must test the sr program as expected to be.
+
 ## Run tests
 
 ### How to build
@@ -88,4 +90,44 @@ Finally, you can execute this suite by calling "trigger()". This function needs 
 
 ```C
 trigger(suite,1);
+```
+
+### How to write a test with example
+
+To write a test correctly, You have functions in disposition to simplify writing of test, located in utilsTests.h, so you juste need to include this header to begin writing test.
+Every tests must return int, which 0 means fail and any other value means success.
+
+The tests needs to be executed with the current user which execute tests. So to test the sr command we need to set up configuration in function of current user and in function of test.
+Before replacing configuration file with the testing one, the best practice is to copy the actual configuration to a temporary file, to preserve the real configuration (and the root role, that's important).
+To copy/replace file securely, I execute these manipulations as root role of sr. So if copy fail, it means that sr command doesn't work. It means also that the initial configuration to test needs the root role described in default configuration.
+It means also that every test configuration 
+
+```C
+    /**
+     * copy file old_filename to new_filename and replace %s$1, %s$2, %s$3 to arg1, arg2, arg3
+     */
+    int copy_file_args(char *old_filename, char  *new_filename,char *arg1,char *arg2,char *arg3);
+    /**
+     * copy file old_filename to new_filename
+     */
+    int copy_file(char *from_file, char *to_file);
+```
+
+So in example :
+
+```C
+    char *temppath = NULL;
+    realpath("tests/resource/temp.xml",temppath);
+    int saving_result = rar_copy_file("/etc/security/capabilityRole.xml",temppath);
+    int copy_result = rar_copy_file_and_replace_args("tests/resource/scenario1.xml",2,{get_username(getuid()),temppath});
+```
+
+This save the actual configuration and copy the scenario1 configuration test to /etc/security/capabilityRole.xml and replace %1 parameter to username.
+
+Now that we have right configuration to test command, we can listen output of sr command.
+To do that, I created a function :
+
+```C
+    //exec sr with args return pid and output pipe
+    pid_t sr_command(char *args, int *outfp);
 ```

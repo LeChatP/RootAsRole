@@ -48,13 +48,12 @@ install: $(addprefix $(BIN_DIR)/,sr sr_aux)
 debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
 
 #run as root
-build-test: install
+build-test:
 	cd tests&&make build&&cd ..
-	chmod o+w /etc/security/capabilityRole.xml
 
 #run as user
 run-test:
-	./tests/bin/runTests
+	sr -r root -c './tests/bin/runTests'
 	
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux

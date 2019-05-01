@@ -19,6 +19,7 @@
 #include <sys/prctl.h>
 #include <signal.h>
 #include <libxml/parser.h>
+#include <sys/stat.h>
 #include <getopt.h>
 
 extern char *optarg;
@@ -131,6 +132,16 @@ int main(int argc, char *argv[])
 	    fprintf(stderr, "For security reason, you cannot execute a role under root. Please change the user or use the no-root option\n");
 	    goto free_rscs;
 	}
+
+    //Prevention of execution if configurationFile has write access for others
+    struct stat *info = NULL;
+    if(stat(USER_CAP_FILE_ROLE,info)!=0){
+        perror("Cannot get informations to security file");
+        goto free_rscs;
+    }else if((info->st_mode && S_IWOTH) == 1){
+        perror("For security reason, you cannot execute sr with other write access of the configuration file\n");
+	    goto free_rscs;
+    }
 	
 	//Retrieve the user capabilities from role (depending of the command)
 	//Print role info if info required
