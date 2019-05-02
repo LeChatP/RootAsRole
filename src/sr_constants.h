@@ -12,7 +12,7 @@
 //#define SR_DEBUG 1 
 
 // TODO remove dev build on release
-#define RAR_VERSION "1.1 dev build"
+#define RAR_VERSION "1.1"
 
 //The path to the common shell
 #define BASH "/bin/bash"
