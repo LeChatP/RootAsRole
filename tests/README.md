@@ -15,22 +15,28 @@ Eddie Billoir : eddie.billoir@gmail.com
 This part of project is a system to test the sr command, by listening output of sr command and replacing configuration file by testing into default configuration path "/etc/security/capabilitiesRoles.xml" .
 This system use simple Observer design pattern style to work : TestSuite is Subject and Test is Observer.
 If you don't know how works Observer design pattern it simple handle the execution of list of functions.
-Listening output is done by making asynchronous pipes. You need also to give write access permission of main config (located at /etc/security/capabilityRole.xml) to your user.
-Tests are executed as your user, don't forget to save your last configuration before executing tests.
+Listening output is done by making asynchronous pipes.
+In expected case, every test make a backup of configuration file before executing tests are executed, but if tests fail it probably won't recover configuration file, so don't forget to save your last configuration before executing tests.
 
-Every tests aren't optimized or well coded, and hardcode can be used. Tests can be written with the ugliest code ever but it must test the sr program as expected to be.
+Every tests aren't optimized or well-coded, and hard-code can be used. Tests can be written with the ugliest code ever but it must test the sr program as expected to be.
 
 ## Run tests
 
 ### How to build
 
+in root git directory :
+
 ```Bash
-make build
+make build-test
 ```
 
 ### Usage
 
-the executable is located at tests/bin/runTests, simple run it and see tests running
+To run tests you must set in actual configuration a root role with every capabilities that runner (you) has access, present in default configuration, then you can run all tests.
+
+```Bash
+make run-test
+```
 
 ## List of Actual tests
 
@@ -68,6 +74,12 @@ the executable is located at tests/bin/runTests, simple run it and see tests run
   * test if match when no command is specified to a user in configuration
   * test if match when no command is specified to a group in configuration
 * **TO-DO: Tests for User And Group**
+
+### TO-DO: test every argument of sr
+
+### TO-DO: test for sr in special cases (like sr command in sr command with different capabilities...)
+
+### TO-DO: test for sr with commands uses expected capabilities
 
 ## Contributing
 
