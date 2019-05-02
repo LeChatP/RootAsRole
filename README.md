@@ -1,6 +1,6 @@
 # RootAsRole : Avoiding su and sudo
 
-## Authors
+## Contributors
 
 Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
 
