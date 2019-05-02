@@ -88,15 +88,37 @@ name and the sequence of options (in the same order!)
 */
 static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given);
 
-char *str_replace (const char *s, unsigned int start, unsigned int length, const char *ct);
+/**
+ * replace string s in position start to length character of ct
+ * return the new char*
+ */
+static char *str_replace (const char *s, unsigned int start, unsigned int length, const char *ct);
+
+/**
+ * appends s2 to str with realloc, return new char*
+ */
+static char *concat(char *str, char *s2);
+
 /*
-Find role for command specified
+Find user role for command specified
 Return 0 on success, -2 if role wasn't found,
 -3 if an error has been found in the xml doc, -1 if an other error happened
 */
+static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlNodePtr *role_node);
+
+/*
+Find user role for command specified
+Return 0 on success, -2 if role wasn't found,
+-3 if an error has been found in the xml doc, -1 if an other error happened
+*/
+static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups, char *command,xmlNodePtr *role_node);
+
+/**
+ * find the first role that matching command, user and group
+ * @return -2 if the role wasn't found
+ */
 static int find_role_by_command(xmlDocPtr conf_doc, user_role_capabilities_t *urc,xmlNodePtr *role_node);
 
- 
 /*
 Get the role node matchin the role name from the xml configuration file
 Return 0 on success, -2 if the role does not exist, 
@@ -359,8 +381,8 @@ int get_capabilities(user_role_capabilities_t *urc){
         return_code = -4;
         goto free_rscs;
     }
-        //find the role node in the configuration file
-        //(if the return is -2: role not found, otherwise: other error)  
+    //find the role node in the configuration file
+    //(if the return is -2: role not found, otherwise: other error)  
     if( urc->role == NULL ){
         ret_fct = find_role_by_command(conf_doc,urc,&role_node);
         int string_len;
@@ -502,8 +524,33 @@ int print_capabilities(user_role_capabilities_t *urc){
     }
     //find the role node in the configuration file
     //(if the return is -2: role not found, otherwise: other error)    
-    ret_fct = get_role(conf_doc, urc->role, &role_node);
-    switch(ret_fct){
+        if( urc->role == NULL ){
+        ret_fct = find_role_by_command(conf_doc,urc,&role_node);
+        int string_len;
+        xmlChar *xrole;
+        switch(ret_fct){
+        case 0:
+            xrole = xmlNodeGetContent(role_node->properties->children);
+            string_len = strlen((char *)xrole) + 1;
+            if((urc->role = malloc(string_len * sizeof(char))) == NULL) 
+                goto free_rscs;
+            strncpy(urc->role, (char *) xrole, string_len);
+            break;
+        case -1:
+            return_code = -7; // command not found/allowed
+            goto free_rscs;
+        case -2:
+            errno = EACCES;
+            return_code = -6;
+            goto free_rscs;
+        default:
+            errno = EINVAL;
+            return_code = -4;
+            goto free_rscs;
+        }
+    }else{
+        ret_fct = get_role(conf_doc, urc->role, &role_node);
+        switch(ret_fct){
         case 0:
             break;
         case -1:
@@ -517,6 +564,7 @@ int print_capabilities(user_role_capabilities_t *urc){
             errno = EINVAL;
             return_code = -4;
             goto free_rscs;
+        }
     }
     //Add commands to the list from user and remember if the user does not match
     ret_fct = add_user_commands(urc, role_node, &any_user_command, 
@@ -817,8 +865,10 @@ static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given){
         return 1;
     }
 }
-
-char *concat(char *str, char *s2){
+/**
+ * appends s2 to str with realloc, return new char*
+ */
+static char *concat(char *str, char *s2){
         int len = 0;
         char *s = NULL;
         if (str != NULL)
@@ -828,9 +878,11 @@ char *concat(char *str, char *s2){
         strcat(s, s2);
         return s;
 }
-
-char *str_replace (const char *s, unsigned int start, unsigned int length, const char *ct)
-{
+/**
+ * replace string s in position start to length character of ct
+ * return the new char*
+ */
+static char *str_replace (const char *s, unsigned int start, unsigned int length, const char *ct){
     char *new_s = NULL;
     size_t size = strlen (s);
     new_s = malloc (sizeof (*new_s) * (size - length + strlen (ct) + 1));
@@ -842,24 +894,10 @@ char *str_replace (const char *s, unsigned int start, unsigned int length, const
     }
     return new_s;
 }
-
-/* void *getnodeset (xmlXPathContextPtr context,xmlDocPtr doc, xmlChar *xpath, xmlXPathObjectPtr result){
-	context = xmlXPathNewContext(doc);
-	if (context == NULL) {
-		return NULL;
-	}
-	result = xmlXPathEvalExpression(xpath, context);
-    free(xpath);
-	if (result == NULL) {
-		return NULL;
-	}
-
-	if(xmlXPathNodeSetIsEmpty(result->nodesetval)){
-		xmlXPathFreeObject(result);
-		return NULL;
-	}
-	return (void*)result;
-} */
+/**
+ * find right role with xpath searching for role user
+ * return 0 if found, -1 if error, -2 if not found
+ */
 static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlNodePtr *role_node){
     int return_code = -1;
     xmlXPathObjectPtr result;
@@ -890,6 +928,10 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,xmlN
     xmlXPathFreeObject(result);
     return return_code;
 }
+/**
+ * find right role with xpath searching for group user
+ * return 0 if found, -1 if error, -2 if not found
+ */
 static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups, char *command,xmlNodePtr *role_node){
     int return_code = -1;
     xmlXPathObjectPtr result;
@@ -927,12 +969,6 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 	if(xmlXPathNodeSetIsEmpty(result->nodesetval)){
 		goto free_on_error;
 	}
-    if(result){
-        *role_node = result->nodesetval->nodeTab[0];
-        return_code = 0;
-    }else{
-        return_code = -2;
-    }
     if(result){
         *role_node = result->nodesetval->nodeTab[0];
         return_code = 0;
