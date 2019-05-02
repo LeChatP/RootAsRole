@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+configuration to tests for User
+-->
+<!DOCTYPE capabilityrole [
+<!ELEMENT capabilityrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (capabilities, users?, groups?)>
+<!ATTLIST role name ID #REQUIRED>
+<!ELEMENT capabilities (capability+)>
+<!ELEMENT users (user*)>
+<!ELEMENT groups (group*)>
+<!ELEMENT capability (#PCDATA)>
+<!ELEMENT user (commands?)>
+<!ATTLIST user name CDATA #REQUIRED>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ELEMENT command (#PCDATA)>
+]>
+<capabilityrole>
+  <roles>
+    <role name="r0le1">      <!-- 0 is not a bug, it's for test -->
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+            <command>echo "role1-user-cmd"</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="role2">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="foo">
+          <commands>
+            <command>echo "role2-foo-cmd"</command>
+          </commands>
+        </user>
+        <user name="%1$s">
+          <commands>
+            <command>echo "role2-user-cmd"</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="role3">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+            <command>echo "role3-user-cmd1"</command>
+            <command>echo "role3-user-cmd2"</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="role1">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+            <command>echo "role1-user-cmd"</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+  </roles>
+</capabilityrole>

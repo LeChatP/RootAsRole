@@ -4,7 +4,7 @@
 <!ELEMENT roles (role*)>
 <!ELEMENT role (capabilities, users?, groups?)>
 <!ATTLIST role name ID #REQUIRED>
-<!ELEMENT capabilities (capability*)>
+<!ELEMENT capabilities (capability+)>
 <!ELEMENT users (user*)>
 <!ELEMENT groups (group*)>
 <!ELEMENT capability (#PCDATA)>
@@ -18,15 +18,15 @@
 <capabilityrole>
 	<roles>
 		<role name="root">
- 			<capabilities>
+			<capabilities>
 				<capability>*</capability>
- 			</capabilities>
- 			<users>
- 				<user name="ROOTADMINISTRATOR"/>
- 			</users>
- 		</role>
-		
-	<!--	
+			</capabilities>
+			<users>
+				<user name="ROOTADMINISTRATOR"/>
+			</users>
+		</role>
+
+		<!--	
 		<role name="role1">
 			<capabilities>
 				<capability>cap_net_raw</capability>

@@ -11,6 +11,9 @@
 //define SR_DEBUG to log messages on capabilities, process attributes, and other privileges.
 //#define SR_DEBUG 1 
 
+// TODO remove dev build on release
+#define RAR_VERSION "1.1 dev build"
+
 //The path to the common shell
 #define BASH "/bin/bash"
 #define BASH_OPTION "--norc"

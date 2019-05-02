@@ -19,6 +19,7 @@
 #include <sys/prctl.h>
 #include <signal.h>
 #include <libxml/parser.h>
+#include <sys/stat.h>
 #include <getopt.h>
 
 extern char *optarg;
@@ -31,6 +32,7 @@ typedef struct _arguments_t {
     char *command;
     int noroot;
     int info;
+    int version;
     int help;
 } arguments_t;
 
@@ -99,14 +101,18 @@ int main(int argc, char *argv[])
 		print_help(0);
         goto free_rscs;
 	}
+    if(args.version){
+        printf("RootAsRole V%s\n",RAR_VERSION);
+        goto free_rscs;
+    }
 	if(args.help){
 	    print_help(1);
 	    return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
-    //Assert a role has been given
-	if (args.role == NULL){
-        fprintf(stderr, "A role is mandatory\n");
+    //Assert a role or a command has been given 
+	if (args.role == NULL && args.command == NULL){
+        fprintf(stderr, "A role or command is mandatory\n");
 		print_help(0);
         goto free_rscs;
 	}
@@ -126,6 +132,16 @@ int main(int argc, char *argv[])
 	    fprintf(stderr, "For security reason, you cannot execute a role under root. Please change the user or use the no-root option\n");
 	    goto free_rscs;
 	}
+
+    //Prevention of execution if configurationFile has write access for others
+    struct stat info;
+    if(stat(USER_CAP_FILE_ROLE,&info)!=0){
+        perror("Cannot get informations to security config file :");
+        goto free_rscs;
+    }else if(info.st_mode & S_IWOTH){
+        perror("For security reason, you cannot execute sr with other write access of the configuration file\n");
+	    goto free_rscs;
+    }
 	
 	//Retrieve the user capabilities from role (depending of the command)
 	//Print role info if info required
@@ -194,7 +210,7 @@ int main(int argc, char *argv[])
             return_code = EXIT_SUCCESS;
         }
         //delete the sr_aux temporary file
-        printf("End of role %s session.\n", args.role);
+        printf("End of role %s session.\n", urc->role);
         if(remove(sr_aux_filepath)){
             perror("Error while deleting temporary sr_aux file");
             return_code = EXIT_FAILURE;
@@ -220,7 +236,7 @@ Parse input arguments and check arguments validity (in length)
 return 0 on success, -1 on unknown arguments, -2 on invalid argument
 */
 static int parse_arg(int argc, char **argv, arguments_t *args){
-    *args = (arguments_t) {NULL, NULL, NULL, 0, 0, 0};
+    *args = (arguments_t) {NULL, NULL, NULL, 0, 0, 0, 0};
     
     while(1){
         int option_index = 0;
@@ -231,11 +247,12 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
             {"command", required_argument, 0,   'c'},
             {"no-root", no_argument,       0,   'n'},
             {"info",    no_argument,       0,   'i'},
+            {"version", no_argument,       0,   'v'},
             {"help",    no_argument,       0,   'h'},
             {0,         0,                 0,   0}
         };
 
-        c = getopt_long(argc, argv, "r:u:c:nih", long_options, &option_index);
+        c = getopt_long(argc, argv, "r:u:c:nivh", long_options, &option_index);
         if(c == -1) break;
     
         switch(c){
@@ -256,6 +273,9 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
                 break;
             case 'h':
                 args->help = 1;
+                break;
+            case 'v':
+                args->version = 1;
                 break;
             default:
                 return -1;
@@ -282,16 +302,18 @@ static int parse_arg(int argc, char **argv, arguments_t *args){
 Print Help message
 */
 static void print_help(int long_help){
-    printf("Usage : sr -r role [-n] [-c command] [-u user] [-h]\n");
+    printf("Usage : sr [-i] [-r role | -c command] [-n] [-u user] [-h] [-v]\n");
     if (long_help){
         printf("Use a role to provide capabilities to a shell or a command.\n");
         printf("Options:\n");
-        printf(" -r, --role=role        the capabilities role to use.\n");
-        printf(" -c, --command=command  launch the command instead of a bash shell.\n");
+        printf(" -r, --role=role        the capabilities role to use.*\n");
+        printf(" -c, --command=command  launch the command instead of a bash shell.*\n");
         printf(" -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo).\n");
         printf(" -u, --user=user        substitue the user (reserved to administrators).\n");
         printf(" -i, --info             print the commands the user is able to process within the role and quit.\n");
+        printf(" -v, --version          show the actual version of RootAsRole\n");
         printf(" -h, --help             print this help and quit.\n");
+        printf("* must specify one of these arguments at least\n");
     }
 }
 
@@ -346,7 +368,7 @@ static int verify_user(char **user, uid_t *user_id, gid_t *group_id,
         }else{
             //retrieve the user_id of the given user
             *user_id = get_user_id(given_user); 
-            if(*user_id < 0){
+            if(*user_id == (unsigned int) -1){
                 perror("Error retrieving id of the user.");
                 goto free_rscs_on_error;
             }
@@ -379,7 +401,7 @@ static int verify_user(char **user, uid_t *user_id, gid_t *group_id,
 	}
 	
 	//Eventualy for both cases, retrieve the id of the user group
-	if((*group_id = get_group_id(*user_id)) == -1){
+	if((*group_id = get_group_id(*user_id)) == (unsigned int) -1){
 	    perror("Cannot retrieve user group id");
 	    goto free_rscs_on_error;
 	}
@@ -436,7 +458,7 @@ static user_role_capabilities_t *retrieve_urc(const char* role,
 	        goto free_rscs;
             break;
         case -2:
-            perror("Missing given role or user");
+            perror("Missing given role or command or user");
             break;
         case -3:
             perror("Missing configuration file or syntax error in it");
@@ -449,6 +471,9 @@ static user_role_capabilities_t *retrieve_urc(const char* role,
             break;
         case -6:
             perror("This role and command cannot be used with your user or your groups");
+            break;
+        case -7:
+            perror("Command is not found in configuration or not allowed");
             break;
         default:
             perror("An unmanaged error occured");

@@ -55,3 +55,5 @@ dkms.conf
 obj/
 bin/
 
+# Hidden folders (for Linux IDE)
+/.*/
