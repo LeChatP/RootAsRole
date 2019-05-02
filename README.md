@@ -368,19 +368,9 @@ https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipula
 
 7. Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
 
-8. Use YAML instead of XML
+8. Use YAML or JSON instead of XML
 
-## Change log
-
-**V1.1 :**
-
-* Ability to no longer specify a role for the command sr
-* Adding tests for functionality without role
-* Added a system test environment (with a README)
-* Adding tests for the test environment
-* Correction of syntactical faults in the main README
-* Added optional parameter -v to get the RAR version
-* Fixed DTD on capabilities (require at least one capability in a role)
+9. Use Query language (XPath or other in JSON if To-Do #8) instead of sequential search of role
 
 ## References
 
