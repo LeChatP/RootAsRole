@@ -6,6 +6,7 @@
 *.ko
 *.obj
 *.elf
+*.ll
 
 # Linker output
 *.ilk
@@ -57,3 +58,4 @@ bin/
 
 # Hidden folders (for Linux IDE)
 /.*/
+.vscode/
