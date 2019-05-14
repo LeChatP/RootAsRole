@@ -1,8 +1,5 @@
 #Makefile for capable
 #Author: Eddie BILLOIR
-KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}
-KERN_OBJECTS = ${KERN_SOURCES:.c=.o}
-
 KERNEL ?= /lib/modules/$(shell uname -r)/build
 NOSTDINC_FLAGS := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 ARCH=$(shell uname -m | sed 's/x86_64/x86/' | sed 's/i386/x86/')
@@ -31,10 +28,12 @@ OBJ_DIR := obj
 BIN_DIR := bin
 KER_DIR := src/kernel
 
-COMPOPTIONS = -O2 -Wall -I ./
-LDOPTIONS := -O2 -Wall -I ./ -lelf
+COMPOPTIONS = -O2 -Wall -pedantic -I ./ -g
+LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf -g
 EXECUTABLE := capable
 
+KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}
+KERN_OBJECTS = $(BIN_DIR)/$(EXECUTABLE:=_kern.o)
 OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o)
 BINS := $(BIN_DIR)/$(EXECUTABLE)
 
@@ -59,6 +58,11 @@ $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
 build: $(BIN_DIR)/$(EXECUTABLE)
+
+install: $(BINS) $(KERN_OBJECTS)
+	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
+	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
+	setcap cap_audit_write,cap_audit_control+p /usr/bin/capable
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR)

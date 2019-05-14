@@ -7,6 +7,9 @@
  */
 #define SEC(NAME) __attribute__((section(NAME), used))
 
+/* adding specification fort getting current task */
+static u64 (*bpf_get_current_task)(void) =
+  (void *) BPF_FUNC_get_current_task;
 /* helper functions called from eBPF programs written in C */
 static void *(*bpf_map_lookup_elem)(void *map, void *key) =
 	(void *) BPF_FUNC_map_lookup_elem;
