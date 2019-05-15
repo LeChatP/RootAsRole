@@ -1,29 +1,29 @@
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <libelf.h>
-#include <gelf.h>
+#include "bpf_load.h"
+#include "libbpf.h"
+#include "perf-sys.h"
+#include <ctype.h>
 #include <errno.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#include <fcntl.h>
+#include <gelf.h>
+#include <libelf.h>
 #include <linux/bpf.h>
 #include <linux/filter.h>
-#include <linux/perf_event.h>
 #include <linux/netlink.h>
+#include <linux/perf_event.h>
 #include <linux/rtnetlink.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/syscall.h>
+#include <poll.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <poll.h>
-#include <ctype.h>
-#include "libbpf.h"
-#include "bpf_load.h"
-#include "perf-sys.h"
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <time.h>
 
 #define DEBUGFS "/sys/kernel/debug/tracing/"
 
@@ -135,9 +135,10 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 		if (isdigit(*event))
 			return populate_prog_array(event, fd);
 
-		snprintf(buf, sizeof(buf),
-			 "echo '%c:%s %s' >> /sys/kernel/debug/tracing/kprobe_events",
-			 is_kprobe ? 'p' : 'r', event, event);
+		snprintf(
+			buf, sizeof(buf),
+			"echo '%c:%s %s' >> /sys/kernel/debug/tracing/kprobe_events",
+			is_kprobe ? 'p' : 'r', event, event);
 		err = system(buf);
 		if (err < 0) {
 			printf("failed to create kprobe '%s' error '%s'\n",
@@ -180,7 +181,8 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 	id = atoi(buf);
 	attr.config = id;
 
-	efd = sys_perf_event_open(&attr, -1/*pid*/, 0/*cpu*/, -1/*group_fd*/, 0);
+	efd = sys_perf_event_open(&attr, -1 /*pid*/, 0 /*cpu*/, -1 /*group_fd*/,
+				  0);
 	if (efd < 0) {
 		printf("event %d fd %d err %s\n", id, efd, strerror(errno));
 		return -1;
@@ -197,15 +199,13 @@ static int load_maps(struct bpf_map_def *maps, int len)
 	int i;
 
 	for (i = 0; i < len / sizeof(struct bpf_map_def); i++) {
-
-		map_fd[i] = bpf_create_map(maps[i].type,
-					   maps[i].key_size,
-					   maps[i].value_size,
-					   maps[i].max_entries,
-					   maps[i].map_flags);
+		map_fd[i] =
+			bpf_create_map(maps[i].type, maps[i].key_size,
+				       maps[i].value_size, maps[i].max_entries,
+				       maps[i].map_flags);
 		if (map_fd[i] < 0) {
-			printf("failed to create a map: %d %s\n",
-			       errno, strerror(errno));
+			printf("failed to create a map: %d %s\n", errno,
+			       strerror(errno));
 			return 1;
 		}
 
@@ -262,7 +262,8 @@ static int parse_relo_and_apply(Elf_Data *data, Elf_Data *symbols,
 			return 1;
 		}
 		insn[insn_idx].src_reg = BPF_PSEUDO_MAP_FD;
-		insn[insn_idx].imm = map_fd[sym.st_value / sizeof(struct bpf_map_def)];
+		insn[insn_idx].imm =
+			map_fd[sym.st_value / sizeof(struct bpf_map_def)];
 	}
 
 	return 0;
@@ -297,14 +298,13 @@ int load_bpf_file(char *path)
 
 	/* scan over all elf sections to get license and map info */
 	for (i = 1; i < ehdr.e_shnum; i++) {
-
 		if (get_sec(elf, i, &ehdr, &shname, &shdr, &data))
 			continue;
 
 		if (0) /* helpful for llvm debugging */
 			printf("section %d:%s data %p size %zd link %d flags %d\n",
 			       i, shname, data->d_buf, data->d_size,
-			       shdr.sh_link, (int) shdr.sh_flags);
+			       shdr.sh_link, (int)shdr.sh_flags);
 
 		if (strcmp(shname, "license") == 0) {
 			processed_sec[i] = true;
@@ -328,7 +328,6 @@ int load_bpf_file(char *path)
 
 	/* load programs that need map fixup (relocations) */
 	for (i = 1; i < ehdr.e_shnum; i++) {
-
 		if (get_sec(elf, i, &ehdr, &shname, &shdr, &data))
 			continue;
 		if (shdr.sh_type == SHT_REL) {
@@ -342,7 +341,7 @@ int load_bpf_file(char *path)
 			    !(shdr_prog.sh_flags & SHF_EXECINSTR))
 				continue;
 
-			insns = (struct bpf_insn *) data_prog->d_buf;
+			insns = (struct bpf_insn *)data_prog->d_buf;
 
 			processed_sec[shdr.sh_info] = true;
 			processed_sec[i] = true;
@@ -357,13 +356,13 @@ int load_bpf_file(char *path)
 			    memcmp(shname_prog, "perf_event", 10) == 0 ||
 			    memcmp(shname_prog, "socket", 6) == 0 ||
 			    memcmp(shname_prog, "cgroup/", 7) == 0)
-				load_and_attach(shname_prog, insns, data_prog->d_size);
+				load_and_attach(shname_prog, insns,
+						data_prog->d_size);
 		}
 	}
 
 	/* load programs that don't use maps */
 	for (i = 1; i < ehdr.e_shnum; i++) {
-
 		if (processed_sec[i])
 			continue;
 
@@ -401,6 +400,10 @@ void read_trace_pipe(void)
 			buf[sz] = 0;
 			puts(buf);
 		}
+		struct timespec time;
+		time.tv_sec  = 0;
+		time.tv_nsec = 200000000L;
+		nanosleep(&time,NULL);
 	}
 }
 
@@ -431,7 +434,7 @@ int load_kallsyms(void)
 			break;
 		if (!addr)
 			continue;
-		syms[i].addr = (long) addr;
+		syms[i].addr = (long)addr;
 		syms[i].name = strdup(func);
 		i++;
 	}
@@ -457,8 +460,7 @@ struct ksym *ksym_search(long key)
 			return &syms[mid];
 	}
 
-	if (start >= 1 && syms[start - 1].addr < key &&
-	    key < syms[start].addr)
+	if (start >= 1 && syms[start - 1].addr < key && key < syms[start].addr)
 		/* valid ksym */
 		return &syms[start - 1];
 
@@ -473,9 +475,9 @@ int set_link_xdp_fd(int ifindex, int fd)
 	char buf[4096];
 	struct nlattr *nla, *nla_xdp;
 	struct {
-		struct nlmsghdr  nh;
+		struct nlmsghdr nh;
 		struct ifinfomsg ifinfo;
-		char             attrbuf[64];
+		char attrbuf[64];
 	} req;
 	struct nlmsghdr *nh;
 	struct nlmsgerr *err;
@@ -502,12 +504,11 @@ int set_link_xdp_fd(int ifindex, int fd)
 	req.nh.nlmsg_seq = ++seq;
 	req.ifinfo.ifi_family = AF_UNSPEC;
 	req.ifinfo.ifi_index = ifindex;
-	nla = (struct nlattr *)(((char *)&req)
-				+ NLMSG_ALIGN(req.nh.nlmsg_len));
-	nla->nla_type = NLA_F_NESTED | 43/*IFLA_XDP*/;
+	nla = (struct nlattr *)(((char *)&req) + NLMSG_ALIGN(req.nh.nlmsg_len));
+	nla->nla_type = NLA_F_NESTED | 43 /*IFLA_XDP*/;
 
 	nla_xdp = (struct nlattr *)((char *)nla + NLA_HDRLEN);
-	nla_xdp->nla_type = 1/*IFLA_XDP_FD*/;
+	nla_xdp->nla_type = 1 /*IFLA_XDP_FD*/;
 	nla_xdp->nla_len = NLA_HDRLEN + sizeof(int);
 	memcpy((char *)nla_xdp + NLA_HDRLEN, &fd, sizeof(fd));
 	nla->nla_len = NLA_HDRLEN + nla_xdp->nla_len;
@@ -528,13 +529,13 @@ int set_link_xdp_fd(int ifindex, int fd)
 	for (nh = (struct nlmsghdr *)buf; NLMSG_OK(nh, len);
 	     nh = NLMSG_NEXT(nh, len)) {
 		if (nh->nlmsg_pid != getpid()) {
-			printf("Wrong pid %d, expected %d\n",
-			       nh->nlmsg_pid, getpid());
+			printf("Wrong pid %d, expected %d\n", nh->nlmsg_pid,
+			       getpid());
 			goto cleanup;
 		}
 		if (nh->nlmsg_seq != seq) {
-			printf("Wrong seq %d, expected %d\n",
-			       nh->nlmsg_seq, seq);
+			printf("Wrong seq %d, expected %d\n", nh->nlmsg_seq,
+			       seq);
 			goto cleanup;
 		}
 		switch (nh->nlmsg_type) {

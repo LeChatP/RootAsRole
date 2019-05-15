@@ -63,19 +63,19 @@ int set_inheritable_capabilities(int nb_caps, const cap_value_t *capabilities);
 Add the capabilities to the permitted set of an opened file fd 
 Return 0 on success, -1 on failure.
 */
-int add_permitted_capabilities_to_file(const int fd, int nb_caps, 
-                                        const cap_value_t *capabilities);
-    
+int add_permitted_capabilities_to_file(const int fd, int nb_caps,
+				       const cap_value_t *capabilities);
+
 /* 
 Activate the securebits for the no-root option.
 Return 0 on success, -1 on failure.
-*/                                    
+*/
 int activates_securebits();
 
 /* 
 Activate the no-new-privileges for the no-root option.
 Return 0 on success, -1 on failure.
-*/                                    
+*/
 int activates_no_new_privs();
 
 /* 
@@ -84,7 +84,6 @@ The textual representation should be deallocated with free() afterwards.
 Return NULL if nb_caps = 0 or if an error occured.
 */
 char *cap_list_to_text(int nb_caps, const cap_value_t *capabilities);
-
 
 /******************************************************************************
  *                              DEBUG FUNCTIONS                               *
@@ -112,7 +111,6 @@ Print a full debug resume
 void print_debug_resume();
 
 #endif //SR_DEBUG
-
 
 #endif // CAPABILITIES_H_INCLUDED
 

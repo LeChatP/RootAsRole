@@ -62,7 +62,7 @@ build: $(BIN_DIR)/$(EXECUTABLE)
 install: $(BINS) $(KERN_OBJECTS)
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
-	setcap cap_audit_write,cap_audit_control+p /usr/bin/capable
+	setcap cap_dac_override,cap_sys_admin+p /usr/bin/capable
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR)

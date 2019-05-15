@@ -8,19 +8,19 @@
 #ifndef SR_CONSTANT_H_INCLUDED
 #define SR_CONSTANT_H_INCLUDED
 
-//define SR_DEBUG to log messages on capabilities, process attributes, and other privileges.
-//#define SR_DEBUG 1 
+// define SR_DEBUG to log messages on capabilities, process attributes, and
+// other privileges. #define SR_DEBUG 1
 
 #define RAR_VERSION "2.0 dev-build"
 
-//The path to the common shell
+// The path to the common shell
 #define BASH "/bin/bash"
 #define BASH_OPTION "--norc"
 
 #endif // SR_CONSTANT_H_INCLUDED
 
-/* 
- * 
+/*
+ *
  * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
  * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
  * Copyright Rémi Venant <remi.venant@irit.fr>, 2018

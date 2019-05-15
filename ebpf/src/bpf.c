@@ -19,42 +19,37 @@
  * License along with this program; if not,  see <http://www.gnu.org/licenses>
  */
 
-#include <stdlib.h>
-#include <memory.h>
-#include <unistd.h>
-#include <asm/unistd.h>
-#include <linux/bpf.h>
 #include "bpf.h"
+
 
 /*
  * When building perf, unistd.h is overrided. __NR_bpf is
  * required to be defined explicitly.
  */
 #ifndef __NR_bpf
-# if defined(__i386__)
-#  define __NR_bpf 357
-# elif defined(__x86_64__)
-#  define __NR_bpf 321
-# elif defined(__aarch64__)
-#  define __NR_bpf 280
-# else
-#  error __NR_bpf not defined. libbpf does not support your arch.
-# endif
+#if defined(__i386__)
+#define __NR_bpf 357
+#elif defined(__x86_64__)
+#define __NR_bpf 321
+#elif defined(__aarch64__)
+#define __NR_bpf 280
+#else
+#error __NR_bpf not defined. libbpf does not support your arch.
+#endif
 #endif
 
 static __u64 ptr_to_u64(void *ptr)
 {
-	return (__u64) (unsigned long) ptr;
+	return (__u64)(unsigned long)ptr;
 }
 
-static int sys_bpf(enum bpf_cmd cmd, union bpf_attr *attr,
-		   unsigned int size)
+static int sys_bpf(enum bpf_cmd cmd, union bpf_attr *attr, unsigned int size)
 {
 	return syscall(__NR_bpf, cmd, attr, size);
 }
 
-int bpf_create_map(enum bpf_map_type map_type, int key_size,
-		   int value_size, int max_entries, __u32 map_flags)
+int bpf_create_map(enum bpf_map_type map_type, int key_size, int value_size,
+		   int max_entries, __u32 map_flags)
 {
 	union bpf_attr attr;
 
@@ -70,8 +65,8 @@ int bpf_create_map(enum bpf_map_type map_type, int key_size,
 }
 
 int bpf_load_program(enum bpf_prog_type type, struct bpf_insn *insns,
-		     size_t insns_cnt, char *license,
-		     __u32 kern_version, char *log_buf, size_t log_buf_sz)
+		     size_t insns_cnt, char *license, __u32 kern_version,
+		     char *log_buf, size_t log_buf_sz)
 {
 	int fd;
 	union bpf_attr attr;
@@ -98,8 +93,7 @@ int bpf_load_program(enum bpf_prog_type type, struct bpf_insn *insns,
 	return sys_bpf(BPF_PROG_LOAD, &attr, sizeof(attr));
 }
 
-int bpf_map_update_elem(int fd, void *key, void *value,
-			__u64 flags)
+int bpf_map_update_elem(int fd, void *key, void *value, __u64 flags)
 {
 	union bpf_attr attr;
 
@@ -174,10 +168,10 @@ int bpf_prog_attach(int prog_fd, int target_fd, enum bpf_attach_type type,
 	union bpf_attr attr;
 
 	bzero(&attr, sizeof(attr));
-	attr.target_fd	   = target_fd;
+	attr.target_fd = target_fd;
 	attr.attach_bpf_fd = prog_fd;
-	attr.attach_type   = type;
-	attr.attach_flags  = flags;
+	attr.attach_type = type;
+	attr.attach_flags = flags;
 
 	return sys_bpf(BPF_PROG_ATTACH, &attr, sizeof(attr));
 }
@@ -187,7 +181,7 @@ int bpf_prog_detach(int target_fd, enum bpf_attach_type type)
 	union bpf_attr attr;
 
 	bzero(&attr, sizeof(attr));
-	attr.target_fd	 = target_fd;
+	attr.target_fd = target_fd;
 	attr.attach_type = type;
 
 	return sys_bpf(BPF_PROG_DETACH, &attr, sizeof(attr));

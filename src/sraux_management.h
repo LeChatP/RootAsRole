@@ -20,8 +20,8 @@ If change_user_required != 0, then the file will be put in /usr/bin
 instead of the user's home.
 The returned filepath is a dynamic char array and should be deallocated afterward.
 */
-char *create_sr_aux_temp(const char *user, const user_role_capabilities_t *urc, 
-                        const int change_user_required);
+char *create_sr_aux_temp(const char *user, const user_role_capabilities_t *urc,
+			 const int change_user_required);
 
 /* 
 Call sr_aux
@@ -29,8 +29,8 @@ Do an exeve on the temporary sr_aux file given in sr_aux_filepath,
 with the given arguments set in urc and noroot.
 Return -1 on failure, does not return on success.
 */
-int call_sr_aux(const char *sr_aux_filepath, 
-                const user_role_capabilities_t *urc, int noroot);
+int call_sr_aux(const char *sr_aux_filepath,
+		const user_role_capabilities_t *urc, int noroot);
 
 #endif // SRAUX_MANAGEMENT_H_INCLUDED
 
