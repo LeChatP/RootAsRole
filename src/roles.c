@@ -923,9 +923,9 @@ static char *str_replace(const char *s, unsigned int start, unsigned int length,
 	size_t size = strlen(s);
 	new_s = malloc(sizeof(*new_s) * (size - length + strlen(ct) + 1));
 	if (new_s != NULL) {
-		memcpy(new_s, s, start);
-		memcpy(&new_s[start], ct, strlen(ct));
-		memcpy(&new_s[start + strlen(ct)], &s[start + length],
+		memmove(new_s, s, start);
+		memmove(&new_s[start], ct, strlen(ct));
+		memmove(&new_s[start + strlen(ct)], &s[start + length],
 		       size - length - start + 1);
 	}
 	return new_s;
@@ -945,6 +945,13 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,
 	char *expression = (char *)malloc(strlen(expressionFormatUser) - 4 +
 					  strlen(user) * 2 + strlen(command) +
 					  1 * sizeof(char));
+	char *position = strchr(command,'\'');
+	int pos = position-command;
+	while(position != NULL){
+		command = str_replace(command,pos,1,"&apos;");
+		position = strchr(&command[pos+1],'\'');
+		pos = position-command;
+	}
 	sprintf(expression, expressionFormatUser, user, command, user);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
@@ -982,6 +989,13 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 	char *expression = NULL;
 	char *expressionFormatGroup =
 		"//role[groups/group[not(@name)]/commands/command/text()='%s'";
+	char *position = strchr(command,'\'');
+	int pos = position-command;
+	while(position != NULL){
+		command = str_replace(command,pos,1,"&apos;");
+		position = strchr(&command[pos+1],'\'');
+		pos = position-command;
+	}
 	char *orexpression =
 		"or count(groups/group[(not(@name)) and count(commands)=0])>0]";
 	char *tmpexpression = (char *)calloc(strlen(expressionFormatGroup) - 2 +
