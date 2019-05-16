@@ -16,7 +16,7 @@ SR_LDOPTIONS := -Wall -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTION
 EXECUTABLES := runTests
 
 SR_OBJS = $(addprefix $(SR_OBJ_DIR)/, user.o)
-OBJS := $(addprefix $(OBJ_DIR)/, utilsTests.o test.o allTests.o testScenarios.o testObserver.o testRoles.o runAllTests.o)
+OBJS := $(addprefix $(OBJ_DIR)/, utilsTests.o test.o allTests.o testScenarios.o testObserver.o testRoles.o testCommands.o runAllTests.o)
 BINS := $(BIN_DIR)/runTests
 
 all: $(BINS)

@@ -4,6 +4,7 @@
 #include "testObserver.h"
 #include "testRoles.h"
 #include "utilsTests.h"
+#include "testCommands.h"
 
 #define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 
@@ -51,6 +52,10 @@ int main(void){
     registerTest(noroleSuite,newTest(&testFindUserRoleNoCommandInConfiguration,"FindUserRoleNoCommandInConfiguration"));
     registerTest(noroleSuite,newTest(&testFindGroupRoleNoCommandInConfiguration,"FindGroupRoleNoCommandInConfiguration"));
 
+
+    TestSuite *commandsTest = newTestSuite("Testing commands");
+    registerTest(commandsTest,newTest(&testQuotedCommand,"QuotedCommand"));
+
     trigger(suite1,1);
     if(!haswriteaccess()){
         printf("You don't have the permission to run these tests\nPlease use sr to run this command\n");
@@ -58,5 +63,6 @@ int main(void){
     }
     trigger(suite2,1);
     trigger(noroleSuite,1);
+    trigger(commandsTest,1);
     printf("\n=========End of tests============\n");
 }
