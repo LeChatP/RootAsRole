@@ -106,7 +106,7 @@ Find user role for command specified
 Return 0 on success, -2 if role wasn't found,
 -3 if an error has been found in the xml doc, -1 if an other error happened
 */
-static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,
+static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command,
 			      xmlNodePtr *role_node);
 
 /*
@@ -115,7 +115,7 @@ Return 0 on success, -2 if role wasn't found,
 -3 if an error has been found in the xml doc, -1 if an other error happened
 */
 static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
-			       char *command, xmlNodePtr *role_node);
+			      const char *command, xmlNodePtr *role_node);
 
 /**
  * find the first role that matching command, user and group
@@ -422,6 +422,7 @@ int get_capabilities(user_role_capabilities_t *urc)
 			return_code = -4;
 			goto free_rscs;
 		}
+		xmlFree(xrole);
 	} else {
 		ret_fct = get_role(conf_doc, urc->role, &role_node);
 		switch (ret_fct) {
@@ -478,6 +479,7 @@ free_rscs:
 	if (conf_doc != NULL) {
 		xmlFreeDoc(conf_doc);
 	}
+	xmlFreeParserCtxt(parser_ctxt);
 	return return_code;
 }
 
@@ -934,7 +936,7 @@ static char *str_replace(const char *s, unsigned int start, unsigned int length,
  * find right role with xpath searching for role user
  * return 0 if found, -1 if error, -2 if not found
  */
-static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,
+static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command,
 			      xmlNodePtr *role_node)
 {
 	int return_code = -1;
@@ -942,23 +944,30 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,
 	xmlXPathContextPtr context;
 	char *expressionFormatUser =
 		"//role[users/user[@name=\"%s\"]/commands/command/text()='%s' or count(users/user[@name=\"%s\" and count(commands)=0])>0]";
-	char *expression = (char *)malloc(strlen(expressionFormatUser) - 4 +
-					  strlen(user) * 2 + strlen(command) +
-					  1 * sizeof(char));
 	char *position = strchr(command,'\'');
-	int pos = position-command;
-	while(position != NULL){
-		command = str_replace(command,pos,1,"&apos;");
-		position = strchr(&command[pos+1],'\'');
-		pos = position-command;
+	char *tmpcommand = malloc(strlen(command)*sizeof(char)+1);
+		strcpy(tmpcommand,command);
+	if(position != NULL){
+		int pos = position-command;
+		char *new_command = NULL;
+		char * ct = "&apos;";
+		while(position != NULL){
+			new_command = str_replace(tmpcommand,pos,1,ct);
+			free(tmpcommand);
+			tmpcommand = new_command;
+			position = strchr(&tmpcommand[pos+1],'\'');
+			pos = position-tmpcommand;
+		}
 	}
-	sprintf(expression, expressionFormatUser, user, command, user);
+	char *expression = (char *)malloc(strlen(expressionFormatUser) - 4 +
+					  strlen(user) * 2 + strlen(tmpcommand) +
+					  1 * sizeof(char));
+	sprintf(expression, expressionFormatUser, user, tmpcommand, user);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
 	}
 	result = xmlXPathEvalExpression((xmlChar *)expression, context);
-	free((xmlChar *)expression);
 	if (result == NULL) {
 		goto free_on_error;
 	}
@@ -973,7 +982,10 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user, char *command,
 		return_code = -2;
 	}
 free_on_error:
+	if(tmpcommand!=NULL)free(tmpcommand);
 	xmlXPathFreeObject(result);
+	xmlXPathFreeContext(context);
+	xmlFree((xmlChar *)expression);
 	return return_code;
 }
 /**
@@ -981,7 +993,7 @@ free_on_error:
  * return 0 if found, -1 if error, -2 if not found
  */
 static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
-			       char *command, xmlNodePtr *role_node)
+			       const char *command, xmlNodePtr *role_node)
 {
 	int return_code = -1;
 	xmlXPathObjectPtr result;
@@ -990,20 +1002,28 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 	char *expressionFormatGroup =
 		"//role[groups/group[not(@name)]/commands/command/text()='%s'";
 	char *position = strchr(command,'\'');
-	int pos = position-command;
-	while(position != NULL){
-		command = str_replace(command,pos,1,"&apos;");
-		position = strchr(&command[pos+1],'\'');
-		pos = position-command;
+	char *tmpcommand = malloc(strlen(command)*sizeof(char)+1);
+		strcpy(tmpcommand,command);
+	if(position != NULL){
+		int pos = position-command;
+		char *new_command = NULL;
+		char * ct = "&apos;";
+		while(position != NULL){
+			new_command = str_replace(tmpcommand,pos,1,ct);
+			free(tmpcommand);
+			tmpcommand = new_command;
+			position = strchr(&tmpcommand[pos+1],'\'');
+			pos = position-tmpcommand;
+		}
 	}
 	char *orexpression =
 		"or count(groups/group[(not(@name)) and count(commands)=0])>0]";
 	char *tmpexpression = (char *)calloc(strlen(expressionFormatGroup) - 2 +
-						     strlen(command) + 1,
+						     strlen(tmpcommand) + 1,
 					     sizeof(char));
 	char *name = "@name = \"";
 	char *tmpgroups = calloc(strlen(name), sizeof(char));
-	sprintf(tmpexpression, expressionFormatGroup, command);
+	sprintf(tmpexpression, expressionFormatGroup, tmpcommand);
 	if (nb_groups > 0) {
 		for (int i = 0; i < nb_groups; i++) {
 			tmpgroups = concat(tmpgroups, name);
@@ -1043,9 +1063,10 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 	}
 
 free_on_error:
-	free(result);
+	if(tmpcommand!=NULL)free(tmpcommand);
+	xmlXPathFreeObject(result);
 	xmlXPathFreeContext(context);
-	free((xmlChar *)expression);
+	xmlFree((xmlChar *)expression);
 	return return_code;
 }
 /**
