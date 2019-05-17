@@ -110,13 +110,13 @@ int call_sr_aux(const char *sr_aux_filepath,
 
 	//Create noroot arg: "noroot" if 1, "root" otherwise
 	if (noroot) {
-		if (!(noroot_arg = (char *)malloc(6 * sizeof(char))))
+		if (!(noroot_arg = (char *)malloc(7 * sizeof(char))))
 			goto free_rscs;
-		strncpy(noroot_arg, "noroot", 6);
+		strncpy(noroot_arg, "noroot", 7);
 	} else {
-		if (!(noroot_arg = (char *)malloc(4 * sizeof(char))))
+		if (!(noroot_arg = (char *)malloc(5 * sizeof(char))))
 			goto free_rscs;
-		strncpy(noroot_arg, "root", 4);
+		strncpy(noroot_arg, "root", 5);
 	}
 	//Exec sr_aux
 	if (urc->command == NULL) {
@@ -195,7 +195,7 @@ static char *create_filepath(const char *user, const int change_user_required)
 		if (!(filepath = (char *)malloc(filepath_len * sizeof(char))))
 			return NULL;
 		filepath[0] = '\0';
-		strncat(filepath, "/usr/bin/", 9);
+		strncat(filepath, "/usr/bin/", 10);
 	} else {
 		//we will store the program in current user home
 		char *home;
@@ -215,10 +215,10 @@ static char *create_filepath(const char *user, const int change_user_required)
 		}
 		filepath[0] = '\0';
 		strncat(filepath, home, len_home);
-		strncat(filepath, "/", 1);
+		strncat(filepath, "/", 2);
 		free(home);
 	}
-	strncat(filepath, "sr_aux_XXXXXX", 13);
+	strncat(filepath, "sr_aux_XXXXXX", 14);
 	return filepath;
 }
 
