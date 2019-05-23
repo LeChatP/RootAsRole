@@ -1,6 +1,7 @@
 #include "bpf_load.h"
 #include "libbpf.h"
 #include "sr_constants.h"
+#include "../../src/capabilities.h"
 #include <getopt.h>
 #include <linux/bpf.h>
 #include <linux/limits.h>
@@ -12,6 +13,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #define READ 0
 #define WRITE 1
@@ -25,12 +27,14 @@ typedef struct _arguments_t {
 	char *command;
 	int sleep;
 	int daemon;
+	int raw;
 	int version;
 	int help;
 } arguments_t;
 
 // keeps process pid, needed for signals and filtering
-static pid_t p_popen = -1;
+volatile pid_t p_popen = -1;
+volatile sig_atomic_t stop;
 
 /*
 Parse input arguments and check arguments validity (in length)
@@ -101,7 +105,6 @@ int main(int argc, char **argv)
 		goto free_rscs;
 	}
 	if (load_bpf(argv[0])) {
-		perror("The injection into the kernel has failed");
 		goto free_rscs;
 	}
 	if (args.command != NULL) {
@@ -111,14 +114,18 @@ int main(int argc, char **argv)
 		// specified the run as daemon by default
 		args.daemon = 1;
 	}
-	if (args.daemon) { // if command run as daemon then read and print logs from
+	if (args.raw) { // if command run as daemon then read and print logs from
 		// eBPF
 		signal(SIGINT,
 		       killpopen); // if sigint then kill command before exit
 		printf("| KERNEL\t\t\t\t\t   | PID\t| PPID\t| CAP\t|\n");
 		read_trace_pipe(); // print logs until kill
-		printf("an error has occured");
+		printf("an error has occured\n");
 		goto free_rscs;
+	} else if(args.daemon){
+		signal(SIGINT,killProc);
+		while (!stop)
+        	pause();
 	} else {
 		signal(SIGINT,
 		       killProc); // kill only command if SIGINT to continue program and
@@ -144,7 +151,7 @@ return 0 on success, -1 on unknown arguments, -2 on invalid argument
 */
 static int parse_arg(int argc, char **argv, arguments_t *args)
 {
-	*args = (arguments_t){ NULL, -1, 0, 0, 0 };
+	*args = (arguments_t){ NULL, -1, 0, 0, 0, 0 };
 
 	while (1) {
 		int option_index = 0;
@@ -153,12 +160,13 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 			{ "command", optional_argument, 0, 'c' },
 			{ "sleep", optional_argument, 0, 's' },
 			{ "daemon", no_argument, 0, 'd' },
+			{ "raw", no_argument, 0, 'r'},
 			{ "version", no_argument, 0, 'v' },
 			{ "help", no_argument, 0, 'h' },
 			{ 0, 0, 0, 0 }
 		};
 
-		c = getopt_long(argc, argv, "c:s:dvh", long_options,
+		c = getopt_long(argc, argv, "c:s:drvh", long_options,
 				&option_index);
 		if (c == -1)
 			break;
@@ -175,6 +183,9 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 			break;
 		case 'd':
 			args->daemon = 1;
+			break;
+		case 'r':
+			args->raw = 1;
 			break;
 		case 's':
 			args->sleep = strtol(optarg, &endptr, 10);
@@ -201,17 +212,20 @@ Print Help message
 */
 static void print_help(int long_help)
 {
-	printf("Usage : capable [-c command] [-s seconds] [-h] [-v]\n");
+	printf("Usage : capable [-c command] [-s seconds] [-r | -d] [-h] [-v]\n");
 	if (long_help) {
-		printf("Get every capabilities used by running program into sandbox.\n");
-		printf("If you run this command for daemon please use -s to kill "
+		printf("Get every capabilities used by running programs.\n");
+		printf("If you run this command for daemon you can use -s to kill "
 		       "automatically process\n");
 		printf("Options:\n");
-		printf(" -c, --command=command  launch the command to be more precise.\n");
-		printf(" -s, --sleep=number		specify number of seconds before kill "
-		       "program ");
-		printf(" -v, --version          show the actual version of RootAsRole\n");
-		printf(" -h, --help             print this help and quit.\n");
+		printf(" -c, --command=command	launch the command to be more precise.\n");
+		printf(" -s, --sleep=number	specify number of seconds before kill "
+		       "program \n");
+		printf(" -d, --daemon		collecting data until killing program printing result at end\n");
+		printf(" -r, --raw		show raw results of injection without any filtering\n");
+		printf(" -v, --version		show the actual version of RootAsRole\n");
+		printf(" -h, --help		print this help and quit.\n");
+		printf("Note: this tool is mainly useful for administrators, and is almost not user-friendly\n");
 	}
 }
 
@@ -227,7 +241,22 @@ static void killProc(int signum)
 			sleep(1);
 			i++;
 		}
-		kill(p_popen, SIGKILL);
+		if(i >= MAX_CHECK){
+			printf("SIGINT wait is timed-out\n");
+			kill(p_popen, SIGKILL);
+			i = 0;
+			while (waitpid(p_popen, NULL, 0) > 0 && i < MAX_CHECK) {
+				sleep(1);
+				i++;
+			}
+			if(i >= MAX_CHECK) {
+				perror("Cannot kill process... exit");
+				exit(-1);
+			}
+		}
+		stop = 1;
+	}else {
+		stop = 1;
 	}
 }
 /**
@@ -278,6 +307,8 @@ static int printResult()
 				   value); // else print everything
 		prev_key = key;
 	}
+	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 	free(pids);
 	return EXIT_SUCCESS;
 }
@@ -314,6 +345,9 @@ static pid_t popen2(const char *command)
 	if (pid < 0)
 		return pid;
 	else if (pid == 0) {
+		// remove all capabilities
+		cap_clear_flag(cap_get_proc(), CAP_INHERITABLE);
+		prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
 		char final_command[PATH_MAX];
 		sprintf(final_command, "%s", command);
 		execl("/bin/sh", "sh", "-c", command, NULL);
@@ -342,6 +376,7 @@ static int load_bpf(char *file)
 			goto free_on_error;
 		}
 	}
+	printf("%s\n",filename);
 	if (load_bpf_file(filename)) {
 		if (strlen(bpf_log_buf) > 1)
 			fprintf(stderr, "%s\n", bpf_log_buf);
@@ -358,7 +393,9 @@ free_on_error:
 static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps)
 {
 	if (caps <= (u_int64_t)0) {
-		printf("%d\t: No capabilities needed.\n", pid);
+		printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid,
+	       (u_int32_t)(uid >> 32), pid, ppid, get_process_name_by_pid(pid),
+	       "No capabilities needed");
 		return;
 	}
 	char *capslist = NULL;

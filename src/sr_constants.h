@@ -15,7 +15,8 @@
 
 //The path to the common shell
 #define BASH "/bin/bash"
-#define BASH_OPTION "--norc"
+#define BASH_NORC "--norc"
+#define BASH_NOPROFILE "--noprofile"
 
 #endif // SR_CONSTANT_H_INCLUDED
 

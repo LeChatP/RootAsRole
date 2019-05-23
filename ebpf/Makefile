@@ -24,8 +24,11 @@ CLANG ?= clang
 CC = gcc
 
 SRC_DIR := src
+SR_SRC_DIR := ../src
 OBJ_DIR := obj
+SR_OBJ_DIR := ../obj
 BIN_DIR := bin
+SR_BIN_DIR := ../bin
 KER_DIR := src/kernel
 
 COMPOPTIONS = -O2 -Wall -pedantic -I ./ -g
@@ -35,6 +38,7 @@ EXECUTABLE := capable
 KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}
 KERN_OBJECTS = $(BIN_DIR)/$(EXECUTABLE:=_kern.o)
 OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o)
+SR_OBJS:= $(addprefix $(SR_OBJ_DIR)/,capabilities.o)
 BINS := $(BIN_DIR)/$(EXECUTABLE)
 
 all: $(BINS) $(KERN_OBJECTS)
@@ -44,12 +48,20 @@ all: $(BINS) $(KERN_OBJECTS)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<
 
+$(SR_OBJ_DIR)/%.o : $(SR_SRC_DIR)/%.c | $(SR_OBJ_DIR)
+	$(CC) $(COMPOPTIONS) -o $@ -c $<
+
 $(OBJS): | $(OBJ_DIR)
+
+$(SR_OBJS): | $(SR_OBJ_DIR)
 
 $(OBJ_DIR):
 	mkdir $(OBJ_DIR)
 
-$(BIN_DIR)/$(EXECUTABLE): $(OBJS) | $(BIN_DIR)
+$(SR_OBJ_DIR):
+	mkdir $(SR_OBJ_DIR)
+
+$(BIN_DIR)/$(EXECUTABLE): $(SR_OBJS) $(OBJS) | $(SR_BIN_DIR) $(BIN_DIR)
 	$(CC) $^ -o $@ $(LDOPTIONS)
 
 $(BINS): | $(BIN_DIR)
@@ -57,15 +69,19 @@ $(BINS): | $(BIN_DIR)
 $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
+$(SR_BIN_DIR):
+	mkdir $(SR_BIN_DIR)
+
 build: $(BIN_DIR)/$(EXECUTABLE)
 
 install: $(BINS) $(KERN_OBJECTS)
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
+	cp $(BIN_DIR)/capable_kern.o /usr/lib/RootAsRole
 	setcap cap_dac_override,cap_sys_admin+p /usr/bin/capable
 
 clean:
-	@rm -rf $(BIN_DIR) $(OBJ_DIR)
+	@rm -rf $(BIN_DIR) $(OBJ_DIR) $(SR_OBJS)
 
 $(KERN_OBJECTS): $(KER_DIR)/capable_kern.c
 	#it will generate .ll file which is actually a LLVM assembly code

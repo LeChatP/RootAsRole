@@ -9,6 +9,8 @@
 
 /* adding specification fort getting current task */
 static u64 (*bpf_get_current_task)(void) = (void *)BPF_FUNC_get_current_task;
+static int (*bpf_get_stack)(void *ctx, void *buf, int size, int flags) =
+	(void *) BPF_FUNC_get_stack;
 /* helper functions called from eBPF programs written in C */
 static void *(*bpf_map_lookup_elem)(void *map, void *key) = (void *)
 	BPF_FUNC_map_lookup_elem;

@@ -943,7 +943,7 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command
 	xmlXPathObjectPtr result;
 	xmlXPathContextPtr context;
 	char *expressionFormatUser =
-		"//role[users/user[@name=\"%s\"]/commands/command/text()='%s' or count(users/user[@name=\"%s\" and count(commands)=0])>0]";
+		"//role[users/user[@name=\"%s\"]/commands/command/text()='%s']";
 	char *position = strchr(command,'\'');
 	char *tmpcommand = malloc(strlen(command)*sizeof(char)+1);
 		strcpy(tmpcommand,command);
@@ -963,6 +963,7 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command
 					  strlen(user) * 2 + strlen(tmpcommand) +
 					  1 * sizeof(char));
 	sprintf(expression, expressionFormatUser, user, tmpcommand, user);
+	printf("%s\n",expression);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
@@ -1000,7 +1001,7 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 	xmlXPathContextPtr context;
 	char *expression = NULL;
 	char *expressionFormatGroup =
-		"//role[groups/group[not(@name)]/commands/command/text()='%s'";
+		"//role[groups/group[not(@name)]/commands/command/text()='%s']";
 	char *position = strchr(command,'\'');
 	char *tmpcommand = malloc(strlen(command)*sizeof(char)+1);
 		strcpy(tmpcommand,command);
@@ -1016,8 +1017,6 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 			pos = position-tmpcommand;
 		}
 	}
-	char *orexpression =
-		"or count(groups/group[(not(@name)) and count(commands)=0])>0]";
 	char *tmpexpression = (char *)calloc(strlen(expressionFormatGroup) - 2 +
 						     strlen(tmpcommand) + 1,
 					     sizeof(char));
@@ -1036,13 +1035,10 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 		char *notname = "not(@name)";
 		int position1 = strstr(expressionFormatGroup, notname) -
 				expressionFormatGroup;
-		int position2 = strstr(orexpression, notname) - orexpression;
-		tmpexpression = str_replace(tmpexpression, position1,
+		expression = str_replace(tmpexpression, position1,
 					    strlen(notname), tmpgroups);
-		orexpression = str_replace(orexpression, position2,
-					   strlen(notname), tmpgroups);
-		expression = concat(tmpexpression, orexpression);
 	}
+	printf("%s\n",expression);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;

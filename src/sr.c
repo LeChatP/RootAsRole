@@ -489,7 +489,7 @@ retrieve_urc(const char *role, const char *user, const char *command,
 		perror("This role and command cannot be used with your user or your groups");
 		break;
 	case -7:
-		perror("Command is not found in configuration or not allowed");
+		perror("Command is not found in configuration or not allowed for your user/group");
 		break;
 	default:
 		perror("An unmanaged error occured");

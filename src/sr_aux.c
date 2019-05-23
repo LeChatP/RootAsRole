@@ -31,7 +31,7 @@ char *create_ps1(const char *role);
     - no root indicator: either "noroot" or something else
     - [command]: the command to execute instead of the bash, if the third indicator is "yes"
 */
-int main(int argc, char *argv[])
+int main(int argc, char *argv[], char* env[])
 {
 	int noroot; //no-root option indicator
 	const char *role;
@@ -39,8 +39,6 @@ int main(int argc, char *argv[])
 	cap_value_t *capabilities = NULL; //array of caps
 	int nb_caps = 0; //size of capapbilities
 	char *cap_text = NULL; //Text of caps
-
-	char *new_env[2] = { NULL, NULL }; //the futur shell environment
 
 #ifdef SR_DEBUG
 	printf("sr_aux, launching...\n");
@@ -112,7 +110,13 @@ int main(int argc, char *argv[])
 	capabilities = NULL;
 
 	//Create the PS1 value and set it to the environement;
-	new_env[0] = create_ps1(role);
+	//new_env[0] = create_ps1(role);
+	int i =0;
+	for(;env[i]!=NULL;i++){
+		if(strstr(env[i],"PS1=") != NULL)break;
+	}
+	if (env[i] == NULL) env[i+1] = NULL;
+	env[i] = create_ps1(role);
 
 #ifdef SR_DEBUG
 	printf("sr_aux, before execve final program...\n");
@@ -122,17 +126,17 @@ int main(int argc, char *argv[])
 	//Exec the bash (with or without a given command), with an empty env
 
 	if (command == NULL) {
-		execle(BASH, BASH, BASH_OPTION, (char *)NULL, new_env);
+		execle(BASH, BASH, BASH_NOPROFILE, BASH_NORC, (char *)NULL, env);
 	} else {
-		execle(BASH, BASH, BASH_OPTION, "-c", command, (char *)NULL,
-		       new_env);
+		execle(BASH, BASH, BASH_NOPROFILE, BASH_NORC, "-c", command, (char *)NULL,
+		       env);
 	}
 	//We should never go to this point if everything's all right
 	perror("Execution failed");
 
 on_error:
-	if (new_env[0] != NULL)
-		free(new_env[0]);
+	//if (new_env[0] != NULL)
+	//	free(new_env[0]);
 	if (cap_text != NULL)
 		free(cap_text);
 	if (capabilities != NULL)
