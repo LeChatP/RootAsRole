@@ -720,7 +720,7 @@ https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipula
 
 1. Enhance the -i option to print out the roles and the associated commands for a user. When a user calls sr  with only -i option he can get this information.
 
-2. Add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles. 
+2. Add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles.
 
 3. Create a command to help users figure out what are privileges needed by program. A possible solution is to use kprobe to trace cap_capable() in the kernel.
 
@@ -735,6 +735,8 @@ https://github.com/SamerW/RootAsRole/blob/master/doc/sr_details_on_caps_manipula
 8. Use YAML or JSON instead of XML
 
 9. Use Query language (XPath or other in JSON if To-Do #8) instead of sequential search of role
+
+10. Managing blacklist, whitelist and translating list for environnement variables. [inspirated by sudo environnement variables handling system](https://www.sudo.ws/repos/sudo/file/tip/plugins/sudoers/env.c)
 
 ## References
 

@@ -110,6 +110,8 @@ int main(int argc, char *argv[], char* env[])
 	capabilities = NULL;
 
 	//Create the PS1 value and set it to the environement;
+
+	//TODO: environnement whitelist/blacklist
 	//new_env[0] = create_ps1(role);
 	int i =0;
 	for(;env[i]!=NULL;i++){
