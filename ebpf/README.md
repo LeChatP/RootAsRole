@@ -52,6 +52,7 @@ WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
 So here's the result in fancy Markdown :
+
 | UID   | GID   | PID   | PPID  | NAME                  | CAPABILITIES  |
 | ----- | ----- | ----- | ----- | --------------------- | ------------- |
 | 1000  | 1000  | 17029 | 17028 | /proc/17029/cmdline   | cap_sys_admin |
