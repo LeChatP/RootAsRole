@@ -203,10 +203,26 @@ Perfect! We can see real adresses.
 
 ## References
 
-[1] <http://www.tcpdump.org/papers/bpf-usenix93.pdf>
+[1] <https://github.com/pratyushanand/learn-bpf>
 
-[2] <https://lwn.net/Articles/437884/>
+[2] <http://www.tcpdump.org/papers/bpf-usenix93.pdf>
 
-[3] <https://www.kernel.org/doc/Documentation/networking/filter.txt>
+[3] <https://lwn.net/Articles/437884/>
 
-[4] <http://events.linuxfoundation.org/sites/events/files/slides/Performance%20Monitoring%20and%20Analysis%20Using%20perf%20and%20BPF_1.pdf>
+[4] <https://www.kernel.org/doc/Documentation/networking/filter.txt>
+
+[5] <http://events.linuxfoundation.org/sites/events/files/slides/Performance%20Monitoring%20and%20Analysis%20Using%20perf%20and%20BPF_1.pdf>
+
+[6] <https://www.kernel.org/doc/html/latest/trace/ftrace.html>
+
+[7] <https://elixir.bootlin.com/linux/latest/source/samples/bpf/syscall_tp_kern.c>
+
+[8] <https://lwn.net/Articles/740157/>
+
+[9] <https://github.com/iovisor/ubpf/>
+
+[10] <https://www.bouncybouncy.net/blog/bpf_map_get_next_key-pitfalls/>
+
+[11] <https://www.kernel.org/doc/Documentation/trace/events.txt>
+
+[12] <https://prototype-kernel.readthedocs.io/en/latest/bpf/ebpf_maps.html>
