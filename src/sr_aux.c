@@ -87,7 +87,7 @@ int main(int argc, char *argv[], char* env[])
 	}
 
 	//Print an alert with the list of capabilities
-	printf("Privileged bash launched with ");
+	printf("Privileged bash launched with the role %s and ",role);
 	if (noroot) {
 		printf("no-root option and ");
 	}

@@ -5,6 +5,7 @@
 
 #define MAX_MAPS 32
 #define MAX_PROGS 32
+#define KPROBE_EVENTS "/sys/kernel/debug/tracing/kprobe_events"
 
 extern int map_fd[MAX_MAPS];
 extern int prog_fd[MAX_PROGS];

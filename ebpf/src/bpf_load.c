@@ -71,7 +71,7 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 	enum bpf_prog_type prog_type;
 	char buf[256];
 	int fd, efd, err, id;
-	struct perf_event_attr attr = {};
+	struct perf_event_attr attr = {0};
 
 	attr.type = PERF_TYPE_TRACEPOINT;
 	attr.sample_type = PERF_SAMPLE_RAW;
@@ -134,18 +134,17 @@ static int load_and_attach(const char *event, struct bpf_insn *prog, int size)
 
 		if (isdigit(*event))
 			return populate_prog_array(event, fd);
-
-		snprintf(
-			buf, sizeof(buf),
-			"echo '%c:%s %s' >> /sys/kernel/debug/tracing/kprobe_events",
-			is_kprobe ? 'p' : 'r', event, event);
-		err = system(buf);
-		if (err < 0) {
-			printf("failed to create kprobe '%s' error '%s'\n",
-			       event, strerror(errno));
+		
+		FILE *kprobe_events = fopen(KPROBE_EVENTS,"wa");
+		if ( kprobe_events == NULL ) {
+			perror("Error occurs");
+			fprintf( stderr, "failed to create kprobe %s\n", KPROBE_EVENTS);
 			return -1;
 		}
-
+		fprintf(
+			kprobe_events,"%c:%s %s",is_kprobe ? 'p' : 'r', 
+			event, event);
+		fclose(kprobe_events);
 		strcpy(buf, DEBUGFS);
 		strcat(buf, "events/kprobes/");
 		strcat(buf, event);
@@ -294,7 +293,12 @@ int load_bpf_file(char *path)
 		return 1;
 
 	/* clear all kprobes */
-	i = system("echo \"\" > /sys/kernel/debug/tracing/kprobe_events");
+	FILE *kprobe_events = fopen(KPROBE_EVENTS,"w");
+	if(kprobe_events == NULL){
+		fprintf(stderr,"cannot access to %s\n",KPROBE_EVENTS);
+		return 1;
+	}
+	fclose(kprobe_events);
 
 	/* scan over all elf sections to get license and map info */
 	for (i = 1; i < ehdr.e_shnum; i++) {

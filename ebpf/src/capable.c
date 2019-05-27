@@ -104,6 +104,13 @@ int main(int argc, char **argv)
 		return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
+	cap_t cap = cap_get_proc(); 
+	cap_flag_value_t v = 0; 
+	cap_get_flag(cap, CAP_SYS_ADMIN, CAP_EFFECTIVE, &v);
+	if(!access(KPROBE_EVENTS,W_OK)||!v){
+		printf("Please run this command with CAP_DAC_OVERRIDE and CAP_SYS_ADMIN capability\n");
+		goto free_rscs;
+	}
 	if (load_bpf(argv[0])) {
 		goto free_rscs;
 	}
@@ -124,6 +131,7 @@ int main(int argc, char **argv)
 		goto free_rscs;
 	} else if(args.daemon){
 		signal(SIGINT,killProc);
+		printf("Collecting capabilities asked to system...\nUse Ctrl+C to print result\n");
 		while (!stop)
         	pause();
 	} else {
@@ -151,7 +159,7 @@ return 0 on success, -1 on unknown arguments, -2 on invalid argument
 */
 static int parse_arg(int argc, char **argv, arguments_t *args)
 {
-	*args = (arguments_t){ NULL, -1, 0, 0, 0, 0 };
+	*args = (arguments_t){ NULL, -1, 0, 0, 0 };
 
 	while (1) {
 		int option_index = 0;
@@ -166,7 +174,7 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 			{ 0, 0, 0, 0 }
 		};
 
-		c = getopt_long(argc, argv, "c:s:drvh", long_options,
+		c = getopt_long(argc, argv, "c:s:drnvh", long_options,
 				&option_index);
 		if (c == -1)
 			break;
@@ -218,14 +226,14 @@ static void print_help(int long_help)
 		printf("If you run this command for daemon you can use -s to kill "
 		       "automatically process\n");
 		printf("Options:\n");
-		printf(" -c, --command=command	launch the command to be more precise.\n");
+		printf(" -c, --command=command	launch the command and filter result by his pid and childs.\n");
 		printf(" -s, --sleep=number	specify number of seconds before kill "
 		       "program \n");
 		printf(" -d, --daemon		collecting data until killing program printing result at end\n");
 		printf(" -r, --raw		show raw results of injection without any filtering\n");
 		printf(" -v, --version		show the actual version of RootAsRole\n");
 		printf(" -h, --help		print this help and quit.\n");
-		printf("Note: this tool is mainly useful for administrators, and is almost not user-friendly\n");
+		printf("Note: .\n");
 	}
 }
 
@@ -345,9 +353,7 @@ static pid_t popen2(const char *command)
 	if (pid < 0)
 		return pid;
 	else if (pid == 0) {
-		// remove all capabilities
-		cap_clear_flag(cap_get_proc(), CAP_INHERITABLE);
-		prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+		
 		char final_command[PATH_MAX];
 		sprintf(final_command, "%s", command);
 		execl("/bin/sh", "sh", "-c", command, NULL);
@@ -376,7 +382,6 @@ static int load_bpf(char *file)
 			goto free_on_error;
 		}
 	}
-	printf("%s\n",filename);
 	if (load_bpf_file(filename)) {
 		if (strlen(bpf_log_buf) > 1)
 			fprintf(stderr, "%s\n", bpf_log_buf);
@@ -435,16 +440,24 @@ static char *concat(char *str, char *s2)
  */
 static const char *get_process_name_by_pid(const int pid)
 {
-	char *name = (char *)calloc(1024, sizeof(char));
+	char *name = (char *)calloc(64, sizeof(char));
 	if (name) {
 		sprintf(name, "/proc/%d/cmdline", pid);
 		FILE *f = fopen(name, "r");
 		if (f) {
 			size_t size;
-			size = fread(name, sizeof(char), 1024, f);
+			size = fread(name, sizeof(char), 61, f);
 			if (size > 0) {
-				if ('\n' == name[size - 1])
-					name[size - 1] = '\0';
+				char *limit=strchr(name,' ');
+				if(limit != NULL){
+					name[limit-name]='\0';
+				}else if(name[size-1]=='\n'){
+					name[size-1]='\0';
+				}else{
+					name[size]='.';
+					name[size+1]='.';
+					name[size+2]='\0';
+				}
 			}
 			fclose(f);
 		}

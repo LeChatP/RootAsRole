@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <ctype.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/xpath.h> //adding xpath for simplified finding
@@ -963,7 +964,6 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command
 					  strlen(user) * 2 + strlen(tmpcommand) +
 					  1 * sizeof(char));
 	sprintf(expression, expressionFormatUser, user, tmpcommand, user);
-	printf("%s\n",expression);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
@@ -1038,7 +1038,6 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 		expression = str_replace(tmpexpression, position1,
 					    strlen(notname), tmpgroups);
 	}
-	printf("%s\n",expression);
 	context = xmlXPathNewContext(conf_doc);
 	if (context == NULL) {
 		goto free_on_error;
@@ -1424,7 +1423,7 @@ static int complete_role_capabilities(user_role_capabilities_t *urc,
 		goto free_rscs;
 	}
 	//Create an array of CAP_LAST_DEFINED capabilities to remove duplicates
-	//and avoir multiple invocation
+	//and avoid multiple invocation
 	if ((capability_dict = calloc(CAP_LAST_CAP + 1, sizeof(int))) == NULL) {
 		goto free_on_error;
 	}
