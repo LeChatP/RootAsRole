@@ -41,7 +41,7 @@ When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill p
 
 To retrieve every capabilities for tcpdump, I will run ```
 
-```Shell
+```Txt
 $ capable -c "tcpdump"
 Here's all capabilities intercepted :
 | UID   | GID   | PID   | PPID  | NAME                  | CAPABILITIES  |
@@ -80,7 +80,7 @@ As You can see the process names is unknown, that is normal because retrieving n
 
 So we will try :
 
-```Shell
+```Txt
 $ sr -c 'tcpdump'
 Authentication of lechatp...
 Password: 
@@ -119,7 +119,7 @@ Tcpdump works, but with lot of cpabilities, these capabilities are might not a r
 
 So we will try :
 
-```Shell
+```Txt
 $ sr -c tcpdump
 Authentication of lechatp...
 Password: 
@@ -146,7 +146,7 @@ Now tcpdump has the most convinient capability to our use case, and we also know
 
 Now we wants to get capabilities used to get addresses in kallsyms file :
 
-```Shell
+```Txt
 $ capable -c 'cat /proc/kallsyms'
 ...
 0000000000000000 T acpi_video_get_backlight_type	[video]
@@ -186,7 +186,7 @@ Same for this example : fork() is asking for CAP_SYS_ADMIN so, by default we don
 
 Let's try for this new role :
 
-```Shell
+```Txt
 $ cat /proc/kallsyms
 Authentication of lechatp...
 Password: 
