@@ -16,7 +16,14 @@
     extern char *getpassword(void);
 
     /**
-     * executes sr command and output pid with output pipe
+     * executes capable command and output pid with output pipe and kill
+     * and wait for exit
+     * Warning : pipe may not listen everything
+     */
+    void capable_command(char *args, int *outfp);
+
+    /**
+     * executes sr command and output pid with output pipe and wait
      * and wait for exit
      * Warning : pipe may not listen everything
      */

@@ -1,4 +1,5 @@
 #include "utilsTests.h"
+#include <signal.h>
 
     //saving
     static char *password = NULL;
@@ -8,6 +9,17 @@
             password = getpass("Password:");
         }
         return password;
+    }
+
+    void capable_command(char *args, int *outfp){
+        char *pass = getpassword();
+        char *command = malloc(strlen(args)+14);
+        sprintf(command,"/usr/bin/capable %s",args);
+        int infp;
+        pid_t pid = popen2(command,&infp,outfp);
+        write(infp,pass,strlen(pass));
+        close(infp);
+        kill(pid, SIGINT);
     }
 
     void sr_command(char *args, int *outfp){

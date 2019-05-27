@@ -1,13 +1,11 @@
 #include "utilsTests.h"
 
-int testCapableHelp();
 int testCapableFullHelp();
 int testCapableCommand();
 int testCapableCommandFilter();
 int testCapableSleep();
 int testCapableDaemon();
 int testCapableRaw();
-int testCapableDefaultDaemon();
 int testCapableVersion();
 
 int testCapableCommandTcpdumpResult();
