@@ -67,14 +67,65 @@ After that a new shell is opened. This shell contains the capabilities of the ro
 
 The advantage of RootAsRole module is that it allows controlling the list of privileges that you use with your programs. The administrator should configure the capabilityRole.xml file to achieve this objective. Here is a typcial example of the configuration file. Here the administrator defines the role1 that contains the privileges cap_net_raw and cap_sys_nice. Users awazan and remi are authorised to assume this role. However, user remi can assume this role only when he runs the programs tcpdump and iptables. user awazan can run any programs with the assumed role because he will get a privileged shell. In addition, members of groups adm , office and secretary can also assume the role role1.
 
-![Screenshot](doc/configurationexample2.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="awasan"/>
+        <user name="remi">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>          
+      </groups>
+    </role>
+```
 
 As you may note, here the user awazan has got a shell with privileges cap_net_raw and cap_sys_nice that are activated.
 ![Screenshot](doc/assumerole1.png)
 
 Another interesting feature of our module is that it allows controlling indirectly the resource on which the privilege will be used. For example,  let's suppose that the administrator wants to let user awazan to use the privilege cap_net_raw only with tcpdump and only on the interface ens160. In this case, the administrator should provide the following configuration file:
 
-![Screenshot](doc/tcpdump1.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump -i ens160</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>          
+      </groups>
+    </role>
+```
 
 As you see here, user awazan can run tcpdump to sniff the traffic of ens160 interface, but not other interfaces.
 
@@ -90,15 +141,75 @@ A conflict may be created when the list of programs defined at the user level is
 
 For example, suppose that we have edited our configuration file as following:
 
-![Screenshot](doc/configurationexample3.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+          </commands>
+        </user>
+        <user name="remi">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 User awazan is member of adm group. So here we have conflictual situation because user awazan can run only tcpdump with this role, whereas his group allows him to have a privileged shell. As explained before, we give more priority to configuration of the user awazan. So in this case user awazan will be only able to run tcpdump, although that the other members of his group will be able to have a privileged shell.
 
 ![Screenshot](doc/assumerole11.png)
 
-Another conflictual situation can be created between groups. For example, we have edited the configuration file to allow the members of groups adm, awazan and secretary to assume the role role1. No configuration is defined for user awazan. However, user awazan belongs to groups adm and awazan that have conflictual configurations. 
+Another conflictual situation can be created between groups. For example, we have edited the configuration file to allow the members of groups adm, awazan and secretary to assume the role role1. No configuration is defined for user awazan. However, user awazan belongs to groups adm and awazan that have conflictual configurations.
 
-![Screenshot](doc/configurationexample4.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="remi">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+          </commands>
+        </group>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 In this case, we designed our module to give the most generous decision. So in this case, the user awazan will get a privileged shell.
 
@@ -106,7 +217,41 @@ In this case, we designed our module to give the most generous decision. So in t
 
 Finally users can be suspended from assuming roles by adding an empty commands attributes. For example, here we suspend the user awazan from assuming the role role1.
 
-![Screenshot](doc/configurationexample5.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="awazan">
+          <commands>
+          </commands>
+        </user>
+        <user name="remi">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+          </commands>
+        </group>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 As you may notice, the user awazan is not able to assume role1.
 
@@ -116,7 +261,42 @@ As you may notice, the user awazan is not able to assume role1.
 
 A user can know the list of commands that he can use with a role by adding the i option. For example, here the user awazan uses the i option to know the list of commands he can use with the role role1.
 
-![Screenshot](doc/configurationexample6.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+        <user name="remi">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump</command>
+          </commands>
+        </group>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 Here user awazan can use with role1 the commands tcpdump and iptables.
 
@@ -134,7 +314,33 @@ Our modules forces the using of -n option when the current user is root. In this
 
 For example, lets suppose that the administrator has defined the following configuration for root and awazan users. Linux kernel has a special treatment for the root user. In this case, Linux kernel will give the list of all privileges to root user. We don't want that because we consider that the list of privileges should be distributed based on roles idea and not based on the uid of users. For this reason, we force the using of -n option to deactivate the default behaviour of Linux kernel.
 
-![Screenshot](doc/scenarioNoRoot/norootconfiguration.png)
+```Xml
+<role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+        <capability>cap_sys_nice</capability>
+      </capabilities>
+      <users>
+        <user name="root"/>
+        <user name="awazan">
+          <commands>
+            <command>/usr/sbin/tcpdump -i ens160</command>
+            <command>/usr/sbin/iptables</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 The root user must use "-n" option to assume a role.
 
@@ -186,9 +392,32 @@ Lets show how we can remove the bit s from ping program and use our module to ru
 
    5. re-assume the role root to configure our capabilityRole.xml file so that the user awazan can use ping program. Here is the new configuration file.
 
-      ![Screenshot](doc/configurationfilesping.png)
+      ```Xml
+         <role name="role1">
+            <capabilities>
+            <capability>cap_net_raw</capability>
+            </capabilities>
+            <users>
+            <user name="root"/>
+            <user name="awazan">
+               <commands>
+                  <command>/bin/ping</command>
+               </commands>
+            </user>
+            </users>
+            <groups>
+            <group name="adm"/>
+            <group name="office"/>
+            <group name="secretary">
+               <commands>
+                  <command>/usr/bin/printer</command>
+                  <command>/usr/bin/other</command>
+               </commands>
+            </group>
+            </groups>
+         </role>
 
-   6. User awazan assume the role1 with the "-c" option to run ping program. 
+   6. User awazan assume the role1 with the "-c" option to run ping program.
 
       ![Screenshot](doc/workping.png)
 
@@ -204,7 +433,19 @@ A user contacts his administrator to give him a privilege that allows him runnin
 
 Here is a simple python script that needs to bind a server on the port 80 [9] (the user running the script needs CAP_NET_BIND_SERVICE to do that).
 
-![Screenshot](doc/scenarioPython/pythonserver.png)
+```Python
+   import SimpleHTTPServer
+   import SocketServer
+
+   PORT = 80
+
+   Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
+
+   httpd = Socker.TCPServer(("",PORT), Handler)
+
+   print "serving at port", PORT
+   httpd.serve_forever()
+```
 
 If we try to execute the script without any privilege, we get the expected 'Permission denied'.
 
@@ -216,15 +457,15 @@ The first solution consists in using the setcap command in order to attribute th
 
 The second solution is to use pam_cap.so module, as follows:
 
-    The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
+The administrator sets cap_net_bind_service in the /etc/security/capability.conf file (pam_cap's configuration file).
 
 ![Screenshot](doc/scenarioPython/capConf.png)
 
-    As you see, the inheritable set of the shell has now the new capability.
+As you see, the inheritable set of the shell has now the new capability.
 
 ![Screenshot](doc/scenarioPython/bashPamCap.png)
 
-    The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the interpreter. After that the user can run the script.
+The administrator has to use setcap command to inject cap_net_bind_service in the Effective and Inheritable set of the interpreter. After that the user can run the script.
 
 ![Screenshot](doc/scenarioPython/WithPamCap.png)
 
@@ -232,7 +473,31 @@ However, in this case all scripts run by the same user will have the same privil
 
 Our solution provides a better alternative. Suppose that the capabilityRole.xml contains the following configuration:
 
-![Screenshot](doc/scenarioPython/pythonconfiguration.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_raw</capability>
+      </capabilities>
+      <users>
+        <user name="root"/>
+        <user name="awazan">
+          <commands>
+            <command>python /usr/local/Users/awazan/server.py</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 Then the user needs only to assume role1 using our sr tool and then run his (her) script. (S)he can use other shell to run the other non-privileged scripts.
 
@@ -240,11 +505,60 @@ Then the user needs only to assume role1 using our sr tool and then run his (her
 
 Suppose that the administrator wants to ensure that his user will run his http server script only on port 80 and not any port. The administrator will ask his user to modify his web server script to take the port number as an argument. Thus the new code will be as following:
 
-![Screenshot](doc/scenarioPython/newhttpserver.png)
+```Python
+#!/usr/bin/python2.7
+import SimpleHTTPServer
+import SocketServer
+import sys,getopt
+
+PORT = ''
+
+try:
+   opts, args = getopt.getopt(argv,"p:",["portnumber="])
+except getopt.GetoptError:
+   print 'server.py -p <portnumber>'
+   sys.exit(2)
+for opt, arg in opts:
+   if opt == '-p':
+      PORT= int(arg)
+
+Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
+
+httpd = Socker.TCPServer(("",PORT), Handler)
+
+print "serving at port", PORT
+httpd.serve_forever()
+if __name__ == "__main__":
+   main(sys.argv[1:])
+```
 
 After that the administrator will re-edit the capabilityRole.xml file to include the port argument as follows:
 
-![Screenshot](doc/scenarioPython/newconfiguration.png)
+```Xml
+    <role name="role1">
+      <capabilities>
+        <capability>cap_net_bind_service</capability>
+      </capabilities>
+      <users>
+        <user name="root"/>
+        <user name="awazan">
+          <commands>
+            <command>python /usr/local/Users/awazan/server.py -p 80</command>
+          </commands>
+        </user>
+      </users>
+      <groups>
+        <group name="adm"/>
+        <group name="office"/>
+        <group name="secretary">
+          <commands>
+            <command>/usr/bin/printer</command>
+            <command>/usr/bin/other</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+```
 
 As you see, the user will be able then to run his script on port 80 and not any other port.
 
@@ -258,11 +572,61 @@ Suppose a developer wants to test a program that (s)he has developed in order to
 
 This is an example program which tries to open a raw socket (cap_net_raw needed) [10]:
 
-![Screenshot](doc/scenarPreload/codeSocket.png)
+```C
+/*
+* A simple client that open a socket
+*/
+
+#include <stdio.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h> //Provides declarations for tcp header
+#include <netinet/ip.h> //Provides declarations for ip header
+
+int main(int argc, char *argv[]){
+   int sockfd;
+
+   //Create socket and check for error
+   if((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) < 0)
+   {
+      perror("Error : could not create socket\n");
+      return 1;
+   }else{
+      printf("Socket successfully created\n");
+   }
+   return 0;
+}
+```
 
 This is the code that tries to intercept the socket() call [10].
 
-![Screenshot](doc/scenarPreload/codeCapture.png)
+```C
+/*
+* A simple socket hook which calls the original socket library
+*/
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <sys/socket.h>
+#include <dlfcn.h>
+
+int (*o_socket)(int,int,int);
+
+int socket(int domain, int type, int protocol){
+   //find the next occurence of the socket() function
+   o_socket = slsym(RTLD_NEXT, "socket");
+
+   if(o_socket == NULL)
+   {
+      printf("Could not find the next socket() function occurence");
+      return -1;
+   }
+
+   printf("socket() call intercepted\n");
+
+   //return the result of the call to the original C socket() function
+   return o_socket(domain,type,protocol);
+}
+```
 
 As we can see, we need the capability cap_net_raw to open this socket.
 
