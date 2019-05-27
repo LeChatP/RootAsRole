@@ -53,7 +53,7 @@ WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 
 So here's the result in fancy Markdown :
 | UID   | GID   | PID   | PPID  | NAME                  | CAPABILITIES  |
-| --- | --- | --- | --- | --- | --- |
+| ----- | ----- | ----- | ----- | --------------------- | ------------- |
 | 1000  | 1000  | 17029 | 17028 | /proc/17029/cmdline   | cap_sys_admin |
 | 1000  | 1000  | 17030 | 17029 | /proc/17030/cmdline   | cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw, cap_sys_admin      |
 
@@ -160,8 +160,9 @@ Here's all capabilities intercepted :
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
-| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
-| --- | --- | --- | --- | --- | --- |
+
+| UID	| GID	| PID	| PPID	| NAME		        	| CAPABILITIES	|
+| ----- | ----- | ----- | ----- | --------------------- | ------------- |
 | 1000	| 1000	| 20128	| 20127	| /proc/20128/cmdline	| cap_sys_admin, cap_syslog	|
 | 1000	| 1000	| 20127	| 20126	| /proc/20127/cmdline	| cap_sys_admin	|
 
