@@ -35,7 +35,7 @@ typedef struct _arguments_t {
 
 // keeps process pid, needed for signals and filtering
 volatile pid_t p_popen = -1;
-volatile uid_t u_popen = -1;
+uid_t u_popen = -1;
 volatile sig_atomic_t stop;
 
 /*
@@ -109,11 +109,11 @@ int main(int argc, char **argv)
 		return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
-	cap_t cap = cap_get_proc(); 
-	cap_flag_value_t cap_sys_admin = 0, cap_dac_override = 0; 
-	cap_get_flag(cap, CAP_SYS_ADMIN, CAP_EFFECTIVE, &cap_sys_admin);
-	cap_get_flag(cap, CAP_DAC_OVERRIDE, CAP_EFFECTIVE, &cap_dac_override);
 	if(!access(KPROBE_EVENTS,W_OK)){
+		cap_t cap = cap_get_proc(); 
+		cap_flag_value_t cap_sys_admin = 0, cap_dac_override = 0; 
+		cap_get_flag(cap, CAP_SYS_ADMIN, CAP_EFFECTIVE, &cap_sys_admin);
+		cap_get_flag(cap, CAP_DAC_OVERRIDE, CAP_EFFECTIVE, &cap_dac_override);
 		if(!cap_sys_admin && !cap_dac_override){
 			printf("Please run this command with CAP_DAC_OVERRIDE and CAP_SYS_ADMIN capability\n");
 			goto free_rscs;
@@ -123,7 +123,6 @@ int main(int argc, char **argv)
 		goto free_rscs;
 	}
 	if (args.command != NULL) {
-		u_popen = set_uid();
 		if(u_popen > 0)p_popen = popen2(args.command);
 		else {
 			goto free_rscs;
@@ -336,7 +335,7 @@ static int printResult()
 				return_value = EXIT_FAILURE;
 				continue;
 			}
-			if(uid_gid >> 32 == u_popen){
+			if((int)uid_gid == u_popen){
 				res = bpf_map_lookup_elem(map_fd[0], &key,
 						&value); // lookup capabilities
 				caps |= value;
@@ -345,8 +344,11 @@ static int printResult()
 		}
 		if(caps == 0)
 			printf("No capabilities needed for this program.\n");
-		else
-			printf("Here's all capabilities intercepted for this program :\n%s",get_caplist(caps));
+		else{
+			printf("Here's all capabilities intercepted for this program :\n%s\n",get_caplist(caps));
+			printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+			printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+		}
 	}
 		
 	return return_value;
@@ -360,7 +362,7 @@ static uid_t set_uid(){
 	struct passwd *capasswd;
 	if((capasswd = getpwnam("capable")) != NULL){
 		if(!setuid(capasswd->pw_uid)) return_value = capasswd->pw_uid;
-		perror("an error occurs");
+		else perror("an error occur");
 	}else{
 		perror("capable user isn't exist, please reinstall capable tool");
 	}
@@ -371,15 +373,45 @@ static uid_t set_uid(){
 // implementing popen but returning pid and getting in & out pipes asynchronous
 static pid_t popen2(const char *command)
 {
+	int pipefd[2];
+	if(pipe(pipefd)){
+		perror("cannot create pipe");
+		return 0;
+	}
 	pid_t pid = fork();
-	if (pid < 0)
-		return pid;
-	else if (pid == 0) {
+	if (pid == 0) {
+		if(close(pipefd[0])){
+			perror("child cannot close reading pipe");
+			exit(1);
+		}
+		uid_t uid =set_uid();
+		if(write(pipefd[1],&uid,sizeof(uid_t)) < 0){
+			perror("child cannot send uid to father");
+			exit(1);
+		}
+		if(close(pipefd[1])){
+			perror("child cannot close writing pipe");
+			exit(1);
+		}
+		set_uid();
 		char final_command[PATH_MAX];
 		sprintf(final_command, "%s", command);
 		execl("/bin/sh", "sh", "-c", command, NULL);
 		perror("execl");
 		exit(1);
+	}else{ //parent
+		if(close(pipefd[1])){
+			perror("father cannot close writing pipe");
+			exit(1);
+		}
+		if(read(pipefd[0],&u_popen,sizeof(uid_t))<0){
+			perror("father cannot read uid");
+			exit(1);
+		}
+		if(close(pipefd[0])){
+			perror("father cannot close reading pipe");
+			exit(1);
+		}
 	}
 	return pid;
 }
