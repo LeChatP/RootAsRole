@@ -3,6 +3,7 @@
 #include "sr_constants.h"
 #include "../../src/capabilities.h"
 #include <getopt.h>
+#include <pwd.h>
 #include <linux/bpf.h>
 #include <linux/limits.h>
 #include <signal.h>
@@ -34,6 +35,7 @@ typedef struct _arguments_t {
 
 // keeps process pid, needed for signals and filtering
 volatile pid_t p_popen = -1;
+volatile uid_t u_popen = -1;
 volatile sig_atomic_t stop;
 
 /*
@@ -66,6 +68,10 @@ static int load_bpf(char *file);
  */
 static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps);
 
+static char* get_caplist(u_int64_t caps);
+
+static uid_t set_uid();
+
 /**
  * appends s2 to str with realloc, return new char*
  */
@@ -83,7 +89,6 @@ static void killpopen(int signum);
 
 static int printResult();
 
-static int filter(pid_t pid, pid_t ppid, pid_t **pids, int *array_size);
 
 int main(int argc, char **argv)
 {
@@ -105,17 +110,24 @@ int main(int argc, char **argv)
 		goto free_rscs;
 	}
 	cap_t cap = cap_get_proc(); 
-	cap_flag_value_t v = 0; 
-	cap_get_flag(cap, CAP_SYS_ADMIN, CAP_EFFECTIVE, &v);
-	if(!access(KPROBE_EVENTS,W_OK)||!v){
-		printf("Please run this command with CAP_DAC_OVERRIDE and CAP_SYS_ADMIN capability\n");
-		goto free_rscs;
+	cap_flag_value_t cap_sys_admin = 0, cap_dac_override = 0; 
+	cap_get_flag(cap, CAP_SYS_ADMIN, CAP_EFFECTIVE, &cap_sys_admin);
+	cap_get_flag(cap, CAP_DAC_OVERRIDE, CAP_EFFECTIVE, &cap_dac_override);
+	if(!access(KPROBE_EVENTS,W_OK)){
+		if(!cap_sys_admin && !cap_dac_override){
+			printf("Please run this command with CAP_DAC_OVERRIDE and CAP_SYS_ADMIN capability\n");
+			goto free_rscs;
+		}
 	}
 	if (load_bpf(argv[0])) {
 		goto free_rscs;
 	}
 	if (args.command != NULL) {
-		p_popen = popen2(args.command);
+		u_popen = set_uid();
+		if(u_popen > 0)p_popen = popen2(args.command);
+		else {
+			goto free_rscs;
+		}
 	} else if (!args.daemon &&
 		   args.sleep < 0) { // if there's no command, no daemon and no sleep
 		// specified the run as daemon by default
@@ -280,80 +292,82 @@ static void killpopen(int signum)
  */
 static int printResult()
 {
-	u_int64_t value, uid;
-	pid_t key, prev_key = -1, ppid;
-	int res, array_size = 1;
-	pid_t *pids = calloc(array_size, sizeof(pid_t));
-	pids[0] = p_popen;
-	printf("Here's all capabilities intercepted :\n");
-	printf("| UID\t| GID\t| PID\t| PPID\t| NAME\t\t\t| CAPABILITIES\t|\n");
-	while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) {
-		res = bpf_map_lookup_elem(map_fd[0], &key,
-					  &value); // get capabilities
-		if (res < 0) {
-			printf("No capabilities value for %d ??\n", key);
-			continue;
-		}
-		res = bpf_map_lookup_elem(map_fd[1], &key, &ppid); // get ppid
-		if (res < 0) {
-			printf("No ppid for %d ??\n", key);
-			continue;
-		}
-		res = bpf_map_lookup_elem(map_fd[2], &key,
-					  &uid); // get uid and gid
-		if (res < 0) {
-			printf("No uid/gid for %d ??\n", key);
-			continue;
-		}
-		if (p_popen >
-		    -1) { // if command is specified then filter result to command
-			if (filter(key, ppid, &pids, &array_size)) {
-				print_caps(key, ppid, uid, value);
+	int return_value = EXIT_SUCCESS;
+	u_int64_t value, uid_gid;
+	u_int64_t key, prev_key = -1;
+	int res;
+	if(p_popen ==-1){
+		printf("Here's all capabilities intercepted :\n");
+		printf("| UID\t| GID\t| PID\t| PPID\t| NAME\t\t\t| CAPABILITIES\t|\n");
+		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
+			res = bpf_map_lookup_elem(map_fd[0], &key,
+						&value); // get capabilities
+			if (res < 0) {
+				printf("No capabilities value for %d ??\n", (int)(key>>32));
+				return_value = EXIT_FAILURE;
+				continue;
 			}
-		} else
-			print_caps(key, ppid, uid,
-				   value); // else print everything
-		prev_key = key;
+			res = bpf_map_lookup_elem(map_fd[1], &key, &uid_gid); // get uid/gid
+			if (res < 0) {
+				printf("No uid/gid for %d ??\n", (int)(key>>32));
+				return_value = EXIT_FAILURE;
+				continue;
+			}
+			print_caps(key>>32, (u_int32_t) key, uid_gid,
+					value); // else print everything
+			prev_key = key;
+		}
+		printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+		printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+	}else {
+		u_int64_t caps = 0;
+		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
+			res = bpf_map_lookup_elem(map_fd[1], &key,
+						&uid_gid);
+			if (res < 0) {
+				printf("No capabilities value for %d ??\n", (int)(key>>32));
+				return_value = EXIT_FAILURE;
+				continue;
+			}
+			if(uid_gid >> 32 == u_popen){
+				res = bpf_map_lookup_elem(map_fd[0], &key,
+						&value); // lookup capabilities
+				caps |= value;
+			}
+			prev_key = key;
+		}
+		if(caps == 0)
+			printf("No capabilities needed for this program.\n");
+		else
+			printf("Here's all capabilities intercepted for this program :\n%s",get_caplist(caps));
 	}
-	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
-	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
-	free(pids);
-	return EXIT_SUCCESS;
+		
+	return return_value;
 }
-
 /**
- * check if ppid is in array and append him, then returns true
+ * retrieve capable user, otherwise, use non-defined uid in the range of scripts uids
+ * from https://refspecs.linuxfoundation.org/LSB_2.1.0/LSB-generic/LSB-generic/uidrange.html
  */
-static int filter(pid_t pid, pid_t ppid, pid_t **pids, int *array_size)
-{
-	for (int i = 0; i < *array_size; i++) {
-		if ((*pids)[i] == ppid || (*pids)[i] == pid) {
-			(*array_size)++;
-			if (realloc((*pids), (*array_size) * sizeof(int)) == NULL) {
-				perror("error occurs");
-				free(*pids);
-				exit(EXIT_FAILURE);
-			}
-			(*pids)[(*array_size) - 1] = pid;
-			return 1;
-		}
-		if ((*pids)[i] == pid) {
-			return 1;
-		}
+static uid_t set_uid(){
+	int return_value = 0;
+	struct passwd *capasswd;
+	if((capasswd = getpwnam("capable")) != NULL){
+		if(!setuid(capasswd->pw_uid)) return_value = capasswd->pw_uid;
+		perror("an error occurs");
+	}else{
+		perror("capable user isn't exist, please reinstall capable tool");
 	}
-	return 0;
+	return return_value;
 }
 
 // https://dzone.com/articles/simple-popen2-implementation
 // implementing popen but returning pid and getting in & out pipes asynchronous
 static pid_t popen2(const char *command)
 {
-	pid_t pid;
-	pid = fork();
+	pid_t pid = fork();
 	if (pid < 0)
 		return pid;
 	else if (pid == 0) {
-		
 		char final_command[PATH_MAX];
 		sprintf(final_command, "%s", command);
 		execl("/bin/sh", "sh", "-c", command, NULL);
@@ -403,6 +417,14 @@ static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps)
 	       "No capabilities needed");
 		return;
 	}
+	char *capslist = get_caplist(caps);
+	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid,
+	       (u_int32_t)(uid >> 32), pid, ppid, get_process_name_by_pid(pid),
+	       capslist);
+	free(capslist);
+}
+
+static char* get_caplist(u_int64_t caps){
 	char *capslist = NULL;
 	for (int pos = 0; pos < sizeof(u_int64_t) * 8;
 	     pos++) { // caps > ((u_int64_t)1 << pos)&&
@@ -414,10 +436,7 @@ static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps)
 			cap_free(cap);
 		}
 	}
-	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid,
-	       (u_int32_t)(uid >> 32), pid, ppid, get_process_name_by_pid(pid),
-	       capslist);
-	free(capslist);
+	return capslist;
 }
 
 /**

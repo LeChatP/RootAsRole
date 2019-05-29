@@ -142,7 +142,7 @@ End of role net session.
 
 Now tcpdump has the most convinient capability to our use case, and we also know that tcpdump may need other capabilities if this use case isn't convienentfor user.
 
-## Another Example
+## Example 2
 
 Now we wants to get capabilities used to get addresses in kallsyms file :
 
@@ -202,6 +202,45 @@ End of role stacktrace session.
 ```
 
 Perfect! We can see real adresses.
+
+## Example 3
+
+In this example we will try to find capabilities used by sshd :
+
+```Txt
+$ capable -c /usr/sbin/sshd
+Here's all capabilities intercepted :
+| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
+| 1000	| 1000	| 3961	| 3960	| /proc/3961/cmdline	| cap_dac_read_search, cap_setgid, cap_sys_admin	|
+| 1000	| 1000	| 3960	| 3959	| /proc/3960/cmdline	| cap_sys_admin	|
+WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
+WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
+```
+
+But this output appears to be wrong, because sshd is listening to a port. So we will trying to run as daemon capable and test ssh in parallel :
+
+```Txt
+$ capable
+Collecting capabilities asked to system...
+Use Ctrl+C to print result
+^CHere's all capabilities intercepted :
+| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
+| 1000	| 1000	| 3772	| 3770	| /proc/3772/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3760	| 3693	| /proc/3760/cmdline	| cap_dac_read_search, cap_setgid, cap_sys_admin	|
+| 1000	| 1000	| 3784	| 3782	| /proc/3784/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3757	| 3755	| /proc/3757/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3761	| 1975	| /proc/3761/cmdline	| cap_dac_override, cap_net_bind_service, cap_sys_resource	|
+| 1000	| 1000	| 3752	| 3736	| /proc/3752/cmdline	| cap_sys_admin	|
+| 0	| 0	| 1569	| 1392	| /usr/lib/xorg/Xorg	| cap_sys_admin	|
+| 1000	| 1000	| 3693	| 2917	| bash	| cap_sys_admin	|
+| 1000	| 1000	| 3745	| 3743	| /proc/3745/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3736	| 3732	| /proc/3736/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3739	| 3737	| /proc/3739/cmdline	| cap_sys_admin	|
+| 1000	| 1000	| 3781	| 3779	| /proc/3781/cmdline	| cap_sys_admin	|
+| 0	| 0	| 394	| 1	| /lib/systemd/systemd-journald	| cap_kill, cap_setgid, cap_setuid, cap_sys_ptrace, cap_sys_admin	|
+WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
+WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
+```
 
 ## TO-DO
 

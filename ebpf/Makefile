@@ -75,10 +75,11 @@ $(SR_BIN_DIR):
 build: $(BIN_DIR)/$(EXECUTABLE)
 
 install: $(BINS) $(KERN_OBJECTS)
+	id -u capable &>/dev/null || useradd capable -MNr -s /usr/sbin/nologin -d /nonexistent -c "Capable from RootAsRole,,,"
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
 	cp $(BIN_DIR)/capable_kern.o /usr/lib/RootAsRole
-	setcap cap_dac_override,cap_sys_admin+ep /usr/bin/capable
+	setcap cap_dac_override,cap_sys_admin,cap_setuid+ep /usr/bin/capable
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR) $(SR_OBJS)
