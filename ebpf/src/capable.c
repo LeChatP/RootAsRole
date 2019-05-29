@@ -427,11 +427,11 @@ static int load_bpf(char *file)
 	char *filename = malloc(strlen(file) + strlen(filenameFormat) - 2 + 1);
 	sprintf(filename, filenameFormat, file);
 	if (access(filename, F_OK)) {
-		if (!access("/usr/lib/RootAsRole/capable_kern.o", F_OK)) {
-			free(filename);
-			filename = "/usr/lib/RootAsRole/capable_kern.o";
+		if (!access("/usr/lib/RootAsRole/capable_kern.o", F_OK)) { //if file in library is accessible
+			free(filename); // then free actual path to malloc new path
+			filename = malloc(35);
+			strcpy(filename,"/usr/lib/RootAsRole/capable_kern.o");
 		} else {
-			free(filename);
 			perror("Missing injector in librairies or in current folder");
 			goto free_on_error;
 		}
