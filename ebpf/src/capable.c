@@ -294,26 +294,33 @@ static int printResult()
 {
 	int return_value = EXIT_SUCCESS;
 	u_int64_t value, uid_gid;
-	u_int64_t key, prev_key = -1;
+	int key, prev_key = -1;
 	int res;
 	if(p_popen ==-1){
+		int ppid = -1;
 		printf("Here's all capabilities intercepted :\n");
 		printf("| UID\t| GID\t| PID\t| PPID\t| NAME\t\t\t| CAPABILITIES\t|\n");
 		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
 			res = bpf_map_lookup_elem(map_fd[0], &key,
 						&value); // get capabilities
 			if (res < 0) {
-				printf("No capabilities value for %d ??\n", (int)(key>>32));
+				printf("No capabilities value for %d ??\n", key);
 				return_value = EXIT_FAILURE;
 				continue;
 			}
 			res = bpf_map_lookup_elem(map_fd[1], &key, &uid_gid); // get uid/gid
 			if (res < 0) {
-				printf("No uid/gid for %d ??\n", (int)(key>>32));
+				printf("No uid/gid for %d ??\n", key);
 				return_value = EXIT_FAILURE;
 				continue;
 			}
-			print_caps(key>>32, (u_int32_t) key, uid_gid,
+			res = bpf_map_lookup_elem(map_fd[2], &key, &ppid); // get uid/gid
+			if (res < 0) {
+				printf("No ppid for %d ??\n", key);
+				return_value = EXIT_FAILURE;
+				continue;
+			}
+			print_caps(key, ppid, uid_gid,
 					value); // else print everything
 			prev_key = key;
 		}
@@ -325,7 +332,7 @@ static int printResult()
 			res = bpf_map_lookup_elem(map_fd[1], &key,
 						&uid_gid);
 			if (res < 0) {
-				printf("No capabilities value for %d ??\n", (int)(key>>32));
+				printf("No capabilities value for %d ??\n", key);
 				return_value = EXIT_FAILURE;
 				continue;
 			}
@@ -409,17 +416,17 @@ free_on_error:
 /**
  * print caps logged from map
  */
-static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps)
+static void print_caps(int pid, int ppid, u_int64_t uid_gid, u_int64_t caps)
 {
 	if (caps <= (u_int64_t)0) {
-		printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid,
-	       (u_int32_t)(uid >> 32), pid, ppid, get_process_name_by_pid(pid),
+		printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
+	       (u_int32_t)(uid_gid >> 32), pid, ppid, get_process_name_by_pid(pid),
 	       "No capabilities needed");
 		return;
 	}
 	char *capslist = get_caplist(caps);
-	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid,
-	       (u_int32_t)(uid >> 32), pid, ppid, get_process_name_by_pid(pid),
+	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
+	       (u_int32_t)(uid_gid >> 32), pid, ppid, get_process_name_by_pid(pid),
 	       capslist);
 	free(capslist);
 }
