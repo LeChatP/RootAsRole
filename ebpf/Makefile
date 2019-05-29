@@ -32,7 +32,7 @@ SR_BIN_DIR := ../bin
 KER_DIR := src/kernel
 
 COMPOPTIONS = -O2 -Wall -pedantic -I ./
-LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf -g
+LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf
 EXECUTABLE := capable
 
 KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}

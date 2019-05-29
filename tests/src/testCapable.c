@@ -198,20 +198,17 @@ int testCapableCommandCatResult(){
 }
 int testCapableCommandSSHD(){
     int return_code = 0;
-    char *name = "-c 'cat /proc/kallsyms'";
+    char *name = "-c '/usr/sbin/sshd'";
     int outfp;
     capable_command(*name,outfp);
     char ligne[1024];
-    int cnraw = 0, csadmin = 0;
+    int cnbs = 0;
     int nb_kall = 0;
     while (read(outfp,ligne,sizeof(ligne)) >= 0)
     {
-        if(strstr(ligne,"cap_syslog") !=NULL)cnraw = 1;
-        if(strstr(ligne,"cap_sys_admin") !=NULL)csadmin = 1;
-        if(strstr(ligne,"0000000000000000") != NULL) nb_kall ++;
+        if(strstr(ligne,"cap_net_bind_service") !=NULL)cnbs = 1;
     }
-    if(cnraw&&csadmin) return_code = 1;
-    if(nb_kall == 0) printf("WARNING: cat has Syslog capablity!");
+    if(cnbs) return_code = 1;
     return return_code;
 }
 int testCapableCommandApache(){

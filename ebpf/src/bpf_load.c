@@ -382,7 +382,7 @@ int load_bpf_file(char *path)
 		    memcmp(shname, "cgroup/", 7) == 0)
 			load_and_attach(shname, data->d_buf, data->d_size);
 	}
-
+	elf_end(elf);
 	close(fd);
 	return 0;
 }

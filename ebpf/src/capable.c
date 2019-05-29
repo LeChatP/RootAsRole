@@ -81,7 +81,7 @@ static char *concat(char *str, char *s2);
  * Looking for command name
  * return command or path if process does not exist anymore
  */
-static const char *get_process_name_by_pid(const int pid);
+static char *get_process_name_by_pid(const int pid);
 
 static void killProc(int signum);
 
@@ -118,6 +118,7 @@ int main(int argc, char **argv)
 			printf("Please run this command with CAP_DAC_OVERRIDE and CAP_SYS_ADMIN capability\n");
 			goto free_rscs;
 		}
+		cap_free(cap);
 	}
 	if (load_bpf(argv[0])) {
 		goto free_rscs;
@@ -297,7 +298,7 @@ static int printResult()
 	int res;
 	if(p_popen ==-1){
 		int ppid = -1;
-		printf("Here's all capabilities intercepted :\n");
+		printf("\nHere's all capabilities intercepted :\n");
 		printf("| UID\t| GID\t| PID\t| PPID\t| NAME\t\t\t| CAPABILITIES\t|\n");
 		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
 			res = bpf_map_lookup_elem(map_fd[0], &key,
@@ -345,7 +346,7 @@ static int printResult()
 		if(caps == 0)
 			printf("No capabilities needed for this program.\n");
 		else{
-			printf("Here's all capabilities intercepted for this program :\n%s\n",get_caplist(caps));
+			printf("\nHere's all capabilities intercepted for this program :\n%s\n",get_caplist(caps));
 			printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
 			printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 		}
@@ -442,6 +443,7 @@ static int load_bpf(char *file)
 	}
 	return_code = 0;
 free_on_error:
+	free(filename);
 	return return_code;
 }
 
@@ -450,17 +452,21 @@ free_on_error:
  */
 static void print_caps(int pid, int ppid, u_int64_t uid_gid, u_int64_t caps)
 {
+	char* name = get_process_name_by_pid(pid);
 	if (caps <= (u_int64_t)0) {
+		
 		printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
-	       (u_int32_t)(uid_gid >> 32), pid, ppid, get_process_name_by_pid(pid),
+	       (u_int32_t)(uid_gid >> 32), pid, ppid, name,
 	       "No capabilities needed");
 		return;
 	}
-	char *capslist = get_caplist(caps);
+	char *capslist = NULL;
+	capslist = get_caplist(caps);
 	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
-	       (u_int32_t)(uid_gid >> 32), pid, ppid, get_process_name_by_pid(pid),
+	       (u_int32_t)(uid_gid >> 32), pid, ppid, name,
 	       capslist);
 	free(capslist);
+	free(name);
 }
 
 static char* get_caplist(u_int64_t caps){
@@ -468,10 +474,18 @@ static char* get_caplist(u_int64_t caps){
 	for (int pos = 0; pos < sizeof(u_int64_t) * 8;
 	     pos++) { // caps > ((u_int64_t)1 << pos)&&
 		if ((caps & ((u_int64_t)1 << pos)) != 0) {
-			char *cap = cap_to_name(pos);
-			if (capslist != NULL)
+			char *cap = NULL;
+			if((cap= cap_to_name(pos)) == NULL){
+				printf("Can't recognize %d capability",pos);
+				perror("");
+			}
+			if (capslist != NULL){
 				capslist = concat(capslist, ", ");
-			capslist = concat(capslist, cap);
+				capslist = concat(capslist, cap);
+			}else{
+				capslist = malloc(strlen(cap)*sizeof(char)+1);
+				strcpy(capslist,cap);
+			}
 			cap_free(cap);
 		}
 	}
@@ -496,7 +510,7 @@ static char *concat(char *str, char *s2)
  * Looking for command name
  * return command or path if process does not exist anymore
  */
-static const char *get_process_name_by_pid(const int pid)
+static char *get_process_name_by_pid(const int pid)
 {
 	char *name = (char *)calloc(64, sizeof(char));
 	if (name) {
