@@ -1,6 +1,7 @@
 #include "bpf_load.h"
 #include "libbpf.h"
 #include "sr_constants.h"
+#include "sorting.h"
 #include "../../src/capabilities.h"
 #include <getopt.h>
 #include <pwd.h>
@@ -11,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/prctl.h>
@@ -263,7 +263,7 @@ static void killProc(int signum)
 		}
 		if(i >= MAX_CHECK){
 			printf("SIGINT wait is timed-out\n");
-			kill(p_popen, SIGKILL);
+			if(!kill(p_popen, SIGKILL));
 			i = 0;
 			while (waitpid(p_popen, NULL, 0) > 0 && i < MAX_CHECK) {
 				sleep(1);
@@ -294,7 +294,7 @@ static int printResult()
 {
 	int return_value = EXIT_SUCCESS;
 	u_int64_t value, uid_gid;
-	int key, prev_key = -1;
+	pid_t key, prev_key = -1;
 	int res;
 	if(p_popen ==-1){
 		int ppid = -1;
@@ -328,7 +328,12 @@ static int printResult()
 		printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 	}else {
 		u_int64_t caps = 0;
-		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
+		int array_size = 1;
+		pid_t ppid;
+		pid_t *puids = calloc(array_size,sizeof(pid_t*));
+		SortedPids *all = NULL;
+		puids[0] = p_popen;
+		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // get all process with this uid store all in sorted array
 			res = bpf_map_lookup_elem(map_fd[1], &key,
 						&uid_gid);
 			if (res < 0) {
@@ -336,17 +341,44 @@ static int printResult()
 				return_value = EXIT_FAILURE;
 				continue;
 			}
-			if((int)uid_gid == u_popen){
-				res = bpf_map_lookup_elem(map_fd[0], &key,
-						&value); // lookup capabilities
-				caps |= value;
+			res = bpf_map_lookup_elem(map_fd[2], &key,
+						&ppid);
+			if (res < 0) {
+				printf("No capabilities value for %d ??\n", key);
+				return_value = EXIT_FAILURE;
+				continue;
 			}
+			if((int)uid_gid == u_popen){
+				array_size++;
+				if((puids = realloc(puids,array_size*sizeof(pid_t*))) == NULL){
+					perror("unable to store pids");
+				}
+				puids[array_size-1] = key;
+			}
+			append_pid(all,key,ppid);
 			prev_key = key;
 		}
+		prev_key = -1;
+		int result_size = array_size;
+		pid_t *result = calloc(result_size+1,sizeof(pid_t));
+		memcpy(result,puids,sizeof(pid_t)*result_size+1);
+		for(int i = 0 ; i< array_size ; i++){
+			get_childs(all,puids[i],result,&result_size); // get all childs of all puids
+		}
+		free(puids);
+		for(int i = 0 ; i<result_size;i++){ // retrieve all capabilities from all childs
+				res = bpf_map_lookup_elem(map_fd[0], &result[i],
+				&value); // lookup capabilities
+				caps |= value;
+		}
+		free(result);
 		if(caps == 0)
 			printf("No capabilities needed for this program.\n");
 		else{
-			printf("\nHere's all capabilities intercepted for this program :\n%s\n",get_caplist(caps));
+			char *capslist = NULL;
+			capslist = get_caplist(caps);
+			printf("\nHere's all capabilities intercepted for this program :\n%s\n",capslist);
+			free(capslist);
 			printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
 			printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 		}
@@ -394,7 +426,6 @@ static pid_t popen2(const char *command)
 			perror("child cannot close writing pipe");
 			exit(1);
 		}
-		set_uid();
 		char final_command[PATH_MAX];
 		sprintf(final_command, "%s", command);
 		execl("/bin/sh", "sh", "-c", command, NULL);

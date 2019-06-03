@@ -31,13 +31,13 @@ BIN_DIR := bin
 SR_BIN_DIR := ../bin
 KER_DIR := src/kernel
 
-COMPOPTIONS = -O2 -Wall -pedantic -I ./
-LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf
+COMPOPTIONS = -O2 -Wall -pedantic -I ./ -g
+LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf -g 
 EXECUTABLE := capable
 
 KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}
 KERN_OBJECTS = $(BIN_DIR)/$(EXECUTABLE:=_kern.o)
-OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o)
+OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o sorting.o)
 SR_OBJS:= $(addprefix $(SR_OBJ_DIR)/,capabilities.o)
 BINS := $(BIN_DIR)/$(EXECUTABLE)
 
