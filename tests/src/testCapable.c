@@ -212,18 +212,81 @@ int testCapableCommandSSHD(){
     return return_code;
 }
 int testCapableCommandApache(){
-    
+    int return_code = 0;
+    char *name = "-c '/usr/sbin/apache2ctl'";
+    int outfp;
+    capable_command(*name,outfp);
+    char ligne[1024];
+    int cnbs = 0, cspt = 0;
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,"cap_net_bind_service") !=NULL)cnbs = 1;
+        if(strstr(ligne,"cap_sys_ptrace") != NULL) cspt = 1;
+    }
+    if(cnbs && cspt) return_code = 1;
+    return return_code;
 }
 
 int testCapableCommandIncorrect(){
-    
+    int return_code = 0;
+    char *name = "-c 'CapaBle foo bar'";
+    int outfp;
+    capable_command(*name,outfp);
+    char ligne[1024];
+    int notfound = 0, param = 0, usage = 0;
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,"CapaBle: not found") !=NULL)notfound = 1;
+        if(strstr(ligne,"Bad parameter") != NULL) param = 1;
+        if(strstr(ligne,"Usage : ") != NULL) usage = 1;
+    }
+    if(notfound && param && usage) return_code = 1;
+    return return_code;
 }
 int testCapableSleepIncorrect(){
-    
+    int return_code = 0;
+    char *name = "-s 3d";
+    int outfp;
+    capable_command(*name,outfp);
+    char ligne[1024];
+    int  param = 0, usage = 0;
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,"Bad parameter") != NULL) param = 1;
+        if(strstr(ligne,"Usage : ") != NULL) usage = 1;
+    }
+    if(param && usage) return_code = 1;
+    return return_code;
 }
 int testCapableSyntaxError(){
-    
+    int return_code = 0;
+    char *name = "-foo bar";
+    int outfp;
+    capable_command(*name,outfp);
+    char ligne[1024];
+    int invalid = 0, param = 0, usage = 0;
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,"capable: invalid option -- 'f'") != NULL) invalid = 1;
+        if(strstr(ligne,"Bad parameter") != NULL) param = 1;
+        if(strstr(ligne,"Usage : ") != NULL) usage = 1;
+    }
+    if(invalid && param && usage) return_code = 1;
+    return return_code;
 }
 int testCapableNoCapabilitiesNeeded(){
-    
+    int return_code = 0;
+    char *name = "-c echo";
+    int outfp;
+    capable_command(*name,outfp);
+    char ligne[1024];
+
+    int csa = 0, multiplecaps = 0;
+    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    {
+        if(strstr(ligne,"cap_sys_admin") != NULL) csa = 1;
+        if(strstr(ligne,", ") != NULL) multiplecaps = 1;
+    }
+    if(csa&&!multiplecaps) return_code = 1;
+    return return_code;
 }
