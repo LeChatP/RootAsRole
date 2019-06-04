@@ -63,7 +63,7 @@ After that a new shell is opened. This shell contains the capabilities of the ro
 
 ![Screenshot](doc/assumerootrole.png)
 
-For more details, please see [How to use](https://github.com/SamerW/RootAsRole/wiki/How-to-use)
+For more details, please see **[How to use](https://github.com/SamerW/RootAsRole/wiki/How-to-use)**
 
 ## Capable Tool
 
@@ -71,6 +71,8 @@ Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabil
 You can also use this tool to check if the tested program ask unwanted capabilities, then we recommand you to check integrity of programs.
 
 ## [Why choosing our module?](https://github.com/SamerW/RootAsRole/wiki/Why-choosing-our-module)
+
+## [How sr and sr_aux work?](https://github.com/SamerW/RootAsRole/wiki/How-sr-and-sr_aux-work)
 
 ## Limitations
 
