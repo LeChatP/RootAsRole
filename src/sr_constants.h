@@ -11,7 +11,7 @@
 //define SR_DEBUG to log messages on capabilities, process attributes, and other privileges.
 //#define SR_DEBUG 1
 
-#define RAR_VERSION "2.0 dev-build"
+#define RAR_VERSION "2.0"
 
 //The path to the common shell
 #define BASH "/bin/bash"
