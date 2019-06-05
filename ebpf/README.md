@@ -246,6 +246,8 @@ WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 
 * Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack.
 
+* Make this tool testable. Tests are created but not functionning.
+
 ## References
 
 [1] <https://github.com/pratyushanand/learn-bpf>
