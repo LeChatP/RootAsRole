@@ -11,15 +11,16 @@
         return password;
     }
 
-    void capable_command(char *args, int *outfp){
-        char *pass = getpassword();
-        char *command = malloc(strlen(args)+14);
-        sprintf(command,"/usr/bin/capable %s",args);
-        int infp;
-        pid_t pid = popen2(command,&infp,outfp);
-        write(infp,pass,strlen(pass));
-        close(infp);
-        kill(pid, SIGINT);
+    pid_t capable_command(char *args){
+        pid_t pid = fork();
+        if(pid ==0) {
+            char *command = malloc(strlen(args)+19);
+            sprintf(command,"/usr/bin/capable %s",args);
+            int res =t_system(command);
+            free(command);
+            exit(res);
+        }
+        return pid;
     }
 
     void sr_command(char *args, int *outfp){
@@ -28,6 +29,7 @@
         sprintf(command,"/usr/bin/sr %s",args);
         int infp;
         popen2(command,&infp,outfp);
+        free(command);
         write(infp,pass,strlen(pass));
         close(infp);
         wait(NULL);
@@ -39,6 +41,7 @@
         sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
         int infp;
         popen2(command,&infp,outfp);
+        free(command);
         write(infp,pass,strlen(pass));
         close(infp);
         wait(NULL);
@@ -65,8 +68,7 @@
             dup2(p_stdout[WRITE], WRITE);
             char final_command[PATH_MAX];
             sprintf(final_command,"'%s'",command);
-            
-            execl("/bin/sh", "sh", "-c", command, NULL);
+            execl("/bin/bash", "sh", "-c", command, NULL);
             perror("execl");
             exit(1);
         }
@@ -80,6 +82,43 @@
             *outfp = p_stdout[READ];
         return pid;
     }
+
+    //https://dzone.com/articles/simple-popen2-implementation
+    //implementing popen but returning pid and getting in & out pipes
+    pid_t popen2(const char *command, int *infp, int *outfp)
+    {
+        int p_stdin[2], p_stdout[2];
+        pid_t pid;
+        if (pipe(p_stdin) != 0 || pipe(p_stdout) != 0)
+            return -1;
+        if(fd_set_blocking(p_stdout[READ],0)==0){
+            printf("Cannot set non_blocking command output\n");
+            return -1;
+        }
+        pid = fork();
+        if (pid < 0)return pid;
+        else if (pid == 0){
+            close(p_stdin[WRITE]);
+            dup2(p_stdin[READ], READ);
+            close(p_stdout[READ]);
+            dup2(p_stdout[WRITE], WRITE);
+            char final_command[PATH_MAX];
+            sprintf(final_command,"'%s'",command);
+            //execv(command, );
+            perror("execl");
+            exit(1);
+        }
+        if (infp == NULL)
+            close(p_stdin[WRITE]);
+        else
+            *infp = p_stdin[WRITE];
+        if (outfp == NULL)
+            close(p_stdout[READ]);
+        else
+            *outfp = p_stdout[READ];
+        return pid;
+    }
+
 
 	int copy_file(char *old_filename, char  *new_filename)
 	{

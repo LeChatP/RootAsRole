@@ -320,10 +320,10 @@ int testFindFirstRoleWithGroup(void){
 }
 
 /**
- * test if match when no command is specified to a user
+ * test if not matching when no command is specified to a user
  */
 int testFindUserRoleNoCommandInConfiguration(){
-    int return_code = 0;
+    int return_code = 1;
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
@@ -338,7 +338,7 @@ int testFindUserRoleNoCommandInConfiguration(){
     while (read(outfp,ligne,sizeof(ligne)) >= 0)
     {
         if(strstr(ligne,name) != NULL){
-            return_code = 1;
+            return_code = 0;
             break;
         }
     }
@@ -352,7 +352,7 @@ int testFindUserRoleNoCommandInConfiguration(){
  * test if match when no command is specified to a group
  */
 int testFindGroupRoleNoCommandInConfiguration(){
-    int return_code = 0;
+    int return_code = 1;
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
@@ -369,7 +369,7 @@ int testFindGroupRoleNoCommandInConfiguration(){
     while (read(outfp,ligne,sizeof(ligne)) >= 0)
     {
         if(strstr(ligne,name) != NULL){
-            return_code = 1;
+            return_code = 0;
             break;
         }
     }

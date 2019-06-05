@@ -26,7 +26,7 @@ int afterRoot(void){
 int testQuotedCommand(void){
     int return_code = 0;
     beforeRoot();
-    char *name = "-c \"echo 'bobo'\"";
+    char *name = "-r root -c \"echo 'bobo'\"";
     int outfp;
     sr_command(name,&outfp);
     char ligne[1024];
@@ -37,7 +37,7 @@ int testQuotedCommand(void){
             goto free_rscs;
         }
     }
-    name = "-c \"echo 'bo\\'bo'\"";
+    name = "-r root -c \"echo 'bo\\'bo'\"";
     sr_command(name,&outfp);
     while (read(outfp,ligne,sizeof(ligne)) >= 0)
     {
