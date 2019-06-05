@@ -182,12 +182,12 @@ int testCapableCommandTcpdumpResult(){
 }
 int testCapableCommandPingResult(){
     int return_code = 0;
-    char *name = "-c 'ping 8.8.8.8 > /dev/null'";
+    char *name = "-c 'ping 8.8.8.8'";
     int outfp = 0;
     pid_t c = capable_command(name,&outfp);
     sleep(1);
     kill(c,SIGINT);
-    wait(NULL);
+    waitpid(c,NULL,0);
     char ligne[1024];
     int cnraw = 0, cdoverride = 0, csadmin = 0;
     while (read(outfp,ligne,sizeof(ligne)) >= 0)

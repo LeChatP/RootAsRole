@@ -69,8 +69,10 @@ For more details, please see **[How to use](https://github.com/SamerW/RootAsRole
 
 ## Capable Tool
 
-Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a running program. This tool is just showing capabilities asked, but not mandatory capabilities. So be warned about his output. This tool is useful when developpers doesn't gave the list of capabilities in his documentation or website. We recommand you to check capabilities in the [manual of linux](http://man7.org/linux/man-pages/man7/capabilities.7.html)
-You can also use this tool to check if the tested program ask unwanted capabilities, then we recommand you to check integrity of programs.
+Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a running program. This tool is just showing capabilities asked, but not mandatory capabilities. So be warned about his output. This tool is useful when developers doesn't gave the list of capabilities in his documentation or website. We recommend you also to check these capabilities in the [manual of Linux](http://man7.org/linux/man-pages/man7/capabilities.7.html).
+You can also use this tool to check if the tested program ask unwanted capabilities, then we recommend you to check integrity of programs.
+
+For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
 ## [Why choosing our module?](https://github.com/SamerW/RootAsRole/wiki/Why-choosing-our-module)
 

@@ -77,6 +77,8 @@ make run-test
 
 ### Tests for Capable
 
+**TODO These tests aren't functionning**
+
 * Test that the help message has the right options
 * Test capable command without any options, so by default as daemon
 * Test if filter is rightly coded **TODO enhance this test**
