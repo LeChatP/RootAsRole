@@ -10,7 +10,7 @@ Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
 Eddie Billoir : eddie.billoir@gmail.com
 
-Romain Laborde :laborde@irit.fr
+Romain Laborde : laborde@irit.fr
 
 ## Intro
 
