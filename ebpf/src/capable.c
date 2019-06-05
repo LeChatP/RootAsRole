@@ -7,7 +7,6 @@
 #include <pwd.h>
 #include <linux/bpf.h>
 #include <linux/limits.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,10 +14,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/prctl.h>
+#include <signal.h>
+#include <errno.h>
 
 #define READ 0
 #define WRITE 1
-#define MAX_CHECK 5
+#define MAX_CHECK 3
 
 extern char *optarg;
 extern int optind, opterr, optopt;
@@ -124,28 +125,30 @@ int main(int argc, char **argv)
 		goto free_rscs;
 	}
 	if (args.command != NULL) {
-		if(u_popen > 0)p_popen = popen2(args.command);
-		else {
-			goto free_rscs;
-		}
+		p_popen = popen2(args.command);
 	} else if (!args.daemon &&
 		   args.sleep < 0) { // if there's no command, no daemon and no sleep
 		// specified the run as daemon by default
 		args.daemon = 1;
 	}
-	if (args.raw) { // if command run as daemon then read and print logs from
-		// eBPF
+	if (args.raw) {
 		signal(SIGINT,
 		       killpopen); // if sigint then kill command before exit
 		printf("| KERNEL\t\t\t\t\t   | PID\t| PPID\t| CAP\t|\n");
 		read_trace_pipe(); // print logs until kill
 		printf("an error has occured\n");
 		goto free_rscs;
-	} else if(args.daemon){
-		signal(SIGINT,killProc);
+	} else if(args.daemon){ // if command run as daemon then read and print logs from
+		// eBPF
+		sigset_t set;
+		int sig;
+		sigemptyset(&set);
+		sigaddset(&set, SIGINT);
+		sigprocmask(SIG_BLOCK, &set, NULL);
 		printf("Collecting capabilities asked to system...\nUse Ctrl+C to print result\n");
-		while (!stop)
-        	pause();
+		int ret_val = sigwait(&set,&sig);
+		if(ret_val == -1)
+			perror("sigwait failed");
 	} else {
 		signal(SIGINT,
 		       killProc); // kill only command if SIGINT to continue program and
@@ -153,8 +156,7 @@ int main(int argc, char **argv)
 		if (args.sleep >=
 		    0) { // if sleep argument is specified the sleep before kill
 			sleep(args.sleep);
-			killProc(0);
-		} else if (p_popen >=
+		} else if (p_popen >
 			   0) { // if user don't specify command then it goes
 			// directly to result
 			waitpid(p_popen, NULL, 0);
@@ -276,7 +278,8 @@ static void killProc(int signum)
 		}
 		stop = 1;
 	}else {
-		stop = 1;
+		printResult();
+		exit(0);
 	}
 }
 /**

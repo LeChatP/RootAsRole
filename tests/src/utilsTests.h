@@ -20,7 +20,7 @@
      * and return pid, don't forget to kill or wait
      * Warning : pipe may not listen everything
      */
-    pid_t capable_command(char *args);
+    pid_t capable_command(char *args, int *oufp);
 
     /**
      * executes sr command and output pid with output pipe and wait
@@ -34,11 +34,6 @@
      * and wait for exit
      */
     void sr_echo_command(char *name, int *outfp);
-
-    /** 
-     * Do system with ouput on file
-     */
-    int t_system(const char *command);
     
     /** https://dzone.com/articles/simple-popen2-implementation
      * implementing popen but returning pid and getting in & out pipes

@@ -9,15 +9,15 @@
  */
 typedef struct SortedPids SortedPids;
 struct SortedPids {
-    SortedPids *next;
     pid_t pid;
     pid_t ppid;
+    SortedPids *next;
 };
 
 //add pid/ppid in the structure
 extern void append_pid(SortedPids *list, pid_t pid, pid_t ppid);
 
 //return all child of given pid
-extern void get_childs(const SortedPids *list, pid_t pid, pid_t *result, int *size);
+extern void get_childs(SortedPids *list, pid_t pid, pid_t *result, int *size);
 
 #endif //SORTING_H
