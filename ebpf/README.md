@@ -33,9 +33,9 @@ Options:
 Note: this tool is mainly useful for administrators, and is almost not user-friendly
 ```
 
-When a command is specified, the program will run the command and wait for ending. The result will be filtered by his pid and his child.
-If your program is a daemon you can specify -s X or -d to let the time to daemon to start.
-When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill program specified (or not) and print result.
+When a command is specified, the program will run the command and wait for the end of its execution. The result will be filtered by his pid and his child processes.
+If your program is a daemon you can specify -s X or -d to give some time to daemon to start.
+When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill the specified program  (or not) and print result.
 
 ## Example
 
