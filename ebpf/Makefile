@@ -13,7 +13,7 @@ LINUXINCLUDE += -I$(KERNEL)/include/uapi
 LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
 LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
 LINUXINCLUDE += -I$(KER_DIR)
-LINUXINCLUDE += -include asm_goto_workaround.h # you must precisely include the file
+LINUXINCLUDE += -include asm_goto_workaround.h -D __BPF_TRACING__  # you must precisely include the file
 
 EXTRA_CFLAGS=-Werror
 

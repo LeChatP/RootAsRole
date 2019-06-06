@@ -22,7 +22,7 @@
 				<capability>*</capability>
 			</capabilities>
 			<users>
-				<user name="ROOTADMINISTRATOR"/>
+				<user name="eddie"/>
 			</users>
 		</role>
 
