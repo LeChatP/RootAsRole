@@ -99,6 +99,8 @@ For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/mas
 
 9. Managing blacklist, whitelist and translating list for environnement variables. [inspirated by sudo environnement variables handling system](https://www.sudo.ws/repos/sudo/file/tip/plugins/sudoers/env.c)
 
+10. Find a way to automate creation of role, when command given that does not exist in roles. This must be done after enhancement of filter system for the capabilities on capable tool ([TODO #3 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)) , and also after the stack analysis of capable ([TODO #1 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)). And optionnaly after [TODO #2 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do).
+
 ## References
 
 [1] PAM repository : https://github.com/linux-pam/linux-pam

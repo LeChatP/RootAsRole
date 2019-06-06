@@ -39,7 +39,7 @@ When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill t
 
 ## Example
 
-To retrieve capabilities requested by tcpdump, I will run ```
+To retrieve capabilities requested by tcpdump we just need to do :
 
 ```Txt
 $ capable -c "tcpdump"
@@ -75,7 +75,7 @@ So we will try :
 $ sr -c 'tcpdump'
 Authentication of lechatp...
 Password: 
-Privileged bash launched with the following capabilities : cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw.
+Privileged bash launched with the role net and the following capabilities : cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw.
 tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
 listening on wlp108s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 15:40:03.315266 IP  ############
@@ -233,11 +233,17 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 ## TO-DO
 
-* Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack.
+1. Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. The function bpf_get_stack() is maybe a way. But only available on more recent kernel. This means that program will possibly have 2 versions for retro-compatibility.
 
-* The algorithm of retrieving for child process has somes exception by example with sshd ran into sr. ```capable -c "sr -c /usr/sbin/sshd"```. To enhance the filtering system, the solution is to jail the running process into a namespace. You can obtain namespace id into the task_struct apperently. Need to be verified but it is possible.
+2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list : 
+  * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
+  * optionnal, which corresponds to capabilities who change the behavior of kernel in a specific kernel call
 
-* Make this tool testable. Tests are created but not functionning.
+  This separation will permits a more convinient selection for automation of sr configuration.
+
+3. The algorithm to retrieving child process has somes exceptions. By example with sshd ran into sr : ```capable -c "sr -c /usr/sbin/sshd"```. To enhance the filtering system, the solution is to jail the running process into a namespace. You can obtain namespace id into the task_struct apperently. Need to be verified but it is possible anyways.
+
+4. Make this tool testable. Tests are created but not functionning.
 
 ## References
 
