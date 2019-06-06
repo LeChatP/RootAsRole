@@ -2,8 +2,8 @@
 
 ## Introduction
 
-Capabilities aren't user-friendly at all, even for a administrator. Mainly because administrator cannot determine exactly what capability a program needs to run correctly. So to fix that difficulty there's filter system integrated in Linux kernel to listen and filter kernel calls named eBPF. This filter uses JIT compilation and is injected to the kernel and will let access to user-space logs and maps. More details [https://github.com/pratyushanand/learn-bpf](here)
-This tool inspect the cap_capable() call, and filter them to be the most convenient result for administrators.
+In many cases, it is very difficult for a user or administrator to know what kind of capabilities are requested by a program. So we build the capable tool in order to help Linux users know discover the capabilities requested by a program. Our tool uses eBPF in order to intercept the cap_capable() calls in the kernel. This filter uses JIT compilation and is injected to the kernel and will give back information to user-space. More details [https://github.com/pratyushanand/learn-bpf](here)
+However, the kernel retruns the list of capabilities to all programs that are running on the OS. We have added a filtering mecanism in order to let the user see only the capabilites requested by his program. 
 
 ## Tested Plateforms
 
