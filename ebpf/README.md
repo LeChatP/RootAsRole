@@ -39,7 +39,7 @@ When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill t
 
 ## Example
 
-To retrieve every capabilities for tcpdump, I will run ```
+To retrieve capabilities requested by tcpdump, I will run ```
 
 ```Txt
 $ capable -c "tcpdump"
@@ -52,7 +52,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-In this example we can see that we haven't the permission to execute command but our program has catch CAP_NET_RAW and CAP_SYS_ADMIN capabilities. These capabilities aren't mandatory. This will happens every-time, mainly because a program can just ask for capability and just ignore the -EPERM ouput from syscall. Particularly for CAP_SYS_ADMIN, this capability is call in every fork(). In this case, tcpdump just want to get raw traffic, which corresponds to CAP_NET_RAW. So if you create role with CAP_NET_RAW and tcpdump command :
+In this example we can see that we haven't the permission to execute the tcpdump command but capable tool retruns CAP_NET_RAW and CAP_SYS_ADMIN capabilities. These capabilities aren't mandatory. This will happens every-time, mainly because a program can just ask for capability and just ignore the -EPERM ouput from syscall. Particularly for CAP_SYS_ADMIN, this capability is needed for every fork() call. In this case, tcpdump just wants to get raw traffic, which corresponds to CAP_NET_RAW. So if you create a role with CAP_NET_RAW and tcpdump command :
 
 ```XML
     <role name="net">
