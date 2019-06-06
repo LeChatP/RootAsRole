@@ -43,30 +43,21 @@ To retrieve every capabilities for tcpdump, I will run ```
 
 ```Txt
 $ capable -c "tcpdump"
-Here's all capabilities intercepted :
-| UID   | GID   | PID   | PPID  | NAME                  | CAPABILITIES  |
-| 1000  | 1000  | 17029 | 17028 | /proc/17029/cmdline   | cap_sys_admin |
-| 1000  | 1000  | 17030 | 17029 | /proc/17030/cmdline   | cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw, cap_sys_admin      |
+tcpdump: wlp108s0: You don't have permission to capture on that device
+(socket: Operation not permitted)
+
+Here's all capabilities intercepted for this program :
+cap_net_raw, cap_sys_admin
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-So here's the result in fancy Markdown :
-
-| UID   | GID   | PID   | PPID  | NAME                  | CAPABILITIES  |
-| ----- | ----- | ----- | ----- | --------------------- | ------------- |
-| 1000  | 1000  | 17029 | 17028 | /proc/17029/cmdline   | cap_sys_admin |
-| 1000  | 1000  | 17030 | 17029 | /proc/17030/cmdline   | cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw, cap_sys_admin      |
-
-As You can see the process names is unknown, that is normal because retrieving names is done after command tested ends. There's different capabilities shown, but they aren't required! Particularly for CAP_SYS_ADMIN, this capability is call in every fork(). In common cases, capabilities retrieved by program is from last PID. If you look at ppid and pid you see that 17030 is last pid, and also the process that asked for many capabilities. In our case we just wants to get raw traffic, which corresponds to CAP_NET_RAW. So if you create role with CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_NET_ADMIN, CAP_NET_RAW and tcpdump command :
+In this example we can see that we haven't the permission to execute command but our program has catch CAP_NET_RAW and CAP_SYS_ADMIN capabilities. These capabilities aren't mandatory. This will happens every-time, mainly because a program can just ask for capability and just ignore the -EPERM ouput from syscall. Particularly for CAP_SYS_ADMIN, this capability is call in every fork(). In this case, tcpdump just want to get raw traffic, which corresponds to CAP_NET_RAW. So if you create role with CAP_NET_RAW and tcpdump command :
 
 ```XML
     <role name="net">
       <capabilities>
         <capability>CAP_NET_RAW</capability>
-        <capability>CAP_DAC_OVERRIDE</capability>
-        <capability>CAP_DAC_READ_SEARCH</capability>
-        <capability>CAP_NET_ADMIN</capability>
       </capabilities>
       <users>
         <user name="lechatp">
@@ -100,47 +91,7 @@ listening on wlp108s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 End of role net session.
 ```
 
-Tcpdump works, but with lot of cpabilities, these capabilities are might not a requirement to tcpdump. Then if we read [documentation of tcpdump](http://marionpatrick.free.fr/man_html/html/tcpdump_8.html) : "unless your distribution has a kernel that supports capability bits such as CAP_NET_RAW and code to allow those capability bits to be given to particular accounts and to cause those bits to be set on a user's initial processes when they log in, in which case you must have CAP_NET_RAW in order to capture and CAP_NET_ADMIN to enumerate network devices with, for example, the -D flag". So We just need CAP_NET_RAW.
-
-```XML
-    <role name="net">
-      <capabilities>
-        <capability>CAP_NET_RAW</capability>
-      </capabilities>
-      <users>
-        <user name="lechatp">
-          <commands>
-            <command>tcpdump</command>
-          </commands>
-        </user>
-      </users>
-    </role>
-```
-
-So we will try :
-
-```Txt
-$ sr -c tcpdump
-Authentication of lechatp...
-Password: 
-Privileged bash launched with the following capabilities : cap_net_raw.
-tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
-listening on enp0s20f0u2, link-type EN10MB (Ethernet), capture size 262144 bytes
-16:22:20.403293 IP  ############
-16:22:20.403381 IP  ############
-16:22:20.403423 IP  ############
-16:22:20.403472 IP  ############
-16:22:20.403490 IP  ############
-16:22:20.405497 IP  ############
-16:22:20.405964 IP  ############
-^C
-7 packets captured
-13 packets received by filter
-6 packets dropped by kernel
-End of role net session.
-```
-
-Now tcpdump has the most convinient capability to our use case, and we also know that tcpdump may need other capabilities if this use case isn't convienentfor user.
+Now tcpdump has the most convinient capability to our use case.
 
 ## Example 2
 
@@ -155,19 +106,12 @@ $ capable -c 'cat /proc/kallsyms'
 0000000000000000 T acpi_video_register	[video]
 0000000000000000 T nfnetlink_init	[nfnetlink]
 Here's all capabilities intercepted :
-| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
-| 1000	| 1000	| 20128	| 20127	| /proc/20128/cmdline	| cap_sys_admin, cap_syslog	|
-| 1000	| 1000	| 20127	| 20126	| /proc/20127/cmdline	| cap_sys_admin	|
+cap_sys_admin, cap_syslog
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-| UID	| GID	| PID	| PPID	| NAME		        	| CAPABILITIES	|
-| ----- | ----- | ----- | ----- | --------------------- | ------------- |
-| 1000	| 1000	| 20128	| 20127	| /proc/20128/cmdline	| cap_sys_admin, cap_syslog	|
-| 1000	| 1000	| 20127	| 20126	| /proc/20127/cmdline	| cap_sys_admin	|
-
-Same for this example : fork() is asking for CAP_SYS_ADMIN so, by default we don't gives cap_sys_admin to a new role. And for security reasons, it is important to set absolute path in configuration :
+We can see that the command output successfuly without permission denied. But adresses are all in 0, it isn't the use case that we want. Also we can see for this example that fork() is asking for CAP_SYS_ADMIN so, by default we don't gives cap_sys_admin to a new role. So let's try a new role with cap_syslog :
 
 ```Xml
     <role name="stacktrace">
@@ -184,7 +128,7 @@ Same for this example : fork() is asking for CAP_SYS_ADMIN so, by default we don
     </role>
 ```
 
-Let's try for this new role :
+Let's try this new role :
 
 ```Txt
 $ cat /proc/kallsyms
@@ -201,46 +145,91 @@ ffffffff******** T nfnetlink_init	[nfnetlink]
 End of role stacktrace session.
 ```
 
-Perfect! We can see real adresses.
+Perfect! We can see real adresses. This example shows that capabilities can change the behavior of program without making errors. They can be handled by developer.
 
 ## Example 3
 
-In this example we will try to find capabilities used by sshd :
+This example will show how our tool is powerful. In this example we will try to find capabilities used by a daemon, let's try with sshd :
 
 ```Txt
 $ capable -c /usr/sbin/sshd
 Here's all capabilities intercepted :
-| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
-| 1000	| 1000	| 3961	| 3960	| /proc/3961/cmdline	| cap_dac_read_search, cap_setgid, cap_sys_admin	|
-| 1000	| 1000	| 3960	| 3959	| /proc/3960/cmdline	| cap_sys_admin	|
+cap_net_bind_service, cap_sys_admin
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-But this output appears to be wrong, because sshd is listening to a port. So we will trying to run as daemon capable and test ssh in parallel :
+We can see that sshd needs CAP_NET_BIND_SERVICE, so let's try to create configuration with sshd :
+
+```Xml
+    <role name="sshd">
+      <capabilities>
+        <capability>CAP_NET_BIND_SERVICE</capability>
+      </capabilities>
+      <users>
+        <user name="lechatp">
+          <commands>
+            <command>/usr/sbin/sshd</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+```
 
 ```Txt
-$ capable
-Collecting capabilities asked to system...
-Use Ctrl+C to print result
-^CHere's all capabilities intercepted :
-| UID	| GID	| PID	| PPID	| NAME			| CAPABILITIES	|
-| 1000	| 1000	| 3772	| 3770	| /proc/3772/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3760	| 3693	| /proc/3760/cmdline	| cap_dac_read_search, cap_setgid, cap_sys_admin	|
-| 1000	| 1000	| 3784	| 3782	| /proc/3784/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3757	| 3755	| /proc/3757/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3761	| 1975	| /proc/3761/cmdline	| cap_dac_override, cap_net_bind_service, cap_sys_resource	|
-| 1000	| 1000	| 3752	| 3736	| /proc/3752/cmdline	| cap_sys_admin	|
-| 0	| 0	| 1569	| 1392	| /usr/lib/xorg/Xorg	| cap_sys_admin	|
-| 1000	| 1000	| 3693	| 2917	| bash	| cap_sys_admin	|
-| 1000	| 1000	| 3745	| 3743	| /proc/3745/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3736	| 3732	| /proc/3736/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3739	| 3737	| /proc/3739/cmdline	| cap_sys_admin	|
-| 1000	| 1000	| 3781	| 3779	| /proc/3781/cmdline	| cap_sys_admin	|
-| 0	| 0	| 394	| 1	| /lib/systemd/systemd-journald	| cap_kill, cap_setgid, cap_setuid, cap_sys_ptrace, cap_sys_admin	|
+$ sr -c '/usr/sbin/sshd'
+Authentication of lechatp...
+Password:
+Privileged bash launched with the role sshd and the following capabilities : cap_net_bind_service.
+End of role sshd session.
+$ ps -aux | grep sshd
+$
+```
+
+As you can see, the daemon wasn't launched. This is maybe due that the daemon stop when he knows tht he doesn't have the right capability. So to try to solve that, we will give cap_net_bind_service to file with setcap and then retry :
+
+```Txt
+$ sr -r root -c "setcap cap_net_bind_service+ep /usr/sbin/sshd"
+$ capable -c /usr/sbin/sshd
+Could not load host key: /etc/ssh/ssh_host_rsa_key
+Could not load host key: /etc/ssh/ssh_host_ecdsa_key
+Could not load host key: /etc/ssh/ssh_host_ed25519_key
+
+Here's all capabilities intercepted for this program :
+cap_dac_override, cap_sys_admin
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
+
+Now we see that sshd needs cap_dac_override, it is mainly because the files that the program want to access are owned by root. So we got two choices : chown all the files for sshd, or grant cap_dac_override to sshd. We can just add CAP_DAC_OVERRIDE to our config 
+
+```Xml
+    <role name="sshd">
+      <capabilities>
+        <capability>CAP_NET_BIND_SERVICE</capability>
+        <capability>CAP_DAC_OVERRIDE</capability>
+      </capabilities>
+      <users>
+        <user name="lechatp">
+          <commands>
+            <command>/usr/sbin/sshd</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+```
+
+```Txt
+$ sr -c '/usr/sbin/sshd'
+Authentication of lechatp...
+Password:
+Privileged bash launched with the role sshd and the following capabilities : cap_dac_override, cap_net_bind_service.
+End of role sshd session.
+$ ps -aux | grep sshd
+lechatp  10003  0.0  0.0  11868  2856 ?        Ss   07:51   0:00 /usr/sbin/sshd
+```
+
+As you can see, the daemon has been launched with lechatp user. All of these steps was necessary to respect the principle of least privilege.
 
 ## TO-DO
 
