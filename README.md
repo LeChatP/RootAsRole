@@ -18,7 +18,7 @@ Traditionally, administering Linux systems is based on the existence of one powe
 
 Root As Role (RAR) module implements a role based approach for distributing Linux capabilities into Linux users. Our module contains a tool called sr (switch role) that allows users to control the list of privileges they give to programs. Thus, with our module Linux users can stop using sudo and su commands that don't allow controlling the list of privileges to give to programs. There are already some tools that permit to control the list of privileges to give to programs such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to Linux kernel, called Ambient Set. Using this module, administrators can group a set of Linux capabilities in roles and give them to their users. For security reasons, users don’t get the attributed roles by default, they should activate them using the command sr (switch role). Our module is compatible with pam_cap.so. So administrators can continue using pam_cap.so along with our module.  
 
-Finally, RAR module includes a tool called capable, this tool helps Linux users to know the privilege that an application asks for.
+Finally, RAR module includes a tool called capable, this tool helps Linux users to know the privileges that an application asks for.
 
 
 
