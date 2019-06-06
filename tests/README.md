@@ -75,6 +75,27 @@ make run-test
   * test if match when no command is specified to a group in configuration
 * **TO-DO: Tests for User And Group**
 
+### Tests for Capable
+
+**TODO These tests aren't functionning**
+
+* Test that the help message has the right options
+* Test capable command without any options, so by default as daemon
+* Test if filter is rightly coded **TODO enhance this test**
+* Test if sleep options is sleeping the right time
+* Test if capable run as daemon with -d option
+* Test if -r option is showing raw data
+* Test the version of capable *Useful for reminder*
+* Test if tcpdump returns CAP_NET_RAW
+* Test if ping returns CAP_NET_RAW
+* Test if cat /proc/kallsyms returns CAP_SYSLOG, also test if cat has CAP_SYSLOG capability (be warned if this occurs)
+* Test if sshd returns CAP_NET_BIND_SERVICE
+* Test if apache2ctl returns CAP_NET_BIND_SERVICE and CAP_SYS_PTRACE
+* Test if incorrect command showing command not found
+* Test if we fill sleep option with a non-number parameter say bad parameter
+* Test if syntax error in command showing Usage
+* Test when command doesn't need caps showing only CAP_SYS_ADMIN... **TODO enhance this test**
+
 ### TO-DO: test every argument of sr
 
 ### TO-DO: test for sr in special cases (like sr command in sr command with different capabilities...)

@@ -11,12 +11,19 @@
 #include <fcntl.h>
 #define READ   0
 #define WRITE  1
-
+#define OUTPUT_SYSTEM_FILE "tests/resources/output.out"
     //ask for pass if not already asked
     extern char *getpassword(void);
 
     /**
-     * executes sr command and output pid with output pipe
+     * executes capable command and output pid with output pipe
+     * and return pid, don't forget to kill or wait
+     * Warning : pipe may not listen everything
+     */
+    pid_t capable_command(char *args, int *oufp);
+
+    /**
+     * executes sr command and output pid with output pipe and wait
      * and wait for exit
      * Warning : pipe may not listen everything
      */
@@ -27,7 +34,7 @@
      * and wait for exit
      */
     void sr_echo_command(char *name, int *outfp);
-
+    
     /** https://dzone.com/articles/simple-popen2-implementation
      * implementing popen but returning pid and getting in & out pipes
      * infp and outfp can be null

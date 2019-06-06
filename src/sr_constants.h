@@ -9,14 +9,14 @@
 #define SR_CONSTANT_H_INCLUDED
 
 //define SR_DEBUG to log messages on capabilities, process attributes, and other privileges.
-//#define SR_DEBUG 1 
+//#define SR_DEBUG 1
 
-// TODO remove dev build on release
-#define RAR_VERSION "1.1"
+#define RAR_VERSION "2.0"
 
 //The path to the common shell
 #define BASH "/bin/bash"
-#define BASH_OPTION "--norc"
+#define BASH_NORC "--norc"
+#define BASH_NOPROFILE "--noprofile"
 
 #endif // SR_CONSTANT_H_INCLUDED
 

@@ -20,55 +20,58 @@ Retrieve the name of a user id.
 Return the username or NULL if an error has occured.
 The username should be deallocated with free afterwards.
 */
-char* get_username(uid_t uid){
-    char *username;
-    int username_len;
-    struct passwd *info_user;
-    
-    if((info_user = getpwuid(uid)) == NULL || info_user->pw_name == NULL){
-        return NULL;
-    }else{
-        //We do not have to deallocate info_user, as it points to a static 
-        //memory adress
-        username_len = strlen(info_user->pw_name) + 1;
-        if((username = malloc(username_len * sizeof(char))) == NULL){
-            return NULL;
-        }
-        strncpy(username, info_user->pw_name, username_len);
-        return username;
-    }
+char *get_username(uid_t uid)
+{
+	char *username;
+	int username_len;
+	struct passwd *info_user;
+
+	if ((info_user = getpwuid(uid)) == NULL || info_user->pw_name == NULL) {
+		return NULL;
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		username_len = strlen(info_user->pw_name) + 1;
+		if ((username = malloc(username_len * sizeof(char))) == NULL) {
+			return NULL;
+		}
+		strncpy(username, info_user->pw_name, username_len);
+		return username;
+	}
 }
 
 /*
 Retrieve the id of the user from username.
 Return the user id, or -1 if the user does not exist or an error has occured.
 */
-uid_t get_user_id(const char* user){
-    struct passwd *info_user;
+uid_t get_user_id(const char *user)
+{
+	struct passwd *info_user;
 
-    if((info_user = getpwnam(user)) == NULL){
-        return -1;
-    }else{
-        //We do not have to deallocate info_user, as it points to a static 
-        //memory adress
-        return info_user->pw_uid;
-    }
+	if ((info_user = getpwnam(user)) == NULL) {
+		return -1;
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		return info_user->pw_uid;
+	}
 }
 
 /*
 Retrieve the user group id of the user_id uid.
 Return the user group id, or -1 on failure.
 */
-gid_t get_group_id(uid_t uid){
-    struct passwd *info_user; 
-    
-    if((info_user = getpwuid(uid)) == NULL){
-        return -1;
-    }else{
-        //We do not have to deallocate info_user, as it points to a static 
-        //memory adress
-        return info_user->pw_gid;
-    }  
+gid_t get_group_id(uid_t uid)
+{
+	struct passwd *info_user;
+
+	if ((info_user = getpwuid(uid)) == NULL) {
+		return -1;
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		return info_user->pw_gid;
+	}
 }
 
 /*
@@ -76,23 +79,24 @@ Retrieve the home directory of the user
 Return the home directory path on success, NULL on failure.
 The home directory path should be deallocated with free afterwards.
 */
-char* get_home_directory(const char *user){
-    char *home;
-    int home_len;
-    struct passwd *info_user;
+char *get_home_directory(const char *user)
+{
+	char *home;
+	int home_len;
+	struct passwd *info_user;
 
-    if((info_user = getpwnam(user)) == NULL){
-        return NULL;
-    }else{
-        //We do not have to deallocate info_user, as it points to a static 
-        //memory adress
-        home_len = strlen(info_user->pw_dir) + 1;
-        if((home = malloc(home_len * sizeof(char))) == NULL){
-            return NULL;
-        }
-        strncpy(home, info_user->pw_dir, home_len);
-        return home;
-    }    
+	if ((info_user = getpwnam(user)) == NULL) {
+		return NULL;
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		home_len = strlen(info_user->pw_dir) + 1;
+		if ((home = malloc(home_len * sizeof(char))) == NULL) {
+			return NULL;
+		}
+		strncpy(home, info_user->pw_dir, home_len);
+		return home;
+	}
 }
 
 /*
@@ -100,36 +104,38 @@ Init and close a pam session to authenticate a given user.
 Return 1 if the authentication succeeded, 0 otherwise. Return -1 if an error
 occured.
 */
-int pam_authenticate_user(const char* user){
-    pam_handle_t* pamh = NULL;
-    const struct pam_conv conv = {misc_conv, NULL};
-    int pamret;
-    int return_code = 0;
+int pam_authenticate_user(const char *user)
+{
+	pam_handle_t *pamh = NULL;
+	const struct pam_conv conv = { misc_conv, NULL };
+	int pamret;
+	int return_code = 0;
 
-    //Initiate the pam transaction to check the user
-    if((pamret = pam_start("check_user", user, &conv, &pamh)) != PAM_SUCCESS){
-        return_code = -1; //An error occured
-        goto close_pam;
-    }
+	//Initiate the pam transaction to check the user
+	if ((pamret = pam_start("check_user", user, &conv, &pamh)) !=
+	    PAM_SUCCESS) {
+		return_code = -1; //An error occured
+		goto close_pam;
+	}
 
-    //Establish the credential, then
-    //Authenticate the user with password,
-    //Then check if the user if valid
-    if((pamret = pam_setcred(pamh, 0)) != PAM_SUCCESS
-            || (pamret = pam_authenticate(pamh, 0)) != PAM_SUCCESS
-            || (pamret = pam_acct_mgmt(pamh, 0)) != PAM_SUCCESS){
-        goto close_pam;
-    }
+	//Establish the credential, then
+	//Authenticate the user with password,
+	//Then check if the user if valid
+	if ((pamret = pam_setcred(pamh, 0)) != PAM_SUCCESS ||
+	    (pamret = pam_authenticate(pamh, 0)) != PAM_SUCCESS ||
+	    (pamret = pam_acct_mgmt(pamh, 0)) != PAM_SUCCESS) {
+		goto close_pam;
+	}
 
-    //Authentication succeeded
-    return_code = 1;
+	//Authentication succeeded
+	return_code = 1;
 
-  close_pam:
-    // close PAM (end session)
-    if (pam_end(pamh, pamret) != PAM_SUCCESS) { //An Error occured
-        return_code = -1;
-    }
-    return return_code;
+close_pam:
+	// close PAM (end session)
+	if (pam_end(pamh, pamret) != PAM_SUCCESS) { //An Error occured
+		return_code = -1;
+	}
+	return return_code;
 }
 
 /* 
@@ -138,59 +144,65 @@ The main group id of the user must be known
 Allocate an array of array of char that must be deallocate afterwards.
 Return 0 on success and -1 on failure.
 */
-int get_group_names(const char *user, gid_t group, int *nb_groups, 
-                    char ***groups){
-    int return_code = -1;
-    int ng = 1;
-    gid_t *gps = NULL;
-    int ret_ggl;
-    int i;
-    
-    *nb_groups = 0;
-    *groups = NULL;
-    
-    //Retrieve group_ids
-    if((gps = malloc(ng*sizeof(gid_t))) == NULL) return -1;
-    if((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1){
-        if((gps = realloc(gps, ng*sizeof(gid_t))) == NULL) return -1;
-        if((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1){
-            goto on_error;
-        }
-    }
-    //Enforce consistency in results
-    if(ret_ggl != ng) goto on_error;
-    *nb_groups = ng;
-    
-    //Retrieve group name for all group ids
-    if((*groups = (char**) malloc(ng*sizeof(char*))) == NULL) return -1;
-    for(i = 0; i < ng; i++){
-        int gpname_len;
-        char *gpname;
-        struct group *rec = getgrgid(gps[i]); //Retrieve group info
-        if(rec == NULL || rec->gr_name == NULL){
-            perror("Cannot retrieve group info or group name");
-            goto on_error;
-        }
-        //Copy group name
-        gpname_len = strlen(rec->gr_name) + 1;
-        if((gpname = malloc(gpname_len * sizeof(char))) == NULL) goto on_error;
-        strncpy(gpname, rec->gr_name, gpname_len);
-        (*groups)[i] = gpname;
-    }
-  
-  return_code = 0;
-  goto free_rsc;
-  
-  on_error:
-    if(*groups != NULL){
-        free(*groups);
-        *groups = NULL;
-    }
-    *nb_groups = 0;
-  free_rsc:
-    if(gps != NULL)
-        free(gps);
-    return return_code; 
+int get_group_names(const char *user, gid_t group, int *nb_groups,
+		    char ***groups)
+{
+	int return_code = -1;
+	int ng = 1;
+	gid_t *gps = NULL;
+	int ret_ggl;
+	int i;
+
+	*nb_groups = 0;
+	*groups = NULL;
+
+	//Retrieve group_ids
+	if ((gps = malloc(ng * sizeof(gid_t))) == NULL)
+		return -1;
+	if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
+		if ((gps = realloc(gps, ng * sizeof(gid_t))) == NULL)
+			return -1;
+		if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
+			goto on_error;
+		}
+	}
+	//Enforce consistency in results
+	if (ret_ggl != ng)
+		goto on_error;
+	*nb_groups = ng;
+
+	//Retrieve group name for all group ids
+	if ((*groups = (char **)malloc(ng * sizeof(char *))) == NULL)
+		return -1;
+	for (i = 0; i < ng; i++) {
+		int gpname_len;
+		char *gpname;
+		struct group *rec = getgrgid(gps[i]); //Retrieve group info
+		if (rec == NULL || rec->gr_name == NULL) {
+			perror("Cannot retrieve group info or group name");
+			goto on_error;
+		}
+		//Copy group name
+		gpname_len = strlen(rec->gr_name) + 1;
+		if ((gpname = malloc(gpname_len * sizeof(char))) == NULL)
+			goto on_error;
+		strncpy(gpname, rec->gr_name, gpname_len);
+		(*groups)[i] = gpname;
+	}
+
+	return_code = 0;
+	goto free_rsc;
+
+on_error:
+	if (*groups != NULL) {
+		free(*groups);
+		*groups = NULL;
+	}
+	*nb_groups = 0;
+free_rsc:
+	if (gps != NULL)
+		free(gps);
+	return return_code;
 }
 
 /* 

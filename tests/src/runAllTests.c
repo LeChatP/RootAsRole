@@ -4,6 +4,8 @@
 #include "testObserver.h"
 #include "testRoles.h"
 #include "utilsTests.h"
+#include "testCommands.h"
+#include "testCapable.h"
 
 #define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 
@@ -51,6 +53,30 @@ int main(void){
     registerTest(noroleSuite,newTest(&testFindUserRoleNoCommandInConfiguration,"FindUserRoleNoCommandInConfiguration"));
     registerTest(noroleSuite,newTest(&testFindGroupRoleNoCommandInConfiguration,"FindGroupRoleNoCommandInConfiguration"));
 
+
+    TestSuite *commandsTest = newTestSuite("Testing commands");
+    registerTest(commandsTest,newTest(&testQuotedCommand,"QuotedCommand"));
+
+    TestSuite *capableTest = newTestSuite("Testing capable command");
+    registerTest(capableTest,newTest(&testCapableFullHelp,"testCapableFullHelp"));
+    registerTest(capableTest,newTest(&testCapableCommand,"testCapableCommand"));
+    registerTest(capableTest,newTest(&testCapableCommandFilter,"testCapableCommandFilter"));
+    registerTest(capableTest,newTest(&testCapableSleep,"testCapableSleep"));
+    registerTest(capableTest,newTest(&testCapableDaemon,"testCapableDaemon"));
+    registerTest(capableTest,newTest(&testCapableRaw,"testCapableRaw"));
+    registerTest(capableTest,newTest(&testCapableVersion,"testCapableVersion"));
+
+    registerTest(capableTest,newTest(&testCapableCommandTcpdumpResult,"testCapableCommandTcpdumpResult"));
+    registerTest(capableTest,newTest(&testCapableCommandPingResult,"testCapableCommandPingResult"));
+    registerTest(capableTest,newTest(&testCapableCommandCatResult,"testCapableCommandCatResult"));
+    registerTest(capableTest,newTest(&testCapableCommandSSHD,"testCapableCommandSSHD"));
+    registerTest(capableTest,newTest(&testCapableCommandApache,"testCapableCommandApache"));
+
+    registerTest(capableTest,newTest(&testCapableCommandIncorrect,"testCapableCommandIncorrect"));
+    registerTest(capableTest,newTest(&testCapableSleepIncorrect,"testCapableSleepIncorrect"));
+    registerTest(capableTest,newTest(&testCapableSyntaxError,"testCapableSyntaxError"));
+    registerTest(capableTest,newTest(&testCapableNoCapabilitiesNeeded,"testCapableNoCapabilitiesNeeded"));
+
     trigger(suite1,1);
     if(!haswriteaccess()){
         printf("You don't have the permission to run these tests\nPlease use sr to run this command\n");
@@ -58,5 +84,7 @@ int main(void){
     }
     trigger(suite2,1);
     trigger(noroleSuite,1);
+    trigger(commandsTest,1);
+    trigger(capableTest,1);
     printf("\n=========End of tests============\n");
 }

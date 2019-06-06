@@ -54,6 +54,9 @@ build-test:
 #run as user
 run-test:
 	sr -r root -c './tests/bin/runTests'
+
+build-ebpf:
+	cd ebpf&&make&&cd ..
 	
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux

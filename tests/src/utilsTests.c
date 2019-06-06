@@ -1,4 +1,5 @@
 #include "utilsTests.h"
+#include <signal.h>
 
     //saving
     static char *password = NULL;
@@ -10,12 +11,21 @@
         return password;
     }
 
+    pid_t capable_command(char *args, int *outfp){
+        char *command = malloc(strlen(args)+19);
+        sprintf(command,"/usr/bin/capable %s",args);
+        pid_t r = popen2(command,NULL,outfp);
+        free(command);
+        return r;
+    }
+
     void sr_command(char *args, int *outfp){
         char *pass = getpassword();
         char *command = malloc(strlen(args)+14);
         sprintf(command,"/usr/bin/sr %s",args);
         int infp;
         popen2(command,&infp,outfp);
+        free(command);
         write(infp,pass,strlen(pass));
         close(infp);
         wait(NULL);
@@ -27,6 +37,7 @@
         sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
         int infp;
         popen2(command,&infp,outfp);
+        free(command);
         write(infp,pass,strlen(pass));
         close(infp);
         wait(NULL);
@@ -53,8 +64,7 @@
             dup2(p_stdout[WRITE], WRITE);
             char final_command[PATH_MAX];
             sprintf(final_command,"'%s'",command);
-            
-            execl("/bin/sh", "sh", "-c", command, NULL);
+            execl("/bin/bash", "sh", "-c", command, NULL);
             perror("execl");
             exit(1);
         }
@@ -68,6 +78,7 @@
             *outfp = p_stdout[READ];
         return pid;
     }
+
 
 	int copy_file(char *old_filename, char  *new_filename)
 	{

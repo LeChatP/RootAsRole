@@ -10,21 +10,21 @@
 #include "sr_constants.h"
 #include <sys/capability.h>
 
-#define USER_CAP_FILE_ROLE	"/etc/security/capabilityRole.xml"
+#define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 
 /* list of capabilities structure */
 typedef struct s_role_capabilities_t {
-    int nb_caps;
-    cap_value_t *capabilities;
+	int nb_caps;
+	cap_value_t *capabilities;
 } role_capabilities_t;
 /* Role structure */
 typedef struct s_user_role_capabilities_t {
-    char *role;
-    char *user;
-    int nb_groups;
-    char **groups;
-    char *command;
-    role_capabilities_t caps;
+	char *role;
+	char *user;
+	int nb_groups;
+	char **groups;
+	char *command;
+	role_capabilities_t caps;
 } user_role_capabilities_t;
 
 /* 
@@ -34,8 +34,8 @@ Every entry in the struct is a copy in memory.
 The structure must be deallocated with free_urc() afterwards.
 Return 0 on success, -1 on failure.
 */
-int init_urc(const char *role, const char *user, int nb_groups,
-             char **groups, user_role_capabilities_t **urc);
+int init_urc(const char *role, const char *user, int nb_groups, char **groups,
+	     user_role_capabilities_t **urc);
 
 /* 
 Initialize a user_role_capabilities_t for a given role role,
@@ -46,8 +46,8 @@ The structure must be deallocated with free_urc() afterwards.
 Return 0 on success, -1 on failure.
 */
 int init_urc_command(const char *role, const char *command, const char *user,
-                    int nb_groups, char **groups,
-                    user_role_capabilities_t **urc);
+		     int nb_groups, char **groups,
+		     user_role_capabilities_t **urc);
 
 /* 
 Deallocate a user_role_capabilities_t

@@ -1,41 +1,26 @@
 /*
- * <sraux_management.h>
+ * <constants.h>
  *
- * This file contains the signatures of sr_aux management functions.
+ * This file contains the constants used by sr and sr_aux.
  *
  * Note, the copyright+license information is at end of file.
  */
-#ifndef SRAUX_MANAGEMENT_H_INCLUDED
-#define SRAUX_MANAGEMENT_H_INCLUDED
-#include "sr_constants.h"
-#include "roles.h"
+#ifndef SR_CONSTANT_H_INCLUDED
+#define SR_CONSTANT_H_INCLUDED
 
-#define SR_AUX_SOURCE "/usr/bin/sr_aux"
+// define SR_DEBUG to log messages on capabilities, process attributes, and
+// other privileges. #define SR_DEBUG 1
 
-/* 
-Create a temporary copy of sr_aux in the user folder, 
-with the required capabilities in the file extensions.
-Return the filepath of the file, or NULL on failure.
-If change_user_required != 0, then the file will be put in /usr/bin 
-instead of the user's home.
-The returned filepath is a dynamic char array and should be deallocated afterward.
-*/
-char *create_sr_aux_temp(const char *user, const user_role_capabilities_t *urc,
-			 const int change_user_required);
+#define RAR_VERSION "2.0"
 
-/* 
-Call sr_aux
-Do an exeve on the temporary sr_aux file given in sr_aux_filepath,
-with the given arguments set in urc and noroot.
-Return -1 on failure, does not return on success.
-*/
-int call_sr_aux(const char *sr_aux_filepath,
-		const user_role_capabilities_t *urc, int noroot);
+// The path to the common shell
+#define BASH "/bin/bash"
+#define BASH_OPTION "--norc"
 
-#endif // SRAUX_MANAGEMENT_H_INCLUDED
+#endif // SR_CONSTANT_H_INCLUDED
 
-/* 
- * 
+/*
+ *
  * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
  * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
  * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
