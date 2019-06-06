@@ -111,7 +111,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-We can see that the command output successfuly without permission denied. But adresses are all in 0, it isn't the use case that we want. Also we can see for this example that fork() is asking for CAP_SYS_ADMIN so, by default we don't give cap_sys_admin to a new role. So let's try a new role with cap_syslog :
+his is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog. 
 
 ```Xml
     <role name="stacktrace">
