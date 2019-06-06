@@ -69,7 +69,7 @@ For more details, please see **[How to use](https://github.com/SamerW/RootAsRole
 
 ## Capable Tool
 
-Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This tool is just showing capabilities asked by the program. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
+Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
 
 For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
