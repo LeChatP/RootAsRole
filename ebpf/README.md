@@ -111,7 +111,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-his is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog. 
+This is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog. 
 
 ```Xml
     <role name="stacktrace">
@@ -145,7 +145,7 @@ ffffffff******** T nfnetlink_init	[nfnetlink]
 End of role stacktrace session.
 ```
 
-Perfect! We can see real adresses. This example shows that capabilities can change the behavior of program without making errors. They can be handled by developer.
+Perfect! We can see real adresses. 
 
 ## Example 3
 
