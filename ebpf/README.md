@@ -95,7 +95,7 @@ Now tcpdump is run with only cap_net_raw capability.
 
 ## Example 2
 
-Now we wants to get capabilities used to get addresses in kallsyms file :
+Now we want to get capabilities used to get addresses in kallsyms file :
 
 ```Txt
 $ capable -c 'cat /proc/kallsyms'
@@ -111,7 +111,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-We can see that the command output successfuly without permission denied. But adresses are all in 0, it isn't the use case that we want. Also we can see for this example that fork() is asking for CAP_SYS_ADMIN so, by default we don't gives cap_sys_admin to a new role. So let's try a new role with cap_syslog :
+We can see that the command output successfuly without permission denied. But adresses are all in 0, it isn't the use case that we want. Also we can see for this example that fork() is asking for CAP_SYS_ADMIN so, by default we don't give cap_sys_admin to a new role. So let's try a new role with cap_syslog :
 
 ```Xml
     <role name="stacktrace">
