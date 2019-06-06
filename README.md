@@ -73,7 +73,7 @@ Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabil
 
 For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
-## [Why choosing our module?](https://github.com/SamerW/RootAsRole/wiki/Why-choosing-our-module)
+## [Some Working Examples?](https://github.com/SamerW/RootAsRole/wiki/Why-choosing-our-module)
 
 ## [How sr and sr_aux work?](https://github.com/SamerW/RootAsRole/wiki/How-sr-and-sr_aux-work)
 
