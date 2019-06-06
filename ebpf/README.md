@@ -201,7 +201,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-Now we see that sshd needs cap_dac_override, it is mainly because the files that the program want to access are owned by root. So we got two choices : chown all the files for sshd, or grant cap_dac_override to sshd. We can just add CAP_DAC_OVERRIDE to our config 
+Now we see that sshd needs cap_dac_override, it is mainly because the files that the program want to access are owned by root. So we got two choices : chown all the files needed for sshd, or grant cap_dac_override to sshd. We can just add CAP_DAC_OVERRIDE to our config.
 
 ```Xml
     <role name="sshd">
