@@ -13,7 +13,7 @@ This program has been tested with kernel version 5.0.0-13-generic with x86_64 ar
 
 ### How to Build
 
-1. sr -r root -c 'make'
+1. sr -r root -c 'make install'
 
 ### Usage
 
