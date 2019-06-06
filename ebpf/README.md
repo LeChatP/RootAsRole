@@ -235,6 +235,8 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 * Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack.
 
+* The algorithm of retrieving for child process has somes exception by example with sshd ran into sr. ```capable -c "sr -c /usr/sbin/sshd"```. To enhance the filtering system, the solution is to jail the running process into a namespace. You can obtain namespace id into the task_struct apperently. Need to be verified but it is possible.
+
 * Make this tool testable. Tests are created but not functionning.
 
 ## References
