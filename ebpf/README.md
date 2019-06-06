@@ -91,7 +91,7 @@ listening on wlp108s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 End of role net session.
 ```
 
-Now tcpdump has the most convinient capability to our use case.
+Now tcpdump is run with only the needed capability and not all the capabilities when using sudo command.
 
 ## Example 2
 
