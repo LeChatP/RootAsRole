@@ -75,7 +75,7 @@ $(SR_BIN_DIR):
 build: $(BIN_DIR)/$(EXECUTABLE)
 
 install: $(BINS) $(KERN_OBJECTS)
-	id -u capable &>/dev/null || useradd capable -MNr -s /usr/sbin/nologin -d /nonexistent -c "Capable from RootAsRole,,,"
+	id -u capable >/dev/null 2>&1 || useradd capable -MNr -s /usr/sbin/nologin -d /nonexistent -c "Capable from RootAsRole,,,"
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
 	cp $(BIN_DIR)/capable_kern.o /usr/lib/RootAsRole
