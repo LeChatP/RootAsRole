@@ -1,4 +1,4 @@
-# RootAsRole : Avoiding su and sudo
+# RootAsRole : a secure alternative to sudo/su
 
 ## Contributors
 
