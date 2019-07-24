@@ -35,21 +35,30 @@ COMPOPTIONS = -O2 -Wall -pedantic -I ./ -g
 LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf -g 
 EXECUTABLE := capable
 
-KERN_SOURCES = $(KER_DIR)/${EXECUTABLE:=_kern.c}
-KERN_OBJECTS = $(BIN_DIR)/$(EXECUTABLE:=_kern.o)
 OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o sorting.o)
 SR_OBJS:= $(addprefix $(SR_OBJ_DIR)/,capabilities.o)
-BINS := $(BIN_DIR)/$(EXECUTABLE)
+BINS := $(BIN_DIR)/$(EXECUTABLE) $(addprefix $(BIN_DIR)/,capable_kern.o nscapable_kern.o)
 
-all: $(BINS) $(KERN_OBJECTS)
+all: $(BINS) 
 
 .PHONY: clean
+
+$(OBJ_DIR)/%_kern.ll: $(KER_DIR)/%_kern.c
+	$(CLANG) -S $(NOSTDINC_FLAGS) $(LINUXINCLUDE) $(EXTRA_CFLAGS) \
+	    -D__KERNEL__ -D__ASM_SYSREG_H -Wno-unused-value -Wno-pointer-sign \
+	    -Wno-compare-distinct-pointer-types \
+	    -Wno-gnu-variable-sized-type-not-at-end \
+	    -Wno-tautological-compare \
+	    -O2 -emit-llvm -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<
 
 $(SR_OBJ_DIR)/%.o : $(SR_SRC_DIR)/%.c | $(SR_OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<
+
+$(BIN_DIR)/%_kern.o: $(OBJ_DIR)/%_kern.ll
+	$(LLC) -march=bpf -filetype=obj -o $@ $<
 
 $(OBJS): | $(OBJ_DIR)
 
@@ -72,25 +81,14 @@ $(BIN_DIR):
 $(SR_BIN_DIR):
 	mkdir $(SR_BIN_DIR)
 
-build: $(BIN_DIR)/$(EXECUTABLE)
+build: $(BINS)
 
-install: $(BINS) $(KERN_OBJECTS)
+install: $(BINS)
 	id -u capable &>/dev/null || useradd capable -MNr -s /usr/sbin/nologin -d /nonexistent -c "Capable from RootAsRole,,,"
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
-	cp $(BIN_DIR)/capable_kern.o /usr/lib/RootAsRole
-	setcap cap_dac_override,cap_sys_admin,cap_setuid+ep /usr/bin/capable
+	cp $(BIN_DIR)/*_kern.o /usr/lib/RootAsRole
+	setcap cap_dac_override,cap_sys_admin,cap_setuid,cap_dac_read_search,cap_dac_override+ep /usr/bin/capable
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR) $(SR_OBJS)
-
-$(KERN_OBJECTS): $(KER_DIR)/capable_kern.c
-	#it will generate .ll file which is actually a LLVM assembly code
-	$(CLANG) -S $(NOSTDINC_FLAGS) $(LINUXINCLUDE) $(EXTRA_CFLAGS) \
-	    -D__KERNEL__ -D__ASM_SYSREG_H -Wno-unused-value -Wno-pointer-sign \
-	    -Wno-compare-distinct-pointer-types \
-	    -Wno-gnu-variable-sized-type-not-at-end \
-	    -Wno-tautological-compare \
-	    -O2 -emit-llvm -c $< -o $(OBJ_DIR)/capable_kern.ll
-	#now translate LLVM assembly to native assembly
-	$(LLC) -march=bpf -filetype=obj -o $(BIN_DIR)/$(EXECUTABLE:=_kern.o) $(OBJ_DIR)/capable_kern.ll
