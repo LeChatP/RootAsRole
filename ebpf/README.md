@@ -27,7 +27,6 @@ Options:
  -c, --command=command  launch the command to be more precise.
  -s, --sleep=number     specify number of seconds before kill program
  -d, --daemon           collecting data until killing program printing result at end
- -r, --raw              show raw results of injection without any filtering
  -v, --version          show the actual version of RootAsRole
  -h, --help             print this help and quit.
 Note: this tool is mainly useful for administrators, and is almost not user-friendly
