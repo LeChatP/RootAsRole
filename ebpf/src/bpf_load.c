@@ -276,27 +276,31 @@ int load_bpf_file(char *path)
 	GElf_Shdr shdr, shdr_prog;
 	Elf_Data *data, *data_prog, *symbols = NULL;
 	char *shname, *shname_prog;
+	int return_value = 1;
 
 	if (elf_version(EV_CURRENT) == EV_NONE)
-		return 1;
+		return return_value;
 
 	fd = open(path, O_RDONLY, 0);
 	if (fd < 0)
-		return 1;
+		return return_value;
 
 	elf = elf_begin(fd, ELF_C_READ, NULL);
 
-	if (!elf)
-		return 1;
+	if (!elf){
+		close(fd);
+		return return_value;
+	}
+		
 
 	if (gelf_getehdr(elf, &ehdr) != &ehdr)
-		return 1;
+		goto free_on_error;
 
 	/* clear all kprobes */
 	FILE *kprobe_events = fopen(KPROBE_EVENTS,"w");
 	if(kprobe_events == NULL){
 		fprintf(stderr,"cannot access to %s\n",KPROBE_EVENTS);
-		return 1;
+		goto free_on_error;
 	}
 	fclose(kprobe_events);
 
@@ -318,13 +322,13 @@ int load_bpf_file(char *path)
 			if (data->d_size != sizeof(int)) {
 				printf("invalid size of version section %zd\n",
 				       data->d_size);
-				return 1;
+				goto free_on_error;
 			}
 			memcpy(&kern_version, data->d_buf, sizeof(int));
 		} else if (strcmp(shname, "maps") == 0) {
 			processed_sec[i] = true;
 			if (load_maps(data->d_buf, data->d_size))
-				return 1;
+				goto free_on_error;
 		} else if (shdr.sh_type == SHT_SYMTAB) {
 			symbols = data;
 		}
@@ -382,9 +386,11 @@ int load_bpf_file(char *path)
 		    memcmp(shname, "cgroup/", 7) == 0)
 			load_and_attach(shname, data->d_buf, data->d_size);
 	}
+	return_value = 0;
+	free_on_error:
 	elf_end(elf);
 	close(fd);
-	return 0;
+	return return_value;
 }
 
 void read_trace_pipe(void)
