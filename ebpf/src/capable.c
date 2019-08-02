@@ -78,6 +78,13 @@ static int load_bpf(char *);
  * print line with capabilities
  * Note: this method is optimized
  */
+static void print_ns_caps(unsigned int ns,unsigned int pns, u_int64_t caps);
+
+
+/**
+ * print line with capabilities
+ * Note: this method is optimized
+ */
 static void print_caps(int pid, int ppid,unsigned int uid,unsigned int gid,unsigned int ns,unsigned int pns, u_int64_t caps);
 
 static char* get_caplist(u_int64_t caps);
@@ -100,6 +107,8 @@ static void killpopen(int signum);
 static int printResult();
 
 static int printDaemonResult();
+
+static int printNSDaemonResult();
 
 int main(int argc, char **argv)
 {
@@ -175,9 +184,9 @@ int main(int argc, char **argv)
 		int ret_val = sigwait(&set,&sig);
 		if(ret_val == -1)
 			perror("sigwait failed");
-	}
-	if(args.command == NULL)printDaemonResult();
-	else return_code = printResult();
+		if(args.command == NULL)printDaemonResult();
+		else printNSDaemonResult();
+	} else return_code = printResult();
 free_rscs:
 	return return_code;
 }
@@ -316,45 +325,73 @@ static int printDaemonResult(){
 	int return_value = EXIT_SUCCESS, res;
 	u_int64_t value, uid_gid,pnsid_nsid;
 	pid_t key, prev_key = -1;
-		int ppid = -1;
-		printf("\nHere's all capabilities intercepted :\n");
-		printf("| UID\t| GID\t| PID\t| PPID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
-		while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
-			res = bpf_map_lookup_elem(map_fd[1], &key,
-						&value); // get capabilities
-			if (res < 0) {
-				printf("No capabilities value for %d ??\n", key);
-				prev_key = key;
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[2], &key, &uid_gid); // get uid/gid
-			if (res < 0) {
-				printf("No uid/gid for %d ??\n", key);
-				prev_key = key;
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[3], &key, &ppid); // get ppid
-			if (res < 0) {
-				printf("No ppid for %d ??\n", key);
-				prev_key = key;
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[4], &key, &pnsid_nsid); // get ppid
-			if (res < 0) {
-				printf("No ns for %d ??\n", key);
-				prev_key = key;
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			print_caps(key, ppid, (unsigned int)uid_gid,(unsigned int)(uid_gid >> 32), (unsigned int)pnsid_nsid, (unsigned int)(pnsid_nsid >> 32),
-					value); // else print everything
+	int ppid = -1;
+	printf("\nHere's all capabilities intercepted :\n");
+	printf("| UID\t| GID\t| PID\t| PPID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
+	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
+		res = bpf_map_lookup_elem(map_fd[1], &key,
+					&value); // get capabilities
+		if (res < 0) {
+			printf("No capabilities value for %d ??\n", key);
 			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
 		}
-		printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
-		printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+		res = bpf_map_lookup_elem(map_fd[2], &key, &uid_gid); // get uid/gid
+		if (res < 0) {
+			printf("No uid/gid for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[3], &key, &ppid); // get ppid
+		if (res < 0) {
+			printf("No ppid for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[4], &key, &pnsid_nsid); // get ppid
+		if (res < 0) {
+			printf("No ns for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		print_caps(key, ppid, (unsigned int)uid_gid,(unsigned int)(uid_gid >> 32), (unsigned int)pnsid_nsid, (unsigned int)(pnsid_nsid >> 32),
+				value); // else print everything
+		prev_key = key;
+	}
+	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+}
+static int printNSDaemonResult(){
+	int return_value = EXIT_SUCCESS, res;
+	u_int64_t value, parent = 0;
+	unsigned int key, prev_key = -1;
+	printf("\nHere's all capabilities intercepted :\n");
+	printf("| NS\t\t| PNS\t\t| CAPABILITIES\t|\n");
+	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
+		res = bpf_map_lookup_elem(map_fd[1], &key,
+					&value); // get capabilities
+		if (res < 0) {
+			printf("No capabilities value for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[2], &key, &parent); // get uid/gid
+		if (res < 0) {
+			printf("%d is the root namespace\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		print_ns_caps(key, parent,value); // else print everything
+		prev_key = key;
+	}
+	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 }
 /**
  * will print the result with or without filter in function of p_popen > 0
@@ -467,6 +504,20 @@ static void print_caps(int pid, int ppid,unsigned int uid,unsigned int gid,unsig
 	       capslist);
 	free(capslist);
 	free(name);
+}
+
+static void print_ns_caps(unsigned int ns,unsigned int pns, u_int64_t caps)
+{
+	if (caps <= (u_int64_t)0) {
+		
+		printf("| %u\t| %u\t| %s\t|\n", ns,pns,
+	       "No capabilities needed");
+		return;
+	}
+	char *capslist = NULL;
+	capslist = get_caplist(caps);
+	printf("| %u\t| %u\t| %s\t|\n",ns,pns,capslist);
+	free(capslist);
 }
 
 static char* get_caplist(u_int64_t caps){
