@@ -45,8 +45,8 @@ typedef struct _arguments_t {
 
 // keeps process pid, needed for signals and filtering
 volatile pid_t p_popen = -1;
-volatile unsigned int nsinode = -1;
 uid_t u_popen = -1;
+volatile unsigned int nsinode = -1;
 
 /*
 Parse input arguments and check arguments validity (in length)
@@ -166,6 +166,7 @@ int main(int argc, char **argv)
 			perror("Unable to access to namespace");
 		}
 		nsinode = file_stat.st_ino;
+		printf("initial : %u\n",nsinode);
 		return_code=0;
 			while(wait(0) >= 0) sleep(1);
 	} else if (!args.daemon &&
@@ -381,12 +382,6 @@ static int printNSDaemonResult(){
 			continue;
 		}
 		res = bpf_map_lookup_elem(map_fd[2], &key, &parent); // get uid/gid
-		if (res < 0) {
-			printf("%d is the root namespace\n", key);
-			prev_key = key;
-			return_value = EXIT_FAILURE;
-			continue;
-		}
 		print_ns_caps(key, parent,value); // else print everything
 		prev_key = key;
 	}
@@ -413,16 +408,17 @@ static int printResult()
 			continue;
 		}
 		for(int i = 0;i< nbchilds || childs[i] == key;i++){
-			if(childs[i] == parent){
+			if(childs[i] == parent){ //if parent of actual key is in child list then add key to childs
+				printf("actual child : %u, parent of key : %u, actual key : %u\n",childs[i],parent,key);
 				nbchilds++;
 				childs=(unsigned int *)realloc(childs,nbchilds*sizeof(unsigned int));
-				childs[nbchilds-1] = parent;
-				break;
+				childs[nbchilds-1] = key;
 			}
 		}
 		prev_key = key;
 	}
 	for(int i = 0 ; i < nbchilds; i++){
+		printf("u : %u\n",&(childs[i]));
 		bpf_map_lookup_elem(map_fd[1], &(childs[i]), &value);
 		caps |= value;
 	}
@@ -436,6 +432,7 @@ static int printResult()
 	}else{
 		printf("No capabilities are needed for this program.\n");
 	}
+	printNSDaemonResult();
 	return return_value;
 }
 

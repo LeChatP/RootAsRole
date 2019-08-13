@@ -71,7 +71,7 @@ int bpf_cap_capable_ns(struct pt_regs *ctx)
 	u64 *capval = bpf_map_lookup_elem(&capabilities_map, &inum), // getting ancient capabilities value
 		initial = ((u64)1 << cap), //transform capability to bit position
 		userstack[MAX_STACK_RAWTP], //store current stack addresses
-		*blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i); // getting first entry of blacklist kernel stack call
+		*blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i); //getting first entry of blacklist kernel stack call
 	bpf_get_stack(ctx,userstack,sizeof(u64)*MAX_STACK_RAWTP,0); // retrieve MAX_STACK_RAWTP kernel stack calls
 	if(blacklist_stack){ // if blacklist exist, then check in stack with MAX_STACK_RAWTP depth for the call
 		// loops are forbidden in eBPF
