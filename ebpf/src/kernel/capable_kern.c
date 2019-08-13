@@ -44,7 +44,7 @@ int bpf_cap_capable(struct pt_regs *ctx)
 	u64 pid = bpf_get_current_pid_tgid() >>32;
 	u32 cap = (u32)PT_REGS_PARM3(ctx); // param 1 is capability
 	u64 uid_gid = bpf_get_current_uid_gid();
-	u64 *capval = bpf_map_lookup_elem(&capabilities_map, &uid_gid);
+	u64 *capval = bpf_map_lookup_elem(&capabilities_map, &pid);
 	u32 ppid = (get_ppid((struct task_struct *)bpf_get_current_task()));
 	//void *buf;
 	//int stacksize = bpf_get_stack(ctx,buf,sizeof(__u64) * PERF_MAX_STACK_DEPTH,0); //analyze stacktrace for fork()
