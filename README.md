@@ -1,4 +1,4 @@
-# RootAsRole : Avoiding su and sudo
+# RootAsRole : a secure alternative to sudo/su on Linux systems
 
 ## Contributors
 
@@ -16,13 +16,11 @@ Romain Laborde : laborde@irit.fr
 
 Traditionally, administering Linux systems is based on the existence of one powerful user (called super user) who detains alone the full list of system’s privileges.  This vision has been criticized because all programs executed in the context of the super user obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, needs only the privilege cap_net_raw to run. However, by executing it in the context of super user, tcpdump obtains the full list of systems’ privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e. sniff packet networks). An attacker may exploit vulnerabilities of tcpdump to compromise the whole system, when the process of tcpdump possesses the full list of root privileges.
 
-As consequence, a POSIX draft (POSIX draft 1003.1e) has been proposed in order to distribute the privileges of super user into processes by giving them only the privileges they need [11]. The proposal defines for each process three sets of bitmaps called Inheritable (i), Permitted (p) and Effective (e).  This model has not been adopted officially, but it has been integrated into the kernel of Linux since 1998.
+Root As Role (RAR) module implements a role based approach for distributing Linux capabilities into Linux users. Our module contains a tool called sr (switch role) that allows users to control the list of privileges they give to programs. Thus, with our module Linux users can stop using sudo and su commands that don't allow controlling the list of privileges to give to programs. There are already some tools that permit to control the list of privileges to give to programs such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to Linux kernel, called Ambient Set. Using this module, administrators can group a set of Linux capabilities in roles and give them to their users. For security reasons, users don’t get the attributed roles by default, they should activate them using the command sr (switch role). Our module is compatible with pam_cap.so. So administrators can continue using pam_cap.so along with our module.  
 
-However, for different reasons this model has not been used widely. Firstly, Linux capability model suffers from different technical problems because of the use of extended attributes to store privileges in the executables (problem 1). Secondly, System administrators don’t have a tool that allows them to distribute the privileges into Linux users in fine-grained manner (problem 2). Fine-grained privilege distribution should give the administrators the ability to decide which privileges to give to users, which programs (e.g. tcpdump) users can use these privileges and on which resources these privileges can be applied (e.g. network interface eth0).  Thirdly, Linux doesn’t provide a tool that permits to Linux users to know the privilege that an application asks for (problem 3). Fourthly, Linux comes with some basic commands that are not compatible with privileges, such as passwd command (problem 4). As a consequence, the majority of Linux users still use su and sudo commands to run privileged applications because the super user model has the advantage of being easy to use. 
+Finally, RAR module includes a tool called capable, this tool helps Linux users to know the privileges that an application asks for.
 
-Recently, a new privilege set called Ambient has been integrated into the kernel of Linux in order to cope with the technical problems related to the sorting of privileges in the extended attributes of executables. However, Linux doesn’t provide solutions to handle the problem 2,3 and 4.
 
-Root As Role (RAR) module implements a role based approach for distributing Linux capabilities into Linux users. It provides a soluton to problem 2. Our module contains a tool called sr (switch role) that allows users to control the list of privileges they give to programs. Thus, with our module Linux users can stop using sudo and su commands that don't allow controlling the list of privileges to give to programs. There are already some tools that permit to control the list of privileges to give to programs such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivaiton scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our module leverages a new capability set added to Linux kernel, called Ambient Set. Using this module, administrators can group a set of Linux capabilities in roles and give them to their users. For security reasons, users don’t get the attributed roles by default, they should activate them using the command sr (switch role). Our module is compatible with pam_cap.so. So administrators can continue using pam_cap.so along with our module. Concretely, our module allows respecting the least privilege principle by giving the users the possibility to control the list of privileges they give to their programs.  
 
 ## Tested Platforms
 
@@ -69,12 +67,11 @@ For more details, please see **[How to use](https://github.com/SamerW/RootAsRole
 
 ## Capable Tool
 
-Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a running program. This tool is just showing capabilities asked, but not mandatory capabilities. So be warned about his output. This tool is useful when developers doesn't gave the list of capabilities in his documentation or website. We recommend you also to check these capabilities in the [manual of Linux](http://man7.org/linux/man-pages/man7/capabilities.7.html).
-You can also use this tool to check if the tested program ask unwanted capabilities, then we recommend you to check integrity of programs.
+Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
 
 For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
-## [Why choosing our module?](https://github.com/SamerW/RootAsRole/wiki/Why-choosing-our-module)
+## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 
 ## [How sr and sr_aux work?](https://github.com/SamerW/RootAsRole/wiki/How-sr-and-sr_aux-work)
 
@@ -101,6 +98,8 @@ For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/mas
 8. Use Query language (XPath or other in JSON if To-Do #8) instead of sequential search of role
 
 9. Managing blacklist, whitelist and translating list for environnement variables. [inspirated by sudo environnement variables handling system](https://www.sudo.ws/repos/sudo/file/tip/plugins/sudoers/env.c)
+
+10. Find a way to automate creation of role, when command given that does not exist in roles. This must be done after enhancement of filter system for the capabilities on capable tool ([TODO #3 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)) , and also after the stack analysis of capable ([TODO #1 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)). And optionnaly after [TODO #2 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do).
 
 ## References
 

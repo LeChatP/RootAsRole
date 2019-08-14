@@ -2,8 +2,8 @@
 
 ## Introduction
 
-Capabilities aren't user-friendly at all, even for a administrator. Mainly because administrator cannot determine exactly what capability a program needs to run correctly. So to fix that difficulty there's filter system integrated in Linux kernel to listen and filter kernel calls named eBPF. This filter uses JIT compilation and is injected to the kernel and will let access to user-space logs and maps. More details [https://github.com/pratyushanand/learn-bpf](here)
-This tool inspect the capable() call, and filter them to be the most convenient result for administrators.
+In many cases, it is very difficult for a user or administrator to know what kind of capabilities are requested by a program. So we build the capable tool in order to help Linux users know discover the capabilities requested by a program. Our tool uses eBPF in order to intercept the cap_capable() calls in the kernel. This filter uses JIT compilation and is injected to the kernel and will give back information to user-space. More details [https://github.com/pratyushanand/learn-bpf](here)
+However, the kernel retruns the list of capabilities to all programs that are running on the OS. We have added a filtering mecanism in order to let the user see only the capabilites requested by his program. 
 
 ## Tested Plateforms
 
@@ -13,7 +13,8 @@ This program has been tested with kernel version 5.0.0-13-generic with x86_64 ar
 
 ### How to Build
 
-1. sr -r root -c 'make'
+1. cd RootAsRole/ebpf
+2. sr -r root -c 'make install'
 
 ### Usage
 
@@ -32,13 +33,13 @@ Options:
 Note: this tool is mainly useful for administrators, and is almost not user-friendly
 ```
 
-When a command is specified, the program will run the command and wait for ending. The result will be filtered by his pid and his child.
-If your program is a daemon you can specify -s X or -d to let the time to daemon to start.
-When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill program specified (or not) and print result.
+When a command is specified, the program will run the command and wait for the end of its execution. The result will be filtered by his pid and his child processes.
+If your program is a daemon you can specify -s X or -d to give some time to daemon to start.
+When -d option is specified, the program will wait for SIGINT (Ctrl+C) to kill the specified program  (or not) and print result.
 
 ## Example
 
-To retrieve every capabilities for tcpdump, I will run ```
+To retrieve capabilities requested by tcpdump we just need to do :
 
 ```Txt
 $ capable -c "tcpdump"
@@ -51,7 +52,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-In this example we can see that we haven't the permission to execute command but our program has catch CAP_NET_RAW and CAP_SYS_ADMIN capabilities. These capabilities aren't mandatory. This will happens every-time, mainly because a program can just ask for capability and just ignore the -EPERM ouput from syscall. Particularly for CAP_SYS_ADMIN, this capability is call in every fork(). In this case, tcpdump just want to get raw traffic, which corresponds to CAP_NET_RAW. So if you create role with CAP_NET_RAW and tcpdump command :
+In this example we can see that we haven't the permission to execute the tcpdump command but capable tool retruns CAP_NET_RAW and CAP_SYS_ADMIN capabilities. Please pay attention to CAP_SYS_ADMIN, this capability is not probably important for programs but the kernel shows it because it is needed for every fork() call. In this case, tcpdump just wants to get raw traffic, which corresponds to CAP_NET_RAW. So if you create a role with CAP_NET_RAW and tcpdump command :
 
 ```XML
     <role name="net">
@@ -74,7 +75,7 @@ So we will try :
 $ sr -c 'tcpdump'
 Authentication of lechatp...
 Password: 
-Privileged bash launched with the following capabilities : cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw.
+Privileged bash launched with the role net and the following capabilities : cap_dac_override, cap_dac_read_search, cap_net_admin, cap_net_raw.
 tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
 listening on wlp108s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 15:40:03.315266 IP  ############
@@ -90,11 +91,11 @@ listening on wlp108s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 End of role net session.
 ```
 
-Now tcpdump has the most convinient capability to our use case.
+Now tcpdump is run with only cap_net_raw capability.
 
 ## Example 2
 
-Now we wants to get capabilities used to get addresses in kallsyms file :
+Now we want to get capabilities used to get addresses in kallsyms file :
 
 ```Txt
 $ capable -c 'cat /proc/kallsyms'
@@ -110,7 +111,7 @@ WARNING: These capabilities aren't mandatory, but can change the behavior of tes
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-We can see that the command output successfuly without permission denied. But adresses are all in 0, it isn't the use case that we want. Also we can see for this example that fork() is asking for CAP_SYS_ADMIN so, by default we don't gives cap_sys_admin to a new role. So let's try a new role with cap_syslog :
+This is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog. 
 
 ```Xml
     <role name="stacktrace">
@@ -144,7 +145,7 @@ ffffffff******** T nfnetlink_init	[nfnetlink]
 End of role stacktrace session.
 ```
 
-Perfect! We can see real adresses. This example shows that capabilities can change the behavior of program without making errors. They can be handled by developer.
+Perfect! We can see real adresses. 
 
 ## Example 3
 
@@ -234,7 +235,15 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 * Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer and see https://www.spinics.net/lists/netdev/msg497159.html but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
 
-* Make this tool testable. Tests are created but not functionning.
+2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list : 
+  * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
+  * optionnal, which corresponds to capabilities who change the behavior of kernel in a specific kernel call
+
+  This separation will permits a more convinient selection for automation of sr configuration.
+
+3. The algorithm to retrieving child process has somes exceptions. By example with sshd ran into sr : ```capable -c "sr -c /usr/sbin/sshd"```. To enhance the filtering system, the solution is to jail the running process into a namespace. You can obtain namespace id into the task_struct apperently. Need to be verified but it is possible anyways.
+
+4. Make this tool testable. Tests are created but not functionning.
 
 ## References
 
