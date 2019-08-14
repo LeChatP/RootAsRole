@@ -50,7 +50,7 @@ int bpf_cap_capable(struct pt_regs *ctx)
 	//int stacksize = bpf_get_stack(ctx,buf,sizeof(__u64) * PERF_MAX_STACK_DEPTH,0); //analyze stacktrace for fork()
 	u64 initial = ((u64)1 << cap); // if cap_sys_ressource or cap_sys_admin called first
 	char fmt[] = "| %d\t| %d\t| %d\t|\n";
-	bpf_trace_printk(fmt, sizeof(fmt), (u32)(pid>>32), (u32)pid, cap);
+	bpf_trace_printk(fmt, sizeof(fmt), (u32)pid, ppid, cap);
 	if (capval) {
 		*capval |= initial;
 	} else {
