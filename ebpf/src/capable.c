@@ -59,13 +59,6 @@ Print Help message
 */
 static void print_help(int long_help);
 
-/*
-https://dzone.com/articles/simple-popen2-implementation
-implementing popen but returning pid and getting in & out pipes asynchronous
-in and out pipes can be NULL
-*/
-static pid_t popen2(const char *command);
-
 static int do_clone(void *ptr);
 
 /*
@@ -100,15 +93,18 @@ static char *concat(char *str, char *s2);
  */
 static char *get_process_name_by_pid(const int pid);
 
+/**
+ * signal handler to kill command if executed
+ */
 static void killProc(int signum);
-
-static void killpopen(int signum);
 
 static int printResult();
 
 static int printDaemonResult();
 
 static int printNSDaemonResult();
+
+static int ignoreKallsyms();
 
 int main(int argc, char **argv)
 {
@@ -153,6 +149,7 @@ int main(int argc, char **argv)
 		char *stackTop;					/* End of stack buffer */
 		stack = malloc(STACK_SIZE);
 		stackTop = stack + STACK_SIZE;	/* Assume stack grows downward */
+		signal(SIGINT,killProc);
 		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD,(void*)&args);
 		char *namespaceFile = "/proc/%d/ns/pid";
 		char *namespace = malloc(strlen(namespaceFile)*sizeof(char)+sizeof(pid_t));
@@ -313,14 +310,6 @@ static void killProc(int signum)
 		exit(0);
 	}
 }
-/**
- * signal handler to kill process before exit
- */
-static void killpopen(int signum)
-{
-	killProc(signum);
-	exit(0);
-}
 
 static int printDaemonResult(){
 	int return_value = EXIT_SUCCESS, res;
@@ -365,6 +354,7 @@ static int printDaemonResult(){
 	}
 	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
 	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+	return return_value;
 }
 static int printNSDaemonResult(){
 	int return_value = EXIT_SUCCESS, res;
@@ -387,6 +377,7 @@ static int printNSDaemonResult(){
 	}
 	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
 	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+	return return_value;
 }
 /**
  * will print the result with or without filter in function of p_popen > 0
@@ -431,22 +422,6 @@ static int printResult()
 		printf("No capabilities are needed for this program.\n");
 	}
 	return return_value;
-}
-
-int static exec_clone(void *command){
-	return execl("/bin/sh", "sh", "-c", (char*) command, NULL);
-}
-
-// https://dzone.com/articles/simple-popen2-implementation
-// implementing popen but returning pid and getting in & out pipes asynchronous
-static pid_t popen2(const char *command)
-{
-	char *stack;                    /* Start of stack buffer */
-    char *stackTop;                 /* End of stack buffer */
-	stack = malloc(STACK_SIZE);
-    stackTop = stack + STACK_SIZE;  /* Assume stack grows downward */
-	pid_t pid = clone(exec_clone, stackTop, CLONE_NEWPID,(void*)command);
-	return pid;
 }
 
 /**
@@ -583,19 +558,20 @@ static char *get_process_name_by_pid(const int pid)
 	return name;
 }
 
-int ignoreKallsyms(){
+static int ignoreKallsyms(){
 	char kall[HEX + 1] = "", line[BUFFER_KALLSYM] = "";
 	int k = 0;
 	FILE *fp_kallsyms = fopen("/proc/kallsyms","r");
 	while(fgets(line,BUFFER_KALLSYM,fp_kallsyms) != NULL){
-		if(strchr(line,"_do_fork") != NULL){
+		if(strstr(line,"_do_fork") != NULL){
 			strncpy(line,kall,16);
 		}
 		unsigned long v = strtol(kall,NULL,HEX);
-		if(kall != "") {
+		if(strcmp(kall,"") != 0) {
 			bpf_map_update_elem(map_fd[0],&k,&v,0);
 			k++;
 			strcpy(line,"");
 		}
 	}
+	return k;
 }

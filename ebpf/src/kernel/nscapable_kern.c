@@ -87,7 +87,7 @@ int bpf_cap_capable_ns(struct pt_regs *ctx)
 		else if(userstack[4] == *blacklist_stack) 
 			initial = 0;
 	}
-	#endif K50
+	#endif
 	if (capval) {
 		*capval |= initial; // update value if existing
 	} else {
