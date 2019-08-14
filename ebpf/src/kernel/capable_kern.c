@@ -8,7 +8,7 @@
 #include <linux/pid_namespace.h>
 #include "bpf_helpers.h"
 
-#define MAX_STACK_RAWTP 5
+#define MAX_STACK_RAWTP 7
 
 /**
  * This eBPF still useful for daemon analysis

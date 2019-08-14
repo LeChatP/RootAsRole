@@ -88,7 +88,7 @@ install: $(BINS)
 	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
 	cp $(BIN_DIR)/*_kern.o /usr/lib/RootAsRole
-	setcap cap_dac_override,cap_sys_admin,cap_setuid,cap_dac_read_search,cap_dac_override+ep /usr/bin/capable
+	setcap cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR) $(SR_OBJS)

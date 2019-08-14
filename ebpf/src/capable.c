@@ -154,19 +154,19 @@ int main(int argc, char **argv)
 		stack = malloc(STACK_SIZE);
 		stackTop = stack + STACK_SIZE;	/* Assume stack grows downward */
 		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD,(void*)&args);
-		free(stack);
 		char *namespaceFile = "/proc/%d/ns/pid";
 		char *namespace = malloc(strlen(namespaceFile)*sizeof(char)+sizeof(pid_t));
-		snprintf(namespace,strlen(namespaceFile)*sizeof(char)+sizeof(pid_t),namespaceFile,getpid());
+		snprintf(namespace,strlen(namespaceFile)*sizeof(char)+sizeof(pid_t),namespaceFile,p_popen);
 		struct stat file_stat;  
 		int ret;
 		ret = fstatat(0,namespace, &file_stat,0);
 		free(namespace);
+		free(stack);
 		if (ret < 0) {
 			perror("Unable to access to namespace");
+			goto free_rscs;
 		}
 		nsinode = file_stat.st_ino;
-		printf("initial : %u\n",nsinode);
 		return_code=0;
 			while(wait(0) >= 0) sleep(1);
 	} else if (!args.daemon &&
@@ -409,7 +409,6 @@ static int printResult()
 		}
 		for(int i = 0;i< nbchilds || childs[i] == key;i++){
 			if(childs[i] == parent){ //if parent of actual key is in child list then add key to childs
-				printf("actual child : %u, parent of key : %u, actual key : %u\n",childs[i],parent,key);
 				nbchilds++;
 				childs=(unsigned int *)realloc(childs,nbchilds*sizeof(unsigned int));
 				childs[nbchilds-1] = key;
@@ -418,7 +417,6 @@ static int printResult()
 		prev_key = key;
 	}
 	for(int i = 0 ; i < nbchilds; i++){
-		printf("u : %u\n",&(childs[i]));
 		bpf_map_lookup_elem(map_fd[1], &(childs[i]), &value);
 		caps |= value;
 	}
