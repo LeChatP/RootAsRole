@@ -82,9 +82,11 @@ int bpf_cap_capable(struct pt_regs *ctx)
 		uid_gid = bpf_get_current_uid_gid(),
 		*capval = bpf_map_lookup_elem(&capabilities_map, &pid),
 	    pinum_inum = ((u64)get_parent_ns_inode(task)<<32) | get_ns_inode(task),
-		initial = ((u64)1 << cap), // if cap_sys_ressource or cap_sys_admin called first
-		userstack[MAX_STACK_RAWTP],
+		initial = ((u64)1 << cap); // if cap_sys_ressource or cap_sys_admin called first
+	#ifdef K50
+	u64	userstack[MAX_STACK_RAWTP],
 		*blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i);
+	
 	bpf_get_stack(ctx,userstack,sizeof(u64)*MAX_STACK_RAWTP,BPF_F_USER_STACK);
 	while(blacklist_stack){
 		for (int j = 0 ; j< MAX_STACK_RAWTP;j++){
@@ -95,6 +97,7 @@ int bpf_cap_capable(struct pt_regs *ctx)
 		i++;
 		blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i);
 	}
+	#endif
 	if (capval) {
 		*capval |= initial;
 	} else {
