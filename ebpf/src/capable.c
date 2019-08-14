@@ -430,7 +430,6 @@ static int printResult()
 	}else{
 		printf("No capabilities are needed for this program.\n");
 	}
-	printNSDaemonResult();
 	return return_value;
 }
 
