@@ -15,8 +15,11 @@ LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
 LINUXINCLUDE += -I$(KER_DIR)
 LINUXINCLUDE += -include asm_goto_workaround.h -D __BPF_TRACING__  # you must precisely include the file
 
+ifeq ($(uname -r | cut -c1-5),$(5.0.0))
+EXTRA_CFLAGS=-Werror -DK50
+else
 EXTRA_CFLAGS=-Werror
-
+endif
 LDFLAGS= -lelf
 
 LLC ?= llc
@@ -38,6 +41,9 @@ EXECUTABLE := capable
 OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o sorting.o)
 SR_OBJS:= $(addprefix $(SR_OBJ_DIR)/,capabilities.o)
 BINS := $(BIN_DIR)/$(EXECUTABLE) $(addprefix $(BIN_DIR)/,capable_kern.o nscapable_kern.o)
+
+
+
 
 all: $(BINS) 
 
