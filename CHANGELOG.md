@@ -8,10 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [2.1] - 2019-08-14
 
+This version is focused on capable program, no changes on sr command.
+
 ### Added
 
-- New algorithm for capabilities detection, based on namespaces with recursive namespace creation detection. This algorithm will work for almost all cases and is much more optimized than 2.0 algorithm.
-- Beginning of stack trace filtering, we want to remove the cap_sys_admin capability when _do_fork is in the stack
+- New algorithm capabilities detection for capable command, based on namespaces with recursive namespace creation detection. This algorithm will work for almost all cases and is much more optimized than 2.0 algorithm.
+- Beginning of stack trace filtering for capable command, we want to remove the cap_sys_admin capability when _do_fork is in the stack will work only on kernel version 5.X, the program remains retro-compatible for 4.10 version
 
 ### Modified
 
@@ -19,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - fix big mistakes on 2.0 algorithm
 - fix output options management
 - fix hidden memory leaks on capable tool
-- Program is now only compatible with 5.0 kernel version, we will work for retro-compatibility version
 
 ### Removed
 
@@ -61,7 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - sr command which uses capabilities and xml role system to replace `sudo` or any alternative.
 - initial project
 
-[Unreleased]: https://github.com/SamerW/RootAsRole/compare/V1.0...HEAD
+[Unreleased]: https://github.com/SamerW/RootAsRole/compare/V2.1...HEAD
+[2.1]: https://github.com/SamerW/RootAsRole/compare/V2.0...V2.1
 [2.0]: https://github.com/SamerW/RootAsRole/compare/V1.1...V2.0
 [1.1]: https://github.com/SamerW/RootAsRole/compare/V1.0...V1.1
 [1.0]: https://github.com/SamerW/RootAsRole/releases/tag/V1.0
