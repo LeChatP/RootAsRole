@@ -1,8 +1,10 @@
+#define _GNU_SOURCE
 #include "bpf_load.h"
 #include "libbpf.h"
 #include "sr_constants.h"
 #include "sorting.h"
 #include "../../src/capabilities.h"
+#include <sched.h>
 #include <getopt.h>
 #include <pwd.h>
 #include <linux/bpf.h>
@@ -16,10 +18,17 @@
 #include <sys/prctl.h>
 #include <signal.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define READ 0
 #define WRITE 1
 #define MAX_CHECK 3
+#define BUFFER_KALLSYM 128
+#define HEX 16
+#define STACK_SIZE (1024 * 1024)    /* Stack size for cloned child */
+//#define DEBUG 1
 
 extern char *optarg;
 extern int optind, opterr, optopt;
@@ -37,7 +46,7 @@ typedef struct _arguments_t {
 // keeps process pid, needed for signals and filtering
 volatile pid_t p_popen = -1;
 uid_t u_popen = -1;
-volatile sig_atomic_t stop;
+volatile unsigned int nsinode = -1;
 
 /*
 Parse input arguments and check arguments validity (in length)
@@ -57,21 +66,28 @@ in and out pipes can be NULL
 */
 static pid_t popen2(const char *command);
 
+static int do_clone(void *ptr);
+
 /*
-Inject file_kern.o to kernel as bpf
+Inject %s_kern.o to kernel as bpf
 return 1 on success, 0 on error occurs (cannot be known)
 */
-static int load_bpf(char *file);
+static int load_bpf(char *);
 
 /**
  * print line with capabilities
  * Note: this method is optimized
  */
-static void print_caps(int pid, int ppid, u_int64_t uid, u_int64_t caps);
+static void print_ns_caps(unsigned int ns,unsigned int pns, u_int64_t caps);
+
+
+/**
+ * print line with capabilities
+ * Note: this method is optimized
+ */
+static void print_caps(int pid, int ppid,unsigned int uid,unsigned int gid,unsigned int ns,unsigned int pns, u_int64_t caps);
 
 static char* get_caplist(u_int64_t caps);
-
-static uid_t set_uid();
 
 /**
  * appends s2 to str with realloc, return new char*
@@ -90,6 +106,9 @@ static void killpopen(int signum);
 
 static int printResult();
 
+static int printDaemonResult();
+
+static int printNSDaemonResult();
 
 int main(int argc, char **argv)
 {
@@ -121,24 +140,41 @@ int main(int argc, char **argv)
 		}
 		cap_free(cap);
 	}
-	if (load_bpf(argv[0])) {
+	#ifndef DEBUG
+	if (args.command == NULL && load_bpf("capable")) {
+		goto free_rscs;
+	}else if(load_bpf("nscapable")){
 		goto free_rscs;
 	}
+	#endif
+	ignoreKallsyms(); // we remove blacklisted 
 	if (args.command != NULL) {
-		p_popen = popen2(args.command);
+		char *stack;					/* Start of stack buffer */
+		char *stackTop;					/* End of stack buffer */
+		stack = malloc(STACK_SIZE);
+		stackTop = stack + STACK_SIZE;	/* Assume stack grows downward */
+		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD,(void*)&args);
+		char *namespaceFile = "/proc/%d/ns/pid";
+		char *namespace = malloc(strlen(namespaceFile)*sizeof(char)+sizeof(pid_t));
+		snprintf(namespace,strlen(namespaceFile)*sizeof(char)+sizeof(pid_t),namespaceFile,p_popen);
+		struct stat file_stat;  
+		int ret;
+		ret = fstatat(0,namespace, &file_stat,0);
+		free(namespace);
+		free(stack);
+		if (ret < 0) {
+			perror("Unable to access to namespace");
+			goto free_rscs;
+		}
+		nsinode = file_stat.st_ino;
+		return_code=0;
+			while(wait(0) >= 0) sleep(1);
 	} else if (!args.daemon &&
 		   args.sleep < 0) { // if there's no command, no daemon and no sleep
 		// specified the run as daemon by default
 		args.daemon = 1;
 	}
-	if (args.raw) {
-		signal(SIGINT,
-		       killpopen); // if sigint then kill command before exit
-		printf("| KERNEL\t\t\t\t\t   | PID\t| PPID\t| CAP\t|\n");
-		read_trace_pipe(); // print logs until kill
-		printf("an error has occured\n");
-		goto free_rscs;
-	} else if(args.daemon){ // if command run as daemon then read and print logs from
+	if(args.daemon){ // if command run as daemon then read and print logs from
 		// eBPF
 		sigset_t set;
 		int sig;
@@ -149,21 +185,17 @@ int main(int argc, char **argv)
 		int ret_val = sigwait(&set,&sig);
 		if(ret_val == -1)
 			perror("sigwait failed");
-	} else {
-		signal(SIGINT,
-		       killProc); // kill only command if SIGINT to continue program and
-			// print result
-		if (args.sleep >=
-		    0) { // if sleep argument is specified the sleep before kill
-			sleep(args.sleep);
-		} else if (p_popen >
-			   0) { // if user don't specify command then it goes
-			// directly to result
-			waitpid(p_popen, NULL, 0);
-		}
-	}
-	return_code = printResult();
+		if(args.command == NULL)printDaemonResult();
+		else printNSDaemonResult();
+	} else return_code = printResult();
 free_rscs:
+	return return_code;
+}
+
+static int do_clone(void *ptr){
+	arguments_t* args = (arguments_t*) ptr;
+	int return_code = -1;
+	execl("/bin/sh", "sh", "-c", args->command, NULL);
 	return return_code;
 }
 
@@ -276,9 +308,8 @@ static void killProc(int signum)
 				exit(-1);
 			}
 		}
-		stop = 1;
 	}else {
-		printResult();
+		printDaemonResult();
 		exit(0);
 	}
 }
@@ -290,182 +321,148 @@ static void killpopen(int signum)
 	killProc(signum);
 	exit(0);
 }
+
+static int printDaemonResult(){
+	int return_value = EXIT_SUCCESS, res;
+	u_int64_t value, uid_gid,pnsid_nsid;
+	pid_t key, prev_key = -1;
+	int ppid = -1;
+	printf("\nHere's all capabilities intercepted :\n");
+	printf("| UID\t| GID\t| PID\t| PPID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
+	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
+		res = bpf_map_lookup_elem(map_fd[1], &key,
+					&value); // get capabilities
+		if (res < 0) {
+			printf("No capabilities value for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[2], &key, &uid_gid); // get uid/gid
+		if (res < 0) {
+			printf("No uid/gid for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[3], &key, &ppid); // get ppid
+		if (res < 0) {
+			printf("No ppid for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[4], &key, &pnsid_nsid); // get ppid
+		if (res < 0) {
+			printf("No ns for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		print_caps(key, ppid, (unsigned int)uid_gid,(unsigned int)(uid_gid >> 32), (unsigned int)pnsid_nsid, (unsigned int)(pnsid_nsid >> 32),
+				value); // else print everything
+		prev_key = key;
+	}
+	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+}
+static int printNSDaemonResult(){
+	int return_value = EXIT_SUCCESS, res;
+	u_int64_t value, parent = 0;
+	unsigned int key, prev_key = -1;
+	printf("\nHere's all capabilities intercepted :\n");
+	printf("| NS\t\t| PNS\t\t| CAPABILITIES\t|\n");
+	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
+		res = bpf_map_lookup_elem(map_fd[1], &key,
+					&value); // get capabilities
+		if (res < 0) {
+			printf("No capabilities value for %d ??\n", key);
+			prev_key = key;
+			return_value = EXIT_FAILURE;
+			continue;
+		}
+		res = bpf_map_lookup_elem(map_fd[2], &key, &parent); // get uid/gid
+		print_ns_caps(key, parent,value); // else print everything
+		prev_key = key;
+	}
+	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
+}
 /**
  * will print the result with or without filter in function of p_popen > 0
  */
 static int printResult()
 {
 	int return_value = EXIT_SUCCESS;
-	u_int64_t value, uid_gid;
-	pid_t key, prev_key = -1;
+	u_int64_t value;
 	int res;
-	if(p_popen ==-1){
-		int ppid = -1;
-		printf("\nHere's all capabilities intercepted :\n");
-		printf("| UID\t| GID\t| PID\t| PPID\t| NAME\t\t\t| CAPABILITIES\t|\n");
-		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // key are composed by pid and ppid
-			res = bpf_map_lookup_elem(map_fd[0], &key,
-						&value); // get capabilities
-			if (res < 0) {
-				printf("No capabilities value for %d ??\n", key);
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[1], &key, &uid_gid); // get uid/gid
-			if (res < 0) {
-				printf("No uid/gid for %d ??\n", key);
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[2], &key, &ppid); // get uid/gid
-			if (res < 0) {
-				printf("No ppid for %d ??\n", key);
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			print_caps(key, ppid, uid_gid,
-					value); // else print everything
+	unsigned int key, prev_key = -1, parent;
+	u_int64_t caps = 0;
+	int nbchilds = 1;
+	unsigned int *childs = calloc(nbchilds,sizeof(unsigned int));
+	childs[0] = nsinode;
+	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key is inode of namespace
+		res = bpf_map_lookup_elem(map_fd[2], &key, &parent); // get ppid
+		if (res < 0) {
 			prev_key = key;
+			continue;
 		}
+		for(int i = 0;i< nbchilds || childs[i] == key;i++){
+			if(childs[i] == parent){ //if parent of actual key is in child list then add key to childs
+				nbchilds++;
+				childs=(unsigned int *)realloc(childs,nbchilds*sizeof(unsigned int));
+				childs[nbchilds-1] = key;
+			}
+		}
+		prev_key = key;
+	}
+	for(int i = 0 ; i < nbchilds; i++){
+		bpf_map_lookup_elem(map_fd[1], &(childs[i]), &value);
+		caps |= value;
+	}
+	free(childs);
+	if(caps){
+		char *capslist = get_caplist(caps);
+		printf("\nHere's all capabilities intercepted for this program :\n%s\n",capslist);
+		free(capslist);
 		printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
 		printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
-	}else {
-		u_int64_t caps = 0;
-		int array_size = 1;
-		pid_t ppid;
-		pid_t *puids = calloc(array_size,sizeof(pid_t*));
-		SortedPids *all = NULL;
-		puids[0] = p_popen;
-		while (bpf_map_get_next_key(map_fd[0], &prev_key, &key) == 0) { // get all process with this uid store all in sorted array
-			res = bpf_map_lookup_elem(map_fd[1], &key,
-						&uid_gid);
-			if (res < 0) {
-				printf("No capabilities value for %d ??\n", key);
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			res = bpf_map_lookup_elem(map_fd[2], &key,
-						&ppid);
-			if (res < 0) {
-				printf("No capabilities value for %d ??\n", key);
-				return_value = EXIT_FAILURE;
-				continue;
-			}
-			if((int)uid_gid == u_popen){
-				array_size++;
-				if((puids = realloc(puids,array_size*sizeof(pid_t*))) == NULL){
-					perror("unable to store pids");
-				}
-				puids[array_size-1] = key;
-			}
-			append_pid(all,key,ppid);
-			prev_key = key;
-		}
-		prev_key = -1;
-		int result_size = array_size;
-		pid_t *result = calloc(result_size+1,sizeof(pid_t));
-		memcpy(result,puids,sizeof(pid_t)*result_size+1);
-		for(int i = 0 ; i< array_size ; i++){
-			get_childs(all,puids[i],result,&result_size); // get all childs of all puids
-		}
-		free(puids);
-		for(int i = 0 ; i<result_size;i++){ // retrieve all capabilities from all childs
-				res = bpf_map_lookup_elem(map_fd[0], &result[i],
-				&value); // lookup capabilities
-				caps |= value;
-		}
-		free(result);
-		if(caps == 0)
-			printf("No capabilities needed for this program.\n");
-		else{
-			char *capslist = NULL;
-			capslist = get_caplist(caps);
-			printf("\nHere's all capabilities intercepted for this program :\n%s\n",capslist);
-			free(capslist);
-			printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
-			printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
-		}
+	}else{
+		printf("No capabilities are needed for this program.\n");
 	}
-		
 	return return_value;
 }
-/**
- * retrieve capable user, otherwise, use non-defined uid in the range of scripts uids
- * from https://refspecs.linuxfoundation.org/LSB_2.1.0/LSB-generic/LSB-generic/uidrange.html
- */
-static uid_t set_uid(){
-	int return_value = 0;
-	struct passwd *capasswd;
-	if((capasswd = getpwnam("capable")) != NULL){
-		if(!setuid(capasswd->pw_uid)) return_value = capasswd->pw_uid;
-		else perror("an error occur");
-	}else{
-		perror("capable user isn't exist, please reinstall capable tool");
-	}
-	return return_value;
+
+int static exec_clone(void *command){
+	return execl("/bin/sh", "sh", "-c", (char*) command, NULL);
 }
 
 // https://dzone.com/articles/simple-popen2-implementation
 // implementing popen but returning pid and getting in & out pipes asynchronous
 static pid_t popen2(const char *command)
 {
-	int pipefd[2];
-	if(pipe(pipefd)){
-		perror("cannot create pipe");
-		return 0;
-	}
-	pid_t pid = fork();
-	if (pid == 0) {
-		if(close(pipefd[0])){
-			perror("child cannot close reading pipe");
-			exit(1);
-		}
-		uid_t uid =set_uid();
-		if(write(pipefd[1],&uid,sizeof(uid_t)) < 0){
-			perror("child cannot send uid to father");
-			exit(1);
-		}
-		if(close(pipefd[1])){
-			perror("child cannot close writing pipe");
-			exit(1);
-		}
-		char final_command[PATH_MAX];
-		sprintf(final_command, "%s", command);
-		execl("/bin/sh", "sh", "-c", command, NULL);
-		perror("execl");
-		exit(1);
-	}else{ //parent
-		if(close(pipefd[1])){
-			perror("father cannot close writing pipe");
-			exit(1);
-		}
-		if(read(pipefd[0],&u_popen,sizeof(uid_t))<0){
-			perror("father cannot read uid");
-			exit(1);
-		}
-		if(close(pipefd[0])){
-			perror("father cannot close reading pipe");
-			exit(1);
-		}
-	}
+	char *stack;                    /* Start of stack buffer */
+    char *stackTop;                 /* End of stack buffer */
+	stack = malloc(STACK_SIZE);
+    stackTop = stack + STACK_SIZE;  /* Assume stack grows downward */
+	pid_t pid = clone(exec_clone, stackTop, CLONE_NEWPID,(void*)command);
 	return pid;
 }
 
 /**
  * will inject JIT ebpf to the kernel
  */
-static int load_bpf(char *file)
+static int load_bpf(char* name)
 {
 	int return_code = -1;
-	char *filenameFormat = "%s_kern.o";
-	char *filename = malloc(strlen(file) + strlen(filenameFormat) - 2 + 1);
-	sprintf(filename, filenameFormat, file);
+	char *filename = (char*)malloc(strlen(name)*sizeof(char)+8*sizeof(char));
+	sprintf(filename,"%s_kern.o",name);
 	if (access(filename, F_OK)) {
-		if (!access("/usr/lib/RootAsRole/capable_kern.o", F_OK)) { //if file in library is accessible
-			free(filename); // then free actual path to malloc new path
-			filename = malloc(35);
-			strcpy(filename,"/usr/lib/RootAsRole/capable_kern.o");
-		} else {
+		char *buffer = (char*)malloc(strlen(name)*sizeof(char)+30);
+		sprintf(buffer,"/usr/lib/RootAsRole/%s_kern.o",name);
+		free(filename);
+		filename = buffer;
+		if (access(buffer, F_OK)) { //if file in library is accessible
 			perror("Missing injector in librairies or in current folder");
 			goto free_on_error;
 		}
@@ -484,23 +481,37 @@ free_on_error:
 /**
  * print caps logged from map
  */
-static void print_caps(int pid, int ppid, u_int64_t uid_gid, u_int64_t caps)
+static void print_caps(int pid, int ppid,unsigned int uid,unsigned int gid,unsigned int ns,unsigned int pns, u_int64_t caps)
 {
 	char* name = get_process_name_by_pid(pid);
 	if (caps <= (u_int64_t)0) {
 		
-		printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
-	       (u_int32_t)(uid_gid >> 32), pid, ppid, name,
+		printf("| %d\t| %d\t| %d\t| %d\t| %u\t| %u\t| %s\t| %s\t|\n", uid,
+	       gid, pid, ppid,ns,pns, name,
 	       "No capabilities needed");
 		return;
 	}
 	char *capslist = NULL;
 	capslist = get_caplist(caps);
-	printf("| %d\t| %d\t| %d\t| %d\t| %s\t| %s\t|\n", (u_int32_t)uid_gid,
-	       (u_int32_t)(uid_gid >> 32), pid, ppid, name,
+	printf("| %d\t| %d\t| %d\t| %d\t| %u\t| %u\t| %s\t| %s\t|\n",uid,
+	       gid, pid, ppid,ns,pns, name,
 	       capslist);
 	free(capslist);
 	free(name);
+}
+
+static void print_ns_caps(unsigned int ns,unsigned int pns, u_int64_t caps)
+{
+	if (caps <= (u_int64_t)0) {
+		
+		printf("| %u\t| %u\t| %s\t|\n", ns,pns,
+	       "No capabilities needed");
+		return;
+	}
+	char *capslist = NULL;
+	capslist = get_caplist(caps);
+	printf("| %u\t| %u\t| %s\t|\n",ns,pns,capslist);
+	free(capslist);
 }
 
 static char* get_caplist(u_int64_t caps){
@@ -540,6 +551,7 @@ static char *concat(char *str, char *s2)
 	strcat(s, s2);
 	return s;
 }
+
 /**
  * Looking for command name
  * return command or path if process does not exist anymore
@@ -569,4 +581,21 @@ static char *get_process_name_by_pid(const int pid)
 		}
 	}
 	return name;
+}
+
+int ignoreKallsyms(){
+	char kall[HEX + 1] = "", line[BUFFER_KALLSYM] = "";
+	int k = 0;
+	FILE *fp_kallsyms = fopen("/proc/kallsyms","r");
+	while(fgets(line,BUFFER_KALLSYM,fp_kallsyms) != NULL){
+		if(strchr(line,"_do_fork") != NULL){
+			strncpy(line,kall,16);
+		}
+		unsigned long v = strtol(kall,NULL,HEX);
+		if(kall != "") {
+			bpf_map_update_elem(map_fd[0],&k,&v,0);
+			k++;
+			strcpy(line,"");
+		}
+	}
 }

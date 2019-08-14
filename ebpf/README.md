@@ -28,7 +28,6 @@ Options:
  -c, --command=command  launch the command to be more precise.
  -s, --sleep=number     specify number of seconds before kill program
  -d, --daemon           collecting data until killing program printing result at end
- -r, --raw              show raw results of injection without any filtering
  -v, --version          show the actual version of RootAsRole
  -h, --help             print this help and quit.
 Note: this tool is mainly useful for administrators, and is almost not user-friendly
@@ -234,7 +233,7 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 ## TO-DO
 
-1. Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. The function bpf_get_stack() is maybe a way. But only available on more recent kernel. This means that program will possibly have 2 versions for retro-compatibility.
+* Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer and see https://www.spinics.net/lists/netdev/msg497159.html but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
 
 2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list : 
   * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
