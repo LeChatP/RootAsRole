@@ -316,7 +316,7 @@ static int printDaemonResult(){
 	u_int64_t value, uid_gid,pnsid_nsid;
 	pid_t key, prev_key = -1;
 	int ppid = -1;
-	printf("\nHere's all capabilities intercepted :\n");
+	printf("\nHere are all the capabilities intercepted for this program:\n");
 	printf("| UID\t| GID\t| PID\t| PPID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
 	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
 		res = bpf_map_lookup_elem(map_fd[1], &key,
@@ -352,7 +352,7 @@ static int printDaemonResult(){
 				value); // else print everything
 		prev_key = key;
 	}
-	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: These capabilities aren't mandatory, but they can change the behavior of tested program.\n");
 	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 	return return_value;
 }
@@ -360,7 +360,7 @@ static int printNSDaemonResult(){
 	int return_value = EXIT_SUCCESS, res;
 	u_int64_t value, parent = 0;
 	unsigned int key, prev_key = -1;
-	printf("\nHere's all capabilities intercepted :\n");
+	printf("\nHere are all the capabilities intercepted for this program :\n");
 	printf("| NS\t\t| PNS\t\t| CAPABILITIES\t|\n");
 	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
 		res = bpf_map_lookup_elem(map_fd[1], &key,
@@ -375,7 +375,7 @@ static int printNSDaemonResult(){
 		print_ns_caps(key, parent,value); // else print everything
 		prev_key = key;
 	}
-	printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+	printf("WARNING: These capabilities aren't mandatory, but they can change the behavior of tested program.\n");
 	printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 	return return_value;
 }
@@ -414,9 +414,9 @@ static int printResult()
 	free(childs);
 	if(caps){
 		char *capslist = get_caplist(caps);
-		printf("\nHere's all capabilities intercepted for this program :\n%s\n",capslist);
+		printf("\nHere are all the capabilities intercepted for this program :\n%s\n",capslist);
 		free(capslist);
-		printf("WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\n");
+		printf("WARNING: These capabilities aren't mandatory, but they can change the behavior of tested program.\n");
 		printf("WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant\n");
 	}else{
 		printf("No capabilities are needed for this program.\n");
