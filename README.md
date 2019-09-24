@@ -12,7 +12,7 @@ Eddie Billoir : eddie.billoir@gmail.com
 
 Romain Laborde : laborde@irit.fr
 
-## Contributors
+## Feedback
 
 You may give us your feedbacks  about RootAsRole here:
 
