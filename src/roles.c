@@ -584,8 +584,8 @@ int print_capabilities(user_role_capabilities_t *urc)
 
 	//group managing
 	char *expressionGroupRoleFormat="//role[groups/group[not(@name)]]";
-	char *expression = format_groups(urc->groups,urc->nb_groups,expressionGroupRoleFormat);
-	xmlXPathObjectPtr resultGroup = xpath_nodeset_search(conf_doc,expressionUser);
+	char *expressionGroup = format_groups(urc->groups,urc->nb_groups,expressionGroupRoleFormat);
+	xmlXPathObjectPtr resultGroup = xpath_nodeset_search(conf_doc,expressionGroup);
 	int verifyUser = resultUser != NULL && resultUser->nodesetval->nodeNr > 0;
 	int verifyGroup = resultGroup != NULL && resultGroup->nodesetval->nodeNr > 0;
 	if(verifyUser||verifyGroup){
