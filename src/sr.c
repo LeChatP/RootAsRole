@@ -110,11 +110,15 @@ int main(int argc, char *argv[])
 		return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
-	//Assert a role or a command has been given
-	if (args.role == NULL && args.command == NULL) {
-		fprintf(stderr, "A role or command is mandatory\n");
+	//Assert a role or a command or information request has been given
+	if (args.role == NULL && args.command == NULL && !args.info) {
+		fprintf(stderr, "To obtain list of commands and roles available please use -i option\n");
 		print_help(0);
 		goto free_rscs;
+	}
+	//if info request
+	if(args.info){
+
 	}
 
 #ifdef SR_DEBUG
@@ -463,7 +467,7 @@ retrieve_urc(const char *role, const char *user, const char *command,
 		//Retrieve capabilities
 		ret_val = get_capabilities(urc);
 	} else {
-		//Print role info for the user
+		//Print all info for the user
 		ret_val = print_capabilities(urc);
 	}
 	//Free the libxml parsing lib
