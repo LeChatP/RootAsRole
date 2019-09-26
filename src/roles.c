@@ -611,25 +611,23 @@ free_rscs:
 
 void print_roles(user_role_capabilities_t *urc,xmlXPathObjectPtr result){
 	int any_user_command=0, any_group_command=0;
-	chained_commands commands_user_list = NULL, commands_groups_list = NULL; //The list of command
+	chained_commands command_list = NULL; //The list of command
 	xmlNodePtr role_node = NULL; //The role xml node
 	for(int i = 0; i<result->nodesetval->nodeNr;i++){
 		role_node = result->nodesetval->nodeTab[i];
 		printf("- you can use the role \"%s\" ",(char*)xmlGetProp(role_node,xmlCharStrdup("name")));
-		add_user_commands(urc,role_node,&any_user_command,&commands_user_list);
-		add_groups_commands(urc,role_node,&any_group_command,&commands_groups_list);
-		if((!any_user_command && commands_user_list!=NULL) || (commands_groups_list != NULL && !any_group_command)){
-			printf("only with these commands : \n");
-			while(commands_user_list != NULL){
-				printf("  - %s\n",commands_user_list->command);
-				commands_user_list = commands_user_list->next;
-			}
-			while(commands_groups_list != NULL){
-				printf("  - %s\n",commands_groups_list->command);
-				commands_groups_list = commands_groups_list->next;
-			}
-		}else{
+		add_user_commands(urc,role_node,&any_user_command,&command_list);
+		add_groups_commands(urc,role_node,&any_group_command,&command_list);
+		if(any_user_command||any_group_command){
 			printf("with any commands\n");
+		}else if(command_list!=NULL){
+			printf("only with these commands : \n");
+			while(command_list != NULL){
+				printf("  - %s\n",command_list->command);
+				command_list = command_list->next;
+			}
+		}else {
+			printf("without any commands");
 		}
 		
 		if(urc->caps.nb_caps == CAP_LAST_CAP){
