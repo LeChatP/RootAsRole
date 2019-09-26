@@ -615,7 +615,7 @@ int print_capabilities(user_role_capabilities_t *urc)
 		if(resultExplicit != NULL && resultExplicit->nodesetval->nodeNr > 0){
 			printf("As user \"%s\", you can execute this command :\n  sr -c \"%s\"\n",urc->user,urc->command);
 		}else if(resultNonExplicit != NULL && resultNonExplicit->nodesetval->nodeNr > 0){
-			printf("As user \"%s\" you can execute this command with these specific roles :",urc->user);
+			printf("As user \"%s\" you can specify these roles to execute this command :",urc->user);
 			print_roles(urc,resultNonExplicit);
 		}else{
 			printf("As user \"%s\" you can't execute this command\n",urc->user);
@@ -646,7 +646,7 @@ int print_capabilities(user_role_capabilities_t *urc)
 		int verifyUser = resultUser != NULL && resultUser->nodesetval->nodeNr > 0;
 		int verifyGroup = resultGroup != NULL && resultGroup->nodesetval->nodeNr > 0;
 		if(verifyUser||verifyGroup){
-			printf("As user %s :\n",urc->user);
+			printf("As user %s :",urc->user);
 			if(verifyUser)print_roles(urc,resultUser);
 			if(verifyGroup)print_roles(urc,resultGroup);
 		}
@@ -724,9 +724,7 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	}
 	add_user_commands(urc,role_node,&any_command,&commands);
 	if(!any_command)add_groups_commands(urc,role_node,&any_command,&commands);
-	if(any_command){
-		printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
-	}else switch(check_urc_valid_for_role(urc,role_node)){
+	switch(check_urc_valid_for_role(urc,role_node)){
 		case 0:
 			printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
 			goto free_rscs;
@@ -734,13 +732,17 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 			return_code = -1;
 			goto free_rscs;
 		case -2:
-			printf("As user \"%s\" you can't execute this command\n",urc->user);
+			if(any_command){
+				printf("As user \"%s\" you can execute \"%s\" with this simplified command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
+			}else printf("As user \"%s\" you can't execute this command\n",urc->user);
 			goto free_rscs;
 		default:
 			errno = EINVAL;
 			return_code = -4;
 			goto free_rscs;
 	}
+
+
 	free_rscs:
 	cc_free_it(commands);
 	return return_code;
