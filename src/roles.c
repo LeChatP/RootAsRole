@@ -601,8 +601,8 @@ int print_capabilities(user_role_capabilities_t *urc)
 		char *tmpUser = encodeXml(urc->user);
 		char *expressionGroupFormat = format_groups(urc->groups,urc->nb_groups,expressionBaseFormat);
 		char *tmpCommand = encodeXml(urc->command);
-		char *tmpexpressionExplicitFormat = (char*)malloc(strlen(expressionGroupFormat)-4+strlen(tmpUser)+strlen(expressionExplicitFormat)-4+1*sizeof(char));
-		char *expressionExplicit = (char*)malloc(sizeof(tmpexpressionExplicitFormat)+strlen(tmpCommand)*2+strlen(expressionExplicitFormat)-8+1*sizeof(char));
+		char *tmpexpressionExplicitFormat = (char*)malloc(strlen(expressionGroupFormat)+strlen(tmpUser)+strlen(expressionExplicitFormat)-3);
+		char *expressionExplicit = (char*)malloc(strlen(expressionGroupFormat)-4+strlen(tmpUser)+strlen(expressionExplicitFormat)-8+strlen(tmpCommand)*2+1*sizeof(char));
 		sprintf(tmpexpressionExplicitFormat,expressionGroupFormat,tmpUser,expressionExplicitFormat);
 		sprintf(expressionExplicit,tmpexpressionExplicitFormat,tmpCommand);
 
@@ -658,6 +658,7 @@ int print_capabilities(user_role_capabilities_t *urc)
 		xmlXPathFreeObject(resultUser);
 	}
 	free_rscs:
+	xmlXPathFreeContext(context);
 	return_code = 0;
 	if (conf_doc != NULL) {
 		xmlFreeDoc(conf_doc);
@@ -691,7 +692,7 @@ static int print_match_RoleOnly(user_role_capabilities_t *urc, xmlDocPtr conf_do
 		return_code = -4;
 		goto free_rscs;
 	}
-	printf("As user %s :\n",urc->user);
+	printf("As user %s :",urc->user);
 	free_rscs:
 	print_role(urc,role_node);
 	return return_code;
@@ -724,10 +725,10 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	add_user_commands(urc,role_node,&any_command,&commands);
 	if(!any_command)add_groups_commands(urc,role_node,&any_command,&commands);
 	if(any_command){
-		printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -r \"%s\" -c \"%s\"",urc->user,urc->command,urc->role,urc->command);
+		printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
 	}else switch(check_urc_valid_for_role(urc,role_node)){
 		case 0:
-			printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -c \"%s\"",urc->user,urc->command,urc->command);
+			printf("As user \"%s\" you can execute \"%s\" with this specific command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
 			goto free_rscs;
 		case -1:
 			return_code = -1;
