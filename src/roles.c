@@ -618,21 +618,23 @@ void print_roles(user_role_capabilities_t *urc,xmlXPathObjectPtr result){
 		printf("- you can use the role \"%s\" ",(char*)xmlGetProp(role_node,xmlCharStrdup("name")));
 		add_user_commands(urc,role_node,&any_user_command,&commands_user_list);
 		add_groups_commands(urc,role_node,&any_group_command,&commands_groups_list);
-		if((!any_user_command||commands_user_list!=NULL) && (commands_groups_list != NULL||!any_group_command)){
+		if((!any_user_command && commands_user_list!=NULL) || (commands_groups_list != NULL && !any_group_command)){
 			printf("only with these commands : \n");
 			while(commands_user_list != NULL){
-				printf("\t- %s\n",commands_user_list->command);
+				printf("  - %s\n",commands_user_list->command);
 				commands_user_list = commands_user_list->next;
 			}
 			while(commands_groups_list != NULL){
-				printf("\t- %s\n",commands_groups_list->command);
+				printf("  - %s\n",commands_groups_list->command);
 				commands_groups_list = commands_groups_list->next;
 			}
 		}else{
 			printf("with any commands\n");
 		}
 		
-		if (complete_role_capabilities(urc,role_node) == 0 && urc->caps.nb_caps > 0){
+		if(urc->caps.nb_caps == CAP_LAST_CAP){
+			printf("  and grants full privileges\n");
+		}else if (complete_role_capabilities(urc,role_node) == 0 && urc->caps.nb_caps > 0){
 			char *caps = cap_list_to_text(urc->caps.nb_caps,urc->caps.capabilities);
 			printf("  and grants these privileges :\n  %s\n",caps);
 		}else
