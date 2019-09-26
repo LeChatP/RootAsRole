@@ -121,12 +121,6 @@ static char* encodeXml(const char* str);
 static char* xpath_format_groups(char** groups, int nb_groups);
 
 /**
- * Return result of xpath query for nodeset
- * return NULL if not found
- */
-static xmlXPathObjectPtr xpath_nodeset_search(xmlDocPtr conf_doc,xmlChar *expression);
-
-/**
  * Return group formatted expression
  * this function will replace "not(@name)" string in tmpexpression to formatted group list
  * if nb_groups is empty, tmpexpression is returned
@@ -144,7 +138,7 @@ Find user role for command specified
 Return 0 on success, -2 if role wasn't found,
 -3 if an error has been found in the xml doc, -1 if an other error happened
 */
-static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command,
+static int find_role_for_user(xmlXPathContextPtr context, char *user,const char *command,
 			      xmlNodePtr *role_node);
 
 /*
@@ -152,14 +146,14 @@ Find user role for command specified
 Return 0 on success, -2 if role wasn't found,
 -3 if an error has been found in the xml doc, -1 if an other error happened
 */
-static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
+static int find_role_for_group(xmlXPathContextPtr context, char **groups, int nb_groups,
 			      const char *command, xmlNodePtr *role_node);
 
 /**
  * find the first role that matching command, user and group
  * @return -2 if the role wasn't found
  */
-static int find_role_by_command(xmlDocPtr conf_doc,
+static int find_role_by_command(xmlXPathContextPtr context,
 				user_role_capabilities_t *urc,
 				xmlNodePtr *role_node);
 
@@ -455,7 +449,9 @@ int get_capabilities(user_role_capabilities_t *urc)
 	//find the role node in the configuration file
 	//(if the return is -2: role not found, otherwise: other error)
 	if (urc->role == NULL) {
-		ret_fct = find_role_by_command(conf_doc, urc, &role_node);
+		xmlXPathContextPtr context = xmlXPathNewContext(conf_doc);
+		ret_fct = find_role_by_command(context, urc, &role_node);
+		xmlXPathFreeContext(context);
 		int string_len;
 		xmlChar *xrole;
 		switch (ret_fct) {
@@ -561,7 +557,6 @@ int print_capabilities(user_role_capabilities_t *urc)
 	xmlParserCtxtPtr parser_ctxt = NULL; // the parser context
 	int parser_options;
 	xmlDocPtr conf_doc = NULL; // the configuration xml document tree
-	
 
 	//Check that urc contains at least a user
 	if (urc->user == NULL) {
@@ -592,6 +587,7 @@ int print_capabilities(user_role_capabilities_t *urc)
 		return_code = -4;
 		goto free_rscs;
 	}
+	xmlXPathContextPtr context = xmlXPathNewContext(conf_doc);
 	if(urc->role != NULL && urc->command != NULL){
 		return_code = print_match_commandAndRole(urc,conf_doc);
 		goto free_rscs;
@@ -613,16 +609,14 @@ int print_capabilities(user_role_capabilities_t *urc)
 		char *expressionNonExplicit = (char*)malloc(strlen(expressionGroupFormat)-4+strlen(tmpUser)+strlen(expressionNonExplicitFormat)+1*sizeof(char));
 		sprintf(expressionNonExplicit,expressionGroupFormat,tmpUser,expressionNonExplicitFormat);
 		
-		xmlXPathObjectPtr resultExplicit = xpath_nodeset_search(conf_doc,(xmlChar*)expressionExplicit);
-		xmlXPathObjectPtr resultNonExplicit = xpath_nodeset_search(conf_doc,(xmlChar*)expressionNonExplicit);
+		xmlXPathObjectPtr resultExplicit = xmlXPathEvalExpression((xmlChar*)expressionExplicit,context);
+		xmlXPathObjectPtr resultNonExplicit = xmlXPathEvalExpression((xmlChar*)expressionNonExplicit,context);
 
 		if(resultExplicit != NULL && resultExplicit->nodesetval->nodeNr > 0){
 			printf("As user \"%s\", you can execute this command :\n  sr -c \"%s\"\n",urc->user,urc->command);
-			goto free_rscs;
 		}else if(resultNonExplicit != NULL && resultNonExplicit->nodesetval->nodeNr > 0){
 			printf("As user \"%s\" you can execute this command with these specific roles :",urc->user);
 			print_roles(urc,resultNonExplicit);
-			goto free_rscs;
 		}else{
 			printf("As user \"%s\" you can't execute this command\n",urc->user);
 		}
@@ -640,14 +634,14 @@ int print_capabilities(user_role_capabilities_t *urc)
 		char *tmpUser = encodeXml(urc->user);
 		char *expressionUser=(char*)malloc(strlen(expressionRoleFormat)-2+strlen(tmpUser)+1 * sizeof(char));
 		sprintf(expressionUser,expressionRoleFormat,"",tmpUser,"");
-		xmlXPathObjectPtr resultUser = xpath_nodeset_search(conf_doc,(xmlChar*)expressionUser);
+		xmlXPathObjectPtr resultUser = xmlXPathEvalExpression((xmlChar*)expressionUser,context);
 
 		//group managing
 		char *expressionGroupAppend="groups/group[not(@name)] and not("; // we append at argument 1 search roles that in group but not in user (remove duplicatas)
 		char *expressionGroup = format_groups(urc->groups,urc->nb_groups,expressionGroupAppend);
 		char *expression = malloc(strlen(expressionGroup)+strlen(expressionUser)+2*sizeof(char));
 		sprintf(expression,expressionRoleFormat,expressionGroup,tmpUser,")");
-		xmlXPathObjectPtr resultGroup = xpath_nodeset_search(conf_doc,(xmlChar*)expression);
+		xmlXPathObjectPtr resultGroup = xmlXPathEvalExpression((xmlChar*)expression,context);
 
 		int verifyUser = resultUser != NULL && resultUser->nodesetval->nodeNr > 0;
 		int verifyGroup = resultGroup != NULL && resultGroup->nodesetval->nodeNr > 0;
@@ -700,7 +694,6 @@ static int print_match_RoleOnly(user_role_capabilities_t *urc, xmlDocPtr conf_do
 	printf("As user %s :\n",urc->user);
 	free_rscs:
 	print_role(urc,role_node);
-	xmlFreeNode(role_node);
 	return return_code;
 }
 
@@ -748,7 +741,6 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 			goto free_rscs;
 	}
 	free_rscs:
-	if(role_node != NULL)xmlFreeNode(role_node);
 	cc_free_it(commands);
 	return return_code;
 }
@@ -781,15 +773,24 @@ static void print_role(user_role_capabilities_t *urc,xmlNodePtr role_node){
 		}else {
 			printf("without any commands");
 		}
-		
-		if(urc->caps.nb_caps == CAP_LAST_CAP){
-			printf("  and grants full privileges\n");
-		}else if (complete_role_capabilities(urc,role_node) == 0 && urc->caps.nb_caps > 0){
-			char *caps = cap_list_to_text(urc->caps.nb_caps,urc->caps.capabilities);
-			printf("  and grants these privileges :\n  %s\n",caps);
-			free(caps);
-		}else
-			printf("  and doesn't grant any privileges\n");
+		switch(complete_role_capabilities(urc,role_node)){
+			case 0:
+				if(urc->caps.nb_caps-1 == CAP_LAST_CAP){
+					printf("  and grants full privileges\n");
+				}else if (urc->caps.nb_caps > 0){
+					char *caps = cap_list_to_text(urc->caps.nb_caps,urc->caps.capabilities);
+					printf("  and grants these privileges :\n  %s\n",caps);
+					free(caps);
+				}else
+					printf("  and doesn't grant any privileges\n");
+				break;
+			case -3:
+				perror("an error occured when reading configuration file");
+				break;
+			default:
+				perror("an unkown error occured");
+				break;
+		}
 	cc_free_it(command_list);
 	free(urc->caps.capabilities);
 	urc->caps.nb_caps = 0;
@@ -1089,7 +1090,7 @@ static char *str_replace(const char *s, unsigned int start, unsigned int length,
  * find right role with xpath searching for role user
  * return 0 if found, -1 if error, -2 if not found
  */
-static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command,
+static int find_role_for_user(xmlXPathContextPtr context, char *user,const char *command,
 			      xmlNodePtr *role_node)
 {
 	int return_code = -1;
@@ -1101,7 +1102,7 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command
 					  strlen(tmpuser) + strlen(tmpcommand) +
 					  1 * sizeof(char));
 	sprintf(expression, expressionFormatUser, tmpuser, tmpcommand);
-	xmlXPathObjectPtr result = xpath_nodeset_search(conf_doc,(xmlChar*)expression);
+	xmlXPathObjectPtr result = xmlXPathEvalExpression((xmlChar*)expression,context);
 	if(result != NULL && result->nodesetval->nodeNr > 0){
 		*role_node = result->nodesetval->nodeTab[0];
 		return_code = 0;
@@ -1113,26 +1114,6 @@ static int find_role_for_user(xmlDocPtr conf_doc, char *user,const char *command
 	if(tmpcommand!=NULL)free(tmpcommand);
 	free((xmlChar *)expression);
 	return return_code;
-}
-
-/**
- * Return result of xpath query for nodeset
- * return NULL if not found
- */
-static xmlXPathObjectPtr xpath_nodeset_search(xmlDocPtr conf_doc,xmlChar *expression){
-	xmlXPathObjectPtr result = NULL;
-	xmlXPathContextPtr context;
-	context = xmlXPathNewContext(conf_doc);
-	if (context == NULL) {
-		goto free_on_error;
-	}
-	result = xmlXPathEvalExpression((xmlChar *)expression, context);
-	if (result == NULL || xmlXPathNodeSetIsEmpty(result->nodesetval)) {
-		goto free_on_error;
-	}
-	free_on_error:
-	xmlXPathFreeContext(context);
-	return result;
 }
 
 /**
@@ -1210,7 +1191,7 @@ static char* encodeXml(const char* str){
  * find right role with xpath searching for group user
  * return 0 if found, -1 if error, -2 if not found
  */
-static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
+static int find_role_for_group(xmlXPathContextPtr context, char **groups, int nb_groups,
 			       const char *command, xmlNodePtr *role_node)
 {
 	int return_code = -1;
@@ -1224,7 +1205,7 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
 					     sizeof(char));
 	sprintf(tmpexpression, expressionFormatGroup, tmpcommand);
 	expression = format_groups(groups,nb_groups,tmpexpression); //replace not(@name) to groups
-	result = xpath_nodeset_search(conf_doc,(xmlChar *)expression);
+	result = xmlXPathEvalExpression((xmlChar *)expression,context);
 	if (result != NULL && result->nodesetval->nodeNr > 0) {
 		*role_node = result->nodesetval->nodeTab[0];
 		return_code = 0;
@@ -1240,7 +1221,7 @@ static int find_role_for_group(xmlDocPtr conf_doc, char **groups, int nb_groups,
  * find the first role that matching command, user and group
  * @return -2 if the role wasn't found
  */
-static int find_role_by_command(xmlDocPtr conf_doc,
+static int find_role_by_command(xmlXPathContextPtr context,
 				user_role_capabilities_t *urc,
 				xmlNodePtr *role_node)
 {
@@ -1248,10 +1229,10 @@ static int find_role_by_command(xmlDocPtr conf_doc,
 	*role_node = NULL;
 	xmlXPathInit();
 	//xpath for finding the right role, user and command easily
-	return_code = find_role_for_user(conf_doc, urc->user, urc->command,
+	return_code = find_role_for_user(context, urc->user, urc->command,
 					 role_node);
 	if (return_code) {
-		return_code = find_role_for_group(conf_doc, urc->groups,
+		return_code = find_role_for_group(context, urc->groups,
 						  urc->nb_groups, urc->command,
 						  role_node);
 	}
