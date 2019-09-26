@@ -12,7 +12,7 @@
 <!ATTLIST user name CDATA #REQUIRED>
 <!ELEMENT group (commands?)>
 <!ATTLIST group name CDATA #REQUIRED>
-<!ELEMENT commands (command*)>
+<!ELEMENT commands (command+)>
 <!ELEMENT command (#PCDATA)>
 ]>
 <capabilityrole>
