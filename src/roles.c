@@ -605,7 +605,6 @@ int print_capabilities(user_role_capabilities_t *urc)
 	//TODO: Refactoring
 	if(urc->role != NULL && urc->command != NULL){ //command and role specified
 		return_code = print_match_commandAndRole(urc,conf_doc);
-		goto free_rscs;
 	} else if(urc->role != NULL){ //role only
 		return_code = print_match_RoleOnly(urc,conf_doc);
 	}else if(urc->command != NULL){ //command only
