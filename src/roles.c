@@ -605,6 +605,7 @@ int print_capabilities(user_role_capabilities_t *urc)
 	//TODO: Refactoring
 	if(urc->role != NULL && urc->command != NULL){ //command and role specified
 		return_code = print_match_commandAndRole(urc,conf_doc);
+		goto free_rscs;
 	} else if(urc->role != NULL){ //role only
 		return_code = print_match_RoleOnly(urc,conf_doc);
 	}else if(urc->command != NULL){ //command only
@@ -740,9 +741,13 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	if(!any_command)add_groups_commands(urc,role_node,&any_command,&commands);
 	switch(check_urc_valid_for_role(urc,role_node)){
 		case 0:
-			printf("As user \"%s\" you can execute \"%s\" with this simplified command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
-			print_role_caps(urc,role_node);
-			goto free_rscs;
+			if(any_command){
+				printf("As user \"%s\" you can execute \"%s\" with command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
+				print_role_caps(urc,role_node);
+			}else{
+				printf("As user \"%s\" you can execute \"%s\" with this simplified command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
+				print_role_caps(urc,role_node);
+			}
 		case -1:
 			return_code = -1;
 			goto free_rscs;
@@ -751,7 +756,6 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 				printf("As user \"%s\" you can execute \"%s\" with command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
 				print_role_caps(urc,role_node);
 			}else printf("As user \"%s\" you can't execute this command\n",urc->user);
-			goto free_rscs;
 		default:
 			errno = EINVAL;
 			return_code = -4;
