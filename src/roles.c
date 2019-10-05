@@ -748,6 +748,7 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 				printf("As user \"%s\" you can execute \"%s\" with this simplified command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
 				print_role_caps(urc,role_node);
 			}
+			break;
 		case -1:
 			return_code = -1;
 			goto free_rscs;
@@ -756,6 +757,7 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 				printf("As user \"%s\" you can execute \"%s\" with command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
 				print_role_caps(urc,role_node);
 			}else printf("As user \"%s\" you can't execute this command\n",urc->user);
+			break;
 		default:
 			errno = EINVAL;
 			return_code = -4;
