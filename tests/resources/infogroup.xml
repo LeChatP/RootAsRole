@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+configuration to tests for group
+-->
+<!DOCTYPE capabilityrole [
+<!ELEMENT capabilityrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (capabilities, groups?, groups?)>
+<!ATTLIST role name ID #REQUIRED>
+<!ELEMENT capabilities (capability+)>
+<!ELEMENT groups (group*)>
+<!ELEMENT groups (group*)>
+<!ELEMENT capability (#PCDATA)>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ELEMENT command (#PCDATA)>
+]>
+<capabilityrole>
+  <roles>
+    <role name="null">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <groups>
+        <group name="null"/>
+      </groups>
+    </role>
+    <role name="info0">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <groups>
+        <group name="%1$s"/>
+      </groups>
+    </role>
+    <role name="info1">
+      <capabilities>
+        <capability>CAP_NET_RAW</capability>
+      </capabilities>
+      <groups>
+        <group name="%1$s"/>
+        <group name="%2$s"/>
+      </groups>
+    </role>
+    <role name="info2">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <groups>
+        <group name="%1$s">
+          <commands>
+            <command>command1</command>
+            <command>command2</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="info3">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <groups>
+        <group name="%1$s">
+          <commands>
+          </commands>
+        </group>
+      </groups>
+    </role>
+    <role name="info4">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <groups>
+        <group name="%1$s">
+          <commands>
+          </commands>
+        </group>
+        <group name="%2$s">
+          <commands>
+            <command>command3</command>
+          </commands>
+        </group>
+      </groups>
+    </role>
+  </roles>
+</capabilityrole>

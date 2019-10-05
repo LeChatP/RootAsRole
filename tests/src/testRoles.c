@@ -1,4 +1,5 @@
 #include "testRoles.h"
+#include <errno.h>
 
 #define USER_CAP_FILE_ROLE "/etc/security/capabilityRole.xml"
 #define USER_CAP_FILE_USER "tests/resources/testRoles/configuration1.xml"
@@ -35,7 +36,7 @@ int testFindRoleWithUser(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -55,7 +56,7 @@ int testFindRoleWithUserInUserArrayConfig(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -75,7 +76,7 @@ int testFindRoleWithUserInCommandArrayConfig(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -91,11 +92,11 @@ int testFindRoleWithUserInCommandArrayConfig(void){
 int testFindRoleWithUserWrongCommand(void){
     int return_code = 0;
     beforeUser();
-    char *name = "user";
+    char *name = "djziz";
     int outfp;
-    sr_echo_command(name,&outfp); //wrong command
+    sr_async_echo_command(name,&outfp); //wrong command
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 0;
@@ -115,12 +116,11 @@ int testFindRoleWithWrongUserRightCommand(void){
     beforeUser();
     char *name = "role2-foo-cmd";
     int outfp;
-    sr_echo_command(name,&outfp);
+    sr_async_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
-            printf("%s\n",strstr(ligne,name));
             return_code = 0;
             break;
         }else{
@@ -142,7 +142,7 @@ int testFindFirstRoleWithUser(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"r0le1") != NULL){
             return_code = 1;
@@ -188,7 +188,7 @@ int testFindRoleWithGroup(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -221,7 +221,7 @@ int testFindRoleWithGroupArrayUrc(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -242,7 +242,7 @@ int testFindRoleWithGroupArrayConfiguration(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -262,7 +262,7 @@ int testFindRoleWithGroupWithCommandArrayConfiguration(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -280,9 +280,9 @@ int testFindRoleWithGroupWrongCommand(void){
     beforeGroup();
     char *name = "role2-gfoo-cmd";
     int outfp;
-    sr_echo_command(name,&outfp);
+    sr_async_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 0;
@@ -306,7 +306,7 @@ int testFindFirstRoleWithGroup(void){
     int outfp;
     sr_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 1;
@@ -323,7 +323,7 @@ int testFindFirstRoleWithGroup(void){
  * test if not matching when no command is specified to a user
  */
 int testFindUserRoleNoCommandInConfiguration(){
-    int return_code = 1;
+    int return_code = 0;
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
@@ -331,16 +331,16 @@ int testFindUserRoleNoCommandInConfiguration(){
     char *args[1] = {get_username(getuid())};
     copy_file_args(abspath,USER_CAP_FILE_ROLE,1,args);
 
-    char *name = "anyCommand";
+    char *name = "jiezodji";
     int outfp;
-    sr_echo_command(name,&outfp);
+    sr_async_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 0;
             break;
-        }
+        }else return_code=1;
     }
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(abspath,USER_CAP_FILE_ROLE);
@@ -352,7 +352,7 @@ int testFindUserRoleNoCommandInConfiguration(){
  * test if match when no command is specified to a group
  */
 int testFindGroupRoleNoCommandInConfiguration(){
-    int return_code = 1;
+    int return_code = 0;
     char abspath[PATH_MAX];
     realpath(USER_CAP_FILE_TEMP,abspath);
     copy_file(USER_CAP_FILE_ROLE,abspath);
@@ -364,13 +364,15 @@ int testFindGroupRoleNoCommandInConfiguration(){
     copy_file_args(abspath,USER_CAP_FILE_ROLE,2,args);
     char *name = "anyCommand";
     int outfp;
-    sr_echo_command(name,&outfp);
+    sr_async_echo_command(name,&outfp);
     char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,name) != NULL){
             return_code = 0;
             break;
+        }else{
+            return_code=1;
         }
     }
     realpath(USER_CAP_FILE_TEMP,abspath);

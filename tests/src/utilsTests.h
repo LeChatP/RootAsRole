@@ -21,6 +21,7 @@
      * Warning : pipe may not listen everything
      */
     pid_t capable_command(char *args, int *oufp);
+    pid_t capable_sync_command(char *args, int *oufp);
 
     /**
      * executes sr command and output pid with output pipe and wait
@@ -28,18 +29,24 @@
      * Warning : pipe may not listen everything
      */
     void sr_command(char *args, int *outfp);
+    void sr_async_command(char *args, int *outfp);
 
     /**
      * execute echo in sr command, useful to see if configuration allow a command or not
      * and wait for exit
      */
     void sr_echo_command(char *name, int *outfp);
+
+    /**
+     * See sr_echo_command, but in async mode
+     */
+    void sr_async_echo_command(char *name, int *outfp);
     
     /** https://dzone.com/articles/simple-popen2-implementation
      * implementing popen but returning pid and getting in & out pipes
      * infp and outfp can be null
      */
-    pid_t popen2(const char *command, int *infp, int *outfp);
+    pid_t popen2(const char *command, int *infp, int *outfp,int async);
     
     /**
      * Copy file from old_filename to new_filename
@@ -70,5 +77,7 @@
      * @return 1:success, 0:failure.
      */
     int fd_set_blocking(int fd, int blocking);
+
+    int strstrc(const char *haystack, char *needle);
 
 #endif

@@ -99,7 +99,7 @@ For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/mas
 
 5. Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
 
-6. Use YAML or JSON instead of XML
+6. Use YAML or JSON instead of XML to fix quotes and apos in same string problems
 
 7. Use Query language (XPath or other in JSON if To-Do #6) instead of sequential search of role
 
