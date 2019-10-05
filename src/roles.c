@@ -211,6 +211,11 @@ static int check_urc_valid_for_role(user_role_capabilities_t *urc,
  */
 static char get_quote(const char* str);
 
+/**
+ * Set the var surrounded by right quote
+ */
+static char* quoted_var(const char* var);
+
 /*
 Find a user node that match user in a role_node, and whose command given
 (or not) match the auhtorized command if needed.
@@ -626,10 +631,15 @@ int print_capabilities(user_role_capabilities_t *urc)
 		xmlXPathObjectPtr resultExplicit = xmlXPathEvalExpression((xmlChar*)expressionExplicit,context);
 		xmlXPathObjectPtr resultNonExplicit = xmlXPathEvalExpression((xmlChar*)expressionNonExplicit,context);
 		if(resultExplicit != NULL && resultExplicit->nodesetval->nodeNr > 0){
-			printf("As user \"%s\", you can execute this command :\n  sr -c \"%s\"\n",urc->user,urc->command);
+			char *command = quoted_var(urc->command);
+			printf("As user \"%s\", you can execute this command :\n  sr -c %s\n",urc->user,command);
+			free(command);
 			print_role_caps(urc,resultExplicit->nodesetval->nodeTab[0]);
 		}else if(resultNonExplicit != NULL && resultNonExplicit->nodesetval->nodeNr > 0){
-			printf("As user \"%s\" you can execute this command with these roles :",urc->user);
+			printf("As user \"%s\" you can execute this command with th%s role%s :",
+				urc->user,
+				resultNonExplicit->nodesetval->nodeNr > 1 ? "ese":"is",
+				resultNonExplicit->nodesetval->nodeNr > 1 ? "s":"");
 			print_roles(urc,resultNonExplicit);
 		}else{
 			printf("As user \"%s\" you can't execute this command\n",urc->user);
@@ -721,6 +731,8 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	int any_command = 0;
 	chained_commands commands = NULL;
 	xmlNodePtr role_node = NULL; //The role xml node
+	char *command = quoted_var(urc->command);
+	char *role = quoted_var(urc->role);
 	int ret_fct = get_role(conf_doc, urc->role, &role_node);
 	switch (ret_fct) {
 	case 0:
@@ -740,12 +752,12 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	add_user_commands(urc,role_node,&any_command,&commands);
 	if(!any_command)add_groups_commands(urc,role_node,&any_command,&commands);
 	switch(check_urc_valid_for_role(urc,role_node)){
-		case 0:
+		case 0: //TODO: REFACTORING
 			if(any_command){
-				printf("As user \"%s\" you can execute \"%s\" with command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
+				printf("As user \"%s\" you can execute %s with command :\n  sr -r %s -c %s\n",urc->user,command,role,command);
 				print_role_caps(urc,role_node);
 			}else{
-				printf("As user \"%s\" you can execute \"%s\" with this simplified command :\n  sr -c \"%s\"\n",urc->user,urc->command,urc->command);
+				printf("As user \"%s\" you can execute %s with this simplified command :\n  sr -c %s\n",urc->user,command,command);
 				print_role_caps(urc,role_node);
 			}
 			break;
@@ -754,7 +766,7 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 			goto free_rscs;
 		case -2:
 			if(any_command){
-				printf("As user \"%s\" you can execute \"%s\" with command :\n  sr -r \"%s\" -c \"%s\"\n",urc->user,urc->command,urc->role,urc->command);
+				printf("As user \"%s\" you can execute %s with command :\n  sr -r %s -c %s\n",urc->user,command,role,command);
 				print_role_caps(urc,role_node);
 			}else printf("As user \"%s\" you can't execute this command\n",urc->user);
 			break;
@@ -766,8 +778,17 @@ static int print_match_commandAndRole(user_role_capabilities_t *urc, xmlDocPtr c
 	return_code = 0;
 
 	free_rscs:
+	free(role);
+	free(command);
 	cc_free_it(commands);
 	return return_code;
+}
+
+static char* quoted_var(const char* var){
+	char* format = "%1$c%2$s%1$c";
+	char* result = malloc(3+strlen(var));
+	snprintf(result,3+strlen(var),format,get_quote(var),var);
+	return result;
 }
 
 static void print_roles(user_role_capabilities_t *urc,xmlXPathObjectPtr result){
