@@ -295,17 +295,30 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 		return -1;
 	}
 	//Check length of string
+	//dont allow ' and " in same string for security reasons
 	if (args->role != NULL) {
 		if (strlen(args->role) > 64)
 			return -2;
+		if (strchr(args->role,'\'') != NULL && strchr(args->role,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	if (args->user != NULL) {
 		if (strlen(args->user) > 32)
 			return -2;
+		if (strchr(args->user,'\'') != NULL && strchr(args->user,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	if (args->command != NULL) {
 		if (strlen(args->command) > 256)
 			return -2;
+		if (strchr(args->command,'\'') != NULL && strchr(args->command,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	return 0;
 }

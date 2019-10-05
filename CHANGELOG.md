@@ -8,12 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [2.2] - 2019-09-27
 
+This version is focused on sr command, no changes in capable command
+
 ### Added
 
 - Improve "-i" option, as user-friendly as possible. Explain every possibilities to specific user. If you don't know if you can, then do "-i"
 
 ### Modified
 
+- fix quotes and apostrophes in sr
+- fix various bugs with unwanted strings
 - Some Refactoring and optimisations
 
 ## [2.1] - 2019-08-14

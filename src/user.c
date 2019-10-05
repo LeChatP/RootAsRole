@@ -133,6 +133,7 @@ int pam_authenticate_user(const char *user)
 close_pam:
 	// close PAM (end session)
 	if (pam_end(pamh, pamret) != PAM_SUCCESS) { //An Error occured
+		pamh = NULL;
 		return_code = -1;
 	}
 	return return_code;
