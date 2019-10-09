@@ -1,6 +1,6 @@
 import unittest,getpass
 import prctl
-import utilsTests as utils
+from . import utilsTests as utils
 
 class TestFindUserRoles(unittest.TestCase):
 

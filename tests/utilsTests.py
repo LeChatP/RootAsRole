@@ -1,6 +1,6 @@
 import subprocess,pwd,grp,re,getpass
 import os,sys,grp,pwd
-import constants
+from . import constants
 password = None
 
 def copyArgsFile(source:str,dest:str,values:list=[]):

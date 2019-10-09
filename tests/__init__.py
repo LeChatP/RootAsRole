@@ -1,4 +1,4 @@
-import testRoles,constants,utilsTests
+from . import testRoles,constants,utilsTests
 import ctypes,unittest
 import signal,sys,os
 from os import path
