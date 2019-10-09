@@ -233,17 +233,13 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 ## TO-DO
 
-* Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer and see https://www.spinics.net/lists/netdev/msg497159.html but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
+1. Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer and see https://www.spinics.net/lists/netdev/msg497159.html but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
+2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list :
+    * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
+    * optionnal, which corresponds to capabilities who change the behavior of kernel in a specific kernel call
 
-2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list : 
-  * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
-  * optionnal, which corresponds to capabilities who change the behavior of kernel in a specific kernel call
-
-  This separation will permits a more convinient selection for automation of sr configuration.
-
-3. The algorithm to retrieving child process has somes exceptions. By example with sshd ran into sr : ```capable -c "sr -c /usr/sbin/sshd"```. To enhance the filtering system, the solution is to jail the running process into a namespace. You can obtain namespace id into the task_struct apperently. Need to be verified but it is possible anyways.
-
-4. Make this tool testable. Tests are created but not functionning.
+      This separation will permits a more convinient selection for automation of sr configuration.
+3. Make this tool testable. Tests are created but not functionning.
 
 ## References
 

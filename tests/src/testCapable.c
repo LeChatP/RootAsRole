@@ -12,7 +12,7 @@ int testCapableFullHelp(){
     wait(NULL);
     char ligne[1024];
     int usage = 0,c = 0,s = 0,d = 0,r = 0,v = 0,h = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"Usage :") != NULL){
             usage = 1;
@@ -53,7 +53,7 @@ int testCapableCommand(){
     int status;
     char ligne[1024];
     int asking = 0,table = 0,warn1 = 0,warn2 = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"Collecting capabilities asked to system...") != NULL){
             asking = 1;
@@ -81,7 +81,7 @@ int testCapableCommandFilter(){
     char ligne[1024];
     int bobo;
     int cap;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         
         if(strstr(ligne,"bobo") != NULL){
@@ -111,7 +111,7 @@ int testCapableDaemon(){
     clock_t t = clock();
     char *pass = getpassword();
     int infp = 0;
-    pid_t pid = popen2("/usr/bin/capable -d",&infp,&outfp);
+    pid_t pid = popen2("/usr/bin/capable -d",&infp,&outfp,1);
     write(infp,pass,strlen(pass));
     close(infp);
     close(outfp);
@@ -130,7 +130,7 @@ int testCapableRaw(){
     wait(NULL);
     char ligne[1024];
     int table = 0, rows = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"KERNEL") != NULL && strstr(ligne,"PID") && strstr(ligne,"PPID") != NULL && strstr(ligne,"CAP") != NULL){
             table = 1;
@@ -150,7 +150,7 @@ int testCapableVersion(){
     wait(NULL);
     char ligne[1024];
     int table = 0, rows = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"RootAsRole V") !=NULL){
             if(strstr(ligne,"dev-build") != NULL)printf("WARNING: this is a dev build\n");
@@ -171,7 +171,7 @@ int testCapableCommandTcpdumpResult(){
     wait(NULL);
     char ligne[1024];
     int cnraw = 0, csadmin = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"cap_net_raw") !=NULL)cnraw = 1;
         if(strstr(ligne,"cap_sys_admin") !=NULL)csadmin = 1;
@@ -182,7 +182,7 @@ int testCapableCommandTcpdumpResult(){
 }
 int testCapableCommandPingResult(){
     int return_code = 0;
-    char *name = "-c 'ping 8.8.8.8'";
+    char *name = "-c 'ping 8.8.8.8 -c 1'";
     int outfp = 0;
     pid_t c = capable_command(name,&outfp);
     sleep(1);
@@ -190,7 +190,7 @@ int testCapableCommandPingResult(){
     waitpid(c,NULL,0);
     char ligne[1024];
     int cnraw = 0, cdoverride = 0, csadmin = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         printf("%s\n",ligne);
         if(strstr(ligne,"cap_setpcap") !=NULL)cdoverride = 1;
@@ -209,7 +209,7 @@ int testCapableCommandCatResult(){
     char ligne[1024];
     int cnraw = 0, csadmin = 0;
     int nb_kall = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >=0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >=0)
     {
         printf("%s\n",ligne);
         if(strstr(ligne,"cap_syslog") !=NULL)cnraw = 1;
@@ -228,7 +228,7 @@ int testCapableCommandSSHD(){
     char ligne[1024];
     int cnbs = 0;
     int nb_kall = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"cap_net_bind_service") !=NULL)cnbs = 1;
     }
@@ -244,7 +244,7 @@ int testCapableCommandApache(){
     wait(NULL);
     char ligne[1024];
     int cnbs = 0, cspt = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"cap_net_bind_service") !=NULL)cnbs = 1;
         if(strstr(ligne,"cap_sys_ptrace") != NULL) cspt = 1;
@@ -262,7 +262,7 @@ int testCapableCommandIncorrect(){
     wait(NULL);
     char ligne[1024];
     int notfound = 0, param = 0, usage = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"CapaBle: not found") !=NULL)notfound = 1;
         if(strstr(ligne,"Bad parameter") != NULL) param = 1;
@@ -280,7 +280,7 @@ int testCapableSleepIncorrect(){
     wait(NULL);
     char ligne[1024];
     int  param = 0, usage = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"Bad parameter") != NULL) param = 1;
         if(strstr(ligne,"Usage : ") != NULL) usage = 1;
@@ -297,7 +297,7 @@ int testCapableSyntaxError(){
     wait(NULL);
     char ligne[1024];
     int invalid = 0, param = 0, usage = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"capable: invalid option -- 'f'") != NULL) invalid = 1;
         if(strstr(ligne,"Bad parameter") != NULL) param = 1;
@@ -315,7 +315,7 @@ int testCapableNoCapabilitiesNeeded(){
     wait(NULL);
     char ligne[1024];
     int csa = 0, multiplecaps = 0;
-    while (read(outfp,ligne,sizeof(ligne)) >= 0)
+    while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
         if(strstr(ligne,"cap_sys_admin") != NULL) csa = 1;
         if(strstr(ligne,", ") != NULL) multiplecaps = 1;

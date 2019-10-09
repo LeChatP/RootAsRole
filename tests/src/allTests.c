@@ -52,7 +52,8 @@ TestSuite* newTestSuite(char* name)
 }
 void destroyTestSuite(TestSuite* element){
     if(element != NULL){
+        for(int i = 0 ; i<MAX_TESTS;i++)
+            if(element->tests[i] != NULL)free(element->tests[i]);
         free(element);
-        element = NULL;
     }
 }

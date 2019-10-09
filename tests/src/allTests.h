@@ -24,4 +24,6 @@ void destroy(TestSuite* element); //destroy
 int registerTest(TestSuite *testSuite, Test *test);
 int trigger(TestSuite *suite,int notification);
 
+void destroyTestSuite(TestSuite* element);
+
 #endif // ALL_TESTS_H_INCLUDED

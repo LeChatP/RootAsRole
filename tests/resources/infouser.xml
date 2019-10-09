@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+configuration to tests for User
+-->
+<!DOCTYPE capabilityrole [
+<!ELEMENT capabilityrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (capabilities, users?, groups?)>
+<!ATTLIST role name ID #REQUIRED>
+<!ELEMENT capabilities (capability+)>
+<!ELEMENT users (user*)>
+<!ELEMENT groups (group*)>
+<!ELEMENT capability (#PCDATA)>
+<!ELEMENT user (commands?)>
+<!ATTLIST user name CDATA #REQUIRED>
+<!ELEMENT group (commands?)>
+<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ELEMENT command (#PCDATA)>
+]>
+<capabilityrole>
+  <roles>
+    <role name="null">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="null"/>
+      </users>
+    </role>
+    <role name="info0">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s"/>
+      </users>
+    </role>
+    <role name="info1">
+      <capabilities>
+        <capability>CAP_NET_RAW</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s"/>
+      </users>
+    </role>
+    <role name="info2">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+            <command>command1</command>
+            <command>command2</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="info3">
+      <capabilities>
+        <capability>*</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+          </commands>
+        </user>
+      </users>
+    </role>
+    <role name="info4">
+      <capabilities>
+        <capability>CAP_NET_RAW</capability>
+      </capabilities>
+      <users>
+        <user name="%1$s">
+          <commands>
+            <command>command1</command>
+            <command>command3</command>
+          </commands>
+        </user>
+      </users>
+    </role>
+  </roles>
+</capabilityrole>

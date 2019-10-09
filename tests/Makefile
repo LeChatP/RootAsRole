@@ -8,7 +8,7 @@ SR_OBJ_DIR := ../obj
 OBJ_DIR := obj
 SR_BIN_DIR:= ../bin
 BIN_DIR := bin
-DEBUGOPTIONS := -g # -Wextra -Werror
+DEBUGOPTIONS := #-g # -Wextra -Werror
 
 COMPOPTIONS = -Wall -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
 LDOPTIONS := -Wall -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)

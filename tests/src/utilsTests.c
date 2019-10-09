@@ -1,6 +1,8 @@
 #include "utilsTests.h"
 #include <signal.h>
 
+    pid_t capable_cmd(char *args, int *outfp, int async);
+    void sr_cmd(char *args, int *outfp, int async);
     //saving
     static char *password = NULL;
 
@@ -12,19 +14,46 @@
     }
 
     pid_t capable_command(char *args, int *outfp){
+        return capable_cmd(args,outfp,1);
+    }
+
+    pid_t capable_sync_command(char *args, int *outfp){
+        return capable_cmd(args,outfp,0);
+    }
+
+    pid_t capable_cmd(char *args, int *outfp,int async){
         char *command = malloc(strlen(args)+19);
         sprintf(command,"/usr/bin/capable %s",args);
-        pid_t r = popen2(command,NULL,outfp);
+        pid_t r = popen2(command,NULL,outfp,async);
         free(command);
         return r;
     }
 
+    void sr_async_command(char *args, int *outfp){
+        sr_cmd(args,outfp,1);
+    }
+
     void sr_command(char *args, int *outfp){
+        sr_cmd(args,outfp,0);
+    }
+    void sr_cmd(char *args, int *outfp, int async){
         char *pass = getpassword();
         char *command = malloc(strlen(args)+14);
         sprintf(command,"/usr/bin/sr %s",args);
         int infp;
-        popen2(command,&infp,outfp);
+        popen2(command,&infp,outfp,async);
+        free(command);
+        write(infp,pass,strlen(pass));
+        close(infp);
+        wait(NULL);
+    }
+
+    void sr_echo_cmd(char *name, int *outfp, int async){
+        char *pass = getpassword();
+        char *command = malloc(strlen(name)+26);
+        sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
+        int infp;
+        popen2(command,&infp,outfp,async);
         free(command);
         write(infp,pass,strlen(pass));
         close(infp);
@@ -32,26 +61,22 @@
     }
 
     void sr_echo_command(char *name, int *outfp){
-        char *pass = getpassword();
-        char *command = malloc(strlen(name)+26);
-        sprintf(command,"/usr/bin/sr -c 'echo \"%s\"'",name);
-        int infp;
-        popen2(command,&infp,outfp);
-        free(command);
-        write(infp,pass,strlen(pass));
-        close(infp);
-        wait(NULL);
+        sr_echo_cmd(name,outfp,0);
+    }
+
+    void sr_async_echo_command(char *name, int *outfp){
+        sr_echo_cmd(name,outfp,1);
     }
 
     //https://dzone.com/articles/simple-popen2-implementation
     //implementing popen but returning pid and getting in & out pipes
-    pid_t popen2(const char *command, int *infp, int *outfp)
+    pid_t popen2(const char *command, int *infp, int *outfp, int async)
     {
         int p_stdin[2], p_stdout[2];
         pid_t pid;
         if (pipe(p_stdin) != 0 || pipe(p_stdout) != 0)
             return -1;
-        if(fd_set_blocking(p_stdout[READ],0)==0){
+        if(async==1) if(fd_set_blocking(p_stdout[READ],0)==0){
             printf("Cannot set non_blocking command output\n");
             return -1;
         }
@@ -63,7 +88,7 @@
             close(p_stdout[READ]);
             dup2(p_stdout[WRITE], WRITE);
             char final_command[PATH_MAX];
-            sprintf(final_command,"'%s'",command);
+            sprintf(final_command,"%s",command);
             execl("/bin/bash", "sh", "-c", command, NULL);
             perror("execl");
             exit(1);
@@ -169,4 +194,15 @@
         else
             flags |= O_NONBLOCK;
         return fcntl(fd, F_SETFL, flags) != -1;
+    }
+
+    int strstrc(const char *haystack, char *needle){
+        int count = 0;
+        const char *tmp = haystack;
+        while((tmp = strstr(tmp, needle))!=NULL)
+        {
+            count++;
+            tmp++;
+        }
+        return count;
     }

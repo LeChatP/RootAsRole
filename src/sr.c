@@ -110,11 +110,15 @@ int main(int argc, char *argv[])
 		return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
-	//Assert a role or a command has been given
-	if (args.role == NULL && args.command == NULL) {
-		fprintf(stderr, "A role or command is mandatory\n");
+	//Assert a role or a command or information request has been given
+	if (args.role == NULL && args.command == NULL && !args.info) {
+		fprintf(stderr, "To obtain list of commands and roles available please use -i option\n");
 		print_help(0);
 		goto free_rscs;
+	}
+	//if info request
+	if(args.info){
+
 	}
 
 #ifdef SR_DEBUG
@@ -291,17 +295,30 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 		return -1;
 	}
 	//Check length of string
+	//dont allow ' and " in same string for security reasons
 	if (args->role != NULL) {
 		if (strlen(args->role) > 64)
 			return -2;
+		if (strchr(args->role,'\'') != NULL && strchr(args->role,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	if (args->user != NULL) {
 		if (strlen(args->user) > 32)
 			return -2;
+		if (strchr(args->user,'\'') != NULL && strchr(args->user,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	if (args->command != NULL) {
 		if (strlen(args->command) > 256)
 			return -2;
+		if (strchr(args->command,'\'') != NULL && strchr(args->command,'"')!=NULL){
+			printf("You cannot set quote and apostrophe in the command due to XML restrictions\n");
+			return -2;
+		}
 	}
 	return 0;
 }
@@ -463,7 +480,7 @@ retrieve_urc(const char *role, const char *user, const char *command,
 		//Retrieve capabilities
 		ret_val = get_capabilities(urc);
 	} else {
-		//Print role info for the user
+		//Print all info for the user
 		ret_val = print_capabilities(urc);
 	}
 	//Free the libxml parsing lib

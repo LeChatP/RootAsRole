@@ -53,9 +53,15 @@ int main(void){
     registerTest(noroleSuite,newTest(&testFindUserRoleNoCommandInConfiguration,"FindUserRoleNoCommandInConfiguration"));
     registerTest(noroleSuite,newTest(&testFindGroupRoleNoCommandInConfiguration,"FindGroupRoleNoCommandInConfiguration"));
 
-
+    /**
     TestSuite *commandsTest = newTestSuite("Testing commands");
     registerTest(commandsTest,newTest(&testQuotedCommand,"QuotedCommand"));
+    registerTest(commandsTest,newTest(&testUserInfoArg,"Info Arg"));
+    registerTest(commandsTest,newTest(&testUserInfoCommandArg,"Info with Command arg"));
+    registerTest(commandsTest,newTest(&testUserInfoCommandArgNoRole,"Info with Command arg but without role matching role"));
+    registerTest(commandsTest,newTest(&testUserInfoRoleArg,"Info with Role arg"));
+    registerTest(commandsTest,newTest(&testUserInfoRoleCommandArg,"Info with Role and Command arg"));
+    */
 
     TestSuite *capableTest = newTestSuite("Testing capable command");
     registerTest(capableTest,newTest(&testCapableFullHelp,"testCapableFullHelp"));
@@ -63,7 +69,6 @@ int main(void){
     registerTest(capableTest,newTest(&testCapableCommandFilter,"testCapableCommandFilter"));
     registerTest(capableTest,newTest(&testCapableSleep,"testCapableSleep"));
     registerTest(capableTest,newTest(&testCapableDaemon,"testCapableDaemon"));
-    registerTest(capableTest,newTest(&testCapableRaw,"testCapableRaw"));
     registerTest(capableTest,newTest(&testCapableVersion,"testCapableVersion"));
 
     registerTest(capableTest,newTest(&testCapableCommandTcpdumpResult,"testCapableCommandTcpdumpResult"));
@@ -80,11 +85,17 @@ int main(void){
     trigger(suite1,1);
     if(!haswriteaccess()){
         printf("You don't have the permission to run these tests\nPlease use sr to run this command\n");
-        exit(-1);
+        goto free_error;
     }
     trigger(suite2,1);
     trigger(noroleSuite,1);
-    trigger(commandsTest,1);
+    //trigger(commandsTest,1);
     trigger(capableTest,1);
+
     printf("\n=========End of tests============\n");
+    free_error:
+    destroyTestSuite(suite1);
+    destroyTestSuite(suite2);
+    destroyTestSuite(noroleSuite);
+    //destroyTestSuite(commandsTest);
 }
