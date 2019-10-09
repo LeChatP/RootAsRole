@@ -1,6 +1,5 @@
 import unittest,getpass
 import prctl
-import os,sys,grp,pwd
 import utilsTests as utils
 
 class TestFindUserRoles(unittest.TestCase):
@@ -46,7 +45,7 @@ class TestFindUserRoles(unittest.TestCase):
 class TestFindGroupRoles(unittest.TestCase):
 
     def setUp(self):
-        utils.before("testRoles/configuration2",[grp.getgrgid(i).gr_name for i in os.getgrouplist(pwd.getpwuid(os.geteuid()).pw_name,os.getegid())])
+        utils.before("testRoles/configuration2",utils.getgroups())
         return super().setUp()
 
     def tearDown(self):
@@ -86,7 +85,7 @@ class TestFindGroupRoles(unittest.TestCase):
 class TestFindGroupNoRole(unittest.TestCase):
 
     def setUp(self):
-        utils.before("testRoles/configuration4",[grp.getgrgid(i).gr_name for i in [0]+os.getgrouplist(pwd.getpwuid(os.geteuid()).pw_name,os.getegid())])
+        utils.before("testRoles/configuration4",["null"]+utils.getgroups())
         return super().setUp()
 
     def tearDown(self):
@@ -102,4 +101,3 @@ class TestFindGroupNoRole(unittest.TestCase):
         echo = "role1-user-cmd"
         res, code = utils.sr_echo_cmd(echo)
         utils.assertCommand(res,code,code!=0,res.count(echo)==0)
-

@@ -1,4 +1,6 @@
 import subprocess,pwd,grp,re,getpass
+import os,sys,grp,pwd
+import constants
 password = None
 
 def copyArgsFile(source:str,dest:str,values:list=[]):
@@ -35,16 +37,15 @@ def sr_cmd(args:str):
         return ''.join(exc.output.decode()), exc.returncode
 
 def getgroups() -> list:
-    groups = [g.gr_name for g in grp.getgrall() if getpass.getuser() in g.gr_mem]
-    gid = pwd.getpwnam(getpass.getuser()).pw_gid
-    return groups.append(grp.getgrgid(gid).gr_name)
+    return [grp.getgrgid(i).gr_name for i in os.getgrouplist(pwd.getpwuid(os.geteuid()).pw_name,os.getegid())]
 
 def before(path:str,values:list=[]):
-    copyArgsFile("/etc/security/capabilityRole.xml","tests/resources/temp.xml",[])
-    copyArgsFile("tests/resources/"+path+".xml","/etc/security/capabilityRole.xml",values)
+    copyArgsFile(constants.CAP_ROLE_XML,constants.TEMP_XML,[])
+    copyArgsFile("tests/resources/"+path+".xml",constants.CAP_ROLE_XML,values)
 
 def after():
-    copyArgsFile("tests/resources/temp.xml","/etc/security/capabilityRole.xml",[])
+    copyArgsFile(constants.TEMP_XML,constants.CAP_ROLE_XML,[])
+    os.remove(constants.TEMP_XML)
 
 def assertCommand(res,code,*assertions:bool)->bool:
     i = 1

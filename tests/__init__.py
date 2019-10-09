@@ -1,5 +1,7 @@
-import testRoles
+import testRoles,constants,utilsTests
 import ctypes,unittest
+import signal,sys,os
+from os import path
 libcap = ctypes.cdll.LoadLibrary("libcap.so")
 
 libcap.cap_get_proc.argtypes = []
@@ -18,10 +20,16 @@ def load_tests(loader, tests, pattern):
         suite.addTests(tests)
     return suite
 
+def signal_handler(sig, frame):
+    if path.exists(constants.TEMP_XML):
+        utilsTests.after()
+    sys.exit(0)
+
 if __name__ == '__main__':
     if str(currentcaps).find("cap_dac_override") < 0:
         print("please run this with sr")
         exit(-1)
+    signal.signal(signal.SIGINT, signal_handler)
     unittest.main()
 
 libcap.cap_free(currentcaps)
