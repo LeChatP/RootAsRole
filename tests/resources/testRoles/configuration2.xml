@@ -27,7 +27,7 @@ configuration to tests for Group
       <groups>
         <group name="%1$s">
           <commands>
-            <command>echo "role1-group-cmd"</command>
+            <command>echo role1-group-cmd</command>
           </commands>
         </group>
       </groups>
@@ -39,12 +39,12 @@ configuration to tests for Group
       <groups>
         <group name="gfoo">
           <commands>
-            <command>echo "role2-gfoo-cmd"</command>
+            <command>echo role2-gfoo-cmd</command>
           </commands>
         </group>
         <group name="%1$s">
           <commands>
-            <command>echo "role2-group-cmd"</command>
+            <command>echo role2-group-cmd</command>
           </commands>
         </group>
       </groups>
@@ -56,8 +56,8 @@ configuration to tests for Group
       <groups>
         <group name="%1$s">
           <commands>
-            <command>echo "role3-group-cmd1"</command>
-            <command>echo "role3-group-cmd2"</command>
+            <command>echo role3-group-cmd1</command>
+            <command>echo role3-group-cmd2</command>
           </commands>
         </group>
       </groups>
