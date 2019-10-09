@@ -111,24 +111,33 @@ The project has already a bunch of functions that simplify the creation of test.
 class TestFindUserRoles(unittest.TestCase): ## specify unittest.TestCase class
 
     def setUp(self): # begin of test
-        utils.before("testRoles/configuration1",[getpass.getuser()]) #this wille copy a preconfigured configuration to current capabilityRole file and will replace %x$s to xth element in list (arg 2)
+        utils.before("testRoles/configuration1",[getpass.getuser()])
+        # this wille copy a preconfigured configuration 
+        # to current capabilityRole file and will 
+        # replace %x$s to xth element in list (arg 2)
         return super().setUp()
 
-    def tearDown(self): #end of test
-        utils.after() #this will restore the ancient configuration
+    def tearDown(self): # end of test
+        utils.after() # this will restore the ancient configuration
         return super().tearDown()
 
     def testFindRoleWithUser(self):
         echo = "role1-user-cmd"
-        res, code = utils.sr_echo_cmd(echo) #run sr -c 'echo role1-user-cmd' returning output to res and result code to code
-        utils.multipleAssertCommand(res,code,code==0,res.count(echo)==1) # execute assertions listed in > 2 ar, if assertion error then output pertinent informations of assertion error.
+        res, code = utils.sr_echo_cmd(echo)
+        # run sr -c 'echo role1-user-cmd'
+        # returning output to res and result code to code
+        utils.multipleAssertCommand(res,code,code==0,res.count(echo)==1) 
+        # execute assertions listed on > 2 arg
+        # if assertion error then
+        # output pertinent informations of assertion error.
 ```
 
 When you have created your class you must add it to TestSuite in `__init__.py` file.
 If your class is uncategorised, you can create new tuple like this :
 
 ```Python
-test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole) #all classes about FindRoles for sr with only -c argument
+test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole) 
+#all classes about FindRoles for sr with only -c argument
 ```
 
 And append this tuple to test suite :
@@ -136,7 +145,8 @@ And append this tuple to test suite :
 ```Python
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite()
-    readTestSuite(loader,test_Roles) #append tuple of TestCase to TestSuite
+    readTestSuite(loader,test_Roles) 
+    #append tuple of TestCase to TestSuite
     return suite
 ```
 
