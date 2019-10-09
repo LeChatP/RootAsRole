@@ -13,21 +13,14 @@ Eddie Billoir : eddie.billoir@gmail.com
 ## How Does it works
 
 This part of project is a system to test the sr command, by listening output of sr command and replacing configuration file by testing into default configuration path "/etc/security/capabilitiesRoles.xml" .
-This system use simple Observer design pattern style to work : TestSuite is Subject and Test is Observer.
-If you don't know how works Observer design pattern it simple handle the execution of list of functions.
-Listening output is done by making asynchronous pipes.
-In expected case, every test make a backup of configuration file before executing tests are executed, but if tests fail it probably won't recover configuration file, so don't forget to save your last configuration before executing tests.
-
-Every tests aren't optimized or well-coded, and hard-code can be used. Tests can be written with the ugliest code ever but it must test the sr program as expected to be.
+This system is a python program that use libcap.so C library and unittest package
 
 ## Run tests
 
-### How to build
-
-in root git directory :
+### How to run tests
 
 ```Bash
-make build-test
+./tests/configure.sh
 ```
 
 ### Usage
@@ -104,121 +97,47 @@ make run-test
 
 ## Contributing
 
-To create new tests, just create in convenient location your new functions with him header in header file
-Copy-Paste are authorized but functions must test different cases. Refactoring tests are not mandatory (at all) but it mustn't broke any other tests.
-To register a suite of test, just initialize TestSuite type
-by example:
+To create new tests, choose to create just test in class or create a class for a specific case:
 
-```C
-TestSuite *suite = newTestSuite("my_TestSuite");
+```Python
+class TestFindUserRoles(unittest.TestCase):
 ```
 
-then you can add your test function pointers to this suite :
+How to create test is very simple, you can find the documentation explain how to do : <https://docs.python.org/fr/3.8/library/unittest.html>
+Note that setUp() is executed before each test and tearDown() after
+The project has already a bunch of functions that simplify the creation of test. Then you can create one test with only 4 lines. Here is an Example :
 
-```C
-registerTest(suite,newTest(&function_pointer_to_my_test,"My Test Name"));
+```Python
+class TestFindUserRoles(unittest.TestCase): ## specify unittest.TestCase class
+
+    def setUp(self): # begin of test
+        utils.before("testRoles/configuration1",[getpass.getuser()]) #this wille copy a preconfigured configuration to current capabilityRole file and will replace %x$s to xth element in list (arg 2)
+        return super().setUp()
+
+    def tearDown(self): #end of test
+        utils.after() #this will restore the ancient configuration
+        return super().tearDown()
+
+    def testFindRoleWithUser(self):
+        echo = "role1-user-cmd"
+        res, code = utils.sr_echo_cmd(echo) #run sr -c 'echo role1-user-cmd' returning output to res and result code to code
+        utils.multipleAssertCommand(res,code,code==0,res.count(echo)==1) # execute assertions listed in > 2 ar, if assertion error then output pertinent informations of assertion error.
 ```
 
-Finally, you can execute this suite by calling "trigger()". This function needs a second parameter that activates or not verbose of tests (0 or 1)
+When you have created your class you must add it to TestSuite in `__init__.py` file.
+If your class is uncategorised, you can create new tuple like this :
 
-```C
-trigger(suite,1);
+```Python
+test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole) #all classes about FindRoles for sr with only -c argument
 ```
 
-### How to write a test with example
+And append this tuple to test suite :
 
-To write a test correctly, You have functions in disposition to simplify writing of test, located in utilsTests.h, so you juste need to include this header to begin writing test.
-Every tests must return int, which 0 means fail and any other value means success.
-
-The tests needs to be executed with the current user which execute tests. So to test the sr command we need to set up configuration in function of current user and in function of test.
-Before replacing configuration file with the testing one, the best practice is to copy the actual configuration to a temporary file, to preserve the real configuration (and the root role, that's important).
-To copy/replace file securely, I execute these manipulations as root role of sr. So if copy fail, it means that sr command doesn't work. It means also that the initial configuration to test needs the root role described in default configuration.
-It means also that every test configuration.
-
-```C
-    /**
-     * copy file old_filename to new_filename and replace every arguments by array order
-     */
-    int copy_file_args(char *old_filename, char  *new_filename,int nb_args, char **args);
-    /**
-     * copy file old_filename to new_filename
-     */
-    int copy_file(char *from_file, char *to_file);
+```Python
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite()
+    readTestSuite(loader,test_Roles) #append tuple of TestCase to TestSuite
+    return suite
 ```
 
-So in example :
-
-```C
-    char *temppath = NULL;
-    realpath("tests/resource/temp.xml",temppath);
-    int saving_result = copy_file("/etc/security/capabilityRole.xml",temppath);
-    int sizeargs = 1;
-    char *args[sizeargs] = {get_username(getuid())};
-    realpath("tests/resource/example.xml",temppath);
-    int copy_result = copy_file_args(temppath,sizeargs,args);
-```
-
-This save the actual configuration and copy the scenario1 configuration test to /etc/security/capabilityRole.xml and replace %1$s parameter to username.
-
-Now that we have right configuration to test command, we can listen output of sr command.
-To do that, I created a function which automatically fill password when asking in sr and WAIT for ending.
-
-```C
-    /**
-     * executes sr command and output pid with output pipe
-     * and wait for exit
-     * Warning : pipe may not listen everything
-     */
-    void sr_command(char *args, int *outfp);
-    /**
-     * execute echo in sr command, useful to see if configuration allow a command or not
-     * and wait for exit
-     */
-    void sr_echo_command(char *name, int *outfp);
-```
-
-So by example :
-
-```C
-    char *name = "hello world!";
-    sr_echo_command(name,&outfp);
-    char ligne[1024];
-    while (read(outfp,ligne,sizeof(ligne)) >= 0) //outfp pipe is not blocked
-    {
-        if(strstr(ligne,name) != NULL){
-            printf("hello world successfully read");
-            break;
-        }
-    }
-```
-
-this will execute sr command which execute echo command and verify that the echo has successfully executed.
-Finally, your test must return 0 if fail or other if success. Here's the final example :
-
-```C
-    int testSRTestExample(){
-        char *temppath = NULL;
-        realpath("tests/resource/temp.xml",temppath);
-        int saving_result = copy_file("/etc/security/capabilityRole.xml",temppath);
-        int sizeargs = 1;
-        char *args[sizeargs] = {get_username(getuid())};
-        realpath("tests/resource/example.xml",temppath);
-        int copy_result = copy_file_args(temppath,sizeargs,args);
-        char *name = "hello world!";
-        sr_echo_command(name,&outfp);
-        char ligne[1024];
-        while (read(outfp,ligne,sizeof(ligne)) >= 0) //outfp pipe is not blocked
-        {
-            if(strstr(ligne,name) != NULL){
-                printf("hello world successfully read");
-                break;
-            }
-        }
-    }
-
-    int main(void){
-        TestSuite suite = newTestSuite("My Example Test Suite");
-        registerTest(suite,&testSRTestExample,"Example Test");
-        return trigger(suite,1); // trigger and verbose tests
-    }
-```
+That's all you can run `__init__.py`.

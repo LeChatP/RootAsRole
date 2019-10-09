@@ -13,11 +13,14 @@ currentcaps = libcap.cap_to_text(cap_p, None)
 
 test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole) 
 
-def load_tests(loader, tests, pattern):
-    suite = unittest.TestSuite()
-    for test_class in test_Roles:
+def readTestSuite(loader,suite:tuple):
+    for test_class in suite:
         tests = loader.loadTestsFromTestCase(test_class)
         suite.addTests(tests)
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite()
+    readTestSuite(loader,testRoles)
     return suite
 
 def signal_handler(sig, frame):

@@ -47,7 +47,7 @@ def after():
     copyArgsFile(constants.TEMP_XML,constants.CAP_ROLE_XML,[])
     os.remove(constants.TEMP_XML)
 
-def assertCommand(res,code,*assertions:bool)->bool:
+def multipleAssertCommand(res,code,*assertions:bool)->bool:
     i = 1
     argCount = len(assertions)
     if argCount > 0 :
