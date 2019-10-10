@@ -1,6 +1,6 @@
 import subprocess,pwd,grp,re,getpass
 import os,sys,grp,pwd
-from . import constants
+import constants
 password = None
 
 def copyArgsFile(source:str,dest:str,values:list=[]):
@@ -30,11 +30,18 @@ def capable_cmd(str:list):
 def sr_echo_cmd(name:str):
     return sr_cmd("-c 'echo "+name+"'")
 
-def sr_cmd(args:str):
+def sr_cmd(args:str,timeout:int=-1):
     try:
-        return str(subprocess.check_output(["sr "+args],stderr=subprocess.STDOUT,shell=True,input=getpassword())),0
+        if(timeout == -1):
+            return str(subprocess.check_output(["sr "+args],stderr=subprocess.STDOUT,shell=True,input=getpassword())),0
+        return str(subprocess.check_output(["sr "+args],stderr=subprocess.STDOUT,shell=True,input=getpassword(),timeout=timeout)),0
     except subprocess.CalledProcessError as exc:
         return ''.join(exc.output.decode()), exc.returncode
+    except subprocess.TimeoutExpired as exc:
+        return ''.join(exc.output.decode()), exc.returncode
+
+def getuser():
+    return getpass.getuser()
 
 def getgroups() -> list:
     return [grp.getgrgid(i).gr_name for i in os.getgrouplist(pwd.getpwuid(os.geteuid()).pw_name,os.getegid())]

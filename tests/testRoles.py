@@ -1,11 +1,11 @@
 import unittest,getpass
 import prctl
-from . import utilsTests as utils
+import utilsTests as utils
 
 class TestFindUserRoles(unittest.TestCase):
 
     def setUp(self):
-        utils.before("testRoles/configuration1",[getpass.getuser()])
+        utils.before("testRoles/configuration1",[utils.getuser()])
         return super().setUp()
 
     def tearDown(self):

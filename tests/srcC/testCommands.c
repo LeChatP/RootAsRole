@@ -238,7 +238,7 @@ int testUserInfoRoleArg(void){
     cant = 0; //result expected : 1
     while (read(outfp,ligne,sizeof(ligne)-1) >= 0)
     {
-        cant+=strstrc(ligne,"grant any privileges");
+        cant+=strstrc(ligne,"full privileges");
     }
     if(cant != 1){
         return_code = 0;

@@ -1,4 +1,4 @@
-from . import testRoles,constants,utilsTests
+import testRoles,constants,utilsTests,scenarios,testInfo
 import ctypes,unittest
 import signal,sys,os
 from os import path
@@ -11,16 +11,20 @@ libcap.cap_free.restype = ctypes.c_void_p
 cap_p = libcap.cap_get_proc()
 currentcaps = libcap.cap_to_text(cap_p, None)
 
-test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole) 
+test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole)
+#test_Scenarios =(scenarios.TestScenarios)
+test_Info = (testInfo.TestInfoUser,testInfo.TestInfoGroup,testInfo.TestInfoNoRole)
 
-def readTestSuite(loader,suite:tuple):
+def readTestSuite(loader,testsuit,suite):
     for test_class in suite:
         tests = loader.loadTestsFromTestCase(test_class)
-        suite.addTests(tests)
+        testsuit.addTests(tests)
 
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite()
-    readTestSuite(loader,testRoles)
+    readTestSuite(loader,suite,test_Roles)
+    #readTestSuite(loader,suite,test_Scenarios)
+    readTestSuite(loader,suite,test_Info)
     return suite
 
 def signal_handler(sig, frame):
