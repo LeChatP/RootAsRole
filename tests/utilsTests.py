@@ -30,6 +30,17 @@ def capable_cmd(str:list):
 def sr_echo_cmd(name:str):
     return sr_cmd("-c 'echo "+name+"'")
 
+def assertCount(string:str,substring:str,expected:int):
+    res = False
+    length = len(re.findall(re.compile(substring),string))
+    try:
+        assert length == expected
+        res = True
+    except AssertionError as e:
+        e.args += ("You checked : ",string," you search for : ",substring," result was ",length," but expected : ",expected)
+        raise
+    return res
+
 def sr_cmd(args:str,timeout:int=-1):
     try:
         if(timeout == -1):

@@ -5,14 +5,14 @@ configuration to tests for group
 <!DOCTYPE capabilityrole [
 <!ELEMENT capabilityrole (roles)>
 <!ELEMENT roles (role*)>
-<!ELEMENT role (capabilities, groups?, groups?)>
+<!ELEMENT role (capabilities, users?, groups?)>
 <!ATTLIST role name ID #REQUIRED>
 <!ELEMENT capabilities (capability+)>
-<!ELEMENT groups (group*)>
+<!ELEMENT users (user*)>
 <!ELEMENT groups (group*)>
 <!ELEMENT capability (#PCDATA)>
-<!ELEMENT group (commands?)>
-<!ATTLIST group name CDATA #REQUIRED>
+<!ELEMENT user (commands?)>
+<!ATTLIST user name CDATA #REQUIRED>
 <!ELEMENT group (commands?)>
 <!ATTLIST group name CDATA #REQUIRED>
 <!ELEMENT commands (command*)>
@@ -71,7 +71,7 @@ configuration to tests for group
     </role>
     <role name="info4">
       <capabilities>
-        <capability>*</capability>
+        <capability>CAP_NET_RAW</capability>
       </capabilities>
       <groups>
         <group name="%1$s">

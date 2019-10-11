@@ -12,8 +12,7 @@ cap_p = libcap.cap_get_proc()
 currentcaps = libcap.cap_to_text(cap_p, None)
 
 test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole)
-#test_Scenarios =(scenarios.TestScenarios)
-test_Info = (testInfo.TestInfoUser,testInfo.TestInfoGroup,testInfo.TestInfoNoRole)
+test_Info = (scenarios.TestScenarios,testInfo.TestInfoUser,testInfo.TestInfoGroup,testInfo.TestInfoNoRole)
 
 def readTestSuite(loader,testsuit,suite):
     for test_class in suite:
@@ -38,5 +37,6 @@ if __name__ == '__main__':
         exit(-1)
     signal.signal(signal.SIGINT, signal_handler)
     unittest.main()
+    utilsTests.after()
 
 libcap.cap_free(currentcaps)
