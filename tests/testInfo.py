@@ -43,7 +43,7 @@ class TestInfoUser(unittest.TestCase):
         utils.multipleAssertCommand(res,code,
             code==0,
             utils.assertCount(res,"null",1),
-            utils.assertCount(res,"'t use the role",1))
+            utils.assertCount(res,r"You can\\+'t use the role",1))
     
     def testUserInfoRoleArg2(self):
         res,code = utils.sr_cmd("-i -r info3")
@@ -89,7 +89,7 @@ class TestInfoUser(unittest.TestCase):
         res,code = utils.sr_cmd("-i -r null -c null")
         utils.multipleAssertCommand(res,code,
             code==0,
-            utils.assertCount(res,"you can\\\\'t execute this command",1))
+            utils.assertCount(res,r"you can\\'t execute this command",1))
     
     def testUserInfoRoleCommandArg2(self):
         res,code = utils.sr_cmd("-i -r info0 -c command")
@@ -106,7 +106,7 @@ class TestInfoNoRole(unittest.TestCase):
         res, code = utils.sr_cmd("-i -c null")
         utils.multipleAssertCommand(res,code,
             code==0,
-            utils.assertCount(res,"you can\\\\'t execute this command",1),
+            utils.assertCount(res,r"you can\\'t execute this command",1),
             utils.assertCount(res,"sr -c",0),
             utils.assertCount(res,"roles",0),
             utils.assertCount(res,"null",0))
@@ -119,7 +119,7 @@ class TestInfoNoRole(unittest.TestCase):
         res, code = utils.sr_cmd("-i -c null")
         utils.multipleAssertCommand(res,code,
             code==0,
-            utils.assertCount(res,"you can\\\\'t execute this command",1),
+            utils.assertCount(res,r"you can\\+'t execute this command",1),
             utils.assertCount(res,"sr -c",0),
             utils.assertCount(res,"roles",0),
             utils.assertCount(res,"null",0))
@@ -166,7 +166,7 @@ class TestInfoGroup(unittest.TestCase):
         utils.multipleAssertCommand(res,code,
             code==0,
             utils.assertCount(res,"null",1),
-            utils.assertCount(res,"'t use the role",1))
+            utils.assertCount(res,r"You can\\+'t use the role",1))
     
     def testGroupInfoRoleArg2(self):
         res,code = utils.sr_cmd("-i -r info3")
@@ -212,7 +212,7 @@ class TestInfoGroup(unittest.TestCase):
         res,code = utils.sr_cmd("-i -r null -c null")
         utils.multipleAssertCommand(res,code,
             code==0,
-            utils.assertCount(res,"you can\\\\\'t execute this command",1))
+            utils.assertCount(res,r"you can\\+'t execute this command",1))
     
     def testGroupInfoRoleCommandArg2(self):
         res,code = utils.sr_cmd("-i -r info0 -c command")

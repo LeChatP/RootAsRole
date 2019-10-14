@@ -91,8 +91,7 @@ build: $(BINS)
 
 
 install: $(BINS)
-	id -u capable &>/dev/null || useradd capable -MNr -s /usr/sbin/nologin -d /nonexistent -c "Capable from RootAsRole,,,"
-	mkdir -p /usr/lib/RootAsRole&&cp $(BIN_DIR)/$(EXECUTABLE:=_kern.o) /usr/lib/RootAsRole
+	mkdir -p /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
 	cp $(BIN_DIR)/*_kern.o /usr/lib/RootAsRole
 	setcap cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable

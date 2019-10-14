@@ -8,7 +8,7 @@
 #include <linux/pid_namespace.h>
 #include "bpf_helpers.h"
 
-#define MAX_STACK_RAWTP 7
+#define MAX_STACK_RAWTP 5
 
 /**
  * This eBPF still useful for daemon analysis
@@ -77,25 +77,28 @@ int bpf_cap_capable(struct pt_regs *ctx)
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 	u32 ppid = get_ppid(task);
 	int i = 0;
-	u64 pid = bpf_get_current_pid_tgid() >>32,
-		cap = (u64)PT_REGS_PARM3(ctx),
+	u32 pid = bpf_get_current_pid_tgid()>>32;
+	u64	cap = (u64)PT_REGS_PARM3(ctx),
 		uid_gid = bpf_get_current_uid_gid(),
 		*capval = bpf_map_lookup_elem(&capabilities_map, &pid),
 	    pinum_inum = ((u64)get_parent_ns_inode(task)<<32) | get_ns_inode(task),
 		initial = ((u64)1 << cap); // if cap_sys_ressource or cap_sys_admin called first
 	#ifdef K50
-	u64	userstack[MAX_STACK_RAWTP],
-		*blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i);
-	
-	bpf_get_stack(ctx,userstack,sizeof(u64)*MAX_STACK_RAWTP,BPF_F_USER_STACK);
-	while(blacklist_stack){
-		for (int j = 0 ; j< MAX_STACK_RAWTP;j++){
-			if(userstack[j] == *blacklist_stack) {
-				initial = (u64) 0;
-			}
-		}
-		i++;
-		blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i);
+	u64	userstack[MAX_STACK_RAWTP], //store current stack addresses
+		*blacklist_stack = bpf_map_lookup_elem(&kallsyms_map, &i); //getting first entry of blacklist kernel stack call
+	bpf_get_stack(ctx,userstack,sizeof(u64)*MAX_STACK_RAWTP,0); // retrieve MAX_STACK_RAWTP kernel stack calls
+	if(blacklist_stack){ // if blacklist exist, then check in stack with MAX_STACK_RAWTP depth for the call
+		// loops are forbidden in eBPF
+		if(userstack[0] == *blacklist_stack)
+			initial = 0; // if blacklist found then ignore capability but still write entry to map
+		else if(userstack[1] == *blacklist_stack) 
+			initial = 0;
+		else if(userstack[2] == *blacklist_stack) 
+			initial = 0;
+		else if(userstack[3] == *blacklist_stack) 
+			initial = 0;
+		else if(userstack[4] == *blacklist_stack) 
+			initial = 0;
 	}
 	#endif
 	if (capval) {

@@ -1,4 +1,4 @@
-import testRoles,constants,utilsTests,scenarios,testInfo
+import testRoles,constants,utilsTests,scenarios,testInfo,testCapable
 import ctypes,unittest
 import signal,sys,os
 from os import path
@@ -12,7 +12,8 @@ cap_p = libcap.cap_get_proc()
 currentcaps = libcap.cap_to_text(cap_p, None)
 
 test_Roles = (testRoles.TestFindUserRoles, testRoles.TestFindGroupRoles, testRoles.TestFindGroupNoRole)
-test_Info = (scenarios.TestScenarios,testInfo.TestInfoUser,testInfo.TestInfoGroup,testInfo.TestInfoNoRole)
+test_Info = (testInfo.TestInfoUser,testInfo.TestInfoGroup,testInfo.TestInfoNoRole)
+test_Global = (scenarios.TestScenarios,testCapable.TestCapable)
 
 def readTestSuite(loader,testsuit,suite):
     for test_class in suite:
@@ -22,7 +23,7 @@ def readTestSuite(loader,testsuit,suite):
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite()
     readTestSuite(loader,suite,test_Roles)
-    #readTestSuite(loader,suite,test_Scenarios)
+    readTestSuite(loader,suite,test_Global)
     readTestSuite(loader,suite,test_Info)
     return suite
 

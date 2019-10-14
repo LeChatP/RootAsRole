@@ -38,7 +38,6 @@ typedef struct _arguments_t {
 	char *command;
 	int sleep;
 	int daemon;
-	int raw;
 	int version;
 	int help;
 } arguments_t;
@@ -118,6 +117,7 @@ int main(int argc, char **argv)
 	}
 	if (args.version) {
 		printf("RootAsRole V%s\n", RAR_VERSION);
+		return_code = EXIT_SUCCESS;
 		goto free_rscs;
 	}
 	if (args.help) {
@@ -137,11 +137,10 @@ int main(int argc, char **argv)
 		cap_free(cap);
 	}
 	#ifndef DEBUG
-	if (args.command == NULL && load_bpf("capable")) {
+	if (args.command == NULL) {
+		if(load_bpf("capable"))goto free_rscs;
+	}else if(load_bpf("nscapable"))
 		goto free_rscs;
-	}else if(load_bpf("nscapable")){
-		goto free_rscs;
-	}
 	#endif
 	ignoreKallsyms(); // we remove blacklisted 
 	if (args.command != NULL) {
@@ -150,6 +149,7 @@ int main(int argc, char **argv)
 		stack = malloc(STACK_SIZE);
 		stackTop = stack + STACK_SIZE;	/* Assume stack grows downward */
 		signal(SIGINT,killProc);
+		signal(SIGTERM,killProc);
 		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD,(void*)&args);
 		char *namespaceFile = "/proc/%d/ns/pid";
 		char *namespace = malloc(strlen(namespaceFile)*sizeof(char)+sizeof(pid_t));
@@ -211,7 +211,6 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 			{ "command", optional_argument, 0, 'c' },
 			{ "sleep", optional_argument, 0, 's' },
 			{ "daemon", no_argument, 0, 'd' },
-			{ "raw", no_argument, 0, 'r'},
 			{ "version", no_argument, 0, 'v' },
 			{ "help", no_argument, 0, 'h' },
 			{ 0, 0, 0, 0 }
@@ -234,9 +233,6 @@ static int parse_arg(int argc, char **argv, arguments_t *args)
 			break;
 		case 'd':
 			args->daemon = 1;
-			break;
-		case 'r':
-			args->raw = 1;
 			break;
 		case 's':
 			args->sleep = strtol(optarg, &endptr, 10);
@@ -263,7 +259,7 @@ Print Help message
 */
 static void print_help(int long_help)
 {
-	printf("Usage : capable [-c command] [-s seconds] [-r | -d] [-h] [-v]\n");
+	printf("Usage : capable [-c command] [-s seconds] [-d] [-h] [-v]\n");
 	if (long_help) {
 		printf("Get every capabilities used by running programs.\n");
 		printf("If you run this command for daemon you can use -s to kill "
@@ -273,7 +269,6 @@ static void print_help(int long_help)
 		printf(" -s, --sleep=number	specify number of seconds before kill "
 		       "program \n");
 		printf(" -d, --daemon		collecting data until killing program printing result at end\n");
-		printf(" -r, --raw		show raw results of injection without any filtering\n");
 		printf(" -v, --version		show the actual version of RootAsRole\n");
 		printf(" -h, --help		print this help and quit.\n");
 		printf("Note: .\n");
@@ -314,10 +309,10 @@ static void killProc(int signum)
 static int printDaemonResult(){
 	int return_value = EXIT_SUCCESS, res;
 	u_int64_t value, uid_gid,pnsid_nsid;
-	pid_t key, prev_key = -1;
+	pid_t key = 0, prev_key = -1;
 	int ppid = -1;
 	printf("\nHere are all the capabilities intercepted for this program:\n");
-	printf("| UID\t| GID\t| PID\t| PPID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
+	printf("| PID\t| PPID\t| UID\t| GID\t| NS\t\t| PNS\t\t| NAME\t\t\t| CAPABILITIES\t|\n");
 	while (bpf_map_get_next_key(map_fd[1], &prev_key, &key) == 0) { // key are composed by pid and ppid
 		res = bpf_map_lookup_elem(map_fd[1], &key,
 					&value); // get capabilities
@@ -461,8 +456,8 @@ static void print_caps(int pid, int ppid,unsigned int uid,unsigned int gid,unsig
 	char* name = get_process_name_by_pid(pid);
 	if (caps <= (u_int64_t)0) {
 		
-		printf("| %d\t| %d\t| %d\t| %d\t| %u\t| %u\t| %s\t| %s\t|\n", uid,
-	       gid, pid, ppid,ns,pns, name,
+		printf("| %d\t| %d\t| %d\t| %d\t| %u\t| %u\t| %s\t| %s\t|\n", pid, ppid,uid,
+	       gid,ns,pns, name,
 	       "No capabilities needed");
 		return;
 	}

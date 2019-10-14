@@ -1,5 +1,5 @@
 import subprocess,pwd,grp,re,getpass
-import os,sys,grp,pwd
+import os,sys,grp,pwd,signal
 import constants
 password = None
 
@@ -21,11 +21,15 @@ def getpassword():
         password = getpass.getpass(prompt='Password: ', stream=None).encode(encoding="utf8")
     return password
 
-def capable_cmd(str:list):
+def capable_cmd(cmd:list,timet:int=-1):
     try:
-        return str(subprocess.check_output(["capable"]+str,stderr=subprocess.STDOUT,shell=True).output), 0
+        if(timet != -1):
+            return str(subprocess.check_output(["capable "+cmd],stderr=subprocess.STDOUT,shell=True,timeout=timet+2)), 0 # not working
+        else:
+            return str(subprocess.check_output(["capable "+cmd],stderr=subprocess.STDOUT,shell=True)), 0
     except subprocess.CalledProcessError as exc:
         return ''.join(exc.output.decode()), exc.returncode
+
 
 def sr_echo_cmd(name:str):
     return sr_cmd("-c 'echo "+name+"'")
