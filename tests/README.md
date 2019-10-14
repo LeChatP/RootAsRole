@@ -33,16 +33,6 @@ make run-test
 
 ## List of Actual tests
 
-### Tests of Testing Observer System (intrinsic Test)
-
-* Test if Test type is properly attached to TestSuite
-* Test if Test type collection is properly attached to TestSuite
-* Test if TestSuite reach Max
-* Test if Test are executed
-* Test if failing Test is properly identified
-* Test if all successful tests are identified
-* Test if mixing failing and successful tests are identified
-
 ### Tests scenarios from README
 
 * Test Scenario 1
