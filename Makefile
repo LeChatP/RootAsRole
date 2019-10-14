@@ -47,13 +47,9 @@ install: $(addprefix $(BIN_DIR)/,sr sr_aux)
 # append debug mode for debugger
 debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
 
-#run as root
-build-test:
-	cd tests&&make build&&cd ..
-
 #run as user
 run-test:
-	sr -r root -c './tests/bin/runTests'
+	sr -r root -c "/usr/bin/python3 tests/__init__.py"
 
 build-ebpf:
 	cd ebpf&&make&&cd ..
