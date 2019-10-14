@@ -25,7 +25,7 @@ This system is a python program that use libcap.so C library and unittest packag
 
 ### Usage
 
-To run tests you must set in actual configuration a root role with every capabilities that runner (you) has access, present in default configuration, then you can run all tests.
+To run tests you must set in actual configuration a root role with every capabilities that runner (you) has access, present in default configuration, then you can run all tests. You must be on RootAsRole root folder to run this following command : 
 
 ```Bash
 make run-test
@@ -112,8 +112,8 @@ class TestFindUserRoles(unittest.TestCase): ## specify unittest.TestCase class
 
     def setUp(self): # begin of test
         utils.before("testRoles/configuration1",[getpass.getuser()])
-        # this wille copy a preconfigured configuration 
-        # to current capabilityRole file and will 
+        # this wille copy a preconfigured configuration
+        # to current capabilityRole file and will
         # replace %x$s to xth element in list (arg 2)
         return super().setUp()
 
@@ -126,7 +126,7 @@ class TestFindUserRoles(unittest.TestCase): ## specify unittest.TestCase class
         res, code = utils.sr_echo_cmd(echo)
         # run sr -c 'echo role1-user-cmd'
         # returning output to res and result code to code
-        utils.multipleAssertCommand(res,code,code==0,res.count(echo)==1) 
+        utils.multipleAssertCommand(res,code,code==0,res.count(echo)==1)
         # execute assertions listed on > 2 arg
         # if assertion error then
         # output pertinent informations of assertion error.
@@ -145,7 +145,7 @@ And append this tuple to test suite :
 ```Python
 def load_tests(loader, tests, pattern):
     suite = unittest.TestSuite()
-    readTestSuite(loader,test_Roles) 
+    readTestSuite(loader,test_Roles)
     #append tuple of TestCase to TestSuite
     return suite
 ```
