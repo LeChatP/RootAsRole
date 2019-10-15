@@ -1,16 +1,6 @@
 # RootAsRole : a secure alternative to sudo/su on Linux systems
 
-## Contributors
 
-Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
-
-Rémi Venant: remi.venant@gmail.com
-
-Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
-
-Eddie Billoir : eddie.billoir@gmail.com
-
-Romain Laborde : laborde@irit.fr
 
 ## Feedback
 
@@ -82,6 +72,18 @@ For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/mas
 ## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 
 ## [How sr and sr_aux work?](https://github.com/SamerW/RootAsRole/wiki/How-sr-and-sr_aux-work)
+
+## Contributors
+
+Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
+
+Rémi Venant: remi.venant@gmail.com
+
+Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
+
+Eddie Billoir : eddie.billoir@gmail.com
+
+Romain Laborde : laborde@irit.fr
 
 ## Limitations
 
