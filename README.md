@@ -1,4 +1,4 @@
-# RootAsRole : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V2.2) : a secure alternative to sudo/su on Linux systems
 
 
 
