@@ -89,6 +89,8 @@ Eddie Billoir : eddie.billoir@gmail.com
 
 Romain Laborde : laborde@irit.fr
 
+Félix Guyard : k1nd0ne@mail.com
+
 ## Limitations
 
 1. we handle the arguments of commands in a very basic way. In fact, when an administrator limits the use of a role to a command with a list of arguments, the user must provide exactly the same commands with the list of arguments in the same order as they are defined in the capabilityRole.xml file. Handling the arguments of commands in more flexible way is a very complex task. Commands have different formats for arguments; the same argument may have different names;some arguments may take values, others not; values of arguments have different formats, etc.
