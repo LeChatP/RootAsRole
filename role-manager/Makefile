@@ -1,25 +1,36 @@
-## Makefile
+###	@Author : Anderson Hemlee
+## 	Makefile for role_manager
 
-CFLAGS 	= -W -Wall -Wextra
-DEBUG 	= -ggdb -fno-omit-frame-pointer
-LDLIBS	= -lcap -lxml2
+# Compiler
+CC	:=	gcc
+
+# Options
+FLAGS 	:= -W -Wall -Wextra -lcap `xml2-config --libs`
+DEBUG	:= TRUE
+
+# Debug / Optimization
+ifeq	($(DEBUG),TRUE)
+	OPTIONS += -ggdb -g3 -fno-omit-frame-pointer
+else
+	OPTIONS += -Ofast
+endif
 
 SRC = $(wildcard ./*.c)
-OBJ = $(SRC:./%.c=./%.o)
+OBJ = $(SRC:%.c=%.o)
 
 all: $(OBJ) addrole editrole deleterole
 
 addrole: addrole.o
-	$(CC) addrole.o help.o verifier.o xmlNode.o -o $@ $(LDLIBS)
+	$(CC) addrole.o help.o list_manager.o verifier.o xmlNode.o -o $@ $(FLAGS) $(OPTIONS)
 
 editrole: editrole.o
-	$(CC) editrole.o help.o verifier.o xmlNode.o -o $@ $(LDLIBS)
+	$(CC) editrole.o help.o verifier.o xmlNode.o -o $@ $(FLAGS) $(OPTIONS)
 
 deleterole: deleterole.o
-	$(CC) deleterole.o help.o verifier.o xmlNode.o -o $@ $(LDLIBS)
+	$(CC) deleterole.o help.o verifier.o xmlNode.o -o $@ $(FLAGS) $(OPTIONS)
 
-$(OBJ): ./%.o: ./%.c
-	$(CC) -o $@ -c $(CFLAGS) $(DEBUG) $<
+$(OBJ): %.o: %.c
+	$(CC) -o $@ -c $< `xml2-config --cflags`
 
 clean:
 	$(RM) ./*.o
@@ -29,6 +40,8 @@ fclean: clean
 
 re: fclean all
 
-# Builder will call this to install the application before running.
 install:
-	echo "Installing is not supported"
+	cp addrole editrole deleterole /usr/bin/
+
+uninstall:
+	rm -f /usr/bin/addrole /usr/bin/editrole /usr/bin/deleterole
