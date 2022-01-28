@@ -87,6 +87,8 @@ Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
 Eddie Billoir : eddie.billoir@gmail.com
 
+Anderson Hemlee : anderson.hemlee@protonmail.com
+
 Romain Laborde : laborde@irit.fr
 
 Félix Guyard : k1nd0ne@mail.com
