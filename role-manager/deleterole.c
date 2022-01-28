@@ -1,13 +1,17 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <getopt.h>
 #include <libxml/parser.h>
-#include <sys/capability.h>
-#include "role_manager.h"
+#include <libxml/xpath.h>
+#include <stdbool.h>
+#include <stdio.h>
+
+#include "help.h"
+#include "verifier.h"
+#include "xmlNode.h"
 
 int main(int argc, char *argv[])
 {
+    if (root_verifier() == -1)
+        return EXIT_FAILURE;
+
     if (argc < 2) {
         print_help(DELETEROLE);
         return(EXIT_SUCCESS);
@@ -26,14 +30,13 @@ int main(int argc, char *argv[])
         fputs("Role doesn't exist\n", stderr);
         goto ret_err;
     }
-    if (err == -1) {
+    else if (err == -1)
         goto ret_err;
-    }
 
     deleteNode(role_node);
 
-    xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
     // xmlSaveFormatFileEnc(XML_FILE, doc, "UTF-8", 1);
+    xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
 
 ret_err:
     xmlFreeDoc(doc);
