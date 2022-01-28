@@ -38,6 +38,7 @@ Here commands will only be available for the zayed group. In the case or the sec
 			-u ahmed -c "/usr/sbin/tcpdump" -u * -c "/usr/sbin/iptables" \
 			-g unive -c "/usr/bin/printer" -c "/usr/bin/other"
 -
+
 	<role name="role1">
 		<capabilities>
 			<capability>cap_net_raw</capability>
@@ -99,6 +100,7 @@ Uses the URL syntax `/parent/to/child` to designate which node should be added. 
 	Example : /capabilities/cap_net_bind_service
 	What do you want to add ? -> /capabilities/cap_net_bind_service
 -
+
 	./editrole role2
 	1. Add
 	2. Edit
