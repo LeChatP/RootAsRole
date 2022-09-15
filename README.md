@@ -18,7 +18,7 @@ Traditionally, administering Linux systems is based on the existence of one powe
 
 RootAsRole module implements a role-based approach for distributing Linux capabilities to users. Our module contains the sr (switch role) tool that allows users to control the list of privileges they give to programs. Thus, with our module, users can stop using sudo and su commands that don't allow controlling the list of privileges granted to programs. Some tools already permit control of the list of privileges to give to programs, such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to the Linux kernel, Ambient Set.
 
-Using RootAsRole module, administrators can group a set of Linux capabilities into roles and give them to their users. For security reasons, users don't get the attributed roles by default; they should activate them using the command sr (switch role). In addition, our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module.
+Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module.
 Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
 
