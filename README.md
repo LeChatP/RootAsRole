@@ -1,4 +1,4 @@
-# RootAsRole (V2.2) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V2.3) : a secure alternative to sudo/su on Linux systems
 
 
 
@@ -91,6 +91,8 @@ Rémi Venant: remi.venant@gmail.com
 Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
 
 Eddie Billoir : eddie.billoir@gmail.com
+
+Anderson Hemlee : anderson.hemlee@protonmail.com
 
 Romain Laborde : laborde@irit.fr
 

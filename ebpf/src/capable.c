@@ -559,7 +559,7 @@ static int ignoreKallsyms(){
 	FILE *fp_kallsyms = fopen("/proc/kallsyms","r");
 	while(fgets(line,BUFFER_KALLSYM,fp_kallsyms) != NULL){
 		if(strstr(line,"_do_fork") != NULL){
-			strncpy(line,kall,16);
+			strncpy(line,kall,17);
 		}
 		unsigned long v = strtol(kall,NULL,HEX);
 		if(strcmp(kall,"") != 0) {

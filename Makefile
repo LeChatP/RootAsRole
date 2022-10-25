@@ -53,6 +53,13 @@ run-test:
 
 build-ebpf:
 	cd ebpf&&make&&cd ..
+
+# role-manager added for installation and uninstallation
+install_role-manager
+	cd role-manager&&make&&make install&&cd ..
+
+uninstall_role-manager
+	cd role-manager&&make uninstall&&make fclean&&cd ..
 	
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux
