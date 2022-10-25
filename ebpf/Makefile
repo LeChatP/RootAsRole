@@ -13,12 +13,12 @@ LINUXINCLUDE += -I$(KERNEL)/include/uapi
 LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
 LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
 LINUXINCLUDE += -I$(KER_DIR)
-LINUXINCLUDE += -include asm_goto_workaround.h -D __BPF_TRACING__  # you must precisely include the file
+LINUXINCLUDE += -D KBUILD_MODNAME=\"capable\" -D __BPF_TRACING__  # you must precisely include the file
 
 ifeq ($(uname -r | cut -c1-5),$(5.0.0))
-EXTRA_CFLAGS=-Werror -DK50
+EXTRA_CFLAGS=-DK50
 else
-EXTRA_CFLAGS=-Werror
+EXTRA_CFLAGS=
 endif
 LDFLAGS= -lelf
 
