@@ -18,7 +18,7 @@ static int args_process (int argc, char **argv, args_struct *args);
 
 int main(int argc, char *argv[])
 {
-    if (root_verifier() == -1)
+    if (access_verifier() == -1)
         return EXIT_FAILURE;
 
     if (argc < 3) {
@@ -119,16 +119,17 @@ int main(int argc, char *argv[])
         } while (gl->next ? gl = gl->next, 1 : 0);
     }
 
-    if (args.cg) {
-        node = role_node;
-        addNode(&node, "commands", NULL);
-        for (int i = 0; i < cl->cc; i++) {
-            addNode(&node, NULL, argv[cl->cbi+(i*2)]);
-        }
-    }
-
-    // xmlSaveFormatFileEnc(XML_FILE, doc, "UTF-8", 1);
-    xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
+    // if (args.cg) {
+    //     node = role_node;
+    //     addNode(&node, "commands", NULL);
+    //     for (int i = 0; i < cl->cc; i++) {
+    //         addNode(&node, NULL, argv[cl->cbi+(i*2)]);
+    //     }
+    // }
+    toggle_lock_config(1);
+    xmlSaveFormatFileEnc(XML_FILE, doc, "UTF-8", 1);
+    toggle_lock_config(0);
+    //xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
 
 ret_err:
     remove_account(ul); remove_account(gl); remove_command(cl);
@@ -317,7 +318,10 @@ static int args_process (int argc, char **argv, args_struct *args)
             return -1;
 		}
     }
-
+    if (!(*ul || *gl)) {
+        fputs("You must provide actors in a role\n", stderr);
+        return -1;
+    }
     if (*ul) { *ul = firstUl; }
     if (*gl) { *gl = firstGl; }
     if (*cl) { while((*cl)->prev) {*cl = (*cl)->prev;} }

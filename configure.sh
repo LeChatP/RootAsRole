@@ -12,15 +12,13 @@ apt-get install libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev || exit
 apt-get install libpam0g-dev || exit
 apt-get install libxml2 libxml2-dev || exit
 
-echo "Define root role for the user $SUDO_USER:"
-sed -i 's/ROOTADMINISTRATOR/'$SUDO_USER'/g' ./resources/capabilityRole.xml
-
 echo "Configuration files installation"
 cp resources/sr_pam.conf /etc/pam.d/sr || exit
 chmod 0644 /etc/pam.d/sr || exit
 cp resources/capabilityRole.xml /etc/security || exit
+echo "Define root role for the user $SUDO_USER:"
+sed -i 's/ROOTADMINISTRATOR/'$SUDO_USER'/g' /etc/security/capabilityRole.xml
 chmod 0644 /etc/security/capabilityRole.xml || exit
-
-
+chattr +i /etc/security/capabilityRole.xml || exit
 
 echo "configuration done. Ready to compile."

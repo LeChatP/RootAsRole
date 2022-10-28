@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <unistd.h>
 
 #include "xmlNode.h"
@@ -15,16 +17,74 @@
 
 extern int errno;
 
+/******************************************************************************
+ *                      PRIVATE FUNCTIONS DECLARATION                         *
+ ******************************************************************************/
+
+/* 
+Add or remove the capabilities in/from the effective set of the process.
+Add the caps if enable is different than 0, remove them if enable is 0.
+Return 0 on success, -1 on failure.
+*/
+static int caps_effective(int enable, int nb_caps, cap_value_t *cap_values);
+/* 
+Enable/Disable capability linux_immuable effective 
+*/
+int cap_linux_immuable_effective(int enable);
+
 /* @return : -1 to failure | 0 to success */
-int root_verifier(void)
+int access_verifier(void)
 {
-    if (!getuid())
+    cap_t cap = cap_get_proc(); 
+    cap_flag_value_t linux_immutable = 0; 
+    cap_get_flag(cap, CAP_LINUX_IMMUTABLE, CAP_EFFECTIVE, &linux_immutable);
+    
+    if (linux_immutable && access(XML_FILE,W_OK))
         return 0;
     else {
-        fputs("For run this command you must be root user !\n", stderr);
+        fputs("You need CAP_LINUX_IMMUTABLE capability and access to file to perform action on RAR policy\n", stderr);
         return -1;
     }
 }
+
+int toggle_lock_config(int unlock)
+{
+    int status = -1;
+    FILE *fp = fopen(XML_FILE, "r");
+    if(cap_linux_immuable_effective(1)){
+        perror("Unable to reduce capabilities");
+        goto ERR;
+    }
+    int val;
+    if (ioctl(fileno(fp), FS_IOC_GETFLAGS, &val) < 0) {
+        perror("ioctl(2) error");
+        goto ERR;
+    }
+    if(unlock) val ^= FS_IMMUTABLE_FL;
+    else val |= FS_IMMUTABLE_FL;
+    if (ioctl(fileno(fp), FS_IOC_SETFLAGS, &val) < 0){
+        perror("ioctl(2) error");
+        goto ERR;
+    }
+    if(cap_linux_immuable_effective(0)){
+        perror("Unable to reduce capabilities");
+        goto ERR;
+    }
+    status = 0;
+    ERR:
+    return status;
+}
+
+int cap_linux_immuable_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("CAP_LINUX_IMMUTABLE", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
+
 
 
 /* Doit on valider la DTD avant de valider le document par la DTD ?
@@ -61,7 +121,7 @@ xmlDocPtr xml_verifier(void)
 
     xmlFreeParserCtxt(ctxt);
 
-    return(doc);
+    return doc;
 
 ret_err:
     xmlFreeParserCtxt(ctxt);
@@ -239,4 +299,39 @@ int command_verifier(char *command)
     }
 
     return 0;
+}
+
+
+/******************************************************************************
+ *                      PRIVATE FUNCTIONS DEFINITION                          *
+ ******************************************************************************/
+
+/* 
+Add or remove the capabilities in/from the effective set of the process.
+Add the caps if enable is different than 0, remove them if enable is 0.
+Return 0 on success, -1 on failure.
+*/
+static int caps_effective(int enable, int nb_caps, cap_value_t *cap_values)
+{
+	cap_t caps; //Capabilities state
+	cap_flag_value_t cap_flag_value; //value of the caps' flag to use
+	int return_code = -1;
+
+	//Define the value of the flag to use to enable or disable the caps
+	cap_flag_value = enable ? CAP_SET : CAP_CLEAR;
+	//Get process' capabilities state
+	if ((caps = cap_get_proc()) == NULL)
+		return return_code;
+	//Set or clear the capabilities in the effective set
+	if (cap_set_flag(caps, CAP_EFFECTIVE, nb_caps, cap_values,
+			 cap_flag_value))
+		goto free_rscs;
+	//Update the process' capabilities
+	if (cap_set_proc(caps))
+		goto free_rscs;
+	//Treatment done
+	return_code = 0;
+free_rscs:
+	cap_free(caps);
+	return return_code;
 }
