@@ -44,7 +44,7 @@ struct command_bloc {
 
 typedef struct arguments {
   char *rolename;
-  bool capability[43]; // 42 capabilities + all capabilities
+  uint64_t capabilities;
 
   /* User */
   uint8_t uc;          // user count

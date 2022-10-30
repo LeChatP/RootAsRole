@@ -5,11 +5,91 @@
 
 #include "xmlNode.h"
 
+/**
+ * This function will replace key to value in str
+ */
+static xmlChar* sanitizeCharTo(xmlChar *str,xmlChar key,xmlChar *value);
+
+/**
+ * replace string s in position start to length character of ct
+ * return the new char*
+ */
+static char *str_replace(const char *s, unsigned int start, unsigned int length,
+			 const char *ct);
 
 /* @parent is optionnal. NULL for not use
  * @text is optionnal. NULL for not use
  * @return : -1 to error | 0 to success
  */
+xmlNodePtr addContentNode(xmlNodePtr parent,xmlChar *type, xmlChar *content){
+    return xmlNewChild(parent,NULL,type,content);
+}
+
+xmlNodePtr addNamedNode(xmlNodePtr parent, xmlChar *element, xmlChar *name){
+    xmlNodePtr node = xmlNewChild(parent, NULL, element, NULL);
+    xmlNewProp(node, (xmlChar *)"name", name);
+    return node;
+}
+
+xmlNodePtr addContainerNode(xmlNodePtr parent, xmlChar *label){
+    return xmlNewChild(parent,NULL,label,NULL);
+}
+
+
+/**
+ * This function will replace key to value in str
+ * will free str
+ */
+static xmlChar* sanitizeCharTo(xmlChar *str,xmlChar key,xmlChar *value){
+	const xmlChar *position = xmlStrchr(str,key);
+	if(position != NULL){
+		int pos = position-str;
+		xmlChar *new_command = NULL;
+		while(position != NULL){
+			new_command = (xmlChar *)str_replace((char *)str,pos,1,(char *) value);
+			xmlFree(str);
+			str = new_command;
+			position = xmlStrchr(&str[pos+xmlStrlen(value)],key);
+			pos = position-str;
+		}
+	}
+	return str;
+}
+
+/**
+ * replace string s in position start to length character of ct
+ * return the new char*
+ */
+static char *str_replace(const char *s, unsigned int start, unsigned int length,
+			 const char *ct)
+{
+	char *new_s = NULL;
+	size_t size = strlen(s);
+	new_s = malloc(sizeof(*new_s) * (size - length + strlen(ct) + 1));
+	if (new_s != NULL) {
+		memmove(new_s, s, start);
+		memmove(&new_s[start], ct, strlen(ct));
+		memmove(&new_s[start + strlen(ct)], &s[start + length],
+		       size - length - start + 1);
+	}
+	return new_s;
+}
+
+/**
+ * Sanitize string, escape unwanted chars to their xml equivalent
+ * keep str same, return should be freed
+ */
+xmlChar* encodeXml(const char* str){
+	xmlChar *tmpstr = xmlCharStrndup(str, strlen(str));
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '&',(xmlChar*) "&amp;"); // check & before all
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '\'',(xmlChar*) "&apos;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '\"',(xmlChar*) "&quot;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '<',(xmlChar*) "&lt;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '>',(xmlChar*) "&gt;");
+	return tmpstr;
+}
+
+
 int addNode(xmlNodePtr *elem, char *parent, char *text)
 {
     xmlNodePtr node = *elem;
@@ -158,7 +238,7 @@ xmlChar *newXPression(char *role, int elemDef, char *elem)
     if (elem)
         size += (int)strlen(elem);
 
-    expression = (xmlChar *)malloc(size * sizeof(xmlChar));
+    expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
     if (!expression) {
         fputs("Error malloc\n", stderr);
         goto ret_err;

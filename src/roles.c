@@ -104,11 +104,6 @@ static char *str_replace(const char *s, unsigned int start, unsigned int length,
 			 const char *ct);
 
 /**
- * appends s2 to str with realloc, return new char*
- */
-static char *concat(char *str, char *s2);
-
-/**
  * Sanitize string, escape unwanted chars to their xml equivalent
  * @param str the string to encode, not modified
  * @param quot 
@@ -116,7 +111,7 @@ static char *concat(char *str, char *s2);
  * 		set to 0 will replace ' to &apos; useful when your string is surrounded by '
  * @return new string with escaped chars
  */
-static char* encodeXml(const char* str, int quot);
+static xmlChar* encodeXml(const char* str);
 
 /**
  * format groups to xpath OR expression to match every group of user
@@ -135,7 +130,7 @@ static char * format_groups(char **groups,int nb_groups,char *tmpexpression);
 /**
  * This function will replace key to value in str
  */
-static char* sanitizeCharTo(char *str,char key,char *value);
+static xmlChar* sanitizeCharTo(xmlChar *str,xmlChar key,xmlChar *value);
 
 /*
 Find user role for command specified
@@ -618,18 +613,21 @@ int print_capabilities(user_role_capabilities_t *urc)
 		char *expressionExplicitFormat = "[users/user/commands/command/text()=%1$c%2$s%1$c or groups/group/commands/command/text()=%1$c%2$s%1$c]";
 		char *expressionNonExplicitFormat = "[count(users/user/commands)=0 and count(groups/group/commands)=0]";
 
-		char *tmpUser = encodeXml(urc->user,0);
+		xmlChar *tmpUser = encodeXml(urc->user);
 		char *expressionGroupFormat = format_groups(urc->groups,urc->nb_groups,expressionBaseFormat);
-		char *tmpCommand = encodeXml(urc->command,0);
-		char *tmpexpressionExplicitFormat = (char*)malloc(strlen(expressionGroupFormat)+strlen(tmpUser)+strlen(expressionExplicitFormat)-3);
-		char *expressionExplicit = (char*)malloc(strlen(expressionGroupFormat)-4+strlen(tmpUser)+strlen(expressionExplicitFormat)-8+strlen(tmpCommand)*2+1*sizeof(char));
-		sprintf(tmpexpressionExplicitFormat,expressionGroupFormat,get_quote(urc->user),tmpUser,expressionExplicitFormat);
-		sprintf(expressionExplicit,tmpexpressionExplicitFormat,get_quote(urc->command),tmpCommand);
+		xmlChar *tmpCommand = encodeXml(urc->command);
+		int tmpExpressionExplicitFormat_size = strlen(expressionGroupFormat)+xmlStrlen(tmpUser)+strlen(expressionExplicitFormat)-3;
+		char *tmpexpressionExplicitFormat = (char*) malloc(tmpExpressionExplicitFormat_size * sizeof(char));
+		int expressionExplicit_size = (strlen(expressionGroupFormat)-4+xmlStrlen(tmpUser)+strlen(expressionExplicitFormat)-8+xmlStrlen(tmpCommand)*2+1);
+		xmlChar *expressionExplicit = (xmlChar*) xmlMalloc(expressionExplicit_size*sizeof(char));
+		snprintf(tmpexpressionExplicitFormat,tmpExpressionExplicitFormat_size,expressionGroupFormat,get_quote(urc->user),tmpUser,expressionExplicitFormat);
+		xmlStrPrintf(expressionExplicit,expressionExplicit_size,tmpexpressionExplicitFormat,get_quote(urc->command),tmpCommand);
 
-		char *expressionNonExplicit = (char*)malloc(strlen(expressionGroupFormat)-4+strlen(tmpUser)+strlen(expressionNonExplicitFormat)+1*sizeof(char));
-		sprintf(expressionNonExplicit,expressionGroupFormat,get_quote(urc->user),tmpUser,expressionNonExplicitFormat);
-		xmlXPathObjectPtr resultExplicit = xmlXPathEvalExpression((xmlChar*)expressionExplicit,context);
-		xmlXPathObjectPtr resultNonExplicit = xmlXPathEvalExpression((xmlChar*)expressionNonExplicit,context);
+		int expressionNonExplicit_size = (strlen(expressionGroupFormat)-4+xmlStrlen(tmpUser)+strlen(expressionNonExplicitFormat)+1);
+		xmlChar *expressionNonExplicit = (xmlChar*)xmlMalloc(expressionNonExplicit_size*sizeof(xmlChar));
+		xmlStrPrintf(expressionNonExplicit,expressionNonExplicit_size,expressionGroupFormat,get_quote(urc->user),tmpUser,expressionNonExplicitFormat);
+		xmlXPathObjectPtr resultExplicit = xmlXPathEvalExpression(expressionExplicit,context);
+		xmlXPathObjectPtr resultNonExplicit = xmlXPathEvalExpression(expressionNonExplicit,context);
 		if(resultExplicit != NULL && resultExplicit->nodesetval->nodeNr > 0){
 			char *command = quoted_var(urc->command);
 			printf("As user \"%s\", you can execute this command :\n  sr -c %s\n",urc->user,command);
@@ -644,28 +642,30 @@ int print_capabilities(user_role_capabilities_t *urc)
 		}else{
 			printf("As user \"%s\" you can't execute this command\n",urc->user);
 		}
-		free(tmpUser);
-		free(expressionGroupFormat);
-		free(tmpCommand);
-		free(tmpexpressionExplicitFormat);
-		free(expressionExplicit);
-		free(expressionNonExplicit);
+		xmlFree(tmpUser);
+		xmlFree(expressionGroupFormat);
+		xmlFree(tmpCommand);
+		xmlFree(tmpexpressionExplicitFormat);
+		xmlFree(expressionExplicit);
+		xmlFree(expressionNonExplicit);
 		if(resultExplicit != NULL)xmlXPathFreeObject(resultExplicit);
 		if(resultNonExplicit != NULL)xmlXPathFreeObject(resultNonExplicit);
 	}else{ // no command, no role
 		//user managing
-		char *expressionRoleFormat="//role[%1$susers/user[@name=%2$c%3$s%2$c]%4$s]"; //arg 1 and 3 is for appending group conditions
-		char *tmpUser = encodeXml(urc->user,1);
-		char *expressionUser=(char*)malloc(strlen(expressionRoleFormat)-2+strlen(tmpUser)+1 * sizeof(char));
-		sprintf(expressionUser,expressionRoleFormat,"",get_quote(urc->user),tmpUser,"");
-		xmlXPathObjectPtr resultUser = xmlXPathEvalExpression((xmlChar*)expressionUser,context);
+		char *expressionRoleFormat= "//role[%1$susers/user[@name=%2$c%3$s%2$c]%4$s]"; //arg 1 and 3 is for appending group conditions
+		xmlChar *tmpUser = (xmlChar*) encodeXml(urc->user);
+		int expressionUser_size = strlen(expressionRoleFormat)-2+xmlStrlen(tmpUser)+1;
+		xmlChar *expressionUser=(xmlChar*)xmlMalloc(expressionUser_size * sizeof(char));
+		xmlStrPrintf(expressionUser,expressionUser_size,expressionRoleFormat,"",get_quote(urc->user),tmpUser,"");
+		xmlXPathObjectPtr resultUser = xmlXPathEvalExpression(expressionUser,context);
 
 		//group managing, removing already user roles directly in query
 		char *expressionGroupAppend="groups/group[not(@name)] and not("; // we append at argument 1 search roles that in group but not in user (remove duplicatas)
 		char *expressionGroup = format_groups(urc->groups,urc->nb_groups,expressionGroupAppend);
-		char *expression = malloc(strlen(expressionGroup)+strlen(expressionUser)+2*sizeof(char));
-		sprintf(expression,expressionRoleFormat,expressionGroup,get_quote(urc->user),tmpUser,")");
-		xmlXPathObjectPtr resultGroup = xmlXPathEvalExpression((xmlChar*)expression,context);
+		int expression_size = strlen(expressionGroup)+xmlStrlen(expressionUser)+2;
+		xmlChar *expression = (xmlChar*)xmlMalloc(expression_size*sizeof(char));
+		xmlStrPrintf(expression,expression_size,expressionRoleFormat,expressionGroup,get_quote(urc->user),tmpUser,")");
+		xmlXPathObjectPtr resultGroup = xmlXPathEvalExpression(expression,context);
 
 		int verifyUser = resultUser != NULL && resultUser->nodesetval->nodeNr > 0;
 		int verifyGroup = resultGroup != NULL && resultGroup->nodesetval->nodeNr > 0;
@@ -674,10 +674,10 @@ int print_capabilities(user_role_capabilities_t *urc)
 			if(verifyUser)print_roles(urc,resultUser); //print user roles
 			if(verifyGroup)print_roles(urc,resultGroup); //print group without user roles
 		}
-		free(tmpUser);
-		free(expressionUser);
-		free(expressionGroup);
-		free(expression);
+		xmlFree(tmpUser);
+		xmlFree(expressionUser);
+		xmlFree(expressionGroup);
+		xmlFree(expression);
 		xmlXPathFreeObject(resultGroup);
 		xmlXPathFreeObject(resultUser);
 	}
@@ -1130,20 +1130,6 @@ static int is_command_allowed(xmlChar *c_ref, xmlChar *c_given)
 	}
 }
 /**
- * appends s2 to str with realloc, return new char*
- */
-static char *concat(char *str, char *s2)
-{
-	int len = 0;
-	char *s = NULL;
-	if (str != NULL)
-		len = strlen(str);
-	len += strlen(s2) + 1 * sizeof(*s2);
-	s = realloc(str, len);
-	strcat(s, s2);
-	return s;
-}
-/**
  * replace string s in position start to length character of ct
  * return the new char*
  */
@@ -1181,14 +1167,15 @@ static int find_role_for_user(xmlXPathContextPtr context, char *user,const char 
 			      xmlNodePtr *role_node)
 {
 	int return_code = -1;
-	char *expressionFormatUser = expressionFormatUser = "//role[users/user[@name=%1$c%3$s%1$c]/commands/command/text()=%2$c%4$s%2$c]";
-	char *tmpcommand = encodeXml(command,1);
-	char *tmpuser = encodeXml(user,1);
-	char *expression = (char *)malloc(strlen(expressionFormatUser) - 4 +
-					  strlen(tmpuser) + strlen(tmpcommand) +
-					  1 * sizeof(char));
-	sprintf(expression, expressionFormatUser,get_quote(user),get_quote(command), tmpuser, tmpcommand);
-	xmlXPathObjectPtr result = xmlXPathEvalExpression((xmlChar*)expression,context);
+	char *expressionFormatUser = "//role[users/user[@name=%1$c%3$s%1$c]/commands/command/text()=%2$c%4$s%2$c]";
+	xmlChar *tmpcommand = encodeXml(command);
+	xmlChar *tmpuser = encodeXml(user);
+	int size = strlen(expressionFormatUser) - 4 +
+					  xmlStrlen(tmpuser) + xmlStrlen(tmpcommand) +
+					  1;
+	xmlChar *expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
+	xmlStrPrintf(expression,size, expressionFormatUser,get_quote(user),get_quote(command), tmpuser, tmpcommand);
+	xmlXPathObjectPtr result = xmlXPathEvalExpression(expression,context);
 	if(result != NULL && result->nodesetval->nodeNr > 0){
 		*role_node = result->nodesetval->nodeTab[0];
 		return_code = 0;
@@ -1196,9 +1183,9 @@ static int find_role_for_user(xmlXPathContextPtr context, char *user,const char 
 		return_code = -2;
 	}
 	xmlXPathFreeObject(result);
-	if(tmpuser!=NULL)free(tmpuser);
-	if(tmpcommand!=NULL)free(tmpcommand);
-	free((xmlChar *)expression);
+	if(tmpuser!=NULL)xmlFree(tmpuser);
+	if(tmpcommand!=NULL)xmlFree(tmpcommand);
+	xmlFree(expression);
 	return return_code;
 }
 
@@ -1208,17 +1195,17 @@ static int find_role_for_user(xmlXPathContextPtr context, char *user,const char 
  */
 static char* xpath_format_groups(char** groups, int nb_groups){
 	char *name = "@name = ";
-	char *tmpgroups = calloc(strlen(name), sizeof(char));
+	char *tmpgroups =  malloc(strlen(name)*sizeof(char));
 	for (int i = 0; i < nb_groups; i++) {
-		tmpgroups = concat(tmpgroups, name);
+		tmpgroups = strcat(tmpgroups, name);
 		char quote[2] = {get_quote(groups[i]),'\0'};
-		tmpgroups = concat(tmpgroups,quote);
-		char * xmlgroups =encodeXml(groups[i],1);
-		tmpgroups = concat(tmpgroups, xmlgroups); //append group but encoding group name
+		tmpgroups = strncat(tmpgroups,quote,1);
+		char * xmlgroups = (char*)encodeXml(groups[i]);
+		tmpgroups = strcat(tmpgroups, xmlgroups); //append group but encoding group name
 		free(xmlgroups);
-		tmpgroups = concat(tmpgroups,quote);
+		tmpgroups = strncat(tmpgroups,quote,1);
 		if (i < nb_groups - 1)
-			tmpgroups = concat(tmpgroups, " or ");
+			tmpgroups = strcat(tmpgroups, " or ");
 	}
 	return tmpgroups;
 }
@@ -1245,17 +1232,19 @@ static char *format_groups(char **groups,int nb_groups,char *tmpexpression){
 
 /**
  * This function will replace key to value in str
+ * will free str
  */
-static char* sanitizeCharTo(char *str,char key,char *value){
-	char *position = strchr(str,key);
+static xmlChar* sanitizeCharTo(xmlChar *str,xmlChar key,xmlChar *value){
+	const xmlChar *c_str = str;
+	const xmlChar *position = xmlStrchr(c_str,key);
 	if(position != NULL){
 		int pos = position-str;
-		char *new_command = NULL;
+		xmlChar *new_command = NULL;
 		while(position != NULL){
-			new_command = str_replace(str,pos,1,value);
-			free(str);
+			new_command = (xmlChar *)str_replace((char *)str,pos,1,(char *) value);
+			xmlFree(str);
 			str = new_command;
-			position = strchr(&str[pos+strlen(value)],key);
+			position = xmlStrchr(&str[pos+xmlStrlen(value)],key);
 			pos = position-str;
 		}
 	}
@@ -1265,11 +1254,13 @@ static char* sanitizeCharTo(char *str,char key,char *value){
  * Sanitize string, escape unwanted chars to their xml equivalent
  * keep str same, return should be freed
  */
-static char* encodeXml(const char* str, int quot){
-	char *tmpstr = strdup(str);
-	tmpstr = sanitizeCharTo(tmpstr,'&', "&amp;"); // check & before all
-	tmpstr = sanitizeCharTo(tmpstr,'<',"&lt;");
-	tmpstr = sanitizeCharTo(tmpstr,'>',"&gt;");
+static xmlChar* encodeXml(const char* str){
+	xmlChar *tmpstr = xmlCharStrndup(str, strlen(str));
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '&',(xmlChar*) "&amp;"); // check & before all
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '\'',(xmlChar*) "&apos;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '\"',(xmlChar*) "&quot;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '<',(xmlChar*) "&lt;");
+	tmpstr = sanitizeCharTo(tmpstr,(xmlChar) '>',(xmlChar*) "&gt;");
 	return tmpstr;
 }
 /**
@@ -1284,26 +1275,30 @@ static int find_role_for_group(xmlXPathContextPtr context, char **groups, int nb
 	char *expression = NULL;
 	char *expressionFormatGroup =
 		"//role[groups/group[not(@name)]/commands/command/text()=%1$c%2$s%1$c]";
-	char *tmpcommand = encodeXml(command,0); //escaping command
-	char *tmpexpression = (char *)calloc(strlen(expressionFormatGroup) - 2 +
-						     strlen(tmpcommand) + 1,
-					     sizeof(char));
-	if(get_quote(command) == -1){
-		
+	xmlChar *tmpcommand = encodeXml(command); //escaping command
+	int size = strlen(expressionFormatGroup) - 2 +
+						     xmlStrlen(tmpcommand) + 1;
+	char *tmpexpression = (char *)malloc(size * sizeof(char));
+	char quoted = get_quote(command);
+	if(quoted == -1){
+		return_code = -1;
+		goto free_rscs;
 	}
-	sprintf(tmpexpression, expressionFormatGroup,get_quote(command), tmpcommand);
+	snprintf(tmpexpression, size, expressionFormatGroup,quoted, tmpcommand);
 	expression = format_groups(groups,nb_groups,tmpexpression); //replace not(@name) to groups
-	free(tmpexpression);
-	result = xmlXPathEvalExpression((xmlChar *)expression,context);
+	
+	result = xmlXPathEvalExpression((xmlChar*)expression,context);
 	if (result != NULL && result->nodesetval->nodeNr > 0) {
 		*role_node = result->nodesetval->nodeTab[0];
 		return_code = 0;
 	} else {
 		return_code = -2;
 	}
-	if(tmpcommand!=NULL)free(tmpcommand);
+	free_rscs:
+	if(tmpcommand!=NULL)xmlFree(tmpcommand);
 	xmlXPathFreeObject(result);
-	free((xmlChar *)expression);
+	xmlFree(tmpexpression);
+	xmlFree(expression);
 	return return_code;
 }
 /**
