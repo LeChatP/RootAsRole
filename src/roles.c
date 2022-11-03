@@ -1311,7 +1311,7 @@ static int find_role_by_command(xmlXPathContextPtr context,
 {
 	int return_code = -1;
 	*role_node = NULL;
-	xmlXPathInit();
+	//xmlXPathInit();
 	//xpath for finding the right role, user and command easily
 	return_code = find_role_for_user(context, urc->user, urc->command,
 					 role_node);

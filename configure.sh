@@ -12,7 +12,7 @@ if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then
 elif [ $(which yum >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
 	echo "yum"
 elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	pacman -S gcc llvm clang libcap libcap-ng libelf libxml2 linux-api-headers libpam
+	pacman -S gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers
 else
 	echo "Unable to find a supported package manager, exiting..."
 	exit 2
