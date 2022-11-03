@@ -38,13 +38,14 @@ int access_verifier(void)
     cap_t cap = cap_get_proc(); 
     cap_flag_value_t linux_immutable = 0; 
     cap_get_flag(cap, CAP_LINUX_IMMUTABLE, CAP_EFFECTIVE, &linux_immutable);
-    
+    cap_free(cap);
     if (linux_immutable && access(XML_FILE,W_OK))
         return 0;
     else {
         fputs("You need CAP_LINUX_IMMUTABLE capability and access to file to perform action on RAR policy\n", stderr);
         return -1;
     }
+    
 }
 
 int toggle_lock_config(int unlock)
@@ -163,10 +164,11 @@ int role_verifier(xmlDocPtr doc, xmlNodePtr *role_node, char *role)
 /* @capability[43] is optionnal. NULL for not use
  * @return : -1 to error | 0 success
  */
-int capability_verifier(char *cap_text, bool capability[43])
+int capability_verifier(char *cap_text, uint64_t *capabilities)
 {
     char *token;
     cap_value_t capVal;
+    *capabilities = (uint64_t)0;
 
     token = strtok(cap_text, ",");
 
@@ -177,17 +179,14 @@ int capability_verifier(char *cap_text, bool capability[43])
 
     do {
         if (!strcmp(token, "*")) {
-            if (capability)
-                capability[42] = true;
+            *capabilities = (uint64_t) -1 >> (64-cap_max_bits());
             return 0;
         }
         if (cap_from_name(token, &capVal) == -1) {
             fprintf(stderr, "\"%s\" : Invalid Capability\n", token);
             return -1;
         }
-
-        if (capability)
-            capability[capVal] = true;
+        *capabilities |= 1<<capVal;
     } while ( (token = strtok(NULL, ",")) != NULL);
 
     return 0;
@@ -287,10 +286,6 @@ int command_verifier(char *command)
 {
     if (command == NULL || !strcmp(command, "")) {
         fputs("Command is empty\n", stderr);
-        return -1;
-    }
-    if (strlen(command) >= MAX_COMMAND_LEN) {
-        fprintf(stderr, "Comand is too long -> %d characters max\n", MAX_COMMAND_LEN);
         return -1;
     }
     if (strchr(command, '\'') != NULL && strchr(command, '"') != NULL) {

@@ -16,6 +16,31 @@
 /* @return : -1 to error | 0 to success */
 static int args_process (int argc, char **argv, args_struct *args);
 
+void addActor(xmlNodePtr role_node, account_list al, xmlChar *containerStr, xmlChar *actorType, char **argv){
+    xmlNodePtr container = addContainerNode(role_node,containerStr);
+    //addNode(&node, "users", NULL);
+    while(al->account) {
+        xmlChar *accountSanitized = encodeXml(al->account);
+        container = addNamedNode(container,actorType,accountSanitized);
+        xmlFree(accountSanitized);
+        al = al->next;
+        //addNode(&node, NULL, ul->account);
+        if (al->cs) {
+
+            container = addContainerNode(container, (xmlChar*)"commands");
+            for (int i = 0; i < al->cs->cc; i++) {
+                /* i*2 because : "command(+0) -c(+1) command(+2)" */
+                xmlChar *commandSanitized = encodeXml(argv[al->cs->cbi+(i*2)]);
+                addContentNode(container,(xmlChar*)"command",commandSanitized);
+                xmlFree(commandSanitized);
+                //addNode(&node, NULL, argv[ul->cs->cbi+(i*2)]);
+            }
+            if (al->next)
+                container = container->parent->parent;
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (access_verifier() == -1)
@@ -28,7 +53,7 @@ int main(int argc, char *argv[])
 
     int err;
     xmlDocPtr doc = NULL;
-    xmlNodePtr role_node = NULL, node = NULL;
+    xmlNodePtr role_node = NULL, container = NULL;
     args_struct args;
     char *temp;
 
@@ -54,7 +79,7 @@ int main(int argc, char *argv[])
     role_node = xmlDocGetRootElement(doc);
     role_node = role_node->children;
 
-    err = capability_verifier(argv[2], args.capability);
+    err = capability_verifier(argv[2], &args.capabilities);
     if (err == -1)
         goto ret_err;
 
@@ -65,65 +90,40 @@ int main(int argc, char *argv[])
     if (err == -1)
         goto ret_err;
 
-    addNode(&role_node, "role", args.rolename);
-    node = role_node;
+    //addNode(&role_node, "role", args.rolename);
+    xmlChar *rolename = encodeXml(args.rolename);
+    role_node = addNamedNode(role_node,(xmlChar*)"role", rolename);
+    xmlFree(rolename);
 
-    addNode(&node, "capabilities", NULL);
-    if (args.capability[42]) {
-        addNode(&node, NULL, "*");
+    container = addContainerNode(role_node,(xmlChar*)"capabilities");
+    //addNode(&node, "capabilities", NULL);
+    if (args.capabilities == (uint64_t) -1 >> (64-cap_max_bits())) {
+        addContentNode(container,(xmlChar*)"capability",(xmlChar*)"*");
     }
     else {
-        for(int i = 0; i < 42; i++) {
-            if (args.capability[i]) {
+        for(int i = 0; i < cap_max_bits(); i++) {
+            if (args.capabilities & (((uint64_t) 1)<<i)) {
                 temp = cap_to_name((cap_value_t)i);
-                addNode(&node, NULL, temp);
+                addContentNode(container,(xmlChar*)"capability",(xmlChar*)temp);
+                //addNode(&node, NULL, temp);
                 cap_free(temp);
             }
         }
     }
 
     if (ul) {
-        node = role_node;
-        addNode(&node, "users", NULL);
-        do {
-            addNode(&node, NULL, ul->account);
-            if (ul->cs) {
-                if (ul->next)
-                    for (node = node->children; node->next; node = node->next);
-                addNode(&node, "commands", NULL);
-                for (int i = 0; i < ul->cs->cc; i++) {
-                    /* i*2 because : "command(+0) -c(+1) command(+2)" */
-                    addNode(&node, NULL, argv[ul->cs->cbi+(i*2)]);
-                }
-                if (ul->next)
-                    node = node->parent->parent;
-            }
-        } while (ul->next ? ul = ul->next, 1 : 0);
+        addActor(role_node,ul,(xmlChar*)"users",(xmlChar*)"user",argv);
     }
 
     if (gl) {
-        node = role_node;
-        addNode(&node, "groups", NULL);
-        do {
-            addNode(&node, NULL, gl->account);
-            if (gl->cs) {
-                if (gl->next)
-                    for (node = node->children; node->next; node = node->next);
-                addNode(&node, "commands", NULL);
-                for (int i = 0; i < gl->cs->cc; i++) {
-                    addNode(&node, NULL, argv[gl->cs->cbi+(i*2)]);
-                }
-                if (gl->next)
-                    node = node->parent->parent;
-            }
-        } while (gl->next ? gl = gl->next, 1 : 0);
+        addActor(role_node,gl,(xmlChar*)"groups",(xmlChar*)"group",argv);
     }
 
     // if (args.cg) {
     //     node = role_node;
-    //     addNode(&node, "commands", NULL);
+    //     //addNode(&node, "commands", NULL);
     //     for (int i = 0; i < cl->cc; i++) {
-    //         addNode(&node, NULL, argv[cl->cbi+(i*2)]);
+    //         //addNode(&node, NULL, argv[cl->cbi+(i*2)]);
     //     }
     // }
     toggle_lock_config(1);
@@ -222,11 +222,6 @@ static int args_process (int argc, char **argv, args_struct *args)
             oldC = c;
             break;
         case 'c':
-            if (args->cc == MAX_BLOC) {
-                fputs("Limits for command blocs reached\n", stderr);
-                return -1;
-            }
-
             if (command_verifier(optarg) == -1)
                 return -1;
 
@@ -298,9 +293,8 @@ static int args_process (int argc, char **argv, args_struct *args)
 
             /* If -c is first option call, general command bloc */
             else if (!*cl) {
-                push( (*cl) ) ;
-                (*cl)->cbi = optind-1;
-                args->cg = true;
+                fputs("You must specify an actor before command\nExample: addrole test cap_net_raw -g netadmin -c /usr/bin/ping\n",stderr);
+                return -1;
             }
 
             if ((*cl)->cc == MAX_BLOC) {
@@ -317,10 +311,6 @@ static int args_process (int argc, char **argv, args_struct *args)
             print_help(ADDROLE);
             return -1;
 		}
-    }
-    if (!(*ul || *gl)) {
-        fputs("You must provide actors in a role\n", stderr);
-        return -1;
     }
     if (*ul) { *ul = firstUl; }
     if (*gl) { *gl = firstGl; }
