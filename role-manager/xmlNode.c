@@ -90,6 +90,59 @@ xmlChar* encodeXml(const char* str){
 }
 
 
+void print_role(xmlNodePtr role_node){
+	char *role_pattern = "As \'%s\' role, with \'%s\' capabilities:\n";
+	char *actor_pattern = "%s%s \'%s\' can execute ";
+	char *vertical = "│  ";
+	char *element = "├─ ";
+	char *end = "└─ ";
+	char *role_delim = "-----------------------\n";
+
+    printf("%s",role_delim);
+	for(xmlNodePtr container = role_node->children;container != NULL; container = container->next){
+		if(!xmlStrcmp(container->name,(xmlChar*)"capabilities")){
+			char capabilities[2048] = "";
+			for(xmlNodePtr capability = container->children;capability != NULL; capability = capability->next){
+				
+				if(capability->children->content[0] == (xmlChar)L'*'){
+					strcpy(capabilities,"all");
+					break;
+				}else{
+					int cap_size = strlen((const char *)capability->children->content);
+					strncat(capabilities,(char*)capability->children->content,cap_size);
+					if(capability->next){
+						strncat(capabilities,",",2);
+					}
+				}
+			}
+			printf(role_pattern,role_node->name,capabilities);
+			break;
+		}
+	}
+	for(xmlNodePtr container = role_node->children;container != NULL; container = container->next){
+	  	if(xmlStrcmp(container->name,(xmlChar*)"capabilities")){
+			for(xmlNodePtr actor = container->children;actor != NULL; actor = actor->next){
+				
+				const xmlChar *actor_type = actor->name;
+				const xmlChar *actor_name = xmlGetProp(actor,(xmlChar*)"name");
+				printf(actor_pattern,actor->next || container->next ? element : end,actor_type,actor_name);
+				
+				if(actor->children !=NULL){
+					printf(":\n");
+					for(xmlNodePtr command = actor->children->children;command != NULL; command = command->next){
+						printf("%s%s%s\n",actor->next || container->next ? vertical : "   ",command->next ? element:end,command->children->content);
+					}
+				} else {
+					printf("any command\n");
+				}
+			}
+		}
+		
+	}
+    printf("%s",role_delim);
+}
+
+
 int addNode(xmlNodePtr *elem, char *parent, char *text)
 {
     xmlNodePtr node = *elem;
