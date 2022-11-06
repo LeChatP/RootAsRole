@@ -3,6 +3,7 @@
 COMP = gcc
 
 SRC_DIR := src
+MANAGER_DIR := role-manager
 OBJ_DIR := obj
 BIN_DIR := bin
 DEBUGOPTIONS := #-g #-Wextra -Werror #debug option
@@ -12,14 +13,17 @@ LDOPTIONS := -Wall -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)
 SR_LDOPTIONS := -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTIONS)
 EXECUTABLES := sr sr_aux
 
-OBJS := $(addprefix $(SRC_DIR)/,capabilities.o roles.o sr.o sr_aux.o sraux_management.o user.o)
-BINS := $(addprefix $(BIN_DIR)/,sr sr_aux)
+OBJS := $(addprefix $(SRC_DIR)/,capabilities.o roles.o sr.o sr_aux.o sraux_management.o) $(addprefix $(MANAGER_DIR)/,help.o list_manager.o verifier.o xmlNode.o addrole.o editrole.o deleterole.o)
+BINS := $(addprefix $(BIN_DIR)/,sr sr_aux addrole editrole deleterole)
 
 all: $(BINS)
 
 .PHONY: clean
 
 $(OBJ_DIR)/%.o : $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(COMP) -o $@ -c $< $(COMPOPTIONS)
+
+$(OBJ_DIR)/%.o : $(MANAGER_DIR)/%.c | $(OBJ_DIR)
 	$(COMP) -o $@ -c $< $(COMPOPTIONS)
 
 $(OBJS): | $(OBJ_DIR)
@@ -31,7 +35,16 @@ $(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o roles.o sr.o sraux_managem
 	$(COMP) -o $@ $^ $(LDOPTIONS) $(SR_LDOPTIONS)
 
 $(BIN_DIR)/sr_aux: $(addprefix $(OBJ_DIR)/,capabilities.o sr_aux.o) | $(BIN_DIR)
-	$(COMP) -o $@ $^ $(LDOPTIONS) 
+	$(COMP) -o $@ $^ $(LDOPTIONS)
+
+$(BIN_DIR)/addrole: $(addprefix $(OBJ_DIR)/,help.o list_manager.o verifier.o xmlNode.o addrole.o) | $(BIN_DIR)
+	$(COMP) -o $@ $^ $(LDOPTIONS) $(SR_LDOPTIONS)
+
+$(BIN_DIR)/editrole: $(addprefix $(OBJ_DIR)/,help.o list_manager.o verifier.o xmlNode.o editrole.o) | $(BIN_DIR)
+	$(COMP) -o $@ $^ $(LDOPTIONS) $(SR_LDOPTIONS)
+
+$(BIN_DIR)/deleterole: $(addprefix $(OBJ_DIR)/,help.o list_manager.o verifier.o xmlNode.o deleterole.o) | $(BIN_DIR)
+	$(COMP) -o $@ $^ $(LDOPTIONS) $(SR_LDOPTIONS)
 
 $(BINS): | $(BIN_DIR)
 
@@ -39,31 +52,26 @@ $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
 #run as root
-install: $(addprefix $(BIN_DIR)/,sr sr_aux)
-	cp $(BIN_DIR)/sr /usr/bin/sr
+install: $(BINS) install-ebpf
+	cp $(BINS) /usr/bin
 	setcap cap_setfcap,cap_setpcap+p /usr/bin/sr
-	cp $(BIN_DIR)/sr_aux /usr/bin/sr_aux
 
 # append debug mode for debugger
-debug: $(addprefix $(BIN_DIR)/,sr sr_aux)
+debug: $(addprefix $(BIN_DIR)/,sr sr_aux addrole editrole deleterole)
 
 #run as user
 run-test:
 	sr -r root -c "/usr/bin/python3 tests/__init__.py"
 
 build-ebpf:
-	cd ebpf&&make&&cd ..
+	cd ebpf && make && cd ..
 
-# role-manager added for installation and uninstallation
-install_role-manager
-	cd role-manager&&make&&make install&&cd ..
-
-uninstall_role-manager
-	cd role-manager&&make uninstall&&make fclean&&cd ..
+install-ebpf:
+	cd ebpf && make install && cd ..
 	
 uninstall:
 	rm -f /usr/bin/sr /usr/bin/sr_aux
 
 clean:
-	@rm -rf $(BIN_DIR) $(OBJ_DIR)
+	@rm -rf $(BIN_DIR) $(OBJ_DIR) ebpf/$(BIN_DIR) ebpf/$(OBJ_DIR)
 	

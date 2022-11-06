@@ -55,7 +55,7 @@ $(OBJ_DIR)/%_kern.ll: $(KER_DIR)/%_kern.c
 	    -Wno-compare-distinct-pointer-types \
 	    -Wno-gnu-variable-sized-type-not-at-end \
 	    -Wno-tautological-compare \
-	    -O2 -emit-llvm -c $< -o $@
+	    -O2 -emit-llvm -fno-stack-protector -fcf-protection -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<

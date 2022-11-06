@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <unistd.h>
 
 #include "xmlNode.h"
@@ -15,16 +17,75 @@
 
 extern int errno;
 
+/******************************************************************************
+ *                      PRIVATE FUNCTIONS DECLARATION                         *
+ ******************************************************************************/
+
+/* 
+Add or remove the capabilities in/from the effective set of the process.
+Add the caps if enable is different than 0, remove them if enable is 0.
+Return 0 on success, -1 on failure.
+*/
+static int caps_effective(int enable, int nb_caps, cap_value_t *cap_values);
+/* 
+Enable/Disable capability linux_immuable effective 
+*/
+int cap_linux_immuable_effective(int enable);
+
 /* @return : -1 to failure | 0 to success */
-int root_verifier(void)
+int access_verifier(void)
 {
-    if (!getuid())
+    cap_t cap = cap_get_proc(); 
+    cap_flag_value_t linux_immutable = 0; 
+    cap_get_flag(cap, CAP_LINUX_IMMUTABLE, CAP_EFFECTIVE, &linux_immutable);
+    cap_free(cap);
+    if (linux_immutable && access(XML_FILE,W_OK))
         return 0;
     else {
-        fputs("For run this command you must be root user !\n", stderr);
+        fputs("You need CAP_LINUX_IMMUTABLE capability and access to file to perform action on RAR policy\n", stderr);
         return -1;
     }
+    
 }
+
+int toggle_lock_config(int unlock)
+{
+    int status = -1;
+    FILE *fp = fopen(XML_FILE, "r");
+    if(cap_linux_immuable_effective(1)){
+        perror("Unable to reduce capabilities");
+        goto ERR;
+    }
+    int val;
+    if (ioctl(fileno(fp), FS_IOC_GETFLAGS, &val) < 0) {
+        perror("ioctl(2) error");
+        goto ERR;
+    }
+    if(unlock) val ^= FS_IMMUTABLE_FL;
+    else val |= FS_IMMUTABLE_FL;
+    if (ioctl(fileno(fp), FS_IOC_SETFLAGS, &val) < 0){
+        perror("ioctl(2) error");
+        goto ERR;
+    }
+    if(cap_linux_immuable_effective(0)){
+        perror("Unable to reduce capabilities");
+        goto ERR;
+    }
+    status = 0;
+    ERR:
+    return status;
+}
+
+int cap_linux_immuable_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("CAP_LINUX_IMMUTABLE", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
+
 
 
 /* Doit on valider la DTD avant de valider le document par la DTD ?
@@ -61,7 +122,7 @@ xmlDocPtr xml_verifier(void)
 
     xmlFreeParserCtxt(ctxt);
 
-    return(doc);
+    return doc;
 
 ret_err:
     xmlFreeParserCtxt(ctxt);
@@ -103,10 +164,11 @@ int role_verifier(xmlDocPtr doc, xmlNodePtr *role_node, char *role)
 /* @capability[43] is optionnal. NULL for not use
  * @return : -1 to error | 0 success
  */
-int capability_verifier(char *cap_text, bool capability[43])
+int capability_verifier(char *cap_text, uint64_t *capabilities)
 {
     char *token;
     cap_value_t capVal;
+    *capabilities = (uint64_t)0;
 
     token = strtok(cap_text, ",");
 
@@ -117,17 +179,14 @@ int capability_verifier(char *cap_text, bool capability[43])
 
     do {
         if (!strcmp(token, "*")) {
-            if (capability)
-                capability[42] = true;
+            *capabilities = (uint64_t) -1 >> (64-cap_max_bits());
             return 0;
         }
         if (cap_from_name(token, &capVal) == -1) {
             fprintf(stderr, "\"%s\" : Invalid Capability\n", token);
             return -1;
         }
-
-        if (capability)
-            capability[capVal] = true;
+        *capabilities |= 1<<capVal;
     } while ( (token = strtok(NULL, ",")) != NULL);
 
     return 0;
@@ -229,14 +288,45 @@ int command_verifier(char *command)
         fputs("Command is empty\n", stderr);
         return -1;
     }
-    if (strlen(command) >= MAX_COMMAND_LEN) {
-        fprintf(stderr, "Comand is too long -> %d characters max\n", MAX_COMMAND_LEN);
-        return -1;
-    }
     if (strchr(command, '\'') != NULL && strchr(command, '"') != NULL) {
         fputs("You cannot set quote and apostrophe in a parameter due to XML restrictions\n", stderr);
         return -1;
     }
 
     return 0;
+}
+
+
+/******************************************************************************
+ *                      PRIVATE FUNCTIONS DEFINITION                          *
+ ******************************************************************************/
+
+/* 
+Add or remove the capabilities in/from the effective set of the process.
+Add the caps if enable is different than 0, remove them if enable is 0.
+Return 0 on success, -1 on failure.
+*/
+static int caps_effective(int enable, int nb_caps, cap_value_t *cap_values)
+{
+	cap_t caps; //Capabilities state
+	cap_flag_value_t cap_flag_value; //value of the caps' flag to use
+	int return_code = -1;
+
+	//Define the value of the flag to use to enable or disable the caps
+	cap_flag_value = enable ? CAP_SET : CAP_CLEAR;
+	//Get process' capabilities state
+	if ((caps = cap_get_proc()) == NULL)
+		return return_code;
+	//Set or clear the capabilities in the effective set
+	if (cap_set_flag(caps, CAP_EFFECTIVE, nb_caps, cap_values,
+			 cap_flag_value))
+		goto free_rscs;
+	//Update the process' capabilities
+	if (cap_set_proc(caps))
+		goto free_rscs;
+	//Treatment done
+	return_code = 0;
+free_rscs:
+	cap_free(caps);
+	return return_code;
 }

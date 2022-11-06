@@ -16,7 +16,7 @@ static int loop_search_node(xmlNodePtr node, int elemDef, char *arg, char *comma
 
 int main(int argc, char *argv[])
 {
-    if (root_verifier() == -1)
+    if (access_verifier() == -1)
         return EXIT_FAILURE;
 
     if (argc < 2) {
@@ -296,8 +296,11 @@ int main(int argc, char *argv[])
     }
 
 
-    // xmlSaveFormatFileEnc(XML_FILE, doc, "UTF-8", 1);
-    xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
+    
+    toggle_lock_config(1);
+    xmlSaveFormatFileEnc(XML_FILE, doc, "UTF-8", 1);
+    // xmlSaveFormatFileEnc("-", doc, "UTF-8", 1); // Debug
+    toggle_lock_config(0);
 
 ret_err:
     if (xobject) xmlXPathFreeObject(xobject);
