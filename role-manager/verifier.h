@@ -1,6 +1,8 @@
 #ifndef VERIFIER_H
 #define VERIFIER_H
 
+#include <stdint.h>
+
 #define XML_FILE "/etc/security/capabilityRole.xml"
 
 #define MAX_BLOC 255
