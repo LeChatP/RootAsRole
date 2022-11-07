@@ -12,12 +12,11 @@
 /**
  * Sanitize string, escape unwanted chars to their xml equivalent
  * @param str the string to encode, not modified
- * @param quot 
- * 		set to 1 will replace " to &quot; useful when your string is surrounded by " 
- * 		set to 0 will replace ' to &apos; useful when your string is surrounded by '
  * @return new string with escaped chars
  */
 xmlChar* encodeXml(const char* str);
+
+void print_role(xmlNodePtr role_node);
 
 xmlNodePtr addContentNode(xmlNodePtr parent,xmlChar *type, xmlChar *content);
 xmlNodePtr addNamedNode(xmlNodePtr parent, xmlChar *label, xmlChar *name);
