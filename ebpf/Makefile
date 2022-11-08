@@ -3,11 +3,18 @@
 KERNEL ?= /lib/modules/$(shell uname -r)/build
 NOSTDINC_FLAGS := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 ARCH=$(shell uname -m | sed 's/x86_64/x86/' | sed 's/i386/x86/')
+ifeq (${ARCH},$(filter ${ARCH},arm64 aarch64))
+INCLUDE_ARCH = $(shell echo '${ARCH}' | sed 's/aarch64/arm64/')
+EXTRA_CFLAGS = -D__TARGET_ARCH_${ARCH}
+else
+INCLUDE_ARCH = ${ARCH}
+EXTRA_CFLAGS = -D__ASM_SYSREG_H -fcf-protection
+endif
 
-LINUXINCLUDE += -I$(KERNEL)/arch/$(ARCH)/include/generated/uapi
-LINUXINCLUDE += -I$(KERNEL)/arch/$(ARCH)/include/generated
-LINUXINCLUDE += -I$(KERNEL)/arch/$(ARCH)/include
-LINUXINCLUDE += -I$(KERNEL)/arch/$(ARCH)/include/uapi
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated/uapi
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/uapi
 LINUXINCLUDE += -I$(KERNEL)/include
 LINUXINCLUDE += -I$(KERNEL)/include/uapi
 LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
@@ -16,9 +23,7 @@ LINUXINCLUDE += -I$(KER_DIR)
 LINUXINCLUDE += -D KBUILD_MODNAME=\"capable\" -D __BPF_TRACING__  # you must precisely include the file
 
 ifeq ($(uname -r | cut -c1-5),$(5.0.0))
-EXTRA_CFLAGS=-DK50
-else
-EXTRA_CFLAGS=
+EXTRA_CFLAGS+=-DK50
 endif
 LDFLAGS= -lelf
 
@@ -51,11 +56,11 @@ all: $(BINS)
 
 $(OBJ_DIR)/%_kern.ll: $(KER_DIR)/%_kern.c
 	$(CLANG) -S $(NOSTDINC_FLAGS) $(LINUXINCLUDE) $(EXTRA_CFLAGS) \
-	    -D__KERNEL__ -D__ASM_SYSREG_H -Wno-unused-value -Wno-pointer-sign \
+	    -D__KERNEL__  -Wno-unused-value -Wno-pointer-sign \
 	    -Wno-compare-distinct-pointer-types \
 	    -Wno-gnu-variable-sized-type-not-at-end \
 	    -Wno-tautological-compare \
-	    -O2 -emit-llvm -fno-stack-protector -fcf-protection -c $< -o $@
+	    -O2 -emit-llvm -fno-stack-protector -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<
