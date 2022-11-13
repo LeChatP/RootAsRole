@@ -76,7 +76,11 @@ For more details, please see **[How to use](https://github.com/SamerW/RootAsRole
 
 Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
 
-For more details please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
+For more information please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
+
+## Role Manager
+Since V2.3 We created a set of tools that allow to add/edit/delete roles without ncessarily needs to edit XML file manaualy.
+For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
 ## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 
