@@ -80,7 +80,7 @@ For more information please see [Here](https://github.com/SamerW/RootAsRole/tree
 
 ## Role Manager
 Since V2.3 We created a set of tools that allow to add/edit/delete roles without ncessarily needs to edit XML file manaualy.
-For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
+For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/role-manager)
 
 ## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 
