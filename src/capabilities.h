@@ -7,7 +7,6 @@
  */
 #ifndef CAPABILITIES_H_INCLUDED
 #define CAPABILITIES_H_INCLUDED
-#include "sr_constants.h"
 #include <sys/capability.h>
 
 /* 

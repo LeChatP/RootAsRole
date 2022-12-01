@@ -7,7 +7,6 @@
  */
 #ifndef USER_H_INCLUDED
 #define USER_H_INCLUDED
-#include "sr_constants.h"
 #include <sys/types.h>
 
 /*

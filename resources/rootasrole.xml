@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rootasrole [
+<!ELEMENT rootasrole (roles)>
+<!ELEMENT roles (role*)>
+<!ELEMENT role (user*,group*,commands*)>
+<!ATTLIST role name ID #REQUIRED bounding (restrict|allow) "restrict" priority CDATA "1" root (restrict|allow) "restrict" env-keep CDATA #IMPLIED>
+<!ELEMENT user EMPTY>
+<!ATTLIST user name CDATA #REQUIRED>
+<!ELEMENT group EMPTY>
+<!ATTLIST group names CDATA #REQUIRED>
+<!ELEMENT commands (command*)>
+<!ATTLIST commands capabilities CDATA #IMPLIED>
+<!ELEMENT command (#PCDATA)>
+]>
+<rootasrole>
+	<roles>
+		<role name="root">
+			<user name="ROOTADMINISTRATOR"/>
+			<commands capabilities="all"/>
+		</role>
+
+		<!--	
+		<role name="role1" bounding="restrict">
+			<user name="user1"/>
+			<group names="group1"/>
+			<group names="group1,group2"/> # group1 and group2
+			<commands/> # all commands are allowed but all capabilities are denied
+			<commands capabilities="cap_fowner,cap_setuid">
+				<command>/usr/bin/passwd</command>
+				<command>/usr/bin/chmod</command>
+				<command>/opt/myprogram -i</command>
+			</commands>
+		</role>
+	-->
+	</roles>
+</rootasrole>

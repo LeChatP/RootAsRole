@@ -112,7 +112,7 @@ int pam_authenticate_user(const char *user)
 	int return_code = 0;
 
 	//Initiate the pam transaction to check the user
-	if ((pamret = pam_start("check_user", user, &conv, &pamh)) !=
+	if ((pamret = pam_start("sr", user, &conv, &pamh)) !=
 	    PAM_SUCCESS) {
 		return_code = -1; //An error occured
 		goto close_pam;

@@ -1,6 +1,7 @@
 #Makefile for capable
 #Author: Eddie BILLOIR
-KERNEL ?= /lib/modules/$(shell uname -r)/build
+UNAME=$(shell uname -r)
+KERNEL ?= /lib/modules/${UNAME}
 NOSTDINC_FLAGS := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 ARCH=$(shell uname -m | sed 's/x86_64/x86/' | sed 's/i386/x86/')
 ifeq (${ARCH},$(filter ${ARCH},arm64 aarch64))
@@ -11,14 +12,26 @@ INCLUDE_ARCH = ${ARCH}
 EXTRA_CFLAGS = -D__ASM_SYSREG_H -fcf-protection
 endif
 
-LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated/uapi
-LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated
-LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include
-LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/uapi
-LINUXINCLUDE += -I$(KERNEL)/include
-LINUXINCLUDE += -I$(KERNEL)/include/uapi
-LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
-LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
+test_kernel:
+ifeq ($(wildcard ${KERNEL}),)
+	@echo "$(echo -e "\033[0;31m")ERROR:	Unable to find kernel headers. Please install the kernel headers for your kernel."
+	@echo "	For example, on Ubuntu, run : sudo apt install linux-headers-\`shell uname -r\`"
+	@echo "	If you've just updated your kernel, you may need to reboot your system."
+	@echo "	If you have already installed the kernel headers, make sure you have the correct kernel headers for your kernel."
+	@echo " 	For example, if you are running a custom kernel, make sure you have the kernel headers for that kernel."
+	@echo "	If you are running a custom kernel, you can specify the kernel headers directory by setting the KERNEL variable."
+	@echo "	For example, if your kernel headers are in /usr/src/linux-headers-5.4.0-42-generic, run make KERNEL=/usr/src/linux-headers-5.4.0-42-generic$(echo -e "\033[0m")"
+	@exit 1
+endif
+
+LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/generated/uapi
+LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/generated
+LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include
+LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/uapi
+LINUXINCLUDE += -I$(KERNEL)/build/include
+LINUXINCLUDE += -I$(KERNEL)/build/include/uapi
+LINUXINCLUDE += -include $(KERNEL)/build/include/linux/kconfig.h
+LINUXINCLUDE += -I$(KERNEL)/build/include/generated/uapi
 LINUXINCLUDE += -I$(KER_DIR)
 LINUXINCLUDE += -D KBUILD_MODNAME=\"capable\" -D __BPF_TRACING__  # you must precisely include the file
 
@@ -50,7 +63,7 @@ BINS := $(BIN_DIR)/$(EXECUTABLE) $(addprefix $(BIN_DIR)/,capable_kern.o nscapabl
 
 
 
-all: $(BINS) 
+all: test_kernel $(BINS) 
 
 .PHONY: clean
 
@@ -92,10 +105,10 @@ $(BIN_DIR):
 $(SR_BIN_DIR):
 	mkdir $(SR_BIN_DIR)
 
-build: $(BINS)
+build: test_kernel $(BINS)
 
 
-install: $(BINS)
+install: test_kernel $(BINS)
 	mkdir -p /usr/lib/RootAsRole
 	cp $(BIN_DIR)/$(EXECUTABLE) /usr/bin
 	cp $(BIN_DIR)/*_kern.o /usr/lib/RootAsRole
