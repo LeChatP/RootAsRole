@@ -1,30 +1,65 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE rootasrole [
-<!ELEMENT rootasrole (roles)>
-<!ELEMENT roles (role*)>
-<!ELEMENT role (user*,group*,commands*)>
-<!ATTLIST role name ID #REQUIRED bounding (restrict|allow) "restrict" priority CDATA "1" root (restrict|allow) "restrict" env-keep CDATA #IMPLIED>
-<!ELEMENT user EMPTY>
-<!ATTLIST user name CDATA #REQUIRED>
-<!ELEMENT group EMPTY>
-<!ATTLIST group names CDATA #REQUIRED>
-<!ELEMENT commands (command*)>
-<!ATTLIST commands capabilities CDATA #IMPLIED>
-<!ELEMENT command (#PCDATA)>
+	<!ELEMENT rootasrole (roles|options?)*>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?)*>
+	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
+	<!ELEMENT env-check (#PCDATA|EMPTY)*>
+	<!ELEMENT allow-root EMPTY>
+	<!ATTLIST allow-root enforce (true|false) "false">
+	<!ELEMENT allow-bounding EMPTY>
+	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ELEMENT path (#PCDATA|EMPTY)*>
+	<!ELEMENT roles (role*)>
+	<!ELEMENT role (user*|group*|commands*|options?)*>
+	<!ATTLIST role name ID #REQUIRED priority CDATA "1">
+	<!ELEMENT user EMPTY>
+	<!ATTLIST user name CDATA #REQUIRED>
+	<!ELEMENT group EMPTY>
+	<!ATTLIST group names CDATA #REQUIRED>
+	<!ELEMENT commands (command*|options?)*>
+	<!ATTLIST commands capabilities CDATA #IMPLIED>
+	<!ELEMENT command (#PCDATA)>
 ]>
 <rootasrole>
+	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific commands in a role -->
+	<options>
+		<!-- PATH configuration, you could replace, prepend or extend with paths.
+			be warned about this option, you are responsible about misconfiguration 
+			of this variable. Misconfiguration of roles with this variable could lead 
+			to unexpected behaviors. We not recommend to use prepend or extend options.-->
+		<path>/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin</path>
+		
+		<!-- Environment variables to keep
+			WARNING this could lead to critical attack vectors-->
+		<env-keep>HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP</env-keep>
+		
+		<!-- Environment variables kept if safe (without % or / chars)
+			WARNING, this could also lead to critical attack vectors-->
+		<env-check>COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ</env-check>
+		
+		<!-- By default, root is considered as unprivilegied user.
+			With this option, root is considered as privileged super-user-->
+		<allow-root enforce="true" />
+		
+		<!-- By default, capabilities are enforced and permanently removed 
+			from the execution session, even for root. With this option,
+			capabilities are not removed from the bounding set and it could be possible
+			to elevate more privileges than specified in a session.
+			-->
+		<allow-bounding enforce="false" />
+	</options>
 	<roles>
 		<role name="root">
-			<user name="ROOTADMINISTRATOR"/>
-			<commands capabilities="all"/>
+			<user name="ROOTADMINISTRATOR" />
+			<commands capabilities="all" />
 		</role>
 
 		<!--	
-		<role name="role1" bounding="restrict">
+		<role name="role1">
 			<user name="user1"/>
 			<group names="group1"/>
-			<group names="group1,group2"/> # group1 and group2
-			<commands/> # all commands are allowed but all capabilities are denied
+			<group names="group1,group2"/> group1 and group2
+			<commands/> all commands are allowed but all capabilities are denied
 			<commands capabilities="cap_fowner,cap_setuid">
 				<command>/usr/bin/passwd</command>
 				<command>/usr/bin/chmod</command>

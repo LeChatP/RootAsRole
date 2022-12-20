@@ -397,6 +397,10 @@ static int printResult()
 			if(childs[i] == parent){ //if parent of actual key is in child list then add key to childs
 				nbchilds++;
 				childs=(unsigned int *)realloc(childs,nbchilds*sizeof(unsigned int));
+				if(childs == NULL){
+					perror("realloc");
+					exit(-1);
+				}
 				childs[nbchilds-1] = key;
 			}
 		}
@@ -559,7 +563,7 @@ static int ignoreKallsyms(){
 	FILE *fp_kallsyms = fopen("/proc/kallsyms","r");
 	while(fgets(line,BUFFER_KALLSYM,fp_kallsyms) != NULL){
 		if(strstr(line,"_do_fork") != NULL){
-			strncpy(line,kall,17);
+			strlcpy(line,kall,17);
 		}
 		unsigned long v = strtol(kall,NULL,HEX);
 		if(strcmp(kall,"") != 0) {

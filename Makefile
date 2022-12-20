@@ -13,7 +13,7 @@ LDOPTIONS := -Wall -pedantic -lcap -lcap-ng -lmenu -lncurses $(DEBUGOPTIONS)
 SR_LDOPTIONS := -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTIONS)
 EXECUTABLES := sr
 
-OBJS := $(addprefix $(SRC_DIR)/,capabilities.o sr.o user.o xml_manager.o) $(addprefix $(MANAGER_DIR)/,help.o xml_manager.o role_manager.o undo.o list_manager.o verifier.o xmlNode.o addrole.o editrole.o deleterole.o)
+OBJS := $(addprefix $(SRC_DIR)/,capabilities.o user.o xml_manager.o env.o sr.o) $(addprefix $(MANAGER_DIR)/,help.o xml_manager.o role_manager.o undo.o list_manager.o verifier.o xmlNode.o addrole.o editrole.o deleterole.o)
 BINS := $(addprefix $(BIN_DIR)/,sr)
 
 all: $(BINS)
@@ -31,7 +31,7 @@ $(OBJS): | $(OBJ_DIR)
 $(OBJ_DIR):
 	mkdir $(OBJ_DIR)
 
-$(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o xml_manager.o user.o sr.o) | $(BIN_DIR)
+$(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o xml_manager.o user.o env.o sr.o) | $(BIN_DIR)
 	$(COMP) -o $@ $^ $(LDOPTIONS) $(SR_LDOPTIONS)
 
 $(BIN_DIR)/sr_aux: $(addprefix $(OBJ_DIR)/,capabilities.o sr_aux.o) | $(BIN_DIR)

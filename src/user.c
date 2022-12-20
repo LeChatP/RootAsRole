@@ -161,8 +161,12 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 	if ((gps = malloc(ng * sizeof(gid_t))) == NULL)
 		return -1;
 	if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
-		if ((gps = realloc(gps, ng * sizeof(gid_t))) == NULL)
-			return -1;
+		gid_t *tmp;
+		if ((tmp = realloc(gps, ng * sizeof(gid_t))) == NULL){
+			goto on_error;
+		}
+		gps = tmp;
+			
 		if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
 			goto on_error;
 		}
