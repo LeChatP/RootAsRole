@@ -10,60 +10,11 @@
 #include <sys/capability.h>
 
 /* 
-Check if the current process has the setuid and the setgid capabilities
-in its effective set.
-Return 1 if the process has both setuid and setgid, 0 if not, -1 on failure. 
-*/
-int check_effective_setuid_setgid();
-
-/* 
-Add or remove the set_fcap capability in/from the effective set
-of the process.
-Return 0 on success, -1 on failure.
-*/
-int setfcap_effective(int enable);
-
-/* 
 Add or remove the set_pcap capability in/from the effective set
 of the process.
 Return 0 on success, -1 on failure.
 */
 int setpcap_effective(int enable);
-
-/*
-Allocate an array of capabilities of the process that are in the permitted set.
-The array *caps should be deallocated with free() afterwards.
-Return 0 on success, -1 on failure.
-*/
-int get_permitted_caps(int *nb_caps, cap_value_t **caps);
-
-/*
-Allocate an array of capabilities of the process that are in both
-inheritable and permitted sets.
-The array *caps should be deallocated afterwards.
-Return 0 on success, -1 on failure.
-*/
-int get_ambient_caps_candidates(int *nb_caps, cap_value_t **caps);
-
-/* 
-Add the capabilities into the ambient set of the process.
-Return 0 on success, -1 on failure.
-*/
-int add_ambient_capabilities(int nb_caps, const cap_value_t *capabilities);
-
-/* 
-Set the capabilities of the inheritable set of the current process.
-All previous capabilities in that set will be cleared.
-Return 0 on success, -1 on failure.
-*/
-int set_inheritable_capabilities(int nb_caps, const cap_value_t *capabilities);
-
-/* 
-Add the capabilities to the permitted set of an opened file fd 
-Return 0 on success, -1 on failure.
-*/
-int add_permitted_capabilities_to_file(const int fd, int nb_caps,
-				       const cap_value_t *capabilities);
 
 /* 
 Activate the securebits for the no-root option.
@@ -77,12 +28,6 @@ Return 0 on success, -1 on failure.
 */
 int activates_no_new_privs();
 
-/* 
-Construct and return a textual representation of the given capabilities.
-The textual representation should be deallocated with free() afterwards.
-Return NULL if nb_caps = 0 or if an error occured.
-*/
-char *cap_list_to_text(int nb_caps, const cap_value_t *capabilities);
 
 /******************************************************************************
  *                              DEBUG FUNCTIONS                               *

@@ -41,23 +41,6 @@ char *get_username(uid_t uid)
 }
 
 /*
-Retrieve the id of the user from username.
-Return the user id, or -1 if the user does not exist or an error has occured.
-*/
-uid_t get_user_id(const char *user)
-{
-	struct passwd *info_user;
-
-	if ((info_user = getpwnam(user)) == NULL) {
-		return -1;
-	} else {
-		//We do not have to deallocate info_user, as it points to a static
-		//memory adress
-		return info_user->pw_uid;
-	}
-}
-
-/*
 Retrieve the user group id of the user_id uid.
 Return the user group id, or -1 on failure.
 */
@@ -71,31 +54,6 @@ gid_t get_group_id(uid_t uid)
 		//We do not have to deallocate info_user, as it points to a static
 		//memory adress
 		return info_user->pw_gid;
-	}
-}
-
-/*
-Retrieve the home directory of the user
-Return the home directory path on success, NULL on failure.
-The home directory path should be deallocated with free afterwards.
-*/
-char *get_home_directory(const char *user)
-{
-	char *home;
-	int home_len;
-	struct passwd *info_user;
-
-	if ((info_user = getpwnam(user)) == NULL) {
-		return NULL;
-	} else {
-		//We do not have to deallocate info_user, as it points to a static
-		//memory adress
-		home_len = strlen(info_user->pw_dir) + 1;
-		if ((home = malloc(home_len * sizeof(char))) == NULL) {
-			return NULL;
-		}
-		strncpy(home, info_user->pw_dir, home_len);
-		return home;
 	}
 }
 
@@ -177,7 +135,7 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 	*nb_groups = ng;
 
 	//Retrieve group name for all group ids
-	if ((*groups = (char **)malloc(ng * sizeof(char *))) == NULL)
+	if ((*groups = (char **)malloc((ng+1) * sizeof(char *))) == NULL)
 		return -1;
 	for (i = 0; i < ng; i++) {
 		int gpname_len;
@@ -208,6 +166,14 @@ free_rsc:
 	if (gps != NULL)
 		free(gps);
 	return return_code;
+}
+
+void free_group_names(int nb_groups, char **groups){
+	int i;
+	for (i = 0; i < nb_groups; i++) {
+		free(groups[i]);
+	}
+	free(groups);
 }
 
 /* 

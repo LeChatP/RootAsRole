@@ -17,23 +17,10 @@ The username should be deallocated with free afterwards.
 char *get_username(uid_t uid);
 
 /*
-Retrieve the id of the user from username.
-Return the user id, or -1 if the user does not exist or an error has occured.
-*/
-uid_t get_user_id(const char *user);
-
-/*
 Retrieve the user group id of the user_id uid.
 Return the user group id, or -1 on failure.
 */
 gid_t get_group_id(uid_t uid);
-
-/*
-Retrieve the home directory of the user
-Return the home directory path on success, NULL on failure.
-The home directory path should be deallocated with free afterwards.
-*/
-char *get_home_directory(const char *user);
 
 /*
 Init and close a pam session to authenticate a given user.
@@ -50,6 +37,11 @@ Return 0 on success and -1 on failure.
 */
 int get_group_names(const char *user, gid_t group, int *nb_groups,
 		    char ***groups);
+
+/**
+ * Free the memory of groups allocated by get_group_names
+*/
+void free_group_names(int nb_groups, char **groups);
 
 #endif // USER_H_INCLUDED
 

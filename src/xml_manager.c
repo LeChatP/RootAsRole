@@ -22,6 +22,8 @@ static options_t options = &(struct s_options) {
 
 static cap_iab_t iab = NULL;
 
+xmlXPathObjectPtr result = NULL;
+
 /**
  * @brief split a string into an array of strings
  * @param str the string to split
@@ -55,20 +57,36 @@ static char** split_string(xmlChar *str, char *delimiter){
     return NULL;
 }
 
+int option_enforced(xmlNodePtr option){
+    xmlChar *prop = xmlGetProp(option,(xmlChar*)"enforce");
+    if(!xmlStrcmp(prop, (const xmlChar *)"true"))
+        return 1;
+    xmlFree(prop);
+    return 0;
+}
+
 void set_options_from_node(xmlNodePtr options_node){
     for(xmlNodePtr node = options_node->children; node; node = node->next){
         if(node->type == XML_ELEMENT_NODE){
-            if(!xmlStrcmp(node->name, (const xmlChar *)"allow-root") 
-            && !xmlStrcmp(xmlGetProp(node,(xmlChar*)"enforce"), (const xmlChar *)"true")){
+            if(!xmlStrcmp(node->name, (const xmlChar *)"allow-root") && option_enforced(node)){
                 options->no_root = 0;
-            } else if(!xmlStrcmp(node->name, (const xmlChar *)"allow-bounding") 
-            && !xmlStrcmp(xmlGetProp(node,(xmlChar*)"enforce"), (const xmlChar *)"true")){
+            }else if(!xmlStrcmp(node->name, (const xmlChar *)"allow-bounding") && option_enforced(node)){
                 options->bounding = 0;
             } else if(!xmlStrcmp(node->name, (const xmlChar *)"path")){
+                if(options->path != d_path)
+                    xmlFree(options->path);
                 options->path = (char*) xmlNodeGetContent(node);
             } else if(!xmlStrcmp(node->name, (const xmlChar *)"env-keep")){
+                if(options->env_keep != d_keep_vars){
+                    xmlFree(*(options->env_keep));
+                    free(options->env_keep);
+                }
                 options->env_keep = split_string(xmlNodeGetContent(node),",");
             } else if(!xmlStrcmp(node->name, (const xmlChar *)"env-check")){
+                if(options->env_check != d_check_vars){
+                    xmlFree(*(options->env_check));
+                    free(options->env_check);
+                }
                 options->env_check = split_string(xmlNodeGetContent(node),",");
             }
         }
@@ -95,6 +113,19 @@ void get_options_from_config(xmlNodePtr commands_node){
     find_and_set_options_in_node(commands_node->doc->children->next);
 }
 
+void free_options(options_t options){
+    if(options->env_keep != d_keep_vars){
+        xmlFree(*(options->env_keep));
+        free(options->env_keep);
+    }
+    if(options->env_check != d_check_vars){
+        xmlFree(*(options->env_check));
+        free(options->env_check);
+    }
+    if(options->path != d_path){
+        free(options->path);
+    }
+}
 
 /*******************************************
  ***            FIND ROLES               ***
@@ -156,7 +187,6 @@ xmlChar *expr_search_role_by_name(char *role)
     }
 
     ret_err:
-
     return expression;
 }
 
@@ -238,7 +268,6 @@ xmlChar *expr_search_role_by_usergroup_command(char *user, char **groups, int nb
 xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **groups, int nb_groups, char *command)
 {
     xmlXPathContextPtr context = NULL;
-    xmlXPathObjectPtr result = NULL;
     xmlNodeSetPtr nodeset = NULL;
     xmlChar *expression = NULL;
 
@@ -253,7 +282,9 @@ xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **g
         fputs("Error in xmlXPathNewContext\n", stderr);
         goto ret_err;
     }
-
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
     result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
@@ -324,6 +355,7 @@ xmlNodePtr find_max_element_by_priority(xmlNodeSetPtr set){
             max = node;
             max_priority = node_priority;
         }
+        xmlFree(priority);
     }
     return max;
 }
@@ -355,24 +387,31 @@ xmlChar *expr_search_command_block_from_role(char *command){
  * @brief find commands matching the command on the role with xpath
 */
 xmlNodePtr find_commands_block_from_role(xmlNodePtr role_node, char *command){
+    xmlNodeSetPtr nodeset = NULL;
     xmlXPathContextPtr context = xmlXPathNewContext(role_node->doc);
     context->node = role_node;
     if (context == NULL) {
         fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
+        goto free_error;
     }
     xmlChar *expression = expr_search_command_block_from_role(command);
     if (!expression) {
         fputs("Error expr_search_command_block_from_role()\n", stderr);
-        return NULL;
+        goto free_error;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
-        return NULL;
+        goto free_error;
     }
-    xmlNodeSetPtr nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
+    nodeset = result->nodesetval;
+    free_error:
+    xmlXPathFreeContext(context);
+    xmlFree(expression);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
     }
     return *(nodeset->nodeTab);
@@ -390,7 +429,10 @@ xmlNodePtr find_empty_commands_block_from_role(xmlNodePtr role_node) {
         fputs("Error expr_search_command_block_from_role()\n", stderr);
         return NULL;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
         return NULL;
@@ -399,7 +441,6 @@ xmlNodePtr find_empty_commands_block_from_role(xmlNodePtr role_node) {
     if(nodeset->nodeNr == 0){
         return NULL;
     }
-    //xmlXPathFreeObject(result);
     xmlXPathFreeContext(context);
     return *(nodeset->nodeTab);
 }
@@ -428,12 +469,12 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
     }
     xmlChar *capabilities = xmlGetProp(commands, (const xmlChar *)"capabilities");
     if (xmlStrcasecmp(capabilities, (const xmlChar *)"all") == 0){
-        capabilities = (xmlChar *)"=i";
-    }else{
-        xmlChar *s_capabilities = xmlMalloc(xmlStrlen(capabilities)+5);
-        xmlStrPrintf(s_capabilities, xmlStrlen(capabilities)+3, "%s=i", capabilities);
-        capabilities = s_capabilities;
+        *capabilities = '\0';
     }
+    xmlChar *s_capabilities = xmlMalloc(xmlStrlen(capabilities)+5);
+    xmlStrPrintf(s_capabilities, xmlStrlen(capabilities)+3, "%s=i", capabilities);
+    xmlFree(capabilities);
+    capabilities = s_capabilities;
     cap_t eff = cap_from_text((char*)capabilities);
     iab = cap_iab_init();
     
@@ -443,7 +484,9 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
         cap_iab_fill(iab, CAP_IAB_BOUND,eff, CAP_INHERITABLE);
     }
     res = 1;
-    xmlXPathFreeNodeSet(set);
+    cap_free(eff);
+    xmlFree(capabilities);
+    xmlXPathFreeObject(result);
     return res;
 }
 
@@ -507,7 +550,10 @@ xmlNodePtr get_role_node(xmlDocPtr doc, char *role){
         fputs("Error expr_search_role()\n", stderr);
         return NULL;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
         return NULL;
@@ -516,6 +562,8 @@ xmlNodePtr get_role_node(xmlDocPtr doc, char *role){
     if(nodeset->nodeNr == 0){
         return NULL;
     }
+    xmlFree(expression);
+    xmlXPathFreeContext(context);
     return nodeset->nodeTab[0];
 }
 
@@ -558,7 +606,10 @@ xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user, int nb_grou
         fputs("Error expr_search_role()\n", stderr);
         return NULL;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
         return NULL;
@@ -575,6 +626,18 @@ xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user, int nb_grou
 /************************************************************************
  ***                        PRINT FUNCTIONS                           ***
 *************************************************************************/
+
+xmlNodeSetPtr xmlNodeSetDup(xmlNodeSetPtr cur){
+    xmlNodeSetPtr ret = malloc(sizeof(xmlNodeSet));
+    int i;
+    ret->nodeNr = cur->nodeNr;
+    ret->nodeMax = cur->nodeMax;
+    ret->nodeTab = malloc(sizeof(xmlNodePtr) * cur->nodeNr);
+    for(i = 0; i < cur->nodeNr; i++){
+        ret->nodeTab[i] = cur->nodeTab[i];
+    }
+    return ret;
+}
 
 xmlChar *expr_search_access_roles(char *user, int nb_groups, char **groups){
     int err;
@@ -594,7 +657,6 @@ xmlChar *expr_search_access_roles(char *user, int nb_groups, char **groups){
     err = xmlStrPrintf(expression, size, "//role[%s]", user_groups_char);
     if (err == -1) {
         fputs("Error xmlStrPrintf()\n", stderr);
-        xmlFree(expression);
     }
 
     ret_err:
@@ -604,25 +666,36 @@ xmlChar *expr_search_access_roles(char *user, int nb_groups, char **groups){
 
 xmlNodeSetPtr get_right_roles(xmlDocPtr doc, char *user, int nb_groups, char **groups){
     xmlXPathContextPtr context = xmlXPathNewContext(doc);
+    xmlNodeSetPtr nodeset = NULL;
+    xmlNodeSetPtr filtered = NULL;
     if (context == NULL) {
         fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
+        goto free_error;
     }
     xmlChar *expression = expr_search_access_roles(user, nb_groups, groups);
     if (!expression) {
         fputs("Error expr_search_role()\n", stderr);
-        return NULL;
+        goto free_error;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
-        return NULL;
+        goto free_error;
     }
-    xmlNodeSetPtr nodeset = result->nodesetval;
+    nodeset = result->nodesetval;
     if(nodeset->nodeNr == 0){
-        return NULL;
+        goto free_error;
     }
-    return filter_wrong_roles(nodeset,groups,nb_groups);
+    filtered = filter_wrong_roles(nodeset,groups,nb_groups);
+    free_error:
+    if(context != NULL)
+        xmlXPathFreeContext(context);
+    if(expression != NULL)
+        xmlFree(expression);
+    return filtered;
 }
 
 xmlChar *expr_search_element_in_role(char *element){
@@ -649,26 +722,34 @@ xmlChar *expr_search_element_in_role(char *element){
 }
 
 xmlNodeSetPtr search_element_in_role(xmlNodePtr role, char *element){
+    xmlNodeSetPtr nodeset = NULL;
     xmlXPathContextPtr context = xmlXPathNewContext(role->doc);
     if (context == NULL) {
         fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
+        goto ret_err;
     }
     context->node = role;
     xmlChar *expression = expr_search_element_in_role(element);
     if (!expression) {
         fputs("Error expr_search_element_in_role()\n", stderr);
-        return NULL;
+        goto ret_err;
     }
-    xmlXPathObjectPtr result = xmlXPathEvalExpression(expression, context);
+    if(result != NULL){
+        xmlXPathFreeObject(result);
+    }
+    result = xmlXPathEvalExpression(expression, context);
     if (result == NULL) {
         fputs("Error in xmlXPathEvalExpression\n", stderr);
-        return NULL;
+        goto ret_err;
     }
-    xmlNodeSetPtr nodeset = result->nodesetval;
+    nodeset = result->nodesetval;
     if(nodeset->nodeNr == 0){
-        return NULL;
+        nodeset = NULL;
+        goto ret_err;
     }
+    ret_err:
+    xmlXPathFreeContext(context);
+    xmlFree(expression);
     return nodeset;
 }
 
@@ -705,7 +786,9 @@ void print_xml_role(xmlNodePtr role){
 	char *element = "├─ ";
 	char *end = "└─ ";
     char *space = "   ";
-    printf("Role \"%s\"\n", xmlGetProp(role, (const xmlChar *)"name"));
+    xmlChar * name = xmlGetProp(role, (const xmlChar *)"name");
+    printf("Role \"%s\"\n", name);
+    xmlFree(name);
     xmlAttrPtr priority = xmlHasProp(role, (const xmlChar *)"priority");
     xmlAttrPtr bounding = xmlHasProp(role, (const xmlChar *)"bounding");
     xmlAttrPtr noroot = xmlHasProp(role, (const xmlChar *)"root");
@@ -717,22 +800,29 @@ void print_xml_role(xmlNodePtr role){
             printf("%s%sPriority %s", vertical, bounding || noroot || keepenv ? element : end, priority->children->content);
         }
     }
-    xmlNodeSetPtr users = search_element_in_role(role,"user");
-    xmlNodeSetPtr groups = search_element_in_role(role,"group");
+    xmlNodeSetPtr users = xmlNodeSetDup(search_element_in_role(role,"user"));
+    xmlNodeSetPtr groups = xmlNodeSetDup(search_element_in_role(role,"group"));
     xmlNodeSetPtr commands = search_element_in_role(role,"commands");
     if (users->nodeNr + groups->nodeNr > 0){
         char *side = commands->nodeNr ? element:space;
         printf("%sActors:\n", commands->nodeNr ? element:end);
         for (int i = 0; i < users->nodeNr; i++) {
             xmlNodePtr user = users->nodeTab[i];
-            printf("%s%s%s\n", side, i+1 < (users->nodeNr + groups->nodeNr) ? element : end, xmlGetProp(user, (const xmlChar *)"name"));
+            xmlChar *username = xmlGetProp(user, (const xmlChar *)"name");
+            printf("%s%s%s\n", side, i+1 < (users->nodeNr + groups->nodeNr) ? element : end, username);
+            xmlFree(username);
         }
         for (int i = 0; i < groups->nodeNr; i++) {
             xmlNodePtr group = groups->nodeTab[i];
-            printf("%s%s%s\n", side, i+1 < groups->nodeNr ? element : end, xmlGetProp(group, (const xmlChar *)"names"));
+            xmlChar *groupname = xmlGetProp(group, (const xmlChar *)"names");
+            printf("%s%s%s\n", side, i+1 < groups->nodeNr ? element : end, groupname);
+            xmlFree(groupname);
         }
     }
     print_commands(commands,0);
+    xmlXPathFreeObject(result);
+    xmlXPathFreeNodeSet(users);
+    xmlXPathFreeNodeSet(groups);
 }
 
 void print_full_role(char *role){
@@ -749,6 +839,7 @@ void print_full_role(char *role){
     }else{
         printf("Error loading XML file\n");
     }
+    xmlFreeDoc(doc);
 
 }
 
@@ -763,6 +854,7 @@ void print_full_roles(){
     else{
         printf("Error loading XML file\n");
     }
+    xmlFreeDoc(doc);
 }
 
 void print_rights(char *user, int nb_groups, char **groups, int restricted)
@@ -772,13 +864,17 @@ void print_rights(char *user, int nb_groups, char **groups, int restricted)
     doc = load_xml(XML_FILE);
     if (doc){
         xmlNodeSetPtr roles = get_right_roles(doc, user, nb_groups, groups);
+        xmlNodeSetPtr tmp = xmlNodeSetDup(roles);
         if(roles){
-            for (int i = 0; i < roles->nodeNr; i++) {
-                xmlNodePtr role = roles->nodeTab[i];
+            for (int i = 0; i < tmp->nodeNr; i++) {
+                xmlNodePtr role = tmp->nodeTab[i];
                 if(restricted){
                     xmlNodeSetPtr commands = search_element_in_role(role,"commands");
-                    printf("Role \"%s\"\n", xmlGetProp(role, (const xmlChar *)"name"));
+                    xmlChar *rolename = xmlGetProp(role, (const xmlChar *)"name");
+                    printf("Role \"%s\"\n", rolename);
+                    xmlFree(rolename);
                     print_commands(commands,RESTRICTED);
+                    xmlXPathFreeNodeSet(commands);
                 }else{
                     print_xml_role(role);
                 }
@@ -786,9 +882,53 @@ void print_rights(char *user, int nb_groups, char **groups, int restricted)
         }else{
             printf("Permission denied\n");
         }
+        xmlXPathFreeNodeSet(tmp);
     }else{
         printf("Error loading XML file\n");
     }
+    xmlFreeDoc(doc);
+}
+
+/**
+ * @brief Check if user has rights to print role
+ * @param role Role to check
+ * @param user User to check
+ * @param nb_groups Number of groups of user
+ * @param groups Groups of user
+ * @return >0 if user has rights, 0 otherwise
+*/
+int check_rights(xmlNodePtr role, char *user, int nb_groups, char **groups){
+    xmlNodeSetPtr users = search_element_in_role(role,"user");
+    xmlNodeSetPtr groups_node = NULL;
+    int found = 0;
+    for (int i = 0; i < users->nodeNr; i++) {
+        xmlNodePtr user_node = users->nodeTab[i];
+        xmlChar *username = xmlGetProp(user_node, (const xmlChar *)"name");
+        if(!xmlStrcmp((xmlChar*)user, username)){
+            found = 1;
+            xmlFree(username);
+            goto result;
+        }
+        xmlFree(username);
+    }
+    groups_node = search_element_in_role(role,"group");
+    for (int i = 0; i < groups_node->nodeNr; i++) {
+        xmlNodePtr group_node = groups_node->nodeTab[i];
+        xmlChar *group = xmlGetProp(group_node, (const xmlChar *)"names");
+        int j = 0;
+        for (; j < nb_groups; j++) {
+            if(!xmlStrcmp(group, (xmlChar*)groups[j])){
+                found++;
+            }
+        }
+        xmlFree(group);
+        if(found == j){
+            goto result;
+        }
+        found = 0;
+    }
+    result:
+    return found;
 }
 
 void print_rights_role(char *role, char *user, int nb_groups, char **groups, int restricted){
@@ -797,18 +937,22 @@ void print_rights_role(char *role, char *user, int nb_groups, char **groups, int
     doc = load_xml(XML_FILE);
     if (doc){
         xmlNodePtr role_node = get_role_node(doc, role);
-        if(role_node){
+        if(role_node && check_rights(role_node, user, nb_groups, groups)){
             if(restricted){
                 xmlNodeSetPtr commands = search_element_in_role(role_node,"commands");
-                printf("Role \"%s\"\n", xmlGetProp(role_node, (const xmlChar *)"name"));
+                xmlChar *rolename = xmlGetProp(role_node, (const xmlChar *)"name");
+                printf("Role \"%s\"\n", rolename);
+                xmlFree(rolename);
                 print_commands(commands,RESTRICTED);
             }else{
                 print_xml_role(role_node);
             }
         }else{
-            printf("Role \"%s\" not found\n", role);
+            printf("Permission denied\n");
         }
+        xmlXPathFreeObject(result);
     }else{
         printf("Error loading XML file\n");
     }
+    xmlFreeDoc(doc);
 }

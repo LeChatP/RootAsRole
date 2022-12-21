@@ -109,8 +109,9 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[]) {
 int main(int argc, char *argv[]) {
     extern char **environ;
     arguments_t arguments = {NULL, 0, 0, 0};
-    if(!parse_arguments(&argc, &argv, &arguments) || arguments.help) {
-        printf("Usage: %s [options] [command [args]]\n",argv[0]);
+    char *callpath = argv[0];
+    if(!parse_arguments(&argc, &argv, &arguments) || arguments.help || argc == 0) {
+        printf("Usage: %s [options] [command [args]]\n",callpath);
         printf("Options:\n");
         printf("  -r, --role <role>      Role to use\n");
         printf("  -i, --info             Display rights of executor\n");
@@ -121,20 +122,25 @@ int main(int argc, char *argv[]) {
         printf("SR version %s\n",SR_VERSION);
         return 0;
     }
-    
+    cap_iab_t iab = NULL;
+    options_t options = NULL;
     uid_t euid = geteuid();
     char *user = get_username(euid);
     if(user == NULL) {
-        error(1, 0, "Unable to retrieve the username of the executor");
+        error(0, 0, "Unable to retrieve the username of the executor");
+        goto free_error;
     }
     if(!pam_authenticate_user(user)){
-        error(1, 0,"Authentication failed");
+        error(0, 0,"Authentication failed");
+        goto free_error;
     }
+    char * command = NULL;
     gid_t egid = get_group_id(euid);
     char **groups = NULL;
     int nb_groups = 0;
     if(get_group_names(user, egid, &nb_groups, &groups)) {
-        error(1, 0, "Unable to retrieve the groups of the executor");
+        error(0, 0, "Unable to retrieve the groups of the executor");
+        goto free_error;
     }
     
     if(arguments.info) {
@@ -144,56 +150,77 @@ int main(int argc, char *argv[]) {
             print_rights_role(arguments.role,user,nb_groups,groups,RESTRICTED);
         }
         
-    }else if(strnlen(argv[0],PATH_MAX)<PATH_MAX){
-        char *command = strndup(argv[0],PATH_MAX);
-        cap_iab_t iab = NULL;
-        options_t options = NULL;
+    }else if( strnlen(argv[0],PATH_MAX)<PATH_MAX){
+        command = strndup(argv[0],PATH_MAX);
+
         int ret = get_settings_from_config(user, nb_groups, groups, command, &iab, &options);
         if(!ret) {
-            error(1, 0, "Permission denied");
+            error(0, 0, "Permission denied");
+            goto free_error;
         }
         if(setpcap_effective(1)) {
-            error(1, 0, "Unable to setpcap capability");
+            error(0, 0, "Unable to setpcap capability");
+            goto free_error;
         }
         if(cap_iab_set_proc(iab)) {
-            error(1, 0, "Unable to set capabilities");
+            error(0, 0, "Unable to set capabilities");
+            goto free_error;
         }
         if(setpcap_effective(0)) {
-            error(1, 0, "Unable to setpcap capability");
+            error(0, 0, "Unable to setpcap capability");
+            goto free_error;
         }
+        
         if (options->no_root) {
 			if (activates_securebits()) {
-				error(1, 0,"Unable to activate securebits");
+				error(0, 0,"Unable to activate securebits");
+                goto free_error;
 			}
 		}
         char **env = NULL;
         int res = filter_env_vars(environ, options->env_keep, options->env_check, &env);
         if(res > 0) {
-            error(1, 0, "Unable to filter environment variables");
+            error(0, 0, "Unable to filter environment variables");
+            goto free_error;
         }
         res = secure_path(getenv("PATH"),options->path);
         if(!res) {
-            error(1, 0, "Unable to secure path");
+            error(0, 0, "Unable to secure path");
+            goto free_error;
         }
+        
         
         command = realpath(argv[0],NULL);
         if(errno == ENAMETOOLONG){
-            error(1, 0, "Path too long");
+            error(0, 0, "Path too long");
+            goto free_error;
         }
         if(access(command,X_OK) != 0) {
             command = find_absolute_path_from_env(argv[0]);
             if(command == NULL) {
-                error(1, 0, "%s : Command not found", argv[0]);
+                error(0, 0, "%s : Command not found", argv[0]);
+                goto free_error;
             }
         }else {
-            error(1, 0, "%s : Command not found", argv[0]);
+            error(0, 0, "%s : Command not found", argv[0]);
+            goto free_error;
         }
         sr_execve(command, argc, argv, env);
         
     }else{
-        error(1, 0, "Command too long");
+        error(0, 0, "Command too long");
+        goto free_error;
     }
-    free(user);
-    free(groups);
+    free_error:
+    if(command != NULL)
+        free(command);
+    if(iab != NULL)
+        cap_free(iab);
+    if(options != NULL)
+        free_options(options);
+    if(user != NULL)
+        free(user);
+    if(groups != NULL)
+        free_group_names(nb_groups, groups);
     return 0;
 }
