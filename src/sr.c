@@ -107,7 +107,6 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[]) {
  * @brief main function of the SR module
 */
 int main(int argc, char *argv[]) {
-    extern char **environ;
     arguments_t arguments = {NULL, 0, 0, 0};
     char *callpath = argv[0];
     if(!parse_arguments(&argc, &argv, &arguments) || arguments.help || argc == 0) {
