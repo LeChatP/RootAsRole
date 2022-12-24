@@ -3,7 +3,6 @@
 #include "libbpf.h"
 #include "sr_constants.h"
 #include "sorting.h"
-#include "../../src/capabilities.h"
 #include <sched.h>
 #include <getopt.h>
 #include <pwd.h>
@@ -563,7 +562,7 @@ static int ignoreKallsyms(){
 	FILE *fp_kallsyms = fopen("/proc/kallsyms","r");
 	while(fgets(line,BUFFER_KALLSYM,fp_kallsyms) != NULL){
 		if(strstr(line,"_do_fork") != NULL){
-			strlcpy(line,kall,17);
+			strncpy(line,kall,17);
 		}
 		unsigned long v = strtol(kall,NULL,HEX);
 		if(strcmp(kall,"") != 0) {

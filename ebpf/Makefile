@@ -1,8 +1,24 @@
 #Makefile for capable
 #Author: Eddie BILLOIR
 UNAME=$(shell uname -r)
-KERNEL ?= /lib/modules/${UNAME}
-NOSTDINC_FLAGS := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
+
+ifeq ($(shell uname -a | grep -q debian && echo 1),1)
+KERNEL ?= /usr/src/linux-headers-${UNAME}
+COMMON_KERNEL ?= /usr/src/linux-headers-$(shell uname -r | sed -e 's:\(.*\)-[^-]*:\1:g')-common
+
+LINUXINCLUDE += -I$(COMMON_KERNEL)/arch/$(INCLUDE_ARCH)/include/generated/uapi
+LINUXINCLUDE += -I$(COMMON_KERNEL)/arch/$(INCLUDE_ARCH)/include/generated
+LINUXINCLUDE += -I$(COMMON_KERNEL)/arch/$(INCLUDE_ARCH)/include
+LINUXINCLUDE += -I$(COMMON_KERNEL)/arch/$(INCLUDE_ARCH)/include/uapi
+LINUXINCLUDE += -I$(COMMON_KERNEL)/include
+LINUXINCLUDE += -I$(COMMON_KERNEL)/include/uapi
+LINUXINCLUDE += -I$(COMMON_KERNEL)/include/generated/uapi
+LINUXINCLUDE += -include $(COMMON_KERNEL)/include/linux/kconfig.h
+else
+KERNEL ?= /lib/modules/${UNAME}/build
+LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
+endif
+NOSTDINC_FLAGS ?= -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 ARCH=$(shell uname -m | sed 's/x86_64/x86/' | sed 's/i386/x86/')
 ifeq (${ARCH},$(filter ${ARCH},arm64 aarch64))
 INCLUDE_ARCH = $(shell echo '${ARCH}' | sed 's/aarch64/arm64/')
@@ -24,14 +40,13 @@ ifeq ($(wildcard ${KERNEL}),)
 	@exit 1
 endif
 
-LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/generated/uapi
-LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/generated
-LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include
-LINUXINCLUDE += -I$(KERNEL)/build/arch/$(INCLUDE_ARCH)/include/uapi
-LINUXINCLUDE += -I$(KERNEL)/build/include
-LINUXINCLUDE += -I$(KERNEL)/build/include/uapi
-LINUXINCLUDE += -include $(KERNEL)/build/include/linux/kconfig.h
-LINUXINCLUDE += -I$(KERNEL)/build/include/generated/uapi
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated/uapi
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/generated
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include
+LINUXINCLUDE += -I$(KERNEL)/arch/$(INCLUDE_ARCH)/include/uapi
+LINUXINCLUDE += -I$(KERNEL)/include
+LINUXINCLUDE += -I$(KERNEL)/include/uapi
+LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
 LINUXINCLUDE += -I$(KER_DIR)
 LINUXINCLUDE += -D KBUILD_MODNAME=\"capable\" -D __BPF_TRACING__  # you must precisely include the file
 
@@ -45,11 +60,8 @@ CLANG ?= clang
 CC = gcc
 
 SRC_DIR := src
-SR_SRC_DIR := ../src
 OBJ_DIR := obj
-SR_OBJ_DIR := ../obj
 BIN_DIR := bin
-SR_BIN_DIR := ../bin
 KER_DIR := src/kernel
 
 COMPOPTIONS = -O2 -Wall -pedantic -I ./ -g
@@ -57,11 +69,7 @@ LDOPTIONS := -O2 -Wall -pedantic -lcap -lcap-ng -I ./ -lelf -g
 EXECUTABLE := capable
 
 OBJS := $(addprefix $(OBJ_DIR)/,bpf.o bpf_load.o capable.o sorting.o)
-SR_OBJS:= $(addprefix $(SR_OBJ_DIR)/,capabilities.o)
 BINS := $(BIN_DIR)/$(EXECUTABLE) $(addprefix $(BIN_DIR)/,capable_kern.o nscapable_kern.o)
-
-
-
 
 all: test_kernel $(BINS) 
 
@@ -78,21 +86,13 @@ $(OBJ_DIR)/%_kern.ll: $(KER_DIR)/%_kern.c
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(COMPOPTIONS) -o $@ -c $<
 
-$(SR_OBJ_DIR)/%.o : $(SR_SRC_DIR)/%.c | $(SR_OBJ_DIR)
-	$(CC) $(COMPOPTIONS) -o $@ -c $<
-
 $(BIN_DIR)/%_kern.o: $(OBJ_DIR)/%_kern.ll
 	$(LLC) -march=bpf -filetype=obj -o $@ $<
 
 $(OBJS): | $(OBJ_DIR)
 
-$(SR_OBJS): | $(SR_OBJ_DIR)
-
 $(OBJ_DIR):
 	mkdir $(OBJ_DIR)
-
-$(SR_OBJ_DIR):
-	mkdir $(SR_OBJ_DIR)
 
 $(BIN_DIR)/$(EXECUTABLE): $(SR_OBJS) $(OBJS) | $(SR_BIN_DIR) $(BIN_DIR)
 	$(CC) $^ -o $@ $(LDOPTIONS)
@@ -102,11 +102,7 @@ $(BINS): | $(BIN_DIR)
 $(BIN_DIR):
 	mkdir $(BIN_DIR)
 
-$(SR_BIN_DIR):
-	mkdir $(SR_BIN_DIR)
-
 build: test_kernel $(BINS)
-
 
 install: test_kernel $(BINS)
 	mkdir -p /usr/lib/RootAsRole
