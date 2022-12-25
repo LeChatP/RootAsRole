@@ -151,6 +151,7 @@ void free_options(options_t options){
     if(options->path != d_path){
         free(options->path);
     }
+    free(options->role);
 }
 
 /*******************************************
@@ -339,9 +340,6 @@ xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc, xmlNodePtr nod
     nodeset = result->nodesetval;
 
     ret_err:
-    if (result != NULL) {
-        xmlXPathFreeObject(result);
-    }
     if (context != NULL) {
         xmlXPathFreeContext(context);
     }
@@ -366,7 +364,7 @@ xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **g
         fputs("Error expr_search_role_by_usergroup_command()\n", stderr);
         goto ret_err;
     }
-    xmlNodeSetPtr nodeset = find_with_xpath(doc, expression,NULL);
+    xmlNodeSetPtr nodeset = find_with_xpath(expression,doc,NULL);
 
     ret_err:
     xmlFree(expression);
@@ -524,7 +522,7 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
         xmlXPathFreeNodeSet(set);
         return res;
     }
-
+    options->role = (char*) xmlGetProp(node, (const xmlChar *)"name");
     xmlNodePtr commands = find_commands_block_from_role(node, command);
     if(commands == NULL){
         commands = find_empty_commands_block_from_role(node);

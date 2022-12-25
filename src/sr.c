@@ -9,6 +9,7 @@
 
 #include <errno.h>
 #include <linux/limits.h>
+#include <syslog.h>
 #include "env.h"
 #include "xml_manager.h"
 #include "user.h"
@@ -109,7 +110,7 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[]) {
 int main(int argc, char *argv[]) {
     arguments_t arguments = {NULL, 0, 0, 0};
     char *callpath = argv[0];
-    if(!parse_arguments(&argc, &argv, &arguments) || arguments.help || argc == 0) {
+    if(!parse_arguments(&argc, &argv, &arguments) || arguments.help || (argc == 0 && !arguments.info)) {
         printf("Usage: %s [options] [command [args]]\n",callpath);
         printf("Options:\n");
         printf("  -r, --role <role>      Role to use\n");
@@ -121,6 +122,7 @@ int main(int argc, char *argv[]) {
         printf("SR version %s\n",SR_VERSION);
         return 0;
     }
+    openlog("sr", LOG_PID, LOG_AUTH);
     cap_iab_t iab = NULL;
     options_t options = NULL;
     uid_t euid = geteuid();
@@ -154,25 +156,31 @@ int main(int argc, char *argv[]) {
 
         int ret = get_settings_from_config(user, nb_groups, groups, command, &iab, &options);
         if(!ret) {
+            syslog(LOG_ERR, "User '%s' tries to execute '%s', without permission", user, command);
             error(0, 0, "Permission denied");
             goto free_error;
         }
+        syslog(LOG_INFO, "User '%s' tries to execute '%s' with role '%s'", user, command, options->role);
         if(setpcap_effective(1)) {
             error(0, 0, "Unable to setpcap capability");
+            syslog(LOG_ERR, "Unable to setpcap capability");
             goto free_error;
         }
         if(cap_iab_set_proc(iab)) {
             error(0, 0, "Unable to set capabilities");
+            syslog(LOG_ERR, "Unable to set capabilities");
             goto free_error;
         }
         if(setpcap_effective(0)) {
             error(0, 0, "Unable to setpcap capability");
+            syslog(LOG_ERR, "Unable to setpcap capability");
             goto free_error;
         }
         
         if (options->no_root) {
 			if (activates_securebits()) {
 				error(0, 0,"Unable to activate securebits");
+                syslog(LOG_ERR, "Unable to activate securebits");
                 goto free_error;
 			}
 		}
@@ -180,11 +188,13 @@ int main(int argc, char *argv[]) {
         int res = filter_env_vars(environ, options->env_keep, options->env_check, &env);
         if(res > 0) {
             error(0, 0, "Unable to filter environment variables");
+            syslog(LOG_ERR, "Unable to filter environment variables");
             goto free_error;
         }
         res = secure_path(getenv("PATH"),options->path);
         if(!res) {
             error(0, 0, "Unable to secure path");
+            syslog(LOG_ERR, "Unable to secure path");
             goto free_error;
         }
         
@@ -192,22 +202,26 @@ int main(int argc, char *argv[]) {
         command = realpath(argv[0],NULL);
         if(errno == ENAMETOOLONG){
             error(0, 0, "Path too long");
+            syslog(LOG_ERR, "User '%s' failed to execute '%s', path too long", user, command);
             goto free_error;
         }
         if(access(command,X_OK) != 0) {
             command = find_absolute_path_from_env(argv[0]);
             if(command == NULL) {
+                syslog(LOG_ERR, "User '%s' failed to execute '%s', command not found", user, command);
                 error(0, 0, "%s : Command not found", argv[0]);
                 goto free_error;
             }
         }else {
             error(0, 0, "%s : Command not found", argv[0]);
+            syslog(LOG_ERR, "User '%s' failed to execute '%s', command not found", user, command);
             goto free_error;
         }
         sr_execve(command, argc, argv, env);
         
     }else{
         error(0, 0, "Command too long");
+        syslog(LOG_ERR, "User '%s' failed to execute '%s', command too long", user, command);
         goto free_error;
     }
     free_error:

@@ -12,6 +12,7 @@ struct s_options {
     char** env_keep;
     char** env_check;
     char* path;
+    char *role;
     int no_root;
     int bounding;
 };
