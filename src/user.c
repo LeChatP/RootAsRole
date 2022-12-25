@@ -10,6 +10,7 @@
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 #include <grp.h>
+#include <syslog.h>
 
 /******************************************************************************
  *                      PUBLIC FUNCTIONS DEFINITION                           *
@@ -68,20 +69,33 @@ int pam_authenticate_user(const char *user)
 	const struct pam_conv conv = { misc_conv, NULL };
 	int pamret;
 	int return_code = 0;
+	openlog("sr", LOG_PID, LOG_AUTH);
 
 	//Initiate the pam transaction to check the user
 	if ((pamret = pam_start("sr", user, &conv, &pamh)) !=
 	    PAM_SUCCESS) {
 		return_code = -1; //An error occured
+		syslog(LOG_ERR, "failed to start pam transaction: %s",
+		       pam_strerror(pamh, pamret));
 		goto close_pam;
 	}
 
 	//Establish the credential, then
-	//Authenticate the user with password,
+	if ((pamret = pam_setcred(pamh, 0)) != PAM_SUCCESS){
+		syslog(LOG_ERR, "failed to set credentials: %s",
+		       pam_strerror(pamh, pamret));
+		goto close_pam;
+	}
+	//Authenticate the user with password,	   
+	if ((pamret = pam_authenticate(pamh, 0)) != PAM_SUCCESS){
+		syslog(LOG_ERR, "failed to authenticate: %s",
+		       pam_strerror(pamh, pamret));
+		goto close_pam;
+	}
 	//Then check if the user if valid
-	if ((pamret = pam_setcred(pamh, 0)) != PAM_SUCCESS ||
-	    (pamret = pam_authenticate(pamh, 0)) != PAM_SUCCESS ||
-	    (pamret = pam_acct_mgmt(pamh, 0)) != PAM_SUCCESS) {
+	if ((pamret = pam_acct_mgmt(pamh, 0)) != PAM_SUCCESS) {
+		syslog(LOG_ERR, "failed to check account: %s",
+		       pam_strerror(pamh, pamret));
 		goto close_pam;
 	}
 
@@ -91,6 +105,7 @@ int pam_authenticate_user(const char *user)
 close_pam:
 	// close PAM (end session)
 	if (pam_end(pamh, pamret) != PAM_SUCCESS) { //An Error occured
+		syslog(LOG_ERR, "failed to release pam transaction");
 		pamh = NULL;
 		return_code = -1;
 	}
@@ -121,6 +136,7 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 	if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
 		gid_t *tmp;
 		if ((tmp = realloc(gps, ng * sizeof(gid_t))) == NULL){
+			
 			goto on_error;
 		}
 		gps = tmp;
@@ -181,6 +197,7 @@ void free_group_names(int nb_groups, char **groups){
  * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
  * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
  * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

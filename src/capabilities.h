@@ -29,33 +29,6 @@ Return 0 on success, -1 on failure.
 int activates_no_new_privs();
 
 
-/******************************************************************************
- *                              DEBUG FUNCTIONS                               *
- ******************************************************************************/
-
-#ifdef SR_DEBUG
-/* 
-Print the process capabilities in all three sets to stdout 
-*/
-void print_process_cap();
-
-/* 
-Print a summary of process' attributes involved in no-root option
-*/
-void print_noroot_process_attributes();
-
-/* 
-Print user's IDs and group's IDs of the process
-*/
-void print_user_group_ids_info();
-
-/* 
-Print a full debug resume
-*/
-void print_debug_resume();
-
-#endif //SR_DEBUG
-
 #endif // CAPABILITIES_H_INCLUDED
 
 /* 

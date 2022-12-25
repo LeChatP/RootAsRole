@@ -50,6 +50,7 @@ void free_group_names(int nb_groups, char **groups);
  * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
  * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
  * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

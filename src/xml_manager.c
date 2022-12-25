@@ -1,3 +1,10 @@
+/*
+ * <xml_manager.c>
+ *
+ * This file contains the definitions of xml management functions.
+ *
+ * Note, the copyright+license information is at end of file.
+ */
 #include "xml_manager.h"
 
 #include <libxml/xpath.h>
@@ -57,6 +64,11 @@ static char** split_string(xmlChar *str, char *delimiter){
     return NULL;
 }
 
+/**
+ * @brief check if an option is enforced
+ * @param option the option to check
+ * @return 1 if the option is enforced, 0 otherwise
+*/
 int option_enforced(xmlNodePtr option){
     xmlChar *prop = xmlGetProp(option,(xmlChar*)"enforce");
     if(!xmlStrcmp(prop, (const xmlChar *)"true"))
@@ -65,6 +77,11 @@ int option_enforced(xmlNodePtr option){
     return 0;
 }
 
+/**
+ * @brief set the options from the options xml node
+ * @param options_node the xml node containing the options
+ * @return the options structure in the global variable options
+*/
 void set_options_from_node(xmlNodePtr options_node){
     for(xmlNodePtr node = options_node->children; node; node = node->next){
         if(node->type == XML_ELEMENT_NODE){
@@ -93,6 +110,11 @@ void set_options_from_node(xmlNodePtr options_node){
     }
 }
 
+/**
+ * @brief find the options node in the xml tree and set the options
+ * @param p_node the node to start the search
+ * @return the options structure in the global variable options
+*/
 void find_and_set_options_in_node(xmlNodePtr p_node){
     for(xmlNodePtr node = p_node->children; node; node = node->next){
         if(!xmlStrncmp(node->name, (const xmlChar *)"options",7)){
@@ -113,6 +135,10 @@ void get_options_from_config(xmlNodePtr commands_node){
     find_and_set_options_in_node(commands_node->doc->children->next);
 }
 
+/**
+ * @brief free the options structure
+ * @param options the options structure to free
+*/
 void free_options(options_t options){
     if(options->env_keep != d_keep_vars){
         xmlFree(*(options->env_keep));
@@ -133,6 +159,8 @@ void free_options(options_t options){
 
 /**
  * @brief sanitize string with concat xpath function
+ * @param str the string to sanitize
+ * @return the sanitized string, or NULL on error, to free at end of usage
 */
 char *sanitize_quotes_xpath(const char *str){
     char *split = "',\"'\",'";
@@ -164,6 +192,8 @@ char *sanitize_quotes_xpath(const char *str){
 
 /**
  * @brief return the xpath expression to find a role by name
+ * @param role the role name
+ * @return the xpath expression, or NULL on error, to free at end of usage
 */
 xmlChar *expr_search_role_by_name(char *role)
 {
@@ -190,6 +220,11 @@ xmlChar *expr_search_role_by_name(char *role)
     return expression;
 }
 
+/**
+ * @brief return the xpath expression to find a role by command
+ * @param command the command name
+ * @return the xpath expression, or NULL on error, to free at end of usage
+*/
 int __expr_user_or_groups(xmlChar **expr, char *user,char **groups, int nb_groups){
     char *expr_format = "user[@name='%s'] or group[%s]";
     int size = 26 + (int)strlen(user);
@@ -225,6 +260,11 @@ int __expr_user_or_groups(xmlChar **expr, char *user,char **groups, int nb_group
 
 /**
  * @brief return the xpath expression to find a role by username or group combined with a command
+ * @param user the username
+ * @param groups the groups
+ * @param nb_groups the number of groups
+ * @param command the command name
+ * @return the xpath expression, or NULL on error, to free at end of usage
 */
 xmlChar *expr_search_role_by_usergroup_command(char *user, char **groups, int nb_groups, char *command)
 {
@@ -263,21 +303,21 @@ xmlChar *expr_search_role_by_usergroup_command(char *user, char **groups, int nb
 }
 
 /**
- * @brief find all roles matching the user or groups and command 
+ * @brief return the xpath result of a expression
+ * @param expression the xpath expression
+ * @param doc the xml document
+ * @param node the xml node where to start the search
+ * @return the xpath result, or NULL on error, free "result" global variable at end of usage
 */
-xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **groups, int nb_groups, char *command)
+xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc, xmlNodePtr node)
 {
     xmlXPathContextPtr context = NULL;
     xmlNodeSetPtr nodeset = NULL;
-    xmlChar *expression = NULL;
-
-    expression = expr_search_role_by_usergroup_command(user, groups, nb_groups, command);
-    if (!expression) {
-        fputs("Error expr_search_role_by_usergroup_command()\n", stderr);
-        goto ret_err;
-    }
 
     context = xmlXPathNewContext(doc);
+    if (node != NULL) {
+        context->node = node;
+    }
     if (context == NULL) {
         fputs("Error in xmlXPathNewContext\n", stderr);
         goto ret_err;
@@ -290,18 +330,55 @@ xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **g
         fputs("Error in xmlXPathEvalExpression\n", stderr);
         goto ret_err;
     }
-    
+
+    if (xmlXPathNodeSetIsEmpty(result->nodesetval)) {
+        fputs("No result\n", stderr);
+        goto ret_err;
+    }
 
     nodeset = result->nodesetval;
 
     ret_err:
-    xmlXPathFreeContext(context);
+    if (result != NULL) {
+        xmlXPathFreeObject(result);
+    }
+    if (context != NULL) {
+        xmlXPathFreeContext(context);
+    }
+    return nodeset;
+}
+
+/**
+ * @brief find all roles matching the user or groups and command
+ * @param doc the xml document
+ * @param user the username
+ * @param groups the groups
+ * @param nb_groups the number of groups
+ * @param command the command name
+ * @return the xpath result, or NULL on error, free "result" global variable at end of usage
+*/
+xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, char *user, char **groups, int nb_groups, char *command)
+{
+    xmlChar *expression = NULL;
+
+    expression = expr_search_role_by_usergroup_command(user, groups, nb_groups, command);
+    if (!expression) {
+        fputs("Error expr_search_role_by_usergroup_command()\n", stderr);
+        goto ret_err;
+    }
+    xmlNodeSetPtr nodeset = find_with_xpath(doc, expression,NULL);
+
+    ret_err:
     xmlFree(expression);
     return nodeset;
 }
 
 /**
  * @brief remove roles if group combination is not matching the executor
+ * @param set the xpath result
+ * @param groups the groups
+ * @param nb_groups the number of groups
+ * @return the xpath result, or NULL on error, free "result" global variable at end of usage
 */
 xmlNodeSetPtr filter_wrong_roles(xmlNodeSetPtr set, char **groups, int nb_groups){
     for(int i = 0; i < set->nodeNr; i++){
@@ -344,6 +421,11 @@ xmlNodeSetPtr filter_wrong_roles(xmlNodeSetPtr set, char **groups, int nb_groups
     return set;
 }
 
+/**
+ * @brief find the role with the highest priority
+ * @param set the xpath result
+ * @return the role with the highest priority
+*/
 xmlNodePtr find_max_element_by_priority(xmlNodeSetPtr set){
     xmlNodePtr max = NULL;
     int max_priority = INT_MIN;
@@ -385,31 +467,18 @@ xmlChar *expr_search_command_block_from_role(char *command){
 
 /**
  * @brief find commands matching the command on the role with xpath
+ * @param role_node the role node
+ * @param command the command to search
+ * @return the commands node, or NULL on error
 */
 xmlNodePtr find_commands_block_from_role(xmlNodePtr role_node, char *command){
-    xmlNodeSetPtr nodeset = NULL;
-    xmlXPathContextPtr context = xmlXPathNewContext(role_node->doc);
-    context->node = role_node;
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        goto free_error;
-    }
     xmlChar *expression = expr_search_command_block_from_role(command);
     if (!expression) {
         fputs("Error expr_search_command_block_from_role()\n", stderr);
         goto free_error;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
-        goto free_error;
-    }
-    nodeset = result->nodesetval;
+    xmlNodeSetPtr nodeset = find_with_xpath(expression, role_node->doc, role_node);
     free_error:
-    xmlXPathFreeContext(context);
     xmlFree(expression);
     if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
@@ -417,36 +486,32 @@ xmlNodePtr find_commands_block_from_role(xmlNodePtr role_node, char *command){
     return *(nodeset->nodeTab);
 }
 
+/**
+ * @brief find commands blocks which are empty on the role with xpath
+ * @param role_node the role node
+ * @return the commands node, or NULL on error or if no empty commands block
+*/
 xmlNodePtr find_empty_commands_block_from_role(xmlNodePtr role_node) {
-    xmlXPathContextPtr context = xmlXPathNewContext(role_node->doc);
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
-    }
-    context->node = role_node;
     xmlChar *expression = (xmlChar *)"./commands[not(command)]";
     if (!expression) {
         fputs("Error expr_search_command_block_from_role()\n", stderr);
         return NULL;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
+    xmlNodeSetPtr nodeset = find_with_xpath(expression, role_node->doc, role_node);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
     }
-    xmlNodeSetPtr nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
-        return NULL;
-    }
-    xmlXPathFreeContext(context);
     return *(nodeset->nodeTab);
 }
 
 /**
- * @brief retireve capabilities from document matching user, groups and command 
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @return execution setting in global variables, 1 on success, or 0 on error
 */
 int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **groups, char *command){
     int res = 0;
@@ -490,6 +555,11 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
     return res;
 }
 
+/**
+ * @brief load xml file and validate it
+ * @param xml_file the xml file
+ * @return the document, or NULL on error
+*/
 xmlDocPtr load_xml(char *xml_file)
 {
     xmlParserCtxtPtr ctxt;
@@ -523,6 +593,14 @@ ret_err:
 
 /**
  * @brief load the xml file and retrieve capabilities matching the criterions
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @param p_iab the capabilities
+ * @param p_options the options
+ * @return 1 on success, or 0 on error
+ * @note the capabilities and options are stored in global variables
 */
 int get_settings_from_config(char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options)
 {
@@ -537,38 +615,37 @@ int get_settings_from_config(char *user, int nb_groups, char **groups, char *com
     return res;
 }
 
+/**
+ * @brief retrieve the role node from the document matching the role name
+ * @param doc the document
+ * @param role the role name
+ * @return the role node, or NULL on error or if no role found
+*/
 xmlNodePtr get_role_node(xmlDocPtr doc, char *role){
     xmlNodePtr node = xmlDocGetRootElement(doc);
-    xmlXPathContextPtr context = xmlXPathNewContext(doc);
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
-    }
-    context->node = node;
     xmlChar *expression = expr_search_role_by_name(role);
     if (!expression) {
         fputs("Error expr_search_role()\n", stderr);
         return NULL;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
-        return NULL;
-    }
-    xmlNodeSetPtr nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
+    xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, node);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
     }
     xmlFree(expression);
-    xmlXPathFreeContext(context);
     return nodeset->nodeTab[0];
 }
 
+/**
+ * @brief xpath expression if user has access to the role
+ * @param role the role name
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @return the expression, or NULL on error
+*/
 xmlChar *expr_has_access(char *role, char *user, int nb_groups, char **groups){
-    int err;
+    int err = -1;
     int size = 0;
     xmlChar *expression = NULL;
     xmlChar *user_groups_char = NULL;
@@ -593,29 +670,23 @@ xmlChar *expr_has_access(char *role, char *user, int nb_groups, char **groups){
     return expression;
 }
 /**
- * Unused
+ * @brief obtain role if user has access to the role
+ * @param doc the document
+ * @param role the role name
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @return the role node, or NULL on error or if user has no access
+ * @note unused
 */
 xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user, int nb_groups, char **groups){
-    xmlXPathContextPtr context = xmlXPathNewContext(doc);
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        return NULL;
-    }
     xmlChar *expression = expr_has_access(role, user, nb_groups, groups);
     if (!expression) {
         fputs("Error expr_search_role()\n", stderr);
         return NULL;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
-        return NULL;
-    }
-    xmlNodeSetPtr nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
+    xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, NULL);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
     }
     return nodeset->nodeTab[0];
@@ -627,6 +698,11 @@ xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user, int nb_grou
  ***                        PRINT FUNCTIONS                           ***
 *************************************************************************/
 
+/**
+ * @brief duplicate a node set
+ * @param cur the node set
+ * @return the duplicated node set, or NULL on error, to be freed with xmlFreeNodeSet()
+*/
 xmlNodeSetPtr xmlNodeSetDup(xmlNodeSetPtr cur){
     xmlNodeSetPtr ret = malloc(sizeof(xmlNodeSet));
     int i;
@@ -639,6 +715,13 @@ xmlNodeSetPtr xmlNodeSetDup(xmlNodeSetPtr cur){
     return ret;
 }
 
+/**
+ * @brief expression to search all roles matching the user
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @return the expression, or NULL on error
+*/
 xmlChar *expr_search_access_roles(char *user, int nb_groups, char **groups){
     int err;
     int size = 0;
@@ -664,40 +747,37 @@ xmlChar *expr_search_access_roles(char *user, int nb_groups, char **groups){
     return expression;
 }
 
+/**
+ * @brief obtain all roles matching the user
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @return the node set, or NULL on error, to be freed with xmlFreeNodeSet()
+*/
 xmlNodeSetPtr get_right_roles(xmlDocPtr doc, char *user, int nb_groups, char **groups){
-    xmlXPathContextPtr context = xmlXPathNewContext(doc);
-    xmlNodeSetPtr nodeset = NULL;
     xmlNodeSetPtr filtered = NULL;
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        goto free_error;
-    }
     xmlChar *expression = expr_search_access_roles(user, nb_groups, groups);
     if (!expression) {
         fputs("Error expr_search_role()\n", stderr);
         goto free_error;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
-        goto free_error;
-    }
-    nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
+    xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, NULL);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         goto free_error;
     }
     filtered = filter_wrong_roles(nodeset,groups,nb_groups);
     free_error:
-    if(context != NULL)
-        xmlXPathFreeContext(context);
     if(expression != NULL)
         xmlFree(expression);
     return filtered;
 }
 
+/**
+ * @brief expression to get all elements matching their name (user, group, commands)
+ * @param element the element name
+ * @return the expression, or NULL on error
+*/
 xmlChar *expr_search_element_in_role(char *element){
     int err;
     int size = 0;
@@ -721,38 +801,36 @@ xmlChar *expr_search_element_in_role(char *element){
     return expression;
 }
 
+/**
+ * @brief search all elements matching their name (user, group, commands) in a role
+ * @param role the role node
+ * @param element the element name
+ * @return the node set, or NULL on error, to be freed with xmlFreeNodeSet()
+*/
 xmlNodeSetPtr search_element_in_role(xmlNodePtr role, char *element){
     xmlNodeSetPtr nodeset = NULL;
-    xmlXPathContextPtr context = xmlXPathNewContext(role->doc);
-    if (context == NULL) {
-        fputs("Error in xmlXPathNewContext\n", stderr);
-        goto ret_err;
-    }
-    context->node = role;
     xmlChar *expression = expr_search_element_in_role(element);
     if (!expression) {
         fputs("Error expr_search_element_in_role()\n", stderr);
         goto ret_err;
     }
-    if(result != NULL){
-        xmlXPathFreeObject(result);
-    }
-    result = xmlXPathEvalExpression(expression, context);
-    if (result == NULL) {
-        fputs("Error in xmlXPathEvalExpression\n", stderr);
-        goto ret_err;
-    }
-    nodeset = result->nodesetval;
-    if(nodeset->nodeNr == 0){
+    nodeset = find_with_xpath(expression, role->doc, role);
+    if(nodeset == NULL || nodeset->nodeNr == 0){
         nodeset = NULL;
         goto ret_err;
     }
     ret_err:
-    xmlXPathFreeContext(context);
-    xmlFree(expression);
+    if(expression != NULL)
+        xmlFree(expression);
     return nodeset;
 }
 
+/**
+ * @brief print all commands in the node set
+ * @param nodeset the node set containing the commands
+ * @param restricted if the verbose need to be restricted
+ * @return 0 on success, -1 on error
+*/
 void print_commands(xmlNodeSetPtr nodeset, int restricted){
     char *vertical = "│  ";
 	char *element = "├─ ";
@@ -781,6 +859,10 @@ void print_commands(xmlNodeSetPtr nodeset, int restricted){
     }
 }
 
+/**
+ * @brief print role
+ * @param role the role node
+*/
 void print_xml_role(xmlNodePtr role){
     char *vertical = "│  ";
 	char *element = "├─ ";
@@ -825,6 +907,10 @@ void print_xml_role(xmlNodePtr role){
     xmlXPathFreeNodeSet(groups);
 }
 
+/**
+ * @brief print a role
+ * @param role the role name
+*/
 void print_full_role(char *role){
     xmlDocPtr doc;
 
@@ -843,6 +929,9 @@ void print_full_role(char *role){
 
 }
 
+/**
+ * @brief print all roles
+*/
 void print_full_roles(){
     xmlDocPtr doc;
 
@@ -857,6 +946,13 @@ void print_full_roles(){
     xmlFreeDoc(doc);
 }
 
+/**
+ * @brief print roles (including their commands) that user can use
+ * @param user the user name
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param restricted if 1, print only roles and commands, if 0, print all properties
+*/
 void print_rights(char *user, int nb_groups, char **groups, int restricted)
 {
     xmlDocPtr doc;
@@ -931,6 +1027,14 @@ int check_rights(xmlNodePtr role, char *user, int nb_groups, char **groups){
     return found;
 }
 
+/**
+ * @brief print a role if user has rights
+ * @param role the role name
+ * @param user the user name
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param restricted if 1, print only roles and commands, if 0, print all properties
+*/
 void print_rights_role(char *role, char *user, int nb_groups, char **groups, int restricted){
     xmlDocPtr doc;
 
@@ -956,3 +1060,38 @@ void print_rights_role(char *role, char *user, int nb_groups, char **groups, int
     }
     xmlFreeDoc(doc);
 }
+
+/* 
+ * 
+ * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2022
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, and the entire permission notice in its entirety,
+ *    including the disclaimer of warranties.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. The name of the author may not be used to endorse or promote
+ *    products derived from this software without specific prior
+ *    written permission.
+ *
+ * ALTERNATIVELY, this product may be distributed under the terms of
+ * the GNU Public License, in which case the provisions of the GPL are
+ * required INSTEAD OF the above restrictions.  (This clause is
+ * necessary due to a potential bad interaction between the GPL and
+ * the restrictions contained in a BSD-style copyright.)
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.  */
