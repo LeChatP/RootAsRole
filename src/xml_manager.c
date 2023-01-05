@@ -282,7 +282,7 @@ xmlChar *expr_search_role_by_usergroup_command(char *user, char **groups, int nb
         free(sanitized_str);
         return NULL;
     }
-    size = 70 + (int)strlen(sanitized_str) + user_groups_size;
+    size = 85 + (int)strlen(sanitized_str) + user_groups_size;
 
     expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
     if (!expression) {
@@ -290,8 +290,8 @@ xmlChar *expr_search_role_by_usergroup_command(char *user, char **groups, int nb
         goto ret_err;
     }
     
-    // //role[(user[@name='lechatp'] or group[contains(@names,'lechatp') or contains(@names,'group1')]) and (commands/command[text()='%s'] or commands[not(command)])]
-    err = xmlStrPrintf(expression, size, "//role[(%s) and (commands/command[text()=%s] or commands[not(command)])]", user_groups_char, sanitized_str);
+    // //role[(user[@name='lechatp'] or group[contains(@names,'lechatp') or contains(@names,'group1')]) and (commands/command[text()='%s'] or commands[contains(command/text(),'*')])]
+    err = xmlStrPrintf(expression, size, "//role[(%s) and (commands/command[text()=%s] or commands/command[contains(text(),'*')])]", user_groups_char, sanitized_str);
     if (err == -1) {
         fputs("Error xmlStrPrintf()\n", stderr);
         xmlFree(expression);
@@ -443,16 +443,15 @@ xmlNodePtr find_max_element_by_priority(xmlNodeSetPtr set){
 /**
  * @brief create expression to find all commands containing the given command in a role
  * @param command command to search
- * @return expression like .//commands[contains(command, 'thecommand')]
+ * @return expression like .//commands[command/text() = 'thecommand')]
 */
 xmlChar *expr_search_command_block_from_role(char *command){
-    // .//commands[contains(command, '%s')]
     xmlChar *expr = NULL; 
     char *sanitized_command = sanitize_quotes_xpath(command);
     if(sanitized_command == NULL){
         return NULL;
     }
-    char *command_block = ".//commands[contains(command, %s)]";
+    char *command_block = ".//commands[command/text() = %s]";
     int len = strlen((char *)command_block) + strlen(sanitized_command) + 1;
     expr = (xmlChar *)malloc(len);
     if(expr == NULL){
@@ -489,8 +488,8 @@ xmlNodePtr find_commands_block_from_role(xmlNodePtr role_node, char *command){
  * @param role_node the role node
  * @return the commands node, or NULL on error or if no empty commands block
 */
-xmlNodePtr find_empty_commands_block_from_role(xmlNodePtr role_node) {
-    xmlChar *expression = (xmlChar *)"./commands[not(command)]";
+xmlNodeSetPtr find_wildcard_commands_block_from_role(xmlNodePtr role_node) {
+    xmlChar *expression = (xmlChar *)"./commands[contains(command, '*')]";
     if (!expression) {
         fputs("Error expr_search_command_block_from_role()\n", stderr);
         return NULL;
@@ -499,7 +498,34 @@ xmlNodePtr find_empty_commands_block_from_role(xmlNodePtr role_node) {
     if(nodeset == NULL || nodeset->nodeNr == 0){
         return NULL;
     }
-    return *(nodeset->nodeTab);
+    return nodeset;
+}
+
+int command_match_wildcard(char *pcommand, char *wildcard){
+    int len = strlen(wildcard);
+    char *command = pcommand;
+    if(len == 0){
+        return 0;
+    }
+    if(wildcard[len-1] == '*'){
+        wildcard[len-1] = '\0';
+        return !strncmp(command, wildcard, len-1);
+    } else if (wildcard[0] == '*'){
+        if(len == 1) return 1;
+        wildcard += 1;
+        return !strcmp(command + strlen(command) - len + 1, wildcard);
+    } else {
+        char *part = strtok(wildcard, "*");
+        while(part != NULL){
+            char *found = strstr(command, part);
+            if(found == NULL){
+                return 0;
+            }
+            command = found + strlen(part);
+            part = strtok(NULL, "*");
+        }
+    }
+    return 0;
 }
 
 /**
@@ -525,9 +551,23 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
     options->role = (char*) xmlGetProp(node, (const xmlChar *)"name");
     xmlNodePtr commands = find_commands_block_from_role(node, command);
     if(commands == NULL){
-        commands = find_empty_commands_block_from_role(node);
-        if(commands == NULL){
+        xmlNodeSetPtr wildcards = find_wildcard_commands_block_from_role(node);
+        if(wildcards == NULL){
             return res;
+        }else{
+            for(int i = 0; i < wildcards->nodeNr && commands == NULL; i++){
+                xmlNodePtr wildcard = wildcards->nodeTab[i];
+                for (xmlNodePtr child = wildcard->children; child != NULL && commands == NULL; child = child->next){
+                    char* content = (char*)xmlNodeGetContent(wildcard);
+                    if (command_match_wildcard(command, content)){
+                        commands = wildcard;
+                    }
+                    xmlFree(content);
+                }
+            }
+            if (commands == NULL){
+                return res;
+            }
         }
     }
     xmlChar *capabilities = xmlGetProp(commands, (const xmlChar *)"capabilities");

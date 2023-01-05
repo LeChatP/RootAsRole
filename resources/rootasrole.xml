@@ -17,7 +17,7 @@
 	<!ELEMENT group EMPTY>
 	<!ATTLIST group names CDATA #REQUIRED>
 	<!ELEMENT commands (command*|options?)*>
-	<!ATTLIST commands capabilities CDATA #IMPLIED>
+	<!ATTLIST commands id ID #IMPLIED capabilities CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
 ]>
 <rootasrole>
@@ -51,7 +51,9 @@
 	<roles>
 		<role name="root">
 			<user name="ROOTADMINISTRATOR" />
-			<commands capabilities="all" />
+			<commands capabilities="all">
+				<command>*</command>
+			</commands>
 		</role>
 
 		<!--	
