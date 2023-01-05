@@ -6,7 +6,7 @@ SRC_DIR := src
 MANAGER_DIR := new_role_manager
 OBJ_DIR := obj
 BIN_DIR := bin
-DEBUGOPTIONS := -g #-fsanitize=address
+DEBUGOPTIONS := #-g -fsanitize=address
 
 COMPOPTIONS = -Wall -Wextra -Werror -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
 LDOPTIONS := -Wall -Wextra -Werror -pedantic -lcap -lcap-ng -lmenu -lncurses $(DEBUGOPTIONS)
