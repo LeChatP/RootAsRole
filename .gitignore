@@ -60,3 +60,5 @@ bin/
 # Hidden folders (for Linux IDE)
 /.*/
 .vscode/
+target/
+version.rs

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [3.0] - 2022-12-04
 
+### Role Design
+
 In this Major version, conception of sr tool is redesigned. ancient versions of RootAsRole doesn't respect properly the RBAC model, or in other point of view, didn't respect least privilege principle. Privileges should be associated directly to command(s), not to a role, because a role is a set of permissions that needs different privileges. As example, considering that network administrator needs to access to CAP_NET_BIND_SERVICE to setup his network monitoring service, he doesn't need to edit network interfaces configuration with CAP_NET_ADMIN. So the role needs a first command which has CAP_NET_BIND_SERVICE to start monitoring service and a second command with CAP_NET_ADMIN for edit network configuration. In previous implementation, this configuration should need 2 different roles, which is not the meaning of RBAC model.
 
 In this new version, we focuses on usability and conception of the tool. Because sudo is simpler to use, we redesigned `sr` argument management, which is now minimal, for the happiness of lazy people. RootAsRole is now a more lazy tool than `sudo` because our tool needs only 2 characters, which means 2 times less than `sudo`. We know that `sudo` is used in majority of distributions, so to avoid to change habits, we tried to reproduce the default usage of this tool. We know that sudo provides more functionnalities than our tool. But we think that sudo tries to resolve overloaded amount of needs which became very hard to modify without incidents.
@@ -14,9 +16,19 @@ As reminder, `sudo` doesn't respect any security model https://security.stackexc
 
 Also, With this new version, many vulnerabilities were fixed.
 
+### Role-Management
+
+Role-management is entierly redesigned. Rust is coming into Linux Kernel ! To approve this initiative, we decided to learn this language and try to implement it as best we could do on this days. Don't be rough, we are beginners on this language. Also, Rust fullfill security needs for the project. That's why Rust will be encouraged in the future.
+We thought that previous cli were not that easy to use. So we thought about a TUI to structure and design our tool. Yes, a cli version is still available. By doing this TUI, we learnt a lot about Rust language mechanisms. That could help us to create a better cli.
+
+### eBPF
+
+`capable` is now working on Debian ! Because Debian is using a different implementation structure of headers, we had difficulties to handle Ubuntu, Debian and other OS.
 In next versions, we'll enhance eBPF with new ways of implementation and some exciting functionnalities!
 
 With these changes, RootAsRole, has taken initiatives to simplify the deployment of least privilege principle based on process criteria.
+
+
 
 ## Added
 
