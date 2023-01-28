@@ -42,6 +42,46 @@ char *get_username(uid_t uid)
 }
 
 /*
+Retrieve the user id of a given username or from integer.
+*/
+uid_t get_user_id(const char *username){
+	struct passwd *info_user;
+
+	if ((info_user = getpwnam(username)) == NULL) {
+		//check username as integer
+		char *endptr = NULL;
+        long int iuid = strtol(username, &endptr, 10);
+		if (endptr == username || *endptr != '\0' || iuid < 0 || iuid > (uid_t)-1) {
+			return -1;
+		}else {
+			return (uid_t)iuid;
+		}
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		return info_user->pw_uid;
+	}
+
+}
+
+/*
+Retrieve the user group id of the user_id uid.
+Return the user group id, or -1 on failure.
+*/
+gid_t get_group_id_from_name(const char *group)
+{
+	struct group *info_group;
+
+	if ((info_group = getgrnam(group)) == NULL) {
+		return -1;
+	} else {
+		//We do not have to deallocate info_user, as it points to a static
+		//memory adress
+		return info_group->gr_gid;
+	}
+}
+
+/*
 Retrieve the user group id of the user_id uid.
 Return the user group id, or -1 on failure.
 */

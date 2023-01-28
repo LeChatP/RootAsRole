@@ -13,6 +13,8 @@ struct s_options {
     char** env_check;
     char* path;
     char *role;
+    char *setuid;
+    char *setgid;
     int no_root;
     int bounding;
 };
@@ -35,6 +37,19 @@ void free_options(options_t options);
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
 int get_settings_from_config(char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options);
+
+/**
+ * @brief Get every configuration settings from the xml file according to the role, the user, the groups and the command
+ * @param role The role of query
+ * @param user The user of query
+ * @param nb_groups The number of groups of the user
+ * @param groups The groups of the user
+ * @param command The command asked by the user
+ * @param p_iab The capabilities to set
+ * @param p_options The options to set
+ * @return 1 if the user is allowed to execute the command, 0 otherwise
+*/
+int get_settings_from_config_role(char* role, char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options);
 
 /**
  * @brief Print informations of a role

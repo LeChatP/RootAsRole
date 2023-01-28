@@ -97,7 +97,7 @@ int check_var(char *var_name,char *var_value){
     if (strncmp(var_name, "TZ",2) == 0){
         return tz_is_safe(var_value);
     }
-    if(strpbrk(var_value,"/%") == NULL){
+    if(strpbrk(var_value,"/%") != NULL){
         return 0;
     }
     return 1;
@@ -153,10 +153,6 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
     }
     *p_new_envp = new_envp;
     error:
-    if (whitelist != NULL){
-        free(whitelist);
-    }
-    
     return res;
 
 }

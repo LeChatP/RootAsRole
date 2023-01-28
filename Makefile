@@ -9,7 +9,7 @@ BIN_DIR := bin
 DEBUGOPTIONS := #-g -fsanitize=address
 
 COMPOPTIONS = -Wall -Wextra -Werror -pedantic $(shell xml2-config --cflags) $(DEBUGOPTIONS)
-LDOPTIONS := -Wall -Wextra -Werror -pedantic -lcap -lcap-ng -lmenu -lncurses $(DEBUGOPTIONS)
+LDOPTIONS := -Wall -Wextra -Werror -pedantic -lcap -lcap-ng $(DEBUGOPTIONS)
 SR_LDOPTIONS := -lpam -lpam_misc $(shell xml2-config --libs) $(DEBUGOPTIONS)
 EXECUTABLES := sr
 

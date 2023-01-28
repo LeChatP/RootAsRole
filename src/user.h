@@ -17,10 +17,17 @@ The username should be deallocated with free afterwards.
 char *get_username(uid_t uid);
 
 /*
+Retrieve the user id of a given username or from integer.
+*/
+uid_t get_user_id(const char *username);
+
+/*
 Retrieve the user group id of the user_id uid.
 Return the user group id, or -1 on failure.
 */
 gid_t get_group_id(uid_t uid);
+
+gid_t get_group_id_from_name(const char *group);
 
 /*
 Init and close a pam session to authenticate a given user.

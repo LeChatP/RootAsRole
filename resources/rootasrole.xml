@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE rootasrole [
 	<!ELEMENT rootasrole (roles|options?)*>
-	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?)*>
+	<!ATTLIST rootasrole version CDATA #REQUIRED>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?)*>
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
 	<!ELEMENT allow-root EMPTY>
@@ -9,9 +10,11 @@
 	<!ELEMENT allow-bounding EMPTY>
 	<!ATTLIST allow-bounding enforce (true|false) "false">
 	<!ELEMENT path (#PCDATA|EMPTY)*>
+	<!ELEMENT setuid EMPTY>
+	<!ATTLIST setuid enforce (true|false) "true" user CDATA #IMPLIED groups CDATA #IMPLIED>
 	<!ELEMENT roles (role*)>
 	<!ELEMENT role (user*|group*|commands*|options?)*>
-	<!ATTLIST role name ID #REQUIRED priority CDATA "1">
+	<!ATTLIST role name ID #REQUIRED priority CDATA "0">
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>
 	<!ELEMENT group EMPTY>
@@ -20,9 +23,13 @@
 	<!ATTLIST commands id ID #IMPLIED capabilities CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
 ]>
-<rootasrole>
+<rootasrole version="3.0.0">
 	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific commands in a role -->
 	<options>
+		<!-- Effective user and group id, if not specified, the user and group id of the session is used.
+			With this option, you could specify a different user and group id for the session.
+			-->
+		<setuid enforce="false" />
 		<!-- PATH configuration, you could replace, prepend or extend with paths.
 			be warned about this option, you are responsible about misconfiguration 
 			of this variable. Misconfiguration of roles with this variable could lead 
@@ -39,7 +46,7 @@
 		
 		<!-- By default, root is considered as unprivilegied user.
 			With this option, root is considered as privileged super-user-->
-		<allow-root enforce="true" />
+		<allow-root enforce="false" />
 		
 		<!-- By default, capabilities are enforced and permanently removed 
 			from the execution session, even for root. With this option,
@@ -49,13 +56,24 @@
 		<allow-bounding enforce="false" />
 	</options>
 	<roles>
-		<role name="root">
+		<role name="uroot">
 			<user name="ROOTADMINISTRATOR" />
 			<commands capabilities="all">
 				<command>*</command>
+				<options>
+					<setuid user="root" groups="root" />
+				</options>
 			</commands>
 		</role>
-
+		<role name="root" priority="1">
+			<user name="ROOTADMINISTRATOR" />
+			<commands capabilities="all">
+				<command>*</command>
+				<options>
+					<setuid user="root" groups="root" />
+				</options>
+			</commands>
+		</role>
 		<!--	
 		<role name="role1">
 			<user name="user1"/>

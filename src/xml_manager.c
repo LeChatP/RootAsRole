@@ -23,6 +23,8 @@ static options_t options = &(struct s_options) {
     .env_keep = d_keep_vars,
     .env_check = d_check_vars,
     .path = d_path,
+    .setuid = NULL,
+    .setgid = NULL,
     .no_root = 1,
     .bounding = 1
 };
@@ -30,6 +32,8 @@ static options_t options = &(struct s_options) {
 static cap_iab_t iab = NULL;
 
 xmlXPathObjectPtr result = NULL;
+
+static char *ROLE = NULL;
 
 /**
  * @brief split a string into an array of strings
@@ -70,11 +74,13 @@ static char** split_string(xmlChar *str, char *delimiter){
  * @return 1 if the option is enforced, 0 otherwise
 */
 int option_enforced(xmlNodePtr option){
-    xmlChar *prop = xmlGetProp(option,(xmlChar*)"enforce");
+    if (!xmlHasProp(option,(const xmlChar *) "enforce")) return 1;
+    int res = 0;
+    xmlChar *prop = xmlGetProp(option,(const xmlChar*)"enforce");
     if(!xmlStrcmp(prop, (const xmlChar *)"true"))
-        return 1;
+        res = 1;
     xmlFree(prop);
-    return 0;
+    return res;
 }
 
 /**
@@ -105,6 +111,11 @@ void set_options_from_node(xmlNodePtr options_node){
                     free(options->env_check);
                 }
                 options->env_check = split_string(xmlNodeGetContent(node),",");
+            } else if (!xmlStrcmp(node->name, (const xmlChar *)"setuid") && option_enforced(node)){
+                if (xmlHasProp(node,(const xmlChar *) "user"))
+                    options->setuid = (char *) xmlGetProp(node,(const xmlChar *)"user");
+                if (xmlHasProp(node,(const xmlChar *) "group"))
+                    options->setgid = (char *) xmlGetProp(node,(const xmlChar *)"group");
             }
         }
     }
@@ -333,7 +344,6 @@ xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc, xmlNodePtr nod
     }
 
     if (xmlXPathNodeSetIsEmpty(result->nodesetval)) {
-        fputs("No result\n", stderr);
         goto ret_err;
     }
 
@@ -528,22 +538,13 @@ int command_match_wildcard(char *pcommand, char *wildcard){
     return 0;
 }
 
-/**
- * @brief retrieve all execution settings from xml document matching user, groups and command 
- * @param doc the document
- * @param user the user
- * @param nb_groups the number of groups
- * @param groups the groups
- * @param command the command
- * @return execution setting in global variables, 1 on success, or 0 on error
-*/
-int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **groups, char *command){
+int get_settings_with_filter(xmlDocPtr doc, char *user, int nb_groups, char **groups, char *command, xmlNodePtr (*filter)(xmlNodeSetPtr)){
     int res = 0;
     xmlNodeSetPtr set = find_role_by_usergroup_command(doc,user, groups, nb_groups, command);
     if(set == NULL){
         return res;
     }
-    xmlNodePtr node = find_max_element_by_priority(set);
+    xmlNodePtr node = filter(set);
     if(node == NULL){
         xmlXPathFreeNodeSet(set);
         return res;
@@ -591,6 +592,46 @@ int get_settings_from_doc(xmlDocPtr doc, char *user, int nb_groups, char **group
     xmlFree(capabilities);
     xmlXPathFreeObject(result);
     return res;
+}
+
+/**
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @return execution setting in global variables, 1 on success, or 0 on error
+*/
+int get_settings_from_doc_by_priority(xmlDocPtr doc, char *user, int nb_groups, char **groups, char *command){
+    return get_settings_with_filter(doc, user, nb_groups, groups, command, find_max_element_by_priority);
+}
+
+xmlNodePtr find_by_role_name(xmlNodeSetPtr set){
+    for(int i = 0; i < set->nodeNr; i++){
+        xmlNodePtr node = set->nodeTab[i];
+        xmlChar *name = xmlGetProp(node, (const xmlChar *)"name");
+        if(xmlStrcasecmp(name, (const xmlChar *)ROLE) == 0){
+            xmlFree(name);
+            return node;
+        }
+        xmlFree(name);
+    }
+    return NULL;
+}
+
+/**
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @return execution setting in global variables, 1 on success, or 0 on error
+*/
+int get_settings_from_doc_by_role(xmlDocPtr doc, char *role, char *user, int nb_groups, char **groups, char *command){
+    ROLE = role;
+    return get_settings_with_filter(doc, user, nb_groups, groups, command, find_by_role_name);
 }
 
 /**
@@ -646,7 +687,19 @@ int get_settings_from_config(char *user, int nb_groups, char **groups, char *com
     doc = load_xml(XML_FILE);
     if (!doc)
         return 0;
-    int res = get_settings_from_doc(doc, user, nb_groups, groups, command);
+    int res = get_settings_from_doc_by_priority(doc, user, nb_groups, groups, command);
+    *p_iab = iab;
+    *p_options = options;
+    xmlFreeDoc(doc);
+    return res;
+}
+
+int get_settings_from_config_role(char* role, char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options){
+    xmlDocPtr doc;
+    doc = load_xml(XML_FILE);
+    if (!doc)
+        return 0;
+    int res = get_settings_from_doc_by_role(doc, role, user, nb_groups, groups, command);
     *p_iab = iab;
     *p_options = options;
     xmlFreeDoc(doc);

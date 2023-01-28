@@ -50,6 +50,35 @@ int setpcap_effective(int enable)
 	return caps_effective(enable, 1, &cap_value);
 }
 
+/**
+ * Set setuid capabilities in the effective set of the process.
+ * Return 0 on success, -1 on failure.
+ */
+int setuid_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("cap_setuid", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
+
+/**
+ * Set setgid capabilities in the effective set of the process.
+ * Return 0 on success, -1 on failure.
+ */
+int setgid_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("cap_setgid", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
+
+
 /* 
 Activate the securebits for the no-root option.
 Return 0 on success, -1 on failure.
