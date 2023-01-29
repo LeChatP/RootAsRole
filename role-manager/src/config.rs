@@ -30,13 +30,13 @@ pub struct Role{
     priority: Option<i32>,
     users: Vec<String>,
     groups: Vec<Groups>,
-    commands: Vec<Rc<RefCell<Commands>>>,
+    commands: Vec<Commands>,
     options: Option<Rc<RefCell<Opt>>>,
 }
 
 #[derive(Clone)]
 pub struct Roles{
-    roles: Vec<Rc<RefCell<Role>>>,
+    roles: Vec<Role>,
     options: Option<Rc<RefCell<Opt>>>,
     version: String,
 }
@@ -49,17 +49,17 @@ impl Roles {
             version: PACKAGE_VERSION.to_string(),
         }
     }
-    pub fn get_roles_list(&self) -> Vec<Rc<RefCell<Role>>> {
+    pub fn get_roles_list(&self) -> Vec<Role> {
         self.roles.clone()
     }
-    pub fn get_role(&self, index: usize) -> Rc<RefCell<Role>> {
+    pub fn get_role(&self, index: usize) -> Role {
         self.roles.index(index).clone()
     }
-    pub fn get_role_mut(&mut self, index: usize) -> Rc<RefCell<Role>> {
+    pub fn get_role_mut(&mut self, index: usize) -> Role {
         self.roles.index(index).clone()
     }
     pub fn add_role(&mut self, role: Role) {
-        self.roles.push(Rc::new(role.into()));
+        self.roles.push(role.into());
     }
     pub fn remove_role(&mut self, index: usize) {
         self.roles.remove(index);
@@ -107,7 +107,7 @@ impl Role {
     }
     pub fn get_commands_info(&self) -> String {
         let mut commands_info = String::new();
-        commands_info.push_str(&format!("Commands:\n{}", self.get_commands_list().into_iter().map(|x| x.borrow().get_commands_list().join("\n")).collect::<Vec<String>>().join("\n")));
+        commands_info.push_str(&format!("Commands:\n{}", self.get_commands_list().into_iter().map(|x| x.get_commands_list().join("\n")).collect::<Vec<String>>().join("\n")));
         commands_info
     }
     pub fn get_description(&self) -> String {
@@ -145,13 +145,13 @@ impl Role {
     pub fn add_groups(&mut self, group: Vec<String>) {
         self.groups.push(group);
     }
-    pub fn get_commands_list(&self) -> Vec<Rc<RefCell<Commands>>> {
+    pub fn get_commands_list(&self) -> Vec<Commands> {
         self.commands.clone()
     }
-    pub fn get_commands(&self, position : usize) -> Rc<RefCell<Commands>> {
+    pub fn get_commands(&self, position : usize) -> Commands {
         self.commands[position].clone()
     }
-    pub fn add_commands(&mut self, commands : Rc<RefCell<Commands>>) {
+    pub fn add_commands(&mut self, commands : Commands) {
         self.commands.push(commands);
     }
 }
@@ -223,7 +223,7 @@ impl ToString for Role {
         role.push_str(">");
         role.push_str(&self.get_users_list().into_iter().map(|x| format!("<user name=\"{}\"/>", x)).collect::<Vec<String>>().join(""));
         role.push_str(&self.get_groups_list().into_iter().map(|x| format!("<groups names=\"{}\"/>", x.join(","))).collect::<Vec<String>>().join(""));
-        role.push_str(&self.get_commands_list().into_iter().map(|x| x.borrow().to_string()).collect::<Vec<String>>().join(""));
+        role.push_str(&self.get_commands_list().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join(""));
         role.push_str("</role>");
         role
     }
@@ -238,7 +238,7 @@ impl ToString for Roles {
             roles.push_str(&format!("<options>{}</options>", options.borrow().to_string()));
         }
         roles.push_str("<roles>");
-        roles.push_str(&self.get_roles_list().into_iter().map(|x| x.borrow().to_string()).collect::<Vec<String>>().join(""));
+        roles.push_str(&self.get_roles_list().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join(""));
         roles.push_str("</roles></rootasrole>");
         roles
     }
@@ -364,8 +364,8 @@ fn get_options(level: Level, node : Element) -> Rc<RefCell<Opt>> {
     rc_options
 }
 
-fn get_commands(node : Element) -> Rc<RefCell<Commands>> {
-    let rc_commands = Rc::new(RefCell::new(Commands{
+fn get_commands(node : Element) -> Commands {
+    let mut commands = Commands{
         id: match node.attribute_value("id") {
             Some(id) => Some(id.to_string()).into(),
             None => None.into(),
@@ -376,9 +376,8 @@ fn get_commands(node : Element) -> Rc<RefCell<Commands>> {
         },
         options: None.into(),
         commands: Vec::new().into(),
-    }));
+    };
     for child in node.children() {
-        let mut commands = rc_commands.borrow_mut();
         if let Some(elem) = child.element(){
             println!("{}", elem.name().local_part());
             match elem.name().local_part() {
@@ -390,7 +389,7 @@ fn get_commands(node : Element) -> Rc<RefCell<Commands>> {
             }
         }
     }
-    rc_commands
+    commands
 }
 
 fn get_role(element : Element) -> Role {
@@ -439,7 +438,7 @@ pub(crate) fn load_role(name :&str) -> Option<Role> {
     find_role(doc, name)
 }
 
-pub fn load_roles() -> Option<Rc<RefCell<Roles>>> {
+pub fn load_roles() -> Option<Roles> {
     
     let binding = read_xml_file("/etc/security/rootasrole.xml").expect("Unable to parse config file");
     let doc = binding.as_document();
@@ -447,20 +446,20 @@ pub fn load_roles() -> Option<Rc<RefCell<Roles>>> {
     for child in doc.root().children() {
         if let Some(element) = child.element(){
             if element.name().local_part() == "rootasrole" {
-                let rc_roles = Rc::new(RefCell::new(Roles::new()));
+                let mut rc_roles = Roles::new();
                 for role in element.children() {
                     if let Some(element) = role.element(){
                         if element.name().local_part() == "roles" {
                             for role in element.children() {
                                 if let Some(element) = role.element(){
                                     if element.name().local_part() == "role" {
-                                        rc_roles.borrow_mut().add_role(get_role(element).into());
+                                        rc_roles.add_role(get_role(element).into());
                                     }
                                 }
                             }
                         }
                         if element.name().local_part() == "options" {
-                            rc_roles.borrow_mut().set_options(get_options(Level::Global, element).into());
+                            rc_roles.set_options(get_options(Level::Global, element).into());
                         }
                     }
                 }
@@ -494,14 +493,14 @@ fn toggle_lock_config(file:&str, lock: bool) -> Result<(),String> {
     Ok(())
 }
 
-pub(crate) fn save_all(roles: Rc<RefCell<Roles>>) {
+pub(crate) fn save_all(roles: Roles) {
     let path = "/etc/security/rootasrole.xml";
     let pack = read_xml_file(path).expect("Unable to parse config file");
     let doc = pack.as_document();
     for child in doc.root().children() {
         if let Some(element) = child.element(){
             if element.name().local_part() == "rootasrole" {
-                let string = &roles.borrow().to_string();
+                let string = &roles.to_string();
                 let binding = parser::parse(string).expect("Unable to parse roles");
                 let pack = binding.as_document();
                 let element = pack.root().children().first().expect("Unable to retrieve element").element().expect("Unable to convert to element");

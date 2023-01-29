@@ -8,14 +8,26 @@ use crate::{RoleManager, RoleManagerApp, checklist::CheckListView, ActorType};
 
 use super::{State, role::EditRoleState, Input, ExecuteType, execute};
 pub struct SelectUserState;
-pub struct CreateUserState;
-pub struct DeleteUserState;
-pub struct EditUserState;
+pub struct CreateUserState{
+    pub uid_list : Vec<String>,
+}
+pub struct DeleteUserState{
+    pub uid_list : Vec<String>,
+}
+pub struct EditUserState{
+    pub uid_list : Vec<String>,
+}
 
 pub struct SelectGroupState;
-pub struct CreateGroupState;
-pub struct DeleteGroupState;
-pub struct EditGroupState;
+pub struct CreateGroupState{
+    pub gid_list : Vec<String>,
+}
+pub struct DeleteGroupState{
+    pub gid_list : Vec<String>,
+}
+pub struct EditGroupState{
+    pub gid_list : Vec<String>,
+}
 
 fn get_groups() -> Vec<String> {
     let mut groups = Vec::new();
@@ -61,7 +73,7 @@ fn add_actors(actortype : ActorType,view : &mut CheckListView<String>, already_i
 
 impl State for SelectUserState {
     fn create(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
-        Box::new(CreateUserState)
+        Box::new(CreateUserState{uid_list : Vec::new()})
     }
 
     fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
@@ -77,6 +89,7 @@ impl State for SelectUserState {
     }
 
     fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
+        //manager.selected_role().replace_users();
         Box::new(EditRoleState)
     }
 
@@ -90,7 +103,7 @@ impl State for SelectUserState {
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
         let mut select = CheckListView::<String>::new().autojump();
-        add_actors(ActorType::User, &mut select, Some(manager.selected_role().borrow().get_users_list().to_vec()));
+        add_actors(ActorType::User, &mut select, Some(manager.selected_role().get_users_list().to_vec()));
         cursive.add_layer(
             Dialog::around(select)
             .title("Select User")
@@ -132,7 +145,7 @@ impl State for CreateUserState {
     }
 
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
-        manager.selected_role().borrow_mut().add_user(&input.as_string());
+        manager.selected_role().add_user(&input.as_string());
         Box::new(SelectUserState)
     }
 
@@ -152,7 +165,7 @@ impl State for CreateUserState {
 
 impl State for SelectGroupState {
     fn create(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
-        Box::new(EditGroupState)
+        Box::new(EditGroupState{gid_list : Vec::new()})
     }
 
     fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
@@ -161,7 +174,7 @@ impl State for SelectGroupState {
 
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
         manager.set_selected_group(index);
-        Box::new(EditGroupState)
+        Box::new(EditGroupState{gid_list : (*manager.selected_command_group().get_commands_list().clone()).to_vec()})
     }
 
     fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
@@ -185,7 +198,7 @@ impl State for SelectGroupState {
         .on_submit(|s, item| {
             execute(s,ExecuteType::Submit( *item));
         });
-        for (index, group) in manager.selected_role().borrow().get_groups_list().iter().enumerate() {
+        for (index, group) in manager.selected_role().get_groups_list().iter().enumerate() {
             select.add_item(group.join(" & "),index);
         }
         cursive.add_layer(Dialog::around( select)
@@ -233,7 +246,12 @@ impl State for EditGroupState {
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
         let mut select = CheckListView::<String>::new().autojump();
-        add_actors(ActorType::Group, &mut select, Some(manager.selected_gid_group_list().unwrap().take().to_vec()));
+        if let Some(group_list) = manager.selected_gid_group_list() {
+            add_actors(ActorType::Group, &mut select, Some(group_list.take().to_vec()));
+        } else {
+            add_actors(ActorType::Group, &mut select, None);
+        }
+        
         cursive.add_layer(
             Dialog::around(select.with_name("select"))
             .title("Select Group")
@@ -253,5 +271,55 @@ impl State for EditGroupState {
                 execute(s,ExecuteType::Input(res.expect("No input")));
             })
         );
+    }
+}
+
+impl State for CreateGroupState {
+    fn create(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
+        self
+    }
+
+    fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
+        self
+    }
+
+    fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
+        self
+    }
+
+    fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
+        Box::new(EditGroupState{
+            gid_list : (*manager.selected_command_group().get_commands_list().clone()).to_vec()
+        })
+    }
+
+    fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
+        self
+    }
+
+    fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
+        self
+    }
+
+    fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
+        let mut binding = manager.selected_command_group();
+        let gid_list = binding.get_mut_commands_list();
+        gid_list.push(input.as_string());
+        Box::new(EditGroupState{
+            gid_list: gid_list.to_vec()
+        })
+    }
+
+    fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
+        let mut input = EditView::new();
+        cursive.add_layer(Dialog::around( input.with_name("input"))
+            .title("Enter group name")
+            .button("Cancel", |s| {
+                execute(s,ExecuteType::Cancel);
+            })
+            .button("Confirm", |s| {
+                let input = s.find_name::<EditView>("input").unwrap();
+                execute(s,ExecuteType::Input( Input::String(input.get_content().as_str().into())));
+            }));
     }
 }

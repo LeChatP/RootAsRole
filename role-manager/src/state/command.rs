@@ -40,8 +40,7 @@ impl State for SelectCommandBlockState {
         let mut select = SelectView::new().on_submit(|s,item|{
             execute(s,ExecuteType::Submit(*item));
         });
-        manager.selected_role().as_ref().borrow().get_commands_list().iter().enumerate().for_each(|(index, e)| {
-            let commands = e.as_ref().borrow();
+        manager.selected_role().get_commands_list().iter().enumerate().for_each(|(index, commands)| {
             if commands.has_id() {
                 select.add_item(commands.get_id(), index);
             } else {
@@ -83,8 +82,7 @@ impl State for DeleteCommandBlockState {
         self
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        let binding = manager.selected_command_group();
-        let command_block = binding.as_ref().borrow();
+        let command_block = manager.selected_command_group();
         let name = if command_block.has_id() {
             command_block.get_id().to_string()
         } else {
@@ -135,8 +133,7 @@ impl State for EditCommandBlockState {
         self
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        let binding = manager.selected_command_group();
-        let command_block = binding.as_ref().borrow();
+        let command_block = manager.selected_command_group();
         let name = if command_block.has_id() {
             command_block.get_id().to_string()
         } else {
@@ -186,7 +183,7 @@ impl State for EditCapabilitiesState {
         self
     }
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
-        manager.selected_command_group().borrow_mut().set_capabilities(input.as_caps());
+        manager.selected_command_group().set_capabilities(input.as_caps());
         Box::new(SelectCommandBlockState)
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive){
@@ -197,7 +194,7 @@ impl State for EditCapabilitiesState {
                 info.set_content(item.1);
             }
         });
-    let selected = manager.selected_command_group().as_ref().borrow().get_capabilities();
+    let selected = manager.selected_command_group().get_capabilities();
     let mut pos = 0;
     for capability in capabilities::POSITIONS {
         select.add_item(capability.0.clone(), selected.clone() & (1 << pos) != 0.into(), capability);
@@ -243,9 +240,9 @@ impl State for EditCommandState {
     }
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
         if manager.selected_command_index().is_some() {
-            manager.selected_command_group().borrow_mut().set_command(manager.selected_command_index().unwrap(), &input.as_string());
+            manager.selected_command_group().set_command(manager.selected_command_index().unwrap(), &input.as_string());
         } else {
-            manager.selected_command_group().borrow_mut().add_command(&input.as_string());
+            manager.selected_command_group().add_command(&input.as_string());
         }
         Box::new(EditCommandBlockState)
     }

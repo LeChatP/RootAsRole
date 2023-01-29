@@ -68,7 +68,7 @@ impl InitState for SelectRoleState {
             } = s.take_user_data().unwrap();
             let info = s.find_name::<TextView>("info");
             if let Some(mut info) = info {
-                info.set_content(manager.roles().as_ref().borrow().get_role(*item).as_ref().borrow().get_description().clone());
+                info.set_content(manager.roles().get_role(*item).get_description().clone());
             }
             s.set_user_data(RoleManagerApp {
                 manager,
@@ -79,14 +79,14 @@ impl InitState for SelectRoleState {
             execute(s,ExecuteType::Submit( *item));
         });
     let mut pos = 0;
-    for role in manager.roles().as_ref().borrow().get_roles_list() {
-        select.add_item(role.as_ref().borrow().get_name().clone(), pos);
+    for role in manager.roles().get_roles_list() {
+        select.add_item(role.get_name().clone(), pos);
         pos+=1;
     }
     let mut layout = LinearLayout::new(Orientation::Horizontal);
     layout.add_child(select.with_name("roles").scrollable());
     
-    layout.add_child(TextView::new(manager.roles().as_ref().borrow().get_role(0).as_ref().borrow().get_description().clone()).with_name("info"));
+    layout.add_child(TextView::new(manager.roles().get_role(0).get_description().clone()).with_name("info"));
     Dialog::around( layout)
             .title("Select a role")
             .button("Create",  move|s| {
@@ -133,7 +133,7 @@ impl State for CreateRoleState {
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
         let mut role = Role::new();
         role.set_name(input.as_string().trim().clone());
-        manager.roles().as_ref().borrow_mut().add_role(role);
+        manager.roles().add_role(role);
         Box::new(EditRoleState)
     }
 
@@ -185,7 +185,7 @@ impl State for DeleteRoleState {
     }
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        cursive.add_layer(Dialog::around( TextView::new(format!("Are you sure you want to delete the role {}?", manager.selected_role().borrow().get_name())))
+        cursive.add_layer(Dialog::around( TextView::new(format!("Are you sure you want to delete the role {}?", manager.selected_role().get_name())))
             .title("Confirm delete role")
             .button("Yes",  move|s| {
                 execute(s,ExecuteType::Confirm);
@@ -243,13 +243,13 @@ impl State for EditRoleState {
             if let Some(mut info) = info {
                 match item{
                     0 => {
-                        info.set_content(manager.selected_role().as_ref().borrow().get_users_info());
+                        info.set_content(manager.selected_role().get_users_info());
                     },
                     1 => {
-                        info.set_content(manager.selected_role().as_ref().borrow().get_groups_info());
+                        info.set_content(manager.selected_role().get_groups_info());
                     },
                     2 => {
-                        info.set_content(manager.selected_role().as_ref().borrow().get_commands_info());
+                        info.set_content(manager.selected_role().get_commands_info());
                     },
                     _ => {
                         info.set_content("Unknown");
@@ -271,8 +271,7 @@ impl State for EditRoleState {
         ]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
-        
-        layout.add_child(TextView::new("Select a commands").with_name("info"));
+        layout.add_child(TextView::new(manager.selected_role().get_users_info()).with_name("info"));
         cursive.add_layer(Dialog::around( layout)
             .title("Edit a role")
             .button("Save",  move|s| {
