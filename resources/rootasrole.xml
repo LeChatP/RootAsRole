@@ -10,8 +10,6 @@
 	<!ELEMENT allow-bounding EMPTY>
 	<!ATTLIST allow-bounding enforce (true|false) "false">
 	<!ELEMENT path (#PCDATA|EMPTY)*>
-	<!ELEMENT setuid EMPTY>
-	<!ATTLIST setuid enforce (true|false) "true" user CDATA #IMPLIED groups CDATA #IMPLIED>
 	<!ELEMENT roles (role*)>
 	<!ELEMENT role (user*|group*|commands*|options?)*>
 	<!ATTLIST role name ID #REQUIRED priority CDATA "0">
@@ -20,16 +18,12 @@
 	<!ELEMENT group EMPTY>
 	<!ATTLIST group names CDATA #REQUIRED>
 	<!ELEMENT commands (command*|options?)*>
-	<!ATTLIST commands id ID #IMPLIED capabilities CDATA #IMPLIED>
+	<!ATTLIST commands id ID #IMPLIED capabilities CDATA #IMPLIED user CDATA #IMPLIED groups CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
 ]>
 <rootasrole version="3.0.0">
 	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific commands in a role -->
 	<options>
-		<!-- Effective user and group id, if not specified, the user and group id of the session is used.
-			With this option, you could specify a different user and group id for the session.
-			-->
-		<setuid enforce="false" />
 		<!-- PATH configuration, you could replace, prepend or extend with paths.
 			be warned about this option, you are responsible about misconfiguration 
 			of this variable. Misconfiguration of roles with this variable could lead 
@@ -58,20 +52,14 @@
 	<roles>
 		<role name="uroot">
 			<user name="ROOTADMINISTRATOR" />
-			<commands capabilities="all">
+			<commands capabilities="all" user="root" groups="root" >
 				<command>*</command>
-				<options>
-					<setuid user="root" groups="root" />
-				</options>
 			</commands>
 		</role>
 		<role name="root" priority="1">
 			<user name="ROOTADMINISTRATOR" />
-			<commands capabilities="all">
+			<commands capabilities="all" user="root" groups="root">
 				<command>*</command>
-				<options>
-					<setuid user="root" groups="root" />
-				</options>
 			</commands>
 		</role>
 		<!--	

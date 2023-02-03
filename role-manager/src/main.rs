@@ -7,15 +7,14 @@ mod state;
 
 use std::{cell::{RefCell, Cell}, rc::Rc};
 
-use capabilities::Caps;
-use checklist::CheckListView;
-use cursive::{views::{Dialog, TextView, LinearLayout, SelectView}, direction::Orientation, view::{Scrollable, Nameable, self}, Cursive, event::{Event, Key}};
+use cursive::{Cursive};
+use libc::printf;
 use options::{OptType, Opt, Optionnable, OptStack};
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
-use users::all_users;
 
-enum ActorType {
+
+pub enum ActorType {
     User,
     Group,
 }
@@ -73,22 +72,25 @@ impl RoleManager {
         }
     }
 
-    pub fn selected_gid_group_list(&self) -> Option<Cell<config::Groups>> {
+    pub fn selected_group(&self) -> Option<config::Groups> {
         self.assert_selected_role();
         if self.selected_group.is_none() {
             return None;
         }
-        Some(self.selected_role().get_groups(self.selected_group.unwrap()))
+        Some(self.selected_role().unwrap().get_groups(self.selected_group.unwrap()))
     }
 
-    pub fn replace_gid_group_list(&mut self, group : Vec<String>) {
+    pub fn replace_group(&mut self, group : Vec<String>) {
         self.assert_selected_group();
-        self.selected_role().set_groups(self.selected_group.unwrap(), group)
+        self.selected_role().unwrap().set_groups(self.selected_group.unwrap(), group)
     }
 
-    pub fn selected_command_group(&self) -> config::Commands {
-        self.assert_selected_commands();
-        self.selected_role().get_commands(self.selected_commands.unwrap())
+    pub fn selected_command_group(&self) -> Option<config::Commands> {
+        self.selected_commands.and(Some(self.selected_role().unwrap().get_commands(self.selected_commands.unwrap())))
+    }
+
+    pub fn selected_command_group_mut(&mut self) -> Option<*mut config::Commands> {
+        self.selected_commands.and(Some(self.selected_role().unwrap().get_commands_mut(self.selected_commands.unwrap())))
     }
 
     pub fn selected_command_group_index(&self) -> usize {
@@ -96,20 +98,27 @@ impl RoleManager {
         self.selected_commands.unwrap()
     }
 
-    pub fn selected_role(&self) -> config::Role {
-        self.assert_selected_role();
-        self.roles().get_role(self.selected_role.unwrap())
+    pub fn selected_role(&self) -> Option<config::Role> {
+        if let Some(selected_role) = self.selected_role {
+            Some(self.roles().get_role(selected_role))
+        } else {
+            None
+        }
     }
 
     pub fn selected_command(&self) -> Option<String> {
-        self.selected_command.and(Some( self.selected_command_group().get_command(self.selected_command.unwrap()).to_string()))
+        if let Some(selected_command) = self.selected_command {
+            Some(self.selected_command_group().unwrap().get_command(selected_command).to_string())
+        } else {
+            None
+        }
     }
 
     pub fn selected_options(&self) -> Option<Rc<RefCell<Opt>>> {
         if let Some(selected_command_block) = self.selected_commands {
-            self.selected_command_group().get_options()
+            self.selected_command_group().unwrap().get_options()
         } else if let Some(selected_role) = self.selected_role {
-            self.selected_role().get_options()
+            self.selected_role().unwrap().get_options()
         } else {
             self.roles().get_options()
         }
@@ -117,9 +126,9 @@ impl RoleManager {
 
     pub fn get_optstack(&self) -> OptStack {
         if let Some(selected_command_block) = self.selected_commands {
-            OptStack::from_commands(&self.roles(), &self.selected_role(), &self.selected_command_group())
+            OptStack::from_commands(&self.roles(), &self.selected_role().unwrap(), &self.selected_command_group().unwrap())
         } else if let Some(selected_role) = self.selected_role {
-            OptStack::from_role(&self.roles(), &self.selected_role())
+            OptStack::from_role(&self.roles(), &self.selected_role().unwrap())
         } else {
             OptStack::from_roles(&self.roles())
         }
@@ -146,7 +155,7 @@ impl RoleManager {
 
     pub fn delete_selected_commands_block(&mut self) {
         self.assert_selected_commands();
-        self.selected_role().remove_command_block(self.selected_commands.unwrap());
+        self.selected_role().unwrap().remove_command_block(self.selected_commands.unwrap());
     }
 
     pub fn set_selected_role(&mut self, selected_role: usize) {

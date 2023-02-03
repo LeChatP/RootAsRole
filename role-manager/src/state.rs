@@ -2,10 +2,23 @@ pub mod role;
 pub mod actor;
 pub mod options;
 pub mod command;
+pub mod common;
 
-use cursive::{Cursive, views::Dialog};
+use cursive::{Cursive, views::Dialog, event::Key};
 
 use crate::{RoleManager, capabilities::Caps, RoleManagerApp};
+
+pub trait PushableItemState<T> {
+    fn push(&mut self, manager : &mut RoleManager, item : T);
+}
+
+pub trait SettableItemState<T> {
+    fn set(&mut self, manager : &mut RoleManager, index : usize, item : T);
+}
+
+pub trait DeletableItemState {
+    fn remove_selected(&mut self, manager : &mut RoleManager, index : usize);
+}
 
 pub enum Input {
     String(String),
@@ -79,6 +92,7 @@ pub fn execute(s : &mut Cursive, exec_type : ExecuteType) {
         ExecuteType::Input(input) => state.input(&mut manager, input),
     };
     s.pop_layer();
+    s.clear_global_callbacks(Key::Del);
     state.render(&mut manager, s);
     s.set_user_data(RoleManagerApp {
         manager,

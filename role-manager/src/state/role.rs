@@ -46,7 +46,7 @@ impl State for SelectRoleState {
     }
 
     fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
-        Box::new(SelectOptionState)
+        Box::new(SelectOptionState::new())
     }
 
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
@@ -185,7 +185,7 @@ impl State for DeleteRoleState {
     }
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        cursive.add_layer(Dialog::around( TextView::new(format!("Are you sure you want to delete the role {}?", manager.selected_role().get_name())))
+        cursive.add_layer(Dialog::around( TextView::new(format!("Are you sure you want to delete the role {}?", manager.selected_role().unwrap().get_name())))
             .title("Confirm delete role")
             .button("Yes",  move|s| {
                 execute(s,ExecuteType::Confirm);
@@ -208,7 +208,7 @@ impl State for EditRoleState {
 
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
         match index {
-            0 => Box::new(SelectUserState),
+            0 => Box::new(SelectUserState::new(true, Some(manager.selected_role().unwrap().get_users_list().to_vec()) )),
             1 => Box::new(SelectGroupState),
             2 => Box::new(SelectCommandBlockState),
             _ => self,
@@ -225,7 +225,7 @@ impl State for EditRoleState {
     }
 
     fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
-        Box::new(SelectOptionState)
+        Box::new(SelectOptionState::new())
     }
 
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
@@ -243,13 +243,13 @@ impl State for EditRoleState {
             if let Some(mut info) = info {
                 match item{
                     0 => {
-                        info.set_content(manager.selected_role().get_users_info());
+                        info.set_content(manager.selected_role().unwrap().get_users_info());
                     },
                     1 => {
-                        info.set_content(manager.selected_role().get_groups_info());
+                        info.set_content(manager.selected_role().unwrap().get_groups_info());
                     },
                     2 => {
-                        info.set_content(manager.selected_role().get_commands_info());
+                        info.set_content(manager.selected_role().unwrap().get_commands_info());
                     },
                     _ => {
                         info.set_content("Unknown");
@@ -271,7 +271,7 @@ impl State for EditRoleState {
         ]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
-        layout.add_child(TextView::new(manager.selected_role().get_users_info()).with_name("info"));
+        layout.add_child(TextView::new(manager.selected_role().unwrap().get_users_info()).with_name("info"));
         cursive.add_layer(Dialog::around( layout)
             .title("Edit a role")
             .button("Save",  move|s| {

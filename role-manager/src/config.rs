@@ -14,17 +14,19 @@ const FS_IOC_GETFLAGS: c_ulong = 0x80086601;
 const FS_IOC_SETFLAGS: c_ulong = 0x40086602;
 const FS_IMMUTABLE_FL: c_int = 0x00000010;
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Commands{
     id: Option<String>,
     options: Option<Rc<RefCell<Opt>>>,
     commands: Vec<String>,
     capabilities: Option<Caps>,
+    setuid: Option<String>,
+    setgid: Option<Groups>,
 }
 
 
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub struct Role{
     name: String,
     priority: Option<i32>,
@@ -124,6 +126,9 @@ impl Role {
     pub fn get_user(&self, position : usize) -> &str {
         self.users[position].as_ref()
     }
+    pub fn set_users(&mut self, users : Vec<String>) {
+        self.users = users;
+    }
     pub fn remove_user(&mut self, position : usize) {
         self.users.remove(position);
     }
@@ -136,8 +141,8 @@ impl Role {
     pub fn get_groups_list(&self) -> Vec<Groups> {
         self.groups.clone()
     }
-    pub fn get_groups(&self, position : usize) -> Cell<Groups> {
-        Cell::new(self.groups[position].clone())
+    pub fn get_groups(&self, position : usize) -> Groups {
+        self.groups[position].clone()
     }
     pub fn set_groups(&mut self, position : usize, group: Vec<String>) {
         self.groups[position] = group
@@ -151,6 +156,9 @@ impl Role {
     pub fn get_commands(&self, position : usize) -> Commands {
         self.commands[position].clone()
     }
+    pub fn get_commands_mut(&mut self, position : usize) -> *mut Commands {
+        &mut self.commands[position]
+    }
     pub fn add_commands(&mut self, commands : Commands) {
         self.commands.push(commands);
     }
@@ -163,6 +171,8 @@ impl Commands {
             options: None.into(),
             commands: Vec::new().into(),
             capabilities: None.into(),
+            setuid: None.into(),
+            setgid: None.into(),
         }
     }
     pub fn has_id(&self) -> bool {
@@ -345,18 +355,6 @@ fn get_options(level: Level, node : Element) -> Rc<RefCell<Opt>> {
                 "env-check" => options.env_checklist = Some(elem.children().first().unwrap().text().expect("Cannot read Checklist option").text().to_string()).into(),
                 "allow-root" => options.no_root = Some(is_enforced(elem)).into(),
                 "allow-bounding" => options.bounding = Some(is_enforced(elem)).into(),
-                "setuid" => {
-                    let enforce = is_enforced(elem);
-                    let user = elem.attribute("user");
-                    let group = elem.attribute("groups");
-                    if user.is_some() {
-                        options.setuid = Some((enforce,user.expect("Unable to retrieve user name").value().to_string())).into();
-                    }
-                    if group.is_some() {
-                        options.setgid = Some((enforce,group.expect("Unable to retrieve groups name").value().to_string())).into();
-                    }
-    
-                }
                 _ => warn!("Unknown option: {}", elem.name().local_part()),
             }
         }
@@ -376,6 +374,8 @@ fn get_commands(node : Element) -> Commands {
         },
         options: None.into(),
         commands: Vec::new().into(),
+        setuid: None.into(),
+        setgid: None.into(),
     };
     for child in node.children() {
         if let Some(elem) = child.element(){

@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, ops::{BitOrAssign, BitAnd}};
 
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd,Debug)]
 pub enum Caps {
     V2(u64),
     V1(u32),

@@ -295,6 +295,32 @@ impl<T: 'static> CheckListView<T> {
         self.get_item_mut(self.focus())
     }
 
+    pub fn get_checked_item_mut(
+        &mut self,
+    ) -> Vec<(&mut StyledString, &mut T)> {
+        self.items
+            .iter_mut()
+            .filter(|item| item.checked)
+            .map(|item| {
+                let label = &mut item.label;
+                let value = Rc::get_mut(&mut item.value).unwrap();
+                (label, value)
+            }).collect()
+    }
+
+    pub fn get_checked_item(
+        &self,
+    ) -> Vec<(StyledString, &T)> {
+        self.items
+            .iter()
+            .filter(|item| item.checked)
+            .map(|item| {
+                let label = item.label.clone();
+                let value = &*item.value;
+                (label, value)
+            }).collect()
+    }
+
     /// Iterate mutably on the items in this view.
     ///
     /// Returns an iterator with each item and their labels.
@@ -337,6 +363,15 @@ impl<T: 'static> CheckListView<T> {
         self.items
             .iter()
             .map(|item| (item.label.source(), &item.checked, &*item.value))
+    }
+
+    /// Iterate on the items in this view.
+    ///
+    /// Returns an iterator with each item and their labels.
+    pub fn iter_checked(&self) -> impl Iterator<Item = (&str, &T)> {
+        self.items
+            .iter()
+            .filter_map(|item| if item.checked {Some((item.label.source(), &*item.value))} else {None})
     }
 
     /// Removes an item from the list.
