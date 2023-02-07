@@ -1,13 +1,6 @@
-use std::{cell::RefCell, rc::Rc, borrow::{BorrowMut, Borrow}};
+use std::{cell::{Cell, RefCell}, rc::Rc, borrow::{BorrowMut, Borrow}};
 
 use crate::config::{Roles,Role,Commands, self};
-
-pub trait Optionnable {
-    fn has_options(&self) -> bool;
-    fn get_options(&self) -> Option<Rc<RefCell<Opt>>>;
-    fn set_options(&mut self, opt: Option<Rc<RefCell<Opt>>>);
-}
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -87,11 +80,11 @@ impl OptType {
 #[derive(Debug,Clone)]
 pub struct Opt{
     level : Level,
-    pub path: RefCell<Option<String>>,
-    pub env_whitelist: RefCell<Option<String>>,
-    pub env_checklist: RefCell<Option<String>>,
-    pub no_root: RefCell<Option<bool>>,
-    pub bounding: RefCell<Option<bool>>
+    pub path: Option<String>,
+    pub env_whitelist: Option<String>,
+    pub env_checklist: Option<String>,
+    pub no_root: Option<bool>,
+    pub bounding: Option<bool>
 }
 
 impl AsRef<Opt> for Opt {
@@ -225,9 +218,9 @@ impl Opt {
 
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct OptStack {
-    stack : [Option<Rc<RefCell<Opt>>>;Level::Commands as usize + 1],
+    pub(crate) stack : [Option<Rc<RefCell<Opt>>>;Level::Commands as usize + 1],
 }
 
 impl Default for OptStack {
@@ -239,42 +232,33 @@ impl Default for OptStack {
 }
 
 impl OptStack {
-    pub fn from_commands(roles: &Roles, role : &Role, commands: &Commands) -> Self {
+    pub fn from_commands(roles: &Roles, role : &usize, commands: &usize) -> Self {
         let mut stack = OptStack::from_role(roles,role);
-        if commands.has_options() {
-            stack.set_opt(commands.get_options().unwrap());
-        }
+        stack.set_opt(roles.roles[*role].as_ref().borrow().commands[*commands].as_ref().borrow().options.clone().unwrap());
         stack
     }
-    pub fn from_role(roles: &Roles, role : &Role) -> Self {
+    pub fn from_role(roles: &Roles, role : &usize) -> Self {
         let mut stack = OptStack::from_roles(roles);
-        if role.has_options() {
-            stack.set_opt(role.get_options().unwrap());
-        }
+        stack.set_opt(roles.roles[*role].as_ref().borrow().options.clone().unwrap());
         stack
     }
     pub fn from_roles(roles: &Roles) -> Self {
         let mut stack = OptStack::default();
-        if roles.has_options() {
-            stack.set_opt(roles.get_options().unwrap());
-        }
+        stack.set_opt(roles.options.clone().unwrap());
         stack
     }
     pub fn get_level(&self) -> Level {
         self.stack.iter().rev().find(|opt| opt.is_some()).unwrap().as_ref().unwrap().as_ref().borrow().level
     }
-    pub fn set_opt(&mut self, opt: Rc<RefCell<Opt>>) {
-        let level = opt.as_ref().borrow().level as usize;
-        if self.stack[level].is_none() {
-            self.stack[level].replace(opt.into());
-        }
-        
+    fn set_opt(&mut self, opt: Rc<RefCell<Opt>>) {
+        let level = opt.as_ref().borrow().level;
+        self.stack[level as usize] = Some(opt);
     }
 
-    fn find_in_options<F: Fn(Rc<RefCell<Opt>>)->Option<(Level,T)>,T>(&self, f: F)->Option<(Level,T)>{
+    fn find_in_options<F: Fn(&Opt)->Option<(Level,T)>,T>(&self, f: F)->Option<(Level,T)>{
         for opt in self.stack.iter().rev() {
             if let Some(opt) = opt.clone() {
-                let res = f(opt);
+                let res = f(opt.as_ref().borrow().as_ref());
                 if res.is_some() {
                     return res;
                 }
@@ -344,8 +328,8 @@ impl OptStack {
 
     pub fn get_path(&self) -> (Level, String) {
         self.find_in_options(|opt| {
-                if let Some(p) = opt.as_ref().borrow().path.borrow().as_ref() {
-                    return Some((opt.as_ref().borrow().level,p.clone())).into();
+                if let Some(p) = opt.borrow().path.borrow().as_ref() {
+                    return Some((opt.borrow().level,p.clone())).into();
                 }
                 None.into()
             }
@@ -354,16 +338,16 @@ impl OptStack {
     }
     pub fn get_env_whitelist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.as_ref().borrow().env_whitelist.borrow().as_ref() {
-                return Some((opt.as_ref().borrow().level,p.clone())).into();
+            if let Some(p) = opt.borrow().env_whitelist.borrow().as_ref() {
+                return Some((opt.borrow().level,p.clone())).into();
             }
             None.into()
         }).unwrap_or((Level::None.into(),"".to_string()))
     }
     pub fn get_env_checklist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.as_ref().borrow().env_checklist.borrow().as_ref() {
-                return Some((opt.as_ref().borrow().level,p.clone())).into();
+            if let Some(p) = opt.borrow().env_checklist.borrow().as_ref() {
+                return Some((opt.borrow().level,p.clone())).into();
             }
             None.into()
         }).unwrap_or((Level::None.into(),"".to_string()))
@@ -371,8 +355,8 @@ impl OptStack {
     }
     pub fn get_no_root(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.as_ref().borrow().no_root.borrow().as_ref() {
-                return Some((opt.as_ref().borrow().level,p.clone())).into();
+            if let Some(p) = opt.borrow().no_root.borrow().as_ref() {
+                return Some((opt.borrow().level,p.clone())).into();
             }
             None.into()
         }).unwrap_or((Level::None.into(),true))
@@ -380,8 +364,8 @@ impl OptStack {
     }
     pub fn get_bounding(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.as_ref().borrow().bounding.borrow().as_ref() {
-                return Some((opt.as_ref().borrow().level,p.clone())).into();
+            if let Some(p) = opt.borrow().bounding.borrow().as_ref() {
+                return Some((opt.borrow().level,p.clone())).into();
             }
             None.into()
         }).unwrap_or((Level::None.into(),true))
@@ -391,54 +375,46 @@ impl OptStack {
     fn set_at_level(&mut self, opttype : OptType, value : Option<OptValue>, level : Level) {
         let ulevel = level as usize;
         if self.stack[ulevel].is_none() {
-            self.stack[ulevel].replace(Rc::new(Opt::new(level).into()));
+            //self.stack[ulevel].replace(&Opt::new(level).into());
+            panic!("Unable");
         }
-        let opt = self.stack[ulevel].as_ref().unwrap().clone();
+        let binding = self.stack[ulevel].as_ref().unwrap();
+        let mut opt = binding.as_ref().borrow_mut();
         match opttype {
             OptType::Path => {
-                let mut ret = None;
                 if let Some(value) = value.borrow() {
                     if let OptValue::String(value) = value {
-                        ret = Some(value.clone());
+                        opt.path.replace(value.to_string());
                     }
                 }
-                opt.as_ref().borrow_mut().path.replace(ret);
             },
             OptType::EnvWhitelist => {
-                let mut ret = None;
                 if let Some(value) = value.borrow() {
                     if let OptValue::String(value) = value {
-                        ret = Some(value.clone());
+                        opt.env_whitelist.replace(value.to_string());
                     }
                 }
-                opt.as_ref().borrow_mut().env_whitelist.replace(ret);
             },
             OptType::EnvChecklist => {
-                let mut ret = None;
                 if let Some(value) = value.borrow() {
                     if let OptValue::String(value) = value {
-                        ret = Some(value.clone());
+                        opt.env_checklist.replace(value.to_string());
                     }
                 }
-                opt.as_ref().borrow_mut().env_checklist.replace(ret);
             },
             OptType::NoRoot => {
-                let mut ret = None;
                 if let Some(value) = value.borrow() {
                     if let OptValue::Bool(value) = value {
-                        ret = Some(value.clone());
+                        opt.no_root.replace(*value);
                     }
                 }
-                opt.as_ref().borrow_mut().no_root.replace(ret);
             },
             OptType::Bounding => {
-                let mut ret = None;
                 if let Some(value) = value.borrow() {
                     if let OptValue::Bool(value) = value {
-                        ret = Some(value.clone());
+                        opt.bounding.replace(*value);
                     }
                 }
-                opt.as_ref().borrow_mut().bounding.replace(ret);
             },
         }
     }

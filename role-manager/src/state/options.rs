@@ -1,7 +1,7 @@
 use cursive::{views::{EditView, SelectView, TextView, Dialog}, event::Key, view::Nameable};
 
 use crate::{RoleManager, options::{OptType, Level, OptValue}, RoleManagerApp};
-use super::{State, Input,Cursive, ExecuteType, execute, role::{SelectRoleState, EditRoleState}, command::EditCommandBlockState, common::{ConfirmState, InputState}, DeletableItemState, PushableItemState, SettableItemState};
+use super::{State, Input,Cursive, ExecuteType, execute, role::{SelectRoleState, EditRoleState}, command::EditCommandBlockState, common::{ConfirmState, InputState}, DeletableItemState, PushableItemState};
 
 #[derive(Clone)]
 pub struct SelectOptionState{
@@ -38,19 +38,19 @@ impl State for SelectOptionState {
                 title = "Enter environment variables to whitelist separated by commas"
             },
             OptType::Bounding | OptType::NoRoot => {
-                let mut stack = manager.get_optstack();
+                let mut stack = manager.get_options();
                 stack.set_value(opttype, Some(OptValue::Bool(!stack.get_from_type(opttype.clone()).1.as_bool())));
                 return self;
             },
         }
-        let value = manager.get_optstack().get_from_type(opttype).1.to_string();
+        let value = manager.get_options().get_from_type(opttype).1.to_string();
         Box::new(InputState::new(self,title,Some(value)))
     }
     fn cancel(self: Box<Self>, _manager : &mut RoleManager) -> Box<dyn State>{
         self
     }
     fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        match manager.get_optstack().get_level() {
+        match manager.get_options().get_level() {
             Level::Global => Box::new(SelectRoleState),
             Level::Role => Box::new(EditRoleState),
             Level::Commands => Box::new(EditCommandBlockState),
@@ -69,7 +69,7 @@ impl State for SelectOptionState {
                 manager,
                 state,
             } = s.user_data().unwrap();
-            let stack = manager.get_optstack();
+            let stack = manager.get_options();
             let highest_level = stack.get_level();
             let (level,value) = stack.get_from_type(item.clone());
             let mut leveldesc = "";
@@ -111,16 +111,16 @@ impl State for SelectOptionState {
 
 impl DeletableItemState for SelectOptionState {
     fn remove_selected(&mut self, manager : &mut RoleManager, index : usize) {
-            manager.get_optstack().set_value(OptType::from_index(index), None);
+            manager.get_options().set_value(OptType::from_index(index), None);
     }
 }
 
 impl PushableItemState<String> for SelectOptionState {
     fn push(&mut self, manager : &mut RoleManager, value : String) {
         if value == "" {
-            manager.get_optstack().set_value(OptType::from_index(self.selected.unwrap()), None)
+            manager.get_options().set_value(OptType::from_index(self.selected.unwrap()), None)
         }else{
-            manager.get_optstack().set_value(OptType::from_index(self.selected.unwrap()), Some(OptValue::String(value)));
+            manager.get_options().set_value(OptType::from_index(self.selected.unwrap()), Some(OptValue::String(value)));
         }
     }
 }

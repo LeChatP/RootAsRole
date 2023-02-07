@@ -5,11 +5,11 @@ mod options;
 mod version;
 mod state;
 
-use std::{cell::{RefCell, Cell}, rc::Rc};
+use std::{rc::Rc, cell::RefCell};
 
+use config::{Commands, Role};
 use cursive::{Cursive};
-use libc::printf;
-use options::{OptType, Opt, Optionnable, OptStack};
+use options::{OptType, Opt, OptStack, Level};
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
 
@@ -19,14 +19,14 @@ pub enum ActorType {
     Group,
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct RoleManager {
-    roles: config::Roles,
+    pub roles: config::Roles,
     selected_role: Option<usize>,
     selected_commands: Option<usize>,
     selected_command: Option<usize>,
-    selected_group: Option<usize>,
-    selected_option: Option<OptType>,
+    selected_groups: Option<usize>,
+    selected_options: Option<OptType>,
     
 }
 
@@ -35,19 +35,19 @@ pub struct RoleManagerApp {
     state: Box<dyn state::State>,
 }
 
-impl RoleManager {
 
-    pub fn new(roles : config::Roles) -> Self {
+impl RoleManager {
+    pub fn new(roles: config::Roles) -> RoleManager {
         RoleManager {
             roles,
             selected_role: None,
             selected_commands: None,
             selected_command: None,
-            selected_group: None,
-            selected_option: None,
+            selected_groups: None,
+            selected_options: None,
         }
     }
-
+    
     fn assert_selected_role(&self) {
         if self.selected_role.is_none() {
             panic!("No role selected");
@@ -67,136 +67,248 @@ impl RoleManager {
     }
 
     fn assert_selected_group(&self) {
-        if self.selected_group.is_none() {
+        if self.selected_groups.is_none() {
             panic!("No group selected");
         }
     }
 
-    pub fn selected_group(&self) -> Option<config::Groups> {
-        self.assert_selected_role();
-        if self.selected_group.is_none() {
-            return None;
+    pub fn list_roles(&self) {
+        println!("Roles:");
+        for (i, r) in self.roles.roles.iter().enumerate() {
+            println!("{}: {} ({})", i, r.as_ref().borrow().name, r.as_ref().borrow().priority.unwrap_or(-1));
         }
-        Some(self.selected_role().unwrap().get_groups(self.selected_group.unwrap()))
     }
 
-    pub fn replace_group(&mut self, group : Vec<String>) {
-        self.assert_selected_group();
-        self.selected_role().unwrap().set_groups(self.selected_group.unwrap(), group)
-    }
-
-    pub fn selected_command_group(&self) -> Option<config::Commands> {
-        self.selected_commands.and(Some(self.selected_role().unwrap().get_commands(self.selected_commands.unwrap())))
-    }
-
-    pub fn selected_command_group_mut(&mut self) -> Option<*mut config::Commands> {
-        self.selected_commands.and(Some(self.selected_role().unwrap().get_commands_mut(self.selected_commands.unwrap())))
-    }
-
-    pub fn selected_command_group_index(&self) -> usize {
-        self.assert_selected_commands();
-        self.selected_commands.unwrap()
-    }
-
-    pub fn selected_role(&self) -> Option<config::Role> {
-        if let Some(selected_role) = self.selected_role {
-            Some(self.roles().get_role(selected_role))
+    pub fn select_role(&mut self, role_index: usize) -> Result<(), &'static str> {
+        let len = self.roles.roles.len();
+        if role_index > len - 1 {
+            return Err("role not exist");
         } else {
-            None
+            self.selected_role = Some(role_index);
+            return Ok(());
         }
     }
 
-    pub fn selected_command(&self) -> Option<String> {
-        if let Some(selected_command) = self.selected_command {
-            Some(self.selected_command_group().unwrap().get_command(selected_command).to_string())
-        } else {
-            None
-        }
-    }
-
-    pub fn selected_options(&self) -> Option<Rc<RefCell<Opt>>> {
-        if let Some(selected_command_block) = self.selected_commands {
-            self.selected_command_group().unwrap().get_options()
-        } else if let Some(selected_role) = self.selected_role {
-            self.selected_role().unwrap().get_options()
-        } else {
-            self.roles().get_options()
-        }
-    }
-
-    pub fn get_optstack(&self) -> OptStack {
-        if let Some(selected_command_block) = self.selected_commands {
-            OptStack::from_commands(&self.roles(), &self.selected_role().unwrap(), &self.selected_command_group().unwrap())
-        } else if let Some(selected_role) = self.selected_role {
-            OptStack::from_role(&self.roles(), &self.selected_role().unwrap())
-        } else {
-            OptStack::from_roles(&self.roles())
-        }
-    }
-
-    pub fn selected_option(&self) -> Option<OptType> {
-        self.selected_option.clone()
-    }
-
-    pub fn selected_command_index(&self) -> Option<usize> {
-        self.assert_selected_command();
-        self.selected_command
-    }
-
-    pub fn roles(&self) -> config::Roles {
-        self.roles.clone()
-    }
-
-    pub fn delete_selected_role(&mut self) {
-        self.assert_selected_role();
-        self.roles.remove_role(self.selected_role.unwrap());
-        self.unset_selected_role();
-    }
-
-    pub fn delete_selected_commands_block(&mut self) {
-        self.assert_selected_commands();
-        self.selected_role().unwrap().remove_command_block(self.selected_commands.unwrap());
-    }
-
-    pub fn set_selected_role(&mut self, selected_role: usize) {
-        self.selected_role.replace(selected_role);
-        self.selected_commands = None;
-        self.selected_command = None;
-    }
-
-    pub fn unset_selected_role(&mut self) {
+    pub fn unselected_role(&mut self) {
         self.selected_role = None;
-        self.unset_selected_command_group()
+        self.unselect_commands();
+        self.unselect_groups();
+        self.unselect_options();
     }
 
-    pub fn set_selected_command_group(&mut self, selected_commands: usize) {
-        self.assert_selected_role();
-        self.selected_commands.replace(selected_commands);
-        self.selected_command = None;
+    pub fn select_commands(&mut self, command_index: usize) -> Result<(), &'static str> {
+        let len = self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().commands.len();
+        if command_index > len - 1 {
+            return Err("command not exist");
+        } else {
+            self.selected_commands = Some(command_index);
+            return Ok(());
+        }
     }
 
-    pub fn unset_selected_command_group(&mut self) {
+    pub fn unselect_commands(&mut self) {
         self.selected_commands = None;
-        self.unset_selected_command()
+        self.unselect_command();
+        self.unselect_options();
     }
 
-    pub fn set_selected_command(&mut self, selected_command: usize) {
-        self.assert_selected_role();
-        self.assert_selected_commands();
-        self.selected_command.replace(selected_command);
+    pub fn select_command(&mut self, command_index: usize) -> Result<(), &'static str> {
+        let len = self
+            .roles
+            .roles[self.selected_role.unwrap()].as_ref().borrow()
+            .commands[self.selected_commands.unwrap()].borrow()
+            .commands
+            .len();
+        if command_index > len - 1 {
+            return Err("command not exist");
+        } else {
+            self.selected_command = Some(command_index);
+            return Ok(());
+        }
     }
 
-    pub fn unset_selected_command(&mut self) {
+    pub fn unselect_command(&mut self) {
         self.selected_command = None;
     }
 
-    pub fn set_selected_group(&mut self, selected_group: usize) {
-        self.assert_selected_role();
-        self.selected_group.replace(selected_group);
+    pub fn select_groups(&mut self, group_index: usize) -> Result<(), &'static str> {
+        let len = self
+            .roles
+            .roles[self.selected_role.unwrap()].as_ref().borrow()
+            .groups
+            .len();
+        if group_index > len - 1 {
+            return Err("groups not exist");
+        } else {
+            self.selected_groups = Some(group_index);
+            return Ok(());
+        }
     }
 
-    pub fn unset_selected_group(&mut self) {
-        self.selected_group = None;
+    pub fn unselect_groups(&mut self) {
+        self.selected_groups = None;
+    }
+
+    pub fn select_options(&mut self, option_type: OptType) -> Result<(), &'static str> {
+        self.selected_options = Some(option_type);
+        return Ok(());
+    }
+
+    pub fn unselect_options(&mut self) {
+        self.selected_options = None;
+    }
+
+    pub fn delete_role(&mut self) {
+        self.roles.roles.remove(self.selected_role.unwrap());
+    }
+
+    pub fn add_group(&mut self, group: Vec<String>) -> Result<(), &'static str> {
+        if self.selected_role.is_some() {
+            self.roles
+                .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
+                .groups
+                .push(group);
+            return Ok(());
+        } else {
+            return Err("no role selected");
+        }
+    }
+
+    pub fn add_option(&mut self, level : Level, option: Opt) {
+        match level {
+            Level::Global => {
+                self.roles.options = Some(Rc::new(option.into()));
+            }
+            Level::Role => {
+                match self.selected_role {
+                    Some(i) => {
+                        self.roles
+                            .roles[i].as_ref().borrow_mut()
+                            .options = Some(Rc::new(option.into()));
+                    }
+                    None => {
+                        println!("no role selected");
+                    }
+                }
+            }
+            Level::Commands => {
+                match self.selected_commands {
+                    Some(i) => {
+                        self.roles
+                            .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
+                            .commands[i]
+                            .as_ref().borrow_mut()
+                            .options = Some(Rc::new(option.into()));
+                    }
+                    None => {
+                        println!("no command selected");
+                    }
+                }
+            }
+            _ => {
+                println!("unimplemented level");
+            }
+        }
+    }
+
+    pub fn get_role(&self) -> Option<Rc<RefCell<Role>>> {
+        match self.selected_role {
+            Some(i) => {
+                return Some(self.roles.roles[i].clone());
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
+    pub fn get_commands(&self) -> Option<Rc<RefCell<Commands>>> {
+        match self.selected_commands {
+            Some(i) => {
+                return Some(self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().commands[i].clone());
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
+    pub fn get_commands_name(&self) -> Option<String> {
+        match self.selected_commands {
+            Some(i) => {
+                if let Some(id) =  self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().commands[i].borrow().id.clone() {
+                    return Some(id);
+                } else {
+                    return Some(format!("Block #{}", i));
+                }
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
+    pub fn get_commands_index(&self) -> Option<usize> {
+        return self.selected_commands;
+    }
+
+    pub fn get_command(&self) -> Option<String> {
+        match self.selected_command {
+            Some(i) => {
+                return Some(self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().commands[self.selected_commands.unwrap()].borrow().commands[i].clone());
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
+    pub fn set_command(&mut self, command: String) -> Result<(), &'static str> {
+        match self.selected_command {
+            Some(i) => {
+                self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().commands[self.selected_commands.unwrap()].borrow_mut().commands[i] = command;
+                return Ok(());
+            }
+            None => {
+                return Err("no command selected");
+            }
+        }
+    }
+
+    pub fn get_group(&self) -> Option<Vec<String>> {
+        match self.selected_groups {
+            Some(i) => {
+                return Some(self.roles.roles[self.selected_role.unwrap()].as_ref().borrow().groups[i].clone());
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
+    pub fn set_group(&mut self, group: Vec<String>) -> Result<(), &'static str> {
+        match self.selected_groups {
+            Some(i) => {
+                self.roles.roles[self.selected_role.unwrap()].as_ref().borrow_mut().groups[i] = group;
+                return Ok(());
+            }
+            None => {
+                return Err("no group selected");
+            }
+        }
+    }
+
+/**
+* Return a OptStack that contains Opt in function of selections
+*/
+    pub fn get_options(&self) -> OptStack  {
+        if self.selected_commands.is_some() {
+            OptStack::from_commands(&self.roles, &self.selected_role.unwrap(), &self.selected_commands.unwrap())
+        } else if self.selected_role.is_some() {
+            OptStack::from_role(&self.roles, &self.selected_role.unwrap())
+        } else {
+            OptStack::from_roles(&self.roles)
+        }
     }
 }
 
@@ -213,17 +325,19 @@ fn main(){
         .expect("setting default subscriber failed");
 
     let roles = config::load_roles().expect("Failed to load roles");
-    let rc_role_manager = Rc::new(RefCell::new(RoleManager::new(roles)));
+    let mut rc_role_manager = RoleManager::new(roles);
     let mut siv = cursive::default();
     //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
     //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
-    let app = RoleManagerApp {
-        manager: rc_role_manager.as_ref().borrow().clone(),
-        state : Box::new(SelectRoleState), 
-    };
+    
     
 
-    siv.add_layer(SelectRoleState.init(&mut rc_role_manager.as_ref().borrow_mut()));
+    siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
+
+    let app = RoleManagerApp {
+        manager: rc_role_manager,
+        state : Box::new(SelectRoleState), 
+    };
     
     siv.set_user_data(app);
     siv.run();

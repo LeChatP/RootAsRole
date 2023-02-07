@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 
 use cursive::{views::{EditView, Dialog}, view::Nameable};
 
@@ -9,14 +9,14 @@ use super::{State, PushableItemState, DeletableItemState, ExecuteType, Input, ex
 
 #[derive(Clone)]
 pub struct InputState<T> where T : State + PushableItemState<String> + 'static + Clone {
-    previous_state : RefCell<T>,
+    previous_state : T,
     title : String,
     content : Option<String>,
 }
 
 #[derive(Clone)]
 pub struct ConfirmState<T> where T : State + DeletableItemState + 'static {
-    previous_state : RefCell<T>,
+    previous_state : T,
     title : String,
     index : usize,
 }
@@ -24,7 +24,7 @@ pub struct ConfirmState<T> where T : State + DeletableItemState + 'static {
 impl<T> InputState<T> where T : State + PushableItemState<String> + 'static + Clone {
     pub fn new(previous_state : Box<T>, title : &str, content : Option<String>) -> Self {
         InputState {
-            previous_state :RefCell::new(*previous_state),
+            previous_state :*previous_state,
             title : title.to_owned(),
             content,
         }
@@ -36,13 +36,13 @@ impl<T> State for InputState<T> where T : State + PushableItemState<String> + Cl
     fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{self}
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{self}
     fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        Box::new(self.previous_state.borrow().clone())
+        Box::new(self.previous_state.clone())
     }
     fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{self}
     fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{self}
-    fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
-        self.previous_state.borrow_mut().push(manager,input.as_string());
-        Box::new(self.previous_state.borrow().clone())
+    fn input(mut self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
+        self.previous_state.push(manager,input.as_string());
+        Box::new(self.previous_state.clone())
     }
     fn render(&self, manager : &mut crate::RoleManager, cursive : &mut cursive::Cursive) {
         let mut input = EditView::new();
@@ -66,11 +66,12 @@ impl<T> State for ConfirmState<T> where T : State + DeletableItemState + Clone +
     fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{self}
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{self}
     fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        Box::new(self.previous_state.borrow().clone())
+        Box::new(self.previous_state.clone())
     }
-    fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        self.previous_state.borrow_mut().remove_selected(manager, self.index);
-        Box::new(self.previous_state.borrow().clone())
+    fn confirm(mut self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
+        self.previous_state.remove_selected(manager, self.index);
+        println!("{:?}",manager);
+        Box::new(self.previous_state.clone())
     }
     fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{self}
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{self}
@@ -89,7 +90,7 @@ impl<T> State for ConfirmState<T> where T : State + DeletableItemState + Clone +
 impl<T> ConfirmState<T> where T : State + DeletableItemState {
     pub fn new(previous_state : Box<T>, title : &str, index : usize) -> Self {
         ConfirmState {
-            previous_state :RefCell::new(*previous_state),
+            previous_state :*previous_state,
             title : title.to_owned(),
             index,
         }

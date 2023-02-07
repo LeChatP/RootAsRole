@@ -1,4 +1,4 @@
-use std::{ffi::CStr, cell::RefCell};
+use std::{ffi::CStr, cell::Cell, borrow::BorrowMut};
 
 use cursive::{views::{SelectView, Dialog, EditView}, Cursive, view::Nameable};
 use libc::{getgrent, setgrent, endgrent, setpwent, getpwent, endpwent};
@@ -11,7 +11,7 @@ use super::{State, role::EditRoleState, Input, ExecuteType, execute, common::{In
 #[derive(Clone)]
 pub struct SelectUserState{
     checklist : bool,
-    uid_list : RefCell<Vec<String>>,
+    uid_list : Vec<String>,
 }
 
 
@@ -25,7 +25,7 @@ impl SelectUserState {
         if let Some(selected) = selected {
             for user in selected {
                 if !users.contains(&user) {
-                    users.push(user);
+                    users.push(user.to_string());
                 }
             }
         }
@@ -35,7 +35,7 @@ impl SelectUserState {
     pub fn new(checklist : bool, selected : Option<Vec<String>>) -> Self {
         SelectUserState {
             checklist,
-            uid_list : RefCell::new(Self::complete_list(selected)),
+            uid_list : Self::complete_list(selected),
         }
     }
 }
@@ -46,7 +46,7 @@ pub struct SelectGroupState;
 #[derive(Clone)]
 
 pub struct EditGroupState<T> where T : State + 'static + Clone{
-    gid_list : RefCell<Vec<String>>,
+    gid_list : Vec<String>,
     previous_state : Box<T>,
 }
 
@@ -133,14 +133,14 @@ impl State for SelectUserState {
     }
 
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
-        let commands = manager.selected_role().unwrap().set_users(input.as_vec());
+        let commands = manager.get_role().unwrap().as_ref().borrow_mut().users = input.as_vec();
         Box::new(EditRoleState)
     }
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
         if self.checklist {
             let mut select = CheckListView::<String>::new().autojump();
-            add_actors(ActorType::User, &mut select, Some(manager.selected_role().unwrap().get_users_list().to_vec()));
+            add_actors(ActorType::User, &mut select, Some(manager.get_role().unwrap().as_ref().borrow().users.to_vec().iter().map(|x| x.to_string()).collect()));
             cursive.add_layer(
                 Dialog::around(select.with_name("users"))
                 .title("Select User")
@@ -183,7 +183,7 @@ impl State for SelectUserState {
 
 impl PushableItemState<String> for SelectUserState {
     fn push(&mut self, manager : &mut RoleManager, item : String) {
-        manager.selected_role().unwrap().add_user(item.as_str());
+        manager.get_role().unwrap().as_ref().borrow_mut().users.push(item);
     }
 }
 
@@ -197,8 +197,8 @@ impl State for SelectGroupState {
     }
 
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State> {
-        manager.set_selected_group(index);
-        Box::new(EditGroupState::<Self>::new(self, Some(manager.selected_group().unwrap())))
+        manager.select_groups(index);
+        Box::new(EditGroupState::<Self>::new(self, manager.get_group()))
     }
 
     fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
@@ -222,7 +222,7 @@ impl State for SelectGroupState {
         .on_submit(|s, item| {
             execute(s,ExecuteType::Submit( *item));
         });
-        for (index, group) in manager.selected_role().unwrap().get_groups_list().iter().enumerate() {
+        for (index, group) in manager.get_role().unwrap().as_ref().borrow().groups.iter().enumerate() {
             select.add_item(group.join(" & "),index);
         }
         cursive.add_layer(Dialog::around( select)
@@ -245,7 +245,7 @@ impl<T> EditGroupState<T> where T : State + Clone + 'static {
         if let Some(selected) = selected {
             for group in selected {
                 if !groups.contains(&group) {
-                    groups.push(group);
+                    groups.push(group.clone());
                 }
             }
         }
@@ -254,7 +254,7 @@ impl<T> EditGroupState<T> where T : State + Clone + 'static {
 
     pub fn new(previous_state: Box<T>, selected : Option<Vec<String>>) -> Self {
         EditGroupState {
-            gid_list : RefCell::new(Self::complete_list(selected)),
+            gid_list : Self::complete_list(selected),
             previous_state,
         }
     }
@@ -286,15 +286,15 @@ impl<T> State for EditGroupState<T> where T : State + Clone + 'static {
     }
 
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State> {
-        if manager.selected_group().is_some() {
-            manager.replace_group(input.as_vec());
+        if manager.get_group().is_some() {
+            manager.set_group(input.as_vec());
         }
         Box::new(SelectGroupState)
     }
 
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
         let mut select = CheckListView::<String>::new().autojump();
-        if let Some(group_list) = manager.selected_group() {
+        if let Some(group_list) = manager.get_group() {
             add_actors(ActorType::Group, &mut select, Some(group_list.to_vec()));
         } else {
             add_actors(ActorType::Group, &mut select, None);
@@ -324,8 +324,8 @@ impl<T> State for EditGroupState<T> where T : State + Clone + 'static {
 
 impl<T> PushableItemState<String> for EditGroupState<T> where T : State + Clone + 'static {
     fn push(&mut self, manager : &mut RoleManager, item : String) {
-        if !self.gid_list.borrow().contains(&item) {
-            self.gid_list.borrow_mut().push(item);
+        if !self.gid_list.contains(&item) {
+            self.gid_list.push(item);
         }
     }
 }
@@ -333,6 +333,6 @@ impl<T> PushableItemState<String> for EditGroupState<T> where T : State + Clone 
 impl<T> DeletableItemState for EditGroupState<T> where T : State + Clone + 'static {
 
     fn remove_selected(&mut self, manager : &mut RoleManager, index : usize) {
-        self.gid_list.borrow_mut().remove(index);
+        self.gid_list.remove(index);
     }
 }

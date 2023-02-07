@@ -50,13 +50,7 @@
 		<allow-bounding enforce="false" />
 	</options>
 	<roles>
-		<role name="uroot">
-			<user name="ROOTADMINISTRATOR" />
-			<commands capabilities="all" user="root" groups="root" >
-				<command>*</command>
-			</commands>
-		</role>
-		<role name="root" priority="1">
+		<role name="root">
 			<user name="ROOTADMINISTRATOR" />
 			<commands capabilities="all" user="root" groups="root">
 				<command>*</command>

@@ -1,11 +1,13 @@
 use cursive::{views::{SelectView, Dialog, TextView, LinearLayout, EditView}, view::{Scrollable, Nameable}, direction::Orientation, event::Key};
 
-use super::{State, Input, role::EditRoleState, options::SelectOptionState, ExecuteType, execute, actor::{SelectUserState, SelectGroupState}};
+use super::{State, Input, role::EditRoleState, options::SelectOptionState, ExecuteType, execute, actor::{SelectUserState, SelectGroupState}, DeletableItemState, common::ConfirmState};
 use crate::{RoleManager, Cursive, RoleManagerApp, capabilities::{self, Caps}, checklist::CheckListView, ActorType};
 
 
 pub struct SelectCommandBlockState;
 pub struct DeleteCommandBlockState;
+
+#[derive(Clone)]
 pub struct EditCommandBlockState;
 
 pub struct EditCapabilitiesState;
@@ -25,7 +27,7 @@ impl State for SelectCommandBlockState {
         self
     }
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{
-        manager.set_selected_command_group(index);
+        manager.select_commands(index);
         Box::new(EditCommandBlockState)
     }
     fn cancel(self: Box<Self>, _manager : &mut RoleManager) -> Box<dyn State>{
@@ -44,9 +46,9 @@ impl State for SelectCommandBlockState {
         let mut select = SelectView::new().on_submit(|s,item|{
             execute(s,ExecuteType::Submit(*item));
         });
-        manager.selected_role().unwrap().get_commands_list().iter().enumerate().for_each(|(index, commands)| {
-            if commands.has_id() {
-                select.add_item(commands.get_id(), index);
+        manager.get_role().unwrap().as_ref().borrow().commands.iter().enumerate().for_each(|(index, commands)| {
+            if commands.borrow().id.is_some() {
+                select.add_item(commands.borrow().id.clone().unwrap(), index);
             } else {
                 select.add_item(format!("Block #{}",index), index);
             }
@@ -76,7 +78,7 @@ impl State for DeleteCommandBlockState {
         Box::new(SelectCommandBlockState)
     }
     fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        manager.delete_selected_commands_block();
+        manager.get_role().unwrap().as_ref().borrow_mut().commands.remove(manager.get_commands_index().unwrap());
         Box::new(SelectCommandBlockState)
     }
     fn config(self: Box<Self>, _manager : &mut RoleManager) -> Box<dyn State>{
@@ -86,12 +88,8 @@ impl State for DeleteCommandBlockState {
         self
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        let command_block = manager.selected_command_group().unwrap();
-        let name = if command_block.has_id() {
-            command_block.get_id().to_string()
-        } else {
-            format!("Block #{}", manager.selected_command_group_index()).to_string()
-        };
+        let command_block = manager.get_commands().unwrap();
+        let name = manager.get_commands_name().unwrap();
         cursive.add_layer(Dialog::around( TextView::new(format!("Are you sure you want to delete {} ?", name)))
             .title("Confirm delete command block")
             .button("Yes",  move|s| {
@@ -117,11 +115,11 @@ impl State for EditCommandBlockState {
         Box::new(EditCommandState)
     }
     fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{
-        manager.set_selected_command(index);
-        Box::new(DeleteCommandState)
+        manager.select_command(index);
+        Box::new(ConfirmState::new(self, &format!("Are you sure to delete {} ?", manager.get_commands_name().unwrap()), index))
     }
     fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{
-        manager.set_selected_command(index);
+        manager.select_command(index);
         Box::new(EditCommandState)
     }
     fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
@@ -148,17 +146,13 @@ impl State for EditCommandBlockState {
         }
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive) {
-        let command_block = manager.selected_command_group().unwrap();
-        let name = if command_block.has_id() {
-            command_block.get_id().to_string()
-        } else {
-            format!("Block #{}", manager.selected_command_group_index()).to_string()
-        };
+        let command_block = manager.get_commands().unwrap();
+        let name = manager.get_commands_name().unwrap();
         let mut select = SelectView::new().on_submit(|s,item|{
             execute(s,ExecuteType::Submit(*item));
         });
-        command_block.get_commands_list().iter().enumerate().for_each(|(index, e)| {
-            select.add_item(e, index);
+        command_block.as_ref().borrow().commands.iter().enumerate().for_each(|(index, e)| {
+            select.add_item(e.to_string(), index);
         });
         cursive.set_global_callback(Key::Del, move |s| {
             let sel = s.find_name::<SelectView<usize>>("select").unwrap().selection().unwrap();
@@ -208,7 +202,7 @@ impl State for EditCapabilitiesState {
         self
     }
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
-        manager.selected_command_group().unwrap().set_capabilities(input.as_caps());
+        manager.get_commands().unwrap().as_ref().borrow_mut().capabilities = Some(input.as_caps());
         Box::new(SelectCommandBlockState)
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive){
@@ -219,7 +213,7 @@ impl State for EditCapabilitiesState {
                 info.set_content(item.1);
             }
         });
-    let selected = manager.selected_command_group().unwrap().get_capabilities();
+    let selected = manager.get_commands().unwrap().as_ref().borrow().capabilities.clone().unwrap_or(Caps::V2(0));
     let mut pos = 0;
     for capability in capabilities::POSITIONS {
         select.add_item(capability.0.clone(), selected.clone() & (1 << pos) != 0.into(), capability);
@@ -264,17 +258,17 @@ impl State for EditCommandState {
         self
     }
     fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
-        if manager.selected_command_index().is_some() {
-            manager.selected_command_group().unwrap().set_command(manager.selected_command_index().unwrap(), &input.as_string());
+        if manager.get_command().is_some() {
+            manager.set_command(input.as_string());
         } else {
-            manager.selected_command_group().unwrap().add_command(&input.as_string());
+            manager.get_commands().unwrap().as_ref().borrow_mut().commands.push(input.as_string());
         }
         Box::new(EditCommandBlockState)
     }
     fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive){
         let mut edit = EditView::new();
-        if manager.selected_command().is_some() {
-            edit.set_content(manager.selected_command().unwrap());
+        if manager.get_command().is_some() {
+            edit.set_content(manager.get_command().unwrap());
         }
         cursive.add_layer(Dialog::around(edit.with_name("edit"))
         .title("Edit command")
@@ -288,37 +282,10 @@ impl State for EditCommandState {
     }
 }
 
-impl State for DeleteCommandState {
-    fn create(self: Box<Self>, _manager : &mut RoleManager) -> Box<dyn State>{
-        self
-    }
-    fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{
-        self
-    }
-    fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>{
-        self
-    }
-    fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        Box::new(EditCommandBlockState)
-    }
-    fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>{
-        Box::new(EditCommandBlockState)
-    }
-    fn config(self: Box<Self>, _manager : &mut RoleManager) -> Box<dyn State>{
-        self
-    }
-    fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>{
-        self
-    }
-    fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive){
-        let text = format!("Are you sure to delete {}?", manager.selected_command().unwrap());
-        cursive.add_layer(Dialog::around(TextView::new(text))
-        .title("Delete command")
-        .button("Yes",  move|s| {
-            execute(s,ExecuteType::Confirm);
-        })
-        .button("No",  move|s| {
-            execute(s,ExecuteType::Cancel);
-        }));
+impl DeletableItemState for EditCommandBlockState {
+    fn remove_selected(&mut self, manager : &mut RoleManager, index : usize) {
+        manager.get_commands().unwrap().as_ref().borrow_mut().commands.remove(index);
+        println!("Commands {:?}", manager.get_commands().unwrap());
+        
     }
 }

@@ -1,5 +1,5 @@
 
-use std::{fs::{File, self}, io::{Read, self, Write}, ops::{Index}, rc::Rc, cell::{RefCell, Cell}, os::fd::AsRawFd };
+use std::{fs::{File, self}, io::{Read, self, Write}, ops::{Index}, cell::{Cell, RefCell}, os::fd::AsRawFd, borrow::{Borrow, BorrowMut}, rc::Rc };
 
 use sxd_document::{dom::{Document, Element}, Package, parser, writer::Writer };
 use sxd_xpath::{Factory, Context, Value};
@@ -7,7 +7,7 @@ use tracing::warn;
 
 use libc::{ioctl, c_int, c_ulong};
 
-use crate::{capabilities::Caps, options::{Opt, Level, Optionnable}, version::{PACKAGE_VERSION, DTD}};
+use crate::{capabilities::Caps, options::{Opt, Level}, version::{PACKAGE_VERSION, DTD}};
 
 pub type Groups= Vec<String>;
 const FS_IOC_GETFLAGS: c_ulong = 0x80086601;
@@ -16,31 +16,29 @@ const FS_IMMUTABLE_FL: c_int = 0x00000010;
 
 #[derive(Clone,Debug)]
 pub struct Commands{
-    id: Option<String>,
-    options: Option<Rc<RefCell<Opt>>>,
-    commands: Vec<String>,
-    capabilities: Option<Caps>,
-    setuid: Option<String>,
-    setgid: Option<Groups>,
+    pub id: Option<String>,
+    pub options: Option<Rc<RefCell<Opt>>>,
+    pub commands: Vec<String>,
+    pub capabilities: Option<Caps>,
+    pub setuid: Option<String>,
+    pub setgid: Option<Groups>,
 }
 
-
-
-#[derive(Clone,Debug)]
+#[derive(Debug)]
 pub struct Role{
-    name: String,
-    priority: Option<i32>,
-    users: Vec<String>,
-    groups: Vec<Groups>,
-    commands: Vec<Commands>,
-    options: Option<Rc<RefCell<Opt>>>,
+    pub name: String,
+    pub priority: Option<i32>,
+    pub users: Vec<String>,
+    pub groups: Vec<Groups>,
+    pub commands: Vec<Rc<RefCell<Commands>>>,
+    pub options: Option<Rc<RefCell<Opt>>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct Roles{
-    roles: Vec<Role>,
-    options: Option<Rc<RefCell<Opt>>>,
-    version: String,
+    pub roles: Vec<Rc<RefCell<Role>>>,
+    pub options: Option<Rc<RefCell<Opt>>>,
+    pub version: String,
 }
 
 impl Roles {
@@ -51,28 +49,8 @@ impl Roles {
             version: PACKAGE_VERSION.to_string(),
         }
     }
-    pub fn get_roles_list(&self) -> Vec<Role> {
-        self.roles.clone()
-    }
-    pub fn get_role(&self, index: usize) -> Role {
-        self.roles.index(index).clone()
-    }
-    pub fn get_role_mut(&mut self, index: usize) -> Role {
-        self.roles.index(index).clone()
-    }
-    pub fn add_role(&mut self, role: Role) {
-        self.roles.push(role.into());
-    }
-    pub fn remove_role(&mut self, index: usize) {
-        self.roles.remove(index);
-    }
-    pub fn get_version(&self) -> &str {
-        self.version.as_ref()
-    }
-    pub fn set_version(&mut self, version: &str) {
-        self.version = version.to_string();
-    }
 }
+
 
 impl Role {
     pub fn new() -> Role {
@@ -85,18 +63,6 @@ impl Role {
             priority: None.into(),
         }
     }
-    pub fn get_name(&self) -> &str {
-        self.name.as_ref()
-    }
-    pub fn set_name(&mut self, name: &str){
-        self.name = name.to_string().into();
-    }
-    pub fn set_priority(&mut self, priority: Option<i32>){
-        self.priority = priority;
-    }
-    pub fn get_priority(&self) -> Option<i32> {
-        self.priority
-    }
     pub fn get_users_info(&self) -> String {
         let mut users_info = String::new();
         users_info.push_str(&format!("Users:\n({})\n", self.users.join(", ")));
@@ -104,12 +70,12 @@ impl Role {
     }
     pub fn get_groups_info(&self) -> String {
         let mut groups_info = String::new();
-        groups_info.push_str(&format!("Groups:\n({})\n", self.get_groups_list().into_iter().map(|x| x.join(" & ").to_string()).collect::<Vec<String>>().join(")\n(")));
+        groups_info.push_str(&format!("Groups:\n({})\n", self.groups.clone().into_iter().map(|x| x.join(" & ").to_string()).collect::<Vec<String>>().join(")\n(")));
         groups_info
     }
     pub fn get_commands_info(&self) -> String {
         let mut commands_info = String::new();
-        commands_info.push_str(&format!("Commands:\n{}", self.get_commands_list().into_iter().map(|x| x.get_commands_list().join("\n")).collect::<Vec<String>>().join("\n")));
+        commands_info.push_str(&format!("Commands:\n{}", self.commands.clone().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
         commands_info
     }
     pub fn get_description(&self) -> String {
@@ -118,49 +84,6 @@ impl Role {
         description.push_str(&self.get_groups_info());
         description.push_str(&self.get_commands_info());
         description
-        
-    }
-    pub fn get_users_list(&self) -> &Vec<String> {
-        self.users.as_ref()
-    }
-    pub fn get_user(&self, position : usize) -> &str {
-        self.users[position].as_ref()
-    }
-    pub fn set_users(&mut self, users : Vec<String>) {
-        self.users = users;
-    }
-    pub fn remove_user(&mut self, position : usize) {
-        self.users.remove(position);
-    }
-    pub fn remove_command_block(&mut self, position : usize) {
-        self.commands.remove(position);
-    }
-    pub fn add_user(&mut self, user: &str){
-        self.users.push(user.to_string());
-    }
-    pub fn get_groups_list(&self) -> Vec<Groups> {
-        self.groups.clone()
-    }
-    pub fn get_groups(&self, position : usize) -> Groups {
-        self.groups[position].clone()
-    }
-    pub fn set_groups(&mut self, position : usize, group: Vec<String>) {
-        self.groups[position] = group
-    }
-    pub fn add_groups(&mut self, group: Vec<String>) {
-        self.groups.push(group);
-    }
-    pub fn get_commands_list(&self) -> Vec<Commands> {
-        self.commands.clone()
-    }
-    pub fn get_commands(&self, position : usize) -> Commands {
-        self.commands[position].clone()
-    }
-    pub fn get_commands_mut(&mut self, position : usize) -> *mut Commands {
-        &mut self.commands[position]
-    }
-    pub fn add_commands(&mut self, commands : Commands) {
-        self.commands.push(commands);
     }
 }
 
@@ -175,49 +98,19 @@ impl Commands {
             setgid: None.into(),
         }
     }
-    pub fn has_id(&self) -> bool {
-        self.id.is_some()
-    }
-    pub fn get_id(&self) -> &str {
-        self.id.as_ref().expect("no id specified").as_ref()
-    }
-    pub fn get_commands_list(&self) -> &Vec<String> {
-        self.commands.as_ref()
-    }
-    pub fn get_mut_commands_list(&mut self) -> &mut Vec<String> {
-        self.commands.as_mut()
-    }
-    pub fn get_command(&self, position : usize) -> &str {
-        self.commands[position].as_ref()
-    }
-    pub fn set_command(&mut self, position : usize, command : &str) {
-        self.commands[position] = command.to_string();
-    }
-    pub fn add_command(&mut self, command : &str) {
-        self.commands.push(command.to_string());
-    }
-    pub fn has_capabilities(&self) -> bool {
-        self.capabilities.is_some()
-    }
-    pub fn get_capabilities(&self) -> Caps {
-        self.capabilities.clone().unwrap_or(0.into())
-    }
-    pub fn set_capabilities(&mut self, caps: Caps) {
-        self.capabilities = Some(caps);
-    }
 }
 
 impl ToString for Commands {
     fn to_string(&self) -> String {
         let mut commands = String::from("<commands ");
-        if self.has_id() {
-            commands.push_str(&format!("id=\"{}\" ", self.get_id()));
+        if self.id.is_some() {
+            commands.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
         }
-        if self.has_capabilities() {
-            commands.push_str(&format!("capabilities=\"{}\" ", self.get_capabilities().to_string().to_lowercase()));
+        if self.capabilities.is_some() {
+            commands.push_str(&format!("capabilities=\"{}\" ", self.capabilities.clone().unwrap().to_string().to_lowercase()));
         }
         commands.push_str(">");
-        commands.push_str(&self.get_commands_list().into_iter().map(|x| format!("<command>{}</command>", x)).collect::<Vec<String>>().join(""));
+        commands.push_str(&self.commands.clone().into_iter().map(|x| format!("<command>{}</command>", x)).collect::<Vec<String>>().join(""));
         commands.push_str("</commands>");
         commands
     }
@@ -226,14 +119,14 @@ impl ToString for Commands {
 impl ToString for Role {
     fn to_string(&self) -> String {
         let mut role = String::from("<role ");
-        role.push_str(&format!("name=\"{}\" ", self.get_name()));
-        if self.get_priority().is_some() {
-            role.push_str(&format!("priority=\"{}\" ", self.get_priority().unwrap()));
+        role.push_str(&format!("name=\"{}\" ", self.name));
+        if self.priority.is_some() {
+            role.push_str(&format!("priority=\"{}\" ", self.priority.unwrap()));
         }
         role.push_str(">");
-        role.push_str(&self.get_users_list().into_iter().map(|x| format!("<user name=\"{}\"/>", x)).collect::<Vec<String>>().join(""));
-        role.push_str(&self.get_groups_list().into_iter().map(|x| format!("<groups names=\"{}\"/>", x.join(","))).collect::<Vec<String>>().join(""));
-        role.push_str(&self.get_commands_list().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join(""));
+        role.push_str(&self.users.clone().into_iter().map(|x| format!("<user name=\"{}\"/>", x)).collect::<Vec<String>>().join(""));
+        role.push_str(&self.groups.clone().into_iter().map(|x| format!("<groups names=\"{}\"/>", x.join(","))).collect::<Vec<String>>().join(""));
+        role.push_str(&self.commands.clone().into_iter().map(|x| x.as_ref().borrow().to_string()).collect::<Vec<String>>().join(""));
         role.push_str("</role>");
         role
     }
@@ -243,12 +136,12 @@ impl ToString for Roles {
     fn to_string(&self) -> String {
         
         let mut roles = String::from("<rootasrole ");
-        roles.push_str(&format!("version=\"{}\">", self.get_version()));
-        if let Some(options) = self.get_options() {
-            roles.push_str(&format!("<options>{}</options>", options.borrow().to_string()));
+        roles.push_str(&format!("version=\"{}\">", self.version));
+        if let Some(options) = self.options.clone() {
+            roles.push_str(&format!("<options>{}</options>", options.as_ref().borrow().to_string()));
         }
         roles.push_str("<roles>");
-        roles.push_str(&self.get_roles_list().into_iter().map(|x| x.to_string()).collect::<Vec<String>>().join(""));
+        roles.push_str(&self.roles.iter().map(|x| x.as_ref().borrow().to_string()).collect::<Vec<String>>().join(""));
         roles.push_str("</roles></rootasrole>");
         roles
     }
@@ -269,41 +162,6 @@ impl AsRef<Role> for Role {
 impl AsRef<Roles> for Roles {
     fn as_ref(&self) -> &Roles{
         self
-    }
-}
-
-impl Optionnable for Commands {
-    fn has_options(&self) -> bool {
-        self.options.is_some()
-    }
-    fn get_options(&self) -> Option<Rc<RefCell<Opt>>> {
-        self.options.clone()
-    }
-    fn set_options(&mut self, opt: Option<Rc<RefCell<Opt>>>) {
-        self.options = opt;
-    }
-}
-impl Optionnable for Role {
-    fn has_options(&self) -> bool {
-        self.options.is_some()
-    }
-    fn get_options(&self) -> Option<Rc<RefCell<Opt>>> {
-        self.options.clone()
-    }
-    fn set_options(&mut self, opt: Option<Rc<RefCell<Opt>>>) {
-        self.options = opt;
-    }
-}
-
-impl Optionnable for Roles {
-    fn has_options(&self) -> bool {
-        self.options.is_some()
-    }
-    fn get_options(&self) -> Option<Rc<RefCell<Opt>>> {
-        self.options.clone()
-    }
-    fn set_options(&mut self, opt: Option<Rc<RefCell<Opt>>>) {
-        self.options = opt;
     }
 }
 
@@ -342,8 +200,8 @@ fn is_enforced(node : Element) -> bool {
     (enforce.is_some() && enforce.expect("Unable to retrieve enforce attribute").value() == "true") || enforce.is_none()
 }
 
-fn get_options(level: Level, node : Element) -> Rc<RefCell<Opt>> {
-    let rc_options = Rc::new(RefCell::new(Opt::new(level)));
+fn get_options(level: Level, node : Element) -> Opt {
+    let mut rc_options = Opt::new(level);
     
     for child in node.children() {
         let mut options = rc_options.borrow_mut();
@@ -381,9 +239,9 @@ fn get_commands(node : Element) -> Commands {
         if let Some(elem) = child.element(){
             println!("{}", elem.name().local_part());
             match elem.name().local_part() {
-                "command" => commands.commands.push(elem.children().first().expect("Unable to get text from command").text().map(|f| f.text().to_string()).unwrap_or("".to_string())),
+                "command" => commands.commands.push(elem.children().first().expect("Unable to get text from command").text().map(|f| f.text().to_string()).unwrap_or("".to_string()).into()),
                 "options" => {
-                    commands.set_options(get_options(Level::Commands,elem).into());
+                    commands.options = Some(Rc::new(get_options(Level::Commands,elem).into()));
                 },
                 _ => warn!("Unknown element: {}", elem.name().local_part()),
             }
@@ -407,10 +265,10 @@ fn get_role(element : Element) -> Role {
     for child in element.children() {
         if let Some(element) = child.element(){
             match element.name().local_part() {
-                "user" => role.users.push(element.attribute_value("name").expect("Unable to retrieve user name").to_string()),
-                "group" => role.groups.push(get_groups(element)),
-                "commands" => role.commands.push(get_commands(element)),
-                "options" => role.options = Some(get_options(Level::Role, element)).into(),
+                "user" => role.users.push(element.attribute_value("name").expect("Unable to retrieve user name").to_string().into()),
+                "group" => role.groups.push(get_groups(element).into()),
+                "commands" => role.commands.push(Rc::new(get_commands(element).into())),
+                "options" => role.options = Some(Rc::new(get_options(Level::Role, element).into())).into(),
                 _ => warn!("Unknown element: {}", child.element().expect("Unable to convert unknown to element").name().local_part()),
             }
         }
@@ -453,13 +311,13 @@ pub fn load_roles() -> Option<Roles> {
                             for role in element.children() {
                                 if let Some(element) = role.element(){
                                     if element.name().local_part() == "role" {
-                                        rc_roles.add_role(get_role(element).into());
+                                        rc_roles.roles.push(Rc::new(get_role(element).into()));
                                     }
                                 }
                             }
                         }
                         if element.name().local_part() == "options" {
-                            rc_roles.set_options(get_options(Level::Global, element).into());
+                            rc_roles.options = Some(Rc::new(get_options(Level::Global, element).into()));
                         }
                     }
                 }

@@ -108,7 +108,7 @@ impl From<&str> for Caps {
             if cap.to_uppercase().cmp(&"ALL".to_string())==Ordering::Equal {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.cmp(&String::from(cap))==Ordering::Equal) {
+            if let Some(index) = names.iter().position(|x| x.cmp(&cap.to_string())==Ordering::Equal) {
                 caps |= 1 << index;
             }
         }
@@ -163,7 +163,7 @@ impl ToString for Caps {
                 caps.push_str(&format!("CAP_{}",name));
             }
         }
-        caps
+        caps.to_lowercase()
     }
 }
 
