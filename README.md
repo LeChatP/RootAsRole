@@ -1,4 +1,8 @@
-# RootAsRole (V2.3) : a secure alternative to sudo/su on Linux systems
+<p align="center">
+  <img src="./RootAsRole_stroke.svg">
+</p>
+
+# RootAsRole (V3.0) : a secure alternative to sudo/su on Linux systems
 
 
 
@@ -22,11 +26,24 @@ Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.
 Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
 
+## How do we solve conflicts ? More specific to less privileged
 
+In this tool, we tried to present a formal way to define least privilege. Thus to provide a set of rules to resolve conflicts between two potential roles and potential commands block
 
+We consider multiple sets :
 
+Command = { Wildcarded + Not Wildcarded | Wildcarded ∉ Not Wilcarded }
 
+Wildcarded(CMD) = { CMD ∈ /^.*\*.*$/ }
+Not Wildcarded(CMD) = { CMD ∈ /^[^*]+$/ }
 
+CMD(c) = 
+
+Wildcard(c) = { c ∈ /^[^;&|]$/ }
+
+Capabilities = { x ∈ /^CAP_.*$/ | 0 <  }
+
+Commands = 
 
 
 ## Tested Platforms
@@ -96,29 +113,7 @@ Anderson Hemlee : anderson.hemlee@protonmail.com
 
 Romain Laborde : laborde@irit.fr
 
-## Limitations
 
-1. we handle the arguments of commands in a very basic way. In fact, when an administrator limits the use of a role to a command with a list of arguments, the user must provide exactly the same commands with the list of arguments in the same order as they are defined in the capabilityRole.xml file. Handling the arguments of commands in more flexible way is a very complex task. Commands have different formats for arguments; the same argument may have different names;some arguments may take values, others not; values of arguments have different formats, etc.
-
-## To Do List
-
-1. Add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles.
-
-2. Find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use kprobe or to develop  LSM hooks.
-
-3. Give the possibility to all users and all groups to run programs with some privileges. For example, an administrator wants to authorise all users to use ping program. In this case, he can edit the capabilityRole.xml to define a role that has cap_net_raw. In the user and group nodes, the administrator can use the character * for representing the list of all users and groups. Users can then use sr to assume the role and run the ping program, but they don't need to authenticate themselves to assume the role.
-
-4. Today only root user can assume the role of other users. This is should be extended to give the possibility to any user who has the privileges cap_setuid, cap_setgid, cap_setfcap and cap_dac_override  to assume the roles of any user. This feature can be used for service management. Right now, even a user with root role can not assume the roles of other users because sr tool has two privileges in its extended attributes. According to capabilities calculation rules sr is considered as privileged file and it will not acquire as consequence the values of the shell's ambient. As consequence, it is important to build a new wrapper like sr_admin that doesn't have any privileges in its extended attributes. In this case, sr_admin will get a copy of its shell's ambient. So sr_admin will be able to have cap_setuid, cap_setgid, cap_setfcap and cap_dac_override when it is run by a shell that has these values in its ambient.  After that sr_admin should create a temporary file of sr tool, and then add the cap_setuid, cap_setgid and cap_dac_override in the extended attributes (permitted set) of the sr temporary file (sr has already cap_setfcap and setpcap) and makes an exec call to sr by passing at least the roles and user arguments. Optionally, sr_admin can pass also noroot and command arguments. Technically, sr_admin needs only cap_setfcap to be able to write the privileges in the sr temporary file but it should verify that user who runs it has cap_setuid, cap_setgid, cap_setfcap and cap_dac_override as sr tool will use these privileges when running the commands on behalf of other users. If the user's shell has these privileges in its effective set, sr_admin accept the request of the user to assume the roles of other users and it will write cap_setuid, cap_setgid and cap_dac_override in the extended attributes of sr temporary file, in addition to cap_setfcap and cap_setpcap that already exist in the extended attributes of sr temporary file.  A modification to sr code is also required to consider this feature that is reserved today to root user.
-
-5. Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
-
-6. Use YAML or JSON instead of XML to fix quotes and apos in same string problems
-
-7. Use Query language (XPath or other in JSON if To-Do #6) instead of sequential search of role
-
-8. Managing blacklist, whitelist and translating list for environnement variables. [inspirated by sudo environnement variables handling system](https://www.sudo.ws/repos/sudo/file/tip/plugins/sudoers/env.c)
-
-9. Find a way to automate creation of role, when command given that does not exist in roles. This must be done after enhancement of filter system for the capabilities on capable tool ([TODO #3 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)) , and also after the stack analysis of capable ([TODO #1 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)). And optionnaly after [TODO #2 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do).
 
 ## References
 

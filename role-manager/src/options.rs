@@ -220,7 +220,7 @@ impl Opt {
 
 #[derive(Debug)]
 pub struct OptStack {
-    pub(crate) stack : [Option<Rc<RefCell<Opt>>>;Level::Commands as usize + 1],
+    pub(crate) stack : [Option<Rc<RefCell<Opt>>>;5],
 }
 
 impl Default for OptStack {

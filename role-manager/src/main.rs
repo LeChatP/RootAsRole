@@ -1,12 +1,20 @@
+#[macro_use]
+extern crate pest_derive;
+extern crate pest;
+
 mod config;
 mod capabilities;
 mod checklist;
 mod options;
 mod version;
 mod state;
+mod cli;
+mod sudoers;
+
 
 use std::{rc::Rc, cell::RefCell};
 
+use cli::parse_args;
 use config::{Commands, Role};
 use cursive::{Cursive};
 use options::{OptType, Opt, OptStack, Level};
@@ -310,9 +318,15 @@ impl RoleManager {
             OptStack::from_roles(&self.roles)
         }
     }
+
+    pub fn saveall(&self) {
+        config::save_all(&self.roles);
+    }
 }
 
 fn main(){
+    parse_args();
+    return;
     // a builder for `FmtSubscriber`.
     let subscriber = FmtSubscriber::builder()
         // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)

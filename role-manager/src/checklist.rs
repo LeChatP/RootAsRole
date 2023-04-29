@@ -3,8 +3,8 @@ use cursive::{
     direction,
     event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent},
     menu,
-    theme::ColorStyle,
-    utils::markup::StyledString,
+    theme::{ColorStyle, Style},
+    utils::{markup::StyledString, span::SpannedStr},
     view::{CannotFocus, Position, View},
     views::{LayerPosition, MenuPopup},
     Cursive, Printer, Vec2, With, XY, impl_enabled, Rect,
@@ -459,15 +459,15 @@ impl<T: 'static> CheckListView<T> {
     fn draw_item(&self, printer: &Printer, i: usize) {
         let l = self.items[i].label.width()+4;
         let x = self.align.h.get_offset(l, printer.size.x);
-        printer.print_hline::<XY<usize>>((0, 0).into(), x, " ");
-        printer.print((0, 0), "[ ] ");
+        printer.print_hline::<XY<usize>>(XY::new(0, 0), x, " ");
+        printer.print(XY::new(0, 0), "[ ] ");
         if self.items[i].checked {
-            printer.print((1, 0), "X");
+            printer.print(XY::new(1, 0), "X");
         }
-        printer.print_styled::<XY<usize>>((x+4, 0).into(), (&self.items[i].label).into());
+        printer.print_styled::<XY<usize>>(XY::new(x+4, 0), SpannedStr::from(&self.items[i].label));
         if l < printer.size.x {
             assert!((l + x) <= printer.size.x);
-            printer.print_hline((x + l, 0), printer.size.x - (l + x), " ");
+            printer.print_hline(XY::new(x + l, 0), printer.size.x - (l + x), " ");
         }
         
     }
@@ -933,10 +933,10 @@ impl<T: 'static> View for CheckListView<T> {
 
             printer.with_color(style, |printer| {
                 // Prepare the entire background
-                printer.print_hline::<XY<usize>>((1, 0).into(), x, " ");
+                printer.print_hline::<XY<usize>>(XY::new(1, 0), x, " ");
                 // Draw the borders
-                printer.print::<XY<usize>>((0, 0).into(), "<");
-                printer.print::<XY<usize>>((x, 0).into(), ">");
+                printer.print::<XY<usize>>(XY::new(0, 0), "<");
+                printer.print::<XY<usize>>(XY::new(x, 0), ">");
 
                 if let Some(label) =
                     self.items.get(self.focus()).map(|item| &item.label)
@@ -945,7 +945,7 @@ impl<T: 'static> View for CheckListView<T> {
                     let offset =
                         HAlign::Center.get_offset(label.width(), x + 1);
 
-                    printer.print_styled((offset, 0), label.into());
+                    printer.print_styled(XY::new(offset, 0), SpannedStr::from(label));
                 }
             });
         } else {

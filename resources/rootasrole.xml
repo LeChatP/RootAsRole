@@ -2,71 +2,94 @@
 <!DOCTYPE rootasrole [
 	<!ELEMENT rootasrole (roles|options?)*>
 	<!ATTLIST rootasrole version CDATA #REQUIRED>
-	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?)*>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?)*>
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
 	<!ELEMENT allow-root EMPTY>
 	<!ATTLIST allow-root enforce (true|false) "false">
 	<!ELEMENT allow-bounding EMPTY>
 	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
 	<!ELEMENT path (#PCDATA|EMPTY)*>
 	<!ELEMENT roles (role*)>
-	<!ELEMENT role (user*|group*|commands*|options?)*>
-	<!ATTLIST role name ID #REQUIRED priority CDATA "0">
+	<!ELEMENT role (user*|group*|task*|options?)*>
+	<!ATTLIST role
+		name ID #REQUIRED
+		priority CDATA "0">
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>
 	<!ELEMENT group EMPTY>
 	<!ATTLIST group names CDATA #REQUIRED>
-	<!ELEMENT commands (command*|options?)*>
-	<!ATTLIST commands id ID #IMPLIED capabilities CDATA #IMPLIED user CDATA #IMPLIED groups CDATA #IMPLIED>
+	<!ELEMENT task (command*|options?)*>
+	<!ATTLIST task
+		id ID #IMPLIED
+		capabilities CDATA #IMPLIED
+		user CDATA #IMPLIED
+		groups CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
 ]>
 <rootasrole version="3.0.0">
-	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific commands in a role -->
+	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific task in a
+	role
+		Be cautionous about changing them.-->
 	<options>
 		<!-- PATH configuration, you could replace, prepend or extend with paths.
 			be warned about this option, you are responsible about misconfiguration 
 			of this variable. Misconfiguration of roles with this variable could lead 
-			to unexpected behaviors. We not recommend to use prepend or extend options.-->
+			to unexpected behaviors. We not recommend to use prepend or extend options.
+			WARNING this could lead to critical attack vectors-->
 		<path>/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin</path>
-		
+
 		<!-- Environment variables to keep
 			WARNING this could lead to critical attack vectors-->
 		<env-keep>HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP</env-keep>
-		
+
 		<!-- Environment variables kept if safe (without % or / chars)
 			WARNING, this could also lead to critical attack vectors-->
 		<env-check>COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ</env-check>
-		
+
 		<!-- By default, root is considered as unprivilegied user.
-			With this option, root is considered as privileged super-user-->
+			With this option, root is considered as privileged super-user
+			This option could break security features-->
 		<allow-root enforce="false" />
-		
+
 		<!-- By default, capabilities are enforced and permanently removed 
 			from the execution session, even for root. With this option,
 			capabilities are not removed from the bounding set and it could be possible
 			to elevate more privileges than specified in a session.
-			-->
+			This option could break security features-->
 		<allow-bounding enforce="false" />
+
+		<!-- By default any wildcard will avoid dang,erous characters that could start another
+			command than specified-->
+		<wildcard-denied>;&amp;|</wildcard-denied>
 	</options>
 	<roles>
+		<role name="uroot">
+			<user name="ROOTADMINISTRATOR" />
+			<task capabilities="all" user="user1" groups="user1">
+				<command>*</command>
+			</task>
+		</role>
 		<role name="root">
 			<user name="ROOTADMINISTRATOR" />
-			<commands capabilities="all" user="root" groups="root">
+			<task capabilities="all">
 				<command>*</command>
-			</commands>
+			</task>
 		</role>
 		<!--	
 		<role name="role1">
 			<user name="user1"/>
-			<group names="group1"/>
-			<group names="group1,group2"/> group1 and group2
-			<commands/> all commands are allowed but all capabilities are denied
-			<commands capabilities="cap_fowner,cap_setuid">
+			<group names="group1"/> group block is not exclusive
+			<group names="group1,group2"/> but you could require multiple groups (comma separated)
+			<task> No capabilities, not changing user or group, alias, like a simple user
+				<command>*</command>
+			</task>
+			<task capabilities="cap_fowner,cap_setuid" user="sysadmin" groups="adm,syslog"> setting capabilities, changing user and groups
 				<command>/usr/bin/passwd</command>
 				<command>/usr/bin/chmod</command>
 				<command>/opt/myprogram -i</command>
-			</commands>
+			</task>
 		</role>
 	-->
 	</roles>

@@ -186,7 +186,7 @@ fn set_immuable(path : &str, immuable : bool) -> Result<(), std::io::Error> {
     Ok(())
 } 
 
-pub fn sxd_sanitize(element : &mut String) -> String {
+pub fn sxd_sanitize(element : &mut str) -> String {
     element.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
 }
 
@@ -351,7 +351,8 @@ fn toggle_lock_config(file:&str, lock: bool) -> Result<(),String> {
     Ok(())
 }
 
-pub(crate) fn save_all(roles: Roles) {
+pub(crate) fn save_all(roles: &Roles) {
+    println!("Saving roles: {:?}", roles);
     let path = "/etc/security/rootasrole.xml";
     let pack = read_xml_file(path).expect("Unable to parse config file");
     let doc = pack.as_document();

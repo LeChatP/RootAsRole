@@ -44,7 +44,7 @@ impl State for SelectRoleState {
     }
 
     fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State> {
-        //TODO: manager.saveall();
+        manager.saveall();
         self
     }
 
