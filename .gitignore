@@ -62,3 +62,6 @@ bin/
 .vscode/
 target/
 version.rs
+
+# Rust crates
+Cargo.lock

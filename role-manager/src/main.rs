@@ -1,6 +1,4 @@
-#[macro_use]
-extern crate pest_derive;
-extern crate pest;
+extern crate sudoers_reader;
 
 mod config;
 mod capabilities;
@@ -9,7 +7,6 @@ mod options;
 mod version;
 mod state;
 mod cli;
-mod sudoers;
 
 
 use std::{rc::Rc, cell::RefCell};

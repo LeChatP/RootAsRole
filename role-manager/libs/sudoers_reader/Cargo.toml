@@ -1,0 +1,8 @@
+[package]
+name = "sudoers_reader"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+pest = "2.5.7"
+pest_derive = "2.5.7"
