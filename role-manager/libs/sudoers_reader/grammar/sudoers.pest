@@ -33,23 +33,23 @@ Default_Type = {
 }
 
 Parameter_List = _{ Parameter ~ "," ~ Parameter_List | Parameter }
-Entry = _{ Flag ~ "=" ~ Value }
-Parameter      = { Entry | Flag ~ "+=" ~ Value | Flag ~ "-=" ~ Value | "!"* ~ Flag | Flag }
-Value = _{ (Str | Flag) }
+Entry          = _{ Flag ~ "=" ~ Value }
+Parameter      =  { Entry | Flag ~ "+=" ~ Value | Flag ~ "-=" ~ Value | "!"* ~ Flag | Flag }
+Value          = _{ (Str | Flag) }
 
-Str = ${ "\"" ~ inner ~ "\"" }
+Str   = ${ "\"" ~ inner ~ "\"" }
 inner = @{ char* }
-char = {
+char  =  {
     !("\"" | "\\") ~ ANY
-    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
-    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+  | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+  | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
 }
-Flag = { (CASED_LETTER | "_" )+ }
+Flag  =  { (CASED_LETTER | "_")+ }
 
 // ### NETWORK ###
-Host_List = { Host | Host ~ "," ~ Host_List }
+Host_List   =  { Host | Host ~ "," ~ Host_List }
 Domain_Name = @{ (CASED_LETTER | NUMBER) ~ (CASED_LETTER | NUMBER | "-" | ".")* }
-Host = {
+Host        =  {
     "!"* ~ Domain_Name
   | "!"* ~ ip_addr
   | "!"* ~ netgroup
@@ -74,14 +74,8 @@ h16  = _{ ASCII_HEX_DIGIT{1, 4} }
 ls32 = _{ (h16 ~ ":" ~ h16) ~ "/" ~ ip4_addr }
 
 netmask4 = @{ "6" ~ '0'..'4' | '0'..'5' ~ ASCII_DIGIT | ASCII_DIGIT }
-netmask6 = @{
-    "12" ~ '0'..'8'
-  | "1" ~ '0'..'1' ~ ASCII_DIGIT
-  | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT
-  | ASCII_DIGIT
-}
 
-netgroup        = { "+(" ~ netgroup_host ~ "," ~ netgroup_user ~ "," ~ netgroup_domain ~ ")" }
+netgroup        =  { "+(" ~ netgroup_host ~ "," ~ netgroup_user ~ "," ~ netgroup_domain ~ ")" }
 netgroup_host   = @{ hostname | "-" }
 hostname        = @{ CASED_LETTER ~ (CASED_LETTER | NUMBER)* }
 netgroup_user   = @{ username | "-" }
@@ -92,17 +86,17 @@ domain_name     = @{ (CASED_LETTER | NUMBER) ~ (CASED_LETTER | NUMBER | "-" | ".
 // ### END NETWORK ###
 // ### USER & COMMAND ###
 
-User_List = _{ User | User ~ "," ~ User_List }
-User      = {
+User_List    = _{ User | User ~ "," ~ User_List }
+User         =  {
     "!"* ~ User_Name
 }
-User_Name = _{ User_Str | id | Group_Name | netgroup }
-Group_Name = @{ "%" ~ User_Str | "%:" ~ id | "%:" ~ SID_Group | "%" ~ Domain_Group }
-SID_Group = @{ "S"~("-"|NUMBER)+}
+User_Name    = _{ User_Str | id | Group_Name | netgroup }
+Group_Name   = @{ "%" ~ User_Str | "%:" ~ id | "%:" ~ SID_Group | "%" ~ Domain_Group }
+SID_Group    = @{ "S" ~ ("-" | NUMBER)+ }
 Domain_Group = @{ User_Str ~ "@" ~ Domain_Name }
-User_Str = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31} | (CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$") }
+User_Str     = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31} | (CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$") }
 
-valid_name = _{ !(","|NEWLINE|":") ~ ANY }
+valid_name = _{ !("," | NEWLINE | ":") ~ ANY }
 id         = @{ "#" ~ NUMBER+ }
 
 Cmnd_List = _{ Cmnd ~ "," ~ Cmnd_List | Cmnd }
@@ -121,7 +115,7 @@ Digest_Spec = @{
 
 Cmnd = _{ Digest_Spec? ~ "!"* ~ command_name }
 
-command_name = { valid_name{1,} }
+command_name = { valid_name{1, } }
 
 Runas_List = _{ User | User ~ "," ~ Runas_List }
 
@@ -157,12 +151,12 @@ Tag_Spec = {
   | "NOSETENV"
 }
 
-Include = _{"@" ~ (!NEWLINE ~ ANY)* }
+Include = { "@" ~ (!NEWLINE ~ ANY)* }
 
 // ### END RULES ###
 // ### COMMENTS ###
 
-Comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
+Comment    = _{ "#" ~ (!NEWLINE ~ ANY)* }
 WHITESPACE = _{ " " | "\t" }
 
 // For any plugin that wants to use the sudoers grammar, this is the entry point
