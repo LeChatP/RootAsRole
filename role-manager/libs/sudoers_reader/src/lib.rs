@@ -10,7 +10,7 @@ extern crate pest;
 
 
 
-fn parse_sudoers(contents: &str) -> Result<Vec<AstNode>, Error<Rule>> {
+pub fn parse_sudoers(contents: &str) -> Result<Vec<AstNode>, Error<Rule>> {
     Ok(vec![])
 }
 
