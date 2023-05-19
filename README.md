@@ -55,7 +55,7 @@ For lisibility we express user assignment to role configuration as "UA", group a
 
 1. UA=user1 $>$ GA=group1&group2 $>$ GA=group3
 
-2. CA=foo $>$ CA=foobar $>$ CA=fooba* $>$ CA=foo*
+2. CA=foo $>$ CA=fooba* $>$ CA=foo*
 
 3. no capabilities $>$ some capabilities $>$ contains "ADMIN" capability $>$ all capabilities
 
