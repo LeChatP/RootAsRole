@@ -1,10 +1,31 @@
 <p align="center">
-  <img src="./RootAsRole_stroke.svg">
+  <img src="./RootAsRolev2.svg">
 </p>
 
 # RootAsRole (V3.0) : a secure alternative to sudo/su on Linux systems
 
+A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We created a configuration that is the least vulnerability prone by default.
 
+## Installation
+
+### How to Build
+
+  1. git clone https://github.com/SamerW/RootAsRole
+  2. cd RootAsRole
+  3. sudo sh ./configure.sh
+  4. make
+  5. sudo make install
+
+### Usage
+
+```
+Usage: sr [options] [command [args]]
+Options:
+  -r, --role <role>      Role to use
+  -i, --info             Display rights of executor
+  -v, --version          Display version
+  -h, --help             Display this help
+```
 
 ## Feedback
 
@@ -26,59 +47,44 @@ Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.
 Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
 
-## How do we solve conflicts ? More specific to less privileged
+## How do we solve Role conflicts ?
 
-In this tool, we tried to present a formal way to define least privilege. Thus to provide a set of rules to resolve conflicts between two potential roles and potential commands block
+With this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen.
 
-We consider multiple sets :
+For lisibility we express user assignment to role configuration as "UA", group assignment as "GA", and command assignment as "CA". So they are checked in order :
 
-Command = { Wildcarded + Not Wildcarded | Wildcarded ∉ Not Wilcarded }
+1. UA=user1 $>$ GA=group1&group2 $>$ GA=group3
 
-Wildcarded(CMD) = { CMD ∈ /^.*\*.*$/ }
-Not Wildcarded(CMD) = { CMD ∈ /^[^*]+$/ }
+2. CA=foo $>$ CA=foobar $>$ CA=fooba* $>$ CA=foo*
 
-CMD(c) = 
+3. no capabilities $>$ some capabilities $>$ contains "ADMIN" capability $>$ all capabilities
 
-Wildcard(c) = { c ∈ /^[^;&|]$/ }
+4. no setuid $>$ setuid=user1 $>$ setuid=root¹
 
-Capabilities = { x ∈ /^CAP_.*$/ | 0 <  }
+5. no setgid $>$ setgid=group1 $>$ setgid=group2,group3 $>$ 
+setgid=root¹ $>$ setgid=root¹,group4
 
-Commands = 
+6. allow root disabled $>$ allow root enabled
 
+7. allow bounding disabled $>$ allow bounding enabled
+
+Where : 
+
+¹  Only if "no root" parameter is disabled
+
+\* wildcard that match every characters except filtered ones (see wildcard-denied in configuration).
+
+After these step, other parameters are considered equal, so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
+
+As you can see, the order of the capabilities is not precise with respect to the least privilege. We worked hard on the analysis of the linux kernel to try to find a precise and automated order for the capabilities. We recommend you to read our research paper on this subject.
 
 ## Tested Platforms
 
 Our module has been tested only on Ubuntu>=16.04 (Kernel 4.3) and Debian platforms.
 
-## Installation
 
-### How to Build
 
-  1. git clone https://github.com/SamerW/RootAsRole
-  2. cd RootAsRole
-  3. sudo sh ./configure.sh
-  4. make
-  5. sudo make install
-
-### Usage
-
-Usage : sr [-r role | -c command] [-n] [-u user] [-v] [-h]
-
-    -r, --role=role        the capabilities role to assume
-
-    -c, --command=command  launch the command instead of a bash shell
-
-    -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no special treatment to root user (uid 0)
-
-    -u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
-
-    -i, --info             print the commands the user is able to process within the role and quit
-
-    -v, --version          print the version of RAR
-
-    -h, --help             print this help and quit.
-
-After the installation you will find a file called capabilityRole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
+After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
 To edit the configuration file you must first assume the root role using the sr tool. The role root is defined by default with the list of all privileges. To assume the role Root, type in your shell the following command :
 `sr -r root`
@@ -113,7 +119,9 @@ Anderson Hemlee : anderson.hemlee@protonmail.com
 
 Romain Laborde : laborde@irit.fr
 
+## About Logo
 
+This logo were generated using DALL-E 2 AI, for any license issue or plagiarism, please note that is not intentionnal and don't hesitate to contact us.
 
 ## References
 
