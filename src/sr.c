@@ -15,9 +15,14 @@
 #include "xml_manager.h"
 #include "user.h"
 #include "capabilities.h"
+#include "command.h"
 
 #ifndef SR_VERSION
 #define SR_VERSION "3.0"
+#endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
 #endif
 
 typedef struct _arguments_t {
@@ -71,26 +76,7 @@ int parse_arguments(int *argc, char **argv[], arguments_t *args)
 	return 1;
 }
 
-char *find_absolute_path_from_env(char *file)
-{
-	char *path = strdup(getenv("PATH"));
-	if (path == NULL) {
-		return NULL;
-	}
-	char *token = strtok(path, ":");
-	char *full_path = NULL;
-	while (token != NULL) {
-		full_path = malloc(strlen(token) + strlen(file) + 2);
-		snprintf(full_path, strlen(token) + strlen(file) + 2, "%s/%s",
-			 token, file);
-		if (access(full_path, X_OK) == 0) {
-			return full_path;
-		}
-		free(full_path);
-		token = strtok(NULL, ":");
-	}
-	return NULL;
-}
+
 
 void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 {
@@ -112,7 +98,7 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 /**
  * Set uid from options on current process
 */
-int sr_setuid(options_t options)
+int sr_setuid(settings_t *options)
 {
 	if (options->setuid != NULL) {
 		if (setuid_effective(1)) {
@@ -147,30 +133,33 @@ int sr_setuid(options_t options)
 /**
  * set gid from options on current process
 */
-int sr_setgid(options_t options)
+int sr_setgid(settings_t *options)
 {
 	if (options->setgid != NULL) {
 		if (setgid_effective(1)) {
-			error(0, 0, "Unable to setuid capability");
-			syslog(LOG_ERR, "Unable to setuid capability");
+			error(0, 0, "Unable to setgid capability");
+			syslog(LOG_ERR, "Unable to setgid capability");
 			return -1;
 		}
-		gid_t gid = get_group_id_from_name(options->setgid);
-		if (gid == (gid_t)-1) {
+		int nb_groups = 0;
+		gid_t *groups = NULL;
+		int result = get_group_ids_from_names(options->setgid, &groups,
+						     &nb_groups);
+		if (result) {
 			error(0, 0,
-			      "Unable to retrieve the uid from the user/number '%s'",
-			      options->setuid);
+			      "Unable to retrieve the gids from the groupnames/numbers '%s'",
+			      options->setgid);
 			syslog(LOG_ERR,
-			       "Unable to retrieve the uid from the user/number '%s'",
-			       options->setuid);
+			       "Unable to retrieve the gids from the groupnames/numbers '%s'",
+			       options->setgid);
 			return -1;
 		}
-		if (setgid(gid)) {
+		if (setgid(groups[0])) {
 			perror("setgid");
 			syslog(LOG_ERR, "Unable to setgid");
 			return -1;
 		}
-		if (setgroups(1,&gid)) {
+		if (setgroups(nb_groups, groups)) {
 			perror("setgroups");
 			syslog(LOG_ERR, "Unable to setgroups");
 			return -1;
@@ -210,7 +199,7 @@ int sr_setcaps(cap_iab_t iab)
 /**
  * Jail root as a non super user
 */
-int sr_noroot(options_t options)
+int sr_noroot(settings_t *options)
 {
 	if (options->no_root) {
 		if (activates_securebits()) {
@@ -222,13 +211,36 @@ int sr_noroot(options_t options)
 	return 0;
 }
 
+void escape_special_chars(char* input) {
+    char* special_chars = "%\\";
+    char* escape_char = "\\";
+
+    size_t input_length = strlen(input);
+    size_t i, j;
+
+    for (i = 0, j = 0; i < input_length; i++, j++) {
+        if (strchr(special_chars, input[i]) != NULL) {
+            memmove(&input[j + 1], &input[j], input_length - j);
+            input[j] = escape_char[0];
+            j++;
+            input_length++;
+        }
+        input[j] = input[i];
+    }
+    input[j] = '\0';
+}
+
+
 /**
  * @brief main function of the SR module
 */
 int main(int argc, char *argv[])
 {
 	arguments_t arguments = { NULL, 0, 0, 0 };
-	char *callpath = argv[0];
+	char callpath[PATH_MAX];
+	strncpy(callpath, argv[0], PATH_MAX);
+	callpath[PATH_MAX - 1] = '\0';
+	escape_special_chars(callpath);
 	if (!parse_arguments(&argc, &argv, &arguments) || arguments.help ||
 	    (argc == 0 && !arguments.info)) {
 		printf("Usage: %s [options] [command [args]]\n", callpath);
@@ -244,126 +256,76 @@ int main(int argc, char *argv[])
 	}
 	openlog("sr", LOG_PID, LOG_AUTH);
 	cap_iab_t iab = NULL;
-	options_t options = NULL;
-	uid_t euid = geteuid();
-	char *user = get_username(euid);
-	if (user == NULL) {
-		error(0, 0, "Unable to retrieve the username of the executor");
-		goto free_error;
-	}
-	if (!pam_authenticate_user(user)) {
+	settings_t options;
+	user_t *user = user_posix_get();
+	if (!pam_authenticate_user(user->name)) {
 		error(0, 0, "Authentication failed");
-		goto free_error;
-	}
-	char *command = NULL;
-	gid_t egid = get_group_id(euid);
-	char **groups = NULL;
-	int nb_groups = 0;
-	if (get_group_names(user, egid, &nb_groups, &groups)) {
-		error(0, 0, "Unable to retrieve the groups of the executor");
 		goto free_error;
 	}
 
 	if (arguments.info) {
 		if (arguments.role == NULL)
-			print_rights(user, nb_groups, groups, RESTRICTED);
+			print_rights(user, RESTRICTED);
 		else {
-			print_rights_role(arguments.role, user, nb_groups,
-					  groups, RESTRICTED);
+			print_rights_role(arguments.role, user, RESTRICTED);
 		}
+		goto free_error;
+	}
 
-	} else if (arguments.role){
-		command = strndup(argv[0], PATH_MAX);
-		int ret = get_settings_from_config_role(arguments.role, user, nb_groups,
-						 groups, command, &iab,
+	cmd_t *cmd = get_cmd(argc, argv);
+
+	if (arguments.role){
+		int ret = get_settings_from_config_role(arguments.role, user, cmd, &iab,
 						 &options);
 		if (!ret) {
 			syslog(LOG_ERR,
 			       "User '%s' tries to execute '%s', without permission",
-				   user, command);
+				   user->name, cmd->command);
 			error(0, 0, "Permission denied");
 			goto free_error;
 		}		   	
-	} else if (strnlen(argv[0], PATH_MAX) < PATH_MAX) {
-		command = strndup(argv[0], PATH_MAX);
-		int ret = get_settings_from_config(user, nb_groups, groups,
-						   command, &iab, &options);
+	} else {
+		int ret = get_settings_from_config(user, cmd, &iab, &options);
 		if (!ret) {
 			syslog(LOG_ERR,
 			       "User '%s' tries to execute '%s', without permission",
-			       user, command);
+			       user->name, cmd->command);
 			error(0, 0, "Permission denied");
 			goto free_error;
 		}
-	} else {
-		error(0, 0, "Command too long");
-		syslog(LOG_ERR,
-		       "User '%s' failed to execute '%s', command too long",
-		       user, command);
-		goto free_error;
 	}
 	
 	syslog(LOG_INFO,
-			"User '%s' tries to execute '%s' with role '%s'", user,
-			command, options->role);
-	if (sr_noroot(options) || sr_setuid(options) ||
-		sr_setgid(options) || sr_setcaps(iab)) {
+			"User '%s' tries to execute '%s' with role '%s'", user->name,
+			cmd->command, options.role);
+	/**if (sr_noroot(&options) || sr_setuid(&options) ||
+		sr_setgid(&options) || sr_setcaps(iab)) {
 		goto free_error;
-	}
+	}*/
 
 	char **env = NULL;
-	int res = filter_env_vars(environ, options->env_keep,
-					options->env_check, &env);
+	int res = filter_env_vars(environ, options.env_keep,
+					options.env_check, &env);
 	if (res > 0) {
 		error(0, 0, "Unable to filter environment variables");
 		syslog(LOG_ERR,
 				"Unable to filter environment variables");
 		goto free_error;
 	}
-	res = secure_path(getenv("PATH"), options->path);
+	res = secure_path(getenv("PATH"), options.path);
 	if (!res) {
 		error(0, 0, "Unable to secure path");
 		syslog(LOG_ERR, "Unable to secure path");
 		goto free_error;
-	}
-
-	command = realpath(argv[0], NULL);
-	if (errno == ENAMETOOLONG) {
-		error(0, 0, "Path too long");
-		syslog(LOG_ERR,
-				"User '%s' failed to execute '%s', path too long",
-				user, command);
-		goto free_error;
-	}
-	if (access(command, X_OK) != 0) {
-		command = find_absolute_path_from_env(argv[0]);
-		if (command == NULL) {
-			syslog(LOG_ERR,
-					"User '%s' failed to execute '%s', command not found",
-					user, command);
-			error(0, 0, "%s : Command not found", argv[0]);
-			goto free_error;
-		}
-	} else {
-		error(0, 0, "%s : Command not found", argv[0]);
-		syslog(LOG_ERR,
-				"User '%s' failed to execute '%s', command not found",
-				user, command);
-		goto free_error;
-	}
-	sr_execve(command, argc, argv, env);
+	}	
+	sr_execve(cmd->command, cmd->argc, cmd->argv, env);
 
 free_error:
-	if (command != NULL)
-		free(command);
 	if (iab != NULL)
 		cap_free(iab);
-	if (options != NULL)
-		free_options(options);
+	free_options(&options);
 	if (user != NULL)
-		free(user);
-	if (groups != NULL)
-		free_group_names(nb_groups, groups);
+		user_posix_free(user);
 	return 0;
 }
 /* 

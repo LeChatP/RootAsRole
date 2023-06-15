@@ -2,29 +2,23 @@
 #define XML_MANAGER_H
 
 #include <sys/capability.h>
+#include "params.h"
 
 #define XML_FILE "/etc/security/rootasrole.xml"
+
+#ifndef DEBUG
+#define DEBUG 0
+#endif
 
 #define RESTRICTED 1
 #define UNRESTRICTED 0
 
-struct s_options {
-    char** env_keep;
-    char** env_check;
-    char* path;
-    char *role;
-    char *setuid;
-    char *setgid;
-    int no_root;
-    int bounding;
-};
 
-typedef struct s_options *options_t;
 
 /**
  * @brief free the options
 */
-void free_options(options_t options);
+void free_options(settings_t *options);
 
 /**
  * @brief Get every configuration settings from the xml file according to the user, the groups and the command
@@ -36,7 +30,7 @@ void free_options(options_t options);
  * @param p_options The options to set
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
-int get_settings_from_config(char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options);
+int get_settings_from_config(user_t *user, cmd_t *command, cap_iab_t *p_iab, settings_t *p_options);
 
 /**
  * @brief Get every configuration settings from the xml file according to the role, the user, the groups and the command
@@ -49,7 +43,7 @@ int get_settings_from_config(char *user, int nb_groups, char **groups, char *com
  * @param p_options The options to set
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
-int get_settings_from_config_role(char* role, char *user, int nb_groups, char **groups, char *command, cap_iab_t *p_iab, options_t *p_options);
+int get_settings_from_config_role(char* role, user_t *user, cmd_t *command, cap_iab_t *p_iab, settings_t *p_options);
 
 /**
  * @brief Print informations of a role
@@ -68,7 +62,7 @@ void print_full_roles();
  * @param groups The groups of the user
  * @param restricted 1 to display limited information, 0 to display all information
 */
-void print_rights(char *user, int nb_groups, char **groups, int restricted);
+void print_rights(user_t *user, int restricted);
 
 /**
  * @brief Print the rights of a role if user is in the role
@@ -78,7 +72,7 @@ void print_rights(char *user, int nb_groups, char **groups, int restricted);
  * @param groups The groups of the user
  * @param restricted 1 to display limited information, 0 to display all information
 */
-void print_rights_role(char *role, char *user, int nb_groups, char **groups, int restricted);
+void print_rights_role(char *role, user_t *user, int restricted);
 
 #endif
 /* 

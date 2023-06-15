@@ -12,10 +12,11 @@
 	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
 	<!ELEMENT path (#PCDATA|EMPTY)*>
 	<!ELEMENT roles (role*)>
-	<!ELEMENT role (user*|group*|task*|options?)*>
+	<!ELEMENT role (actors?|task*|options?)*>
 	<!ATTLIST role
 		name ID #REQUIRED
 		priority CDATA "0">
+	<!ELEMENT actors (user*|group*)>
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>
 	<!ELEMENT group EMPTY>
@@ -24,9 +25,11 @@
 	<!ATTLIST task
 		id ID #IMPLIED
 		capabilities CDATA #IMPLIED
-		user CDATA #IMPLIED
-		groups CDATA #IMPLIED>
+		setuser CDATA #IMPLIED
+		setgroups CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
+	<!ATTLIST command
+		regex (true|false) "false">
 ]>
 <rootasrole version="3.0.0">
 	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific task in a
@@ -65,23 +68,29 @@
 		<wildcard-denied>;&amp;|</wildcard-denied>
 	</options>
 	<roles>
-		<role name="uroot">
-			<user name="ROOTADMINISTRATOR" />
-			<task capabilities="all" user="user1" groups="user1">
-				<command>*</command>
+		<role name="configurator">
+			<actors>
+				<user name="lechatp" />
+			</actors>
+			<task capabilities="cap_linux_immutable" setuser="user1" setgroups="user1">
+				<command regex="true">/usr/sbin/rar autoconf .*</command>
 			</task>
 		</role>
 		<role name="root">
-			<user name="ROOTADMINISTRATOR" />
+			<actors>
+				<user name="lechatp"/>
+			</actors>
 			<task capabilities="all">
 				<command>*</command>
 			</task>
 		</role>
-		<!--	
+		<!--
 		<role name="role1">
-			<user name="user1"/>
-			<group names="group1"/> group block is not exclusive
-			<group names="group1,group2"/> but you could require multiple groups (comma separated)
+			<actors>
+				<user name="user1"/>
+				<group names="group1"/> group block is not exclusive
+				<group names="group1,group2"/> but you could require multiple groups (comma separated)
+			</actors>
 			<task> No capabilities, not changing user or group, alias, like a simple user
 				<command>*</command>
 			</task>

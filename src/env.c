@@ -158,7 +158,7 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
 }
 
 int secure_path(char *path, char *secure_path){
-    return snprintf(path, PATH_MAX, "%s", secure_path) > 0;
+    return snprintf(path, ARG_MAX, "%s", secure_path) > 0;
 }
 /* 
  * 

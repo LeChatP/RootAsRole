@@ -44,7 +44,7 @@ chmod 0644 /etc/pam.d/sr || exit
 cp resources/rootasrole.xml /etc/security || exit
 echo "Define root role for the user $SUDO_USER:"
 sed -i 's/ROOTADMINISTRATOR/'$SUDO_USER'/g' /etc/security/rootasrole.xml
-chmod 0644 /etc/security/rootasrole.xml || exit
+chmod 0640 /etc/security/rootasrole.xml || exit
 chattr +i /etc/security/rootasrole.xml || exit
 
 echo "configuration done. Ready to compile."

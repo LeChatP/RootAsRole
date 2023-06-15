@@ -8,6 +8,24 @@
 #ifndef USER_H_INCLUDED
 #define USER_H_INCLUDED
 #include <sys/types.h>
+#include "params.h"
+
+/**
+ * @brief Get user_t object from POSIX system context
+ * @return user_t object
+*/
+user_t *user_posix_get();
+
+/**
+ * @brief Free the memory of a POSIX user_t object
+*/
+void user_posix_free(user_t *user);
+
+/**
+ * @brief Get the current username
+ * @return The current username, to be freed with free()
+*/
+char *get_current_username();
 
 /*
 Retrieve the name of a user id.
@@ -28,6 +46,8 @@ Return the user group id, or -1 on failure.
 gid_t get_group_id(uid_t uid);
 
 gid_t get_group_id_from_name(const char *group);
+
+int get_group_ids_from_names(const char *groups_str, int *nb_groups, gid_t *groups);
 
 /*
 Init and close a pam session to authenticate a given user.

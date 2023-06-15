@@ -16,6 +16,46 @@
  *                      PUBLIC FUNCTIONS DEFINITION                           *
  ******************************************************************************/
 
+/**
+ * @brief Get user_t object from POSIX system context
+*/
+user_t *user_posix_get(){
+	uid_t euid = geteuid();
+	char *user = get_username(euid);
+	if (user == NULL) {
+		error(0, 0, "Unable to retrieve the username of the executor");
+		goto free_error;
+	}
+	gid_t egid = get_group_id(euid);
+	char **groups = NULL;
+	int nb_groups = 0;
+	if (get_group_names(user, egid, &nb_groups, &groups)) {
+		error(0, 0, "Unable to retrieve the groups of the executor");
+		goto free_error;
+	}
+	return params_user_posix_set(user, nb_groups, groups);
+	free_error:
+	return NULL;
+}
+
+/**
+ * @brief Free the memory of a user_t object
+*/
+void user_posix_free(user_t *user){
+	if(user == NULL){
+		return;
+	}
+	if(user->name != NULL)
+		free(user->name);
+	if(user->groups != NULL)
+		free_group_names(user->nb_groups, user->groups);
+}
+
+char *get_current_username(){
+	uid_t euid = geteuid();
+	return get_username(euid);
+}
+
 /*
 Retrieve the name of a user id.
 Return the username or NULL if an error has occured.
@@ -73,12 +113,51 @@ gid_t get_group_id_from_name(const char *group)
 	struct group *info_group;
 
 	if ((info_group = getgrnam(group)) == NULL) {
-		return -1;
+		//check group as integer
+		char *endptr = NULL;
+		long int igid = strtol(group, &endptr, 10);
+		if (endptr == group || *endptr != '\0' || igid < 0 || igid > (uid_t)-1) {
+			return -1;
+		}else {
+			return (gid_t)igid;
+		}
 	} else {
 		//We do not have to deallocate info_user, as it points to a static
 		//memory adress
 		return info_group->gr_gid;
 	}
+}
+
+/**
+ * @brief retrieve multiple gid from comma separated string
+ * @param groups_str comma separated string of group names
+ * @param nb_groups number of groups
+ * @param groups array of group
+ * @return 0 on success, -1 on failure
+*/
+int get_group_ids_from_names(const char *groups_str, int *nb_groups, gid_t *groups){
+	char *groups_str_copy = strdup(groups_str);
+	*nb_groups = 1;
+	for (int i=0; groups_str_copy[i] != '\0'; i++) {
+		if (groups_str_copy[i] == ',') {
+			(*nb_groups)++;
+		}
+	}
+	groups = malloc(*nb_groups * sizeof(gid_t));
+	if (groups == NULL) {
+		syslog(LOG_ERR, "Unable to allocate memory for groups");
+		return -1;
+	}
+	char *group = strtok(groups_str_copy, ",");
+	for (int i=0; i<*nb_groups; i++){
+		groups[i] = get_group_id_from_name(group);
+		if(groups[i] == -1){
+			syslog(LOG_ERR, "Unable to retrieve group id of group %s", group);
+			return -1;
+		}
+		group = strtok(NULL, ",");
+	}
+	return 0;
 }
 
 /*
@@ -176,7 +255,6 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 	if ((ret_ggl = getgrouplist(user, group, gps, &ng)) == -1) {
 		gid_t *tmp;
 		if ((tmp = realloc(gps, ng * sizeof(gid_t))) == NULL){
-			
 			goto on_error;
 		}
 		gps = tmp;
