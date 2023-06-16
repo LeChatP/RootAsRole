@@ -1,37 +1,10 @@
-# RootAsRole (V2.3) : a secure alternative to sudo/su on Linux systems
+<p align="center">
+  <img src="./RootAsRolev2.svg" width=75%>
+</p>
 
+# RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
 
-
-## Feedback
-
-You may give us your feedbacks  about RootAsRole here:
-
-<https://docs.google.com/forms/d/e/1FAIpQLSfwXISzDaIzlUe42pas2rGZi7SV5QvUXXcDM9_GknPa8AdpFg/viewform>
-
-## Video presentation of the version 1.0 (in French)
-
-https://www.youtube.com/watch?v=2Y8hTI912zQ
-
-## Intro
-
-Traditionally, administering Linux systems is based on the existence of one powerful user (called superuser) who detains alone the complete list of the system's privileges. However, this administrative model is not respecting the least privilege principle because all programs executed in the context of the superuser obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, requires only the privilege cap_net_raw to run. However, by executing it in the context of superuser, tcpdump obtains the complete list of systems' privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e., sniff packet networks). As a result, an attacker may exploit the vulnerabilities of tcpdump to compromise the whole system when the process of tcpdump possesses the complete list of root privileges.
-
-RootAsRole module implements a role-based approach for distributing Linux capabilities to users. Our module contains the sr (switch role) tool that allows users to control the list of privileges they give to programs. Thus, with our module, users can stop using sudo and su commands that don't allow controlling the list of privileges granted to programs. Some tools already permit control of the list of privileges to give to programs, such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to the Linux kernel, Ambient Set.
-
-Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module.
-Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
-
-
-
-
-
-
-
-
-
-## Tested Platforms
-
-Our module has been tested only on Ubuntu>=16.04 (Kernel 4.3) and Debian platforms.
+A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
 ## Installation
 
@@ -43,34 +16,86 @@ Our module has been tested only on Ubuntu>=16.04 (Kernel 4.3) and Debian platfor
   4. make
   5. sudo make install
 
+### How to Configure
+
+Our role manager is currently under development. But you can manually execute these commands :
+
+```
+sr chattr -i /etc/security/rootasrole.xml
+sr nano /etc/security/rootasrole.xml
+```
+
+With the new role management features, you will be able to restrict the responsibilities of configurators, but this remains dangerous and there is still a contract of trust with them.
+
+However, today, you can start to configure this tool with the rootasrole.xml file configuration. Some examples are commented on the preinstalled configuration file.
+
 ### Usage
 
-Usage : sr [-r role | -c command] [-n] [-u user] [-v] [-h]
+```
+Usage: sr [options] [command [args]]
+Options:
+  -r, --role <role>      Role to use
+  -i, --info             Display rights of executor
+  -v, --version          Display version
+  -h, --help             Display this help
+```
 
-    -r, --role=role        the capabilities role to assume
+## Feedback
 
-    -c, --command=command  launch the command instead of a bash shell
+You may give us your feedbacks  about RootAsRole here:
 
-    -n, --no-root          execute the bash or the command without the possibility to increase privilege (e.g.: sudo) and with no special treatment to root user (uid 0)
+<https://docs.google.com/forms/d/e/1FAIpQLSfwXISzDaIzlUe42pas2rGZi7SV5QvUXXcDM9_GknPa8AdpFg/viewform>
 
-    -u, --user=user        substitue the user (reserved to administrators and used probably for service managment)
+## Video presentation of the version 1.0 (in French)
 
-    -i, --info             print the commands the user is able to process within the role and quit
+https://www.youtube.com/watch?v=2Y8hTI912zQ
 
-    -v, --version          print the version of RAR
+## Why do you need this tool ?
 
-    -h, --help             print this help and quit.
+Traditionally, administering Linux systems is based on the existence of one powerful user (called superuser) who detains alone the complete list of the system's privileges. However, this administrative model is not respecting the least privilege principle because all programs executed in the context of the superuser obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, requires network capabilities to run. However, by executing it in the context of superuser, tcpdump obtains the complete list of systems' privileges, event reboot functionnality. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e., sniff packet networks). As a result, an attacker may exploit the vulnerabilities of tcpdump to compromise the whole system when the process of tcpdump possesses the complete list of root privileges.
 
-After the installation you will find a file called capabilityRole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
+RootAsRole module implements a role-based approach for distributing Linux capabilities to users. Our module contains the sr (switch role) tool that allows users to control the list of privileges they give to programs. Thus, with our module, users can stop using sudo and su commands that don't allow controlling the list of privileges granted to programs. Some tools already permit control of the list of privileges to give to programs, such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to the Linux kernel, Ambient Set.
 
-To edit the configuration file you must first assume the root role using the sr tool. The role root is defined by default with the list of all privileges. To assume the role Root, type in your shell the following command :
-`sr -r root`
+Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module. Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
-After that a new shell is opened. This shell contains the capabilities of the role that has been taken by the user. You can then edit capabilityRole.xml file to define your own roles (/etc/security/capabilityRole.xml).
 
-![Screenshot](doc/assumerootrole.png)
+## How do we solve Role conflicts ?
 
-For more details, please see **[How to use](https://github.com/SamerW/RootAsRole/wiki/How-to-use)**
+As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
+
+* Find all the roles that match the user id assignment or the group id, and the command input
+* Within the matching roles, select the one that is the most precise and least privileged : 
+   1. user assignment is more precise than the combination of group assignment
+   1. the combination of group assignment is more precise than single group assignment
+   1. exact command is more precise than command with regex argument
+   1. command with regex argument is more precise than a wildcarded command path
+   1.  wildcarded command path is more precise than wildcarded command path and regex args
+   1. wildcarded command path and regex args is more precise than complete wildcard
+   1. A role granting no capability is less privileged than one granting at least one capability
+   1. A role granting no "ADMIN" capability is less privileged than one granting "ADMIN" capability
+   1. A role granting the "ADMIN" capability is less privileged than one granting all capabilities.
+   1. A role without setuid is less privileged than one has setuid.
+   1. if no root is disabled, a role without 'root' setuid is less privileged than a role with 'root' setuid
+   1. A role without setgid is less privileged than one has setgid.
+   1. A role with a single setgid is less privileged than one that set multiple gid.
+   1. if no root is disabled, A role with multiple setgid is less privileged than one that set root gid
+   1. if no root is disabled, A role with root setgid is less privileged than one that set multiple gid, particularly using root group
+   1. A role that enables root privileges is less privileged than one which disables root privileges (see "no-root" feature)
+   1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
+
+
+After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
+
+Regarding the (vii),(viii), and (ix) points, the choice of least privilege is somewhat arbitrary. We are currently working on a explaination on a paper.
+
+## Tested Platforms
+
+Our module has been tested on:
+ * Ubuntu>=16.04
+ * Debian>=10
+ * ArchLinux
+
+After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
 ## Capable Tool
 
@@ -100,29 +125,9 @@ Anderson Hemlee : anderson.hemlee@protonmail.com
 
 Romain Laborde : laborde@irit.fr
 
-## Limitations
+## About Logo
 
-1. we handle the arguments of commands in a very basic way. In fact, when an administrator limits the use of a role to a command with a list of arguments, the user must provide exactly the same commands with the list of arguments in the same order as they are defined in the capabilityRole.xml file. Handling the arguments of commands in more flexible way is a very complex task. Commands have different formats for arguments; the same argument may have different names;some arguments may take values, others not; values of arguments have different formats, etc.
-
-## To Do List
-
-1. Add the possibility to restrict the assuming of roles with time. An administrator can indicate the period of time where a user can assume roles.
-
-2. Find an approach that allows controlling the use of privileges on a resource. For example, when cap_net_bind_service is given to a user , we want to indicate the port number that the user can use with this privilege. A possible solution is to use kprobe or to develop  LSM hooks.
-
-3. Give the possibility to all users and all groups to run programs with some privileges. For example, an administrator wants to authorise all users to use ping program. In this case, he can edit the capabilityRole.xml to define a role that has cap_net_raw. In the user and group nodes, the administrator can use the character * for representing the list of all users and groups. Users can then use sr to assume the role and run the ping program, but they don't need to authenticate themselves to assume the role.
-
-4. Today only root user can assume the role of other users. This is should be extended to give the possibility to any user who has the privileges cap_setuid, cap_setgid, cap_setfcap and cap_dac_override  to assume the roles of any user. This feature can be used for service management. Right now, even a user with root role can not assume the roles of other users because sr tool has two privileges in its extended attributes. According to capabilities calculation rules sr is considered as privileged file and it will not acquire as consequence the values of the shell's ambient. As consequence, it is important to build a new wrapper like sr_admin that doesn't have any privileges in its extended attributes. In this case, sr_admin will get a copy of its shell's ambient. So sr_admin will be able to have cap_setuid, cap_setgid, cap_setfcap and cap_dac_override when it is run by a shell that has these values in its ambient.  After that sr_admin should create a temporary file of sr tool, and then add the cap_setuid, cap_setgid and cap_dac_override in the extended attributes (permitted set) of the sr temporary file (sr has already cap_setfcap and setpcap) and makes an exec call to sr by passing at least the roles and user arguments. Optionally, sr_admin can pass also noroot and command arguments. Technically, sr_admin needs only cap_setfcap to be able to write the privileges in the sr temporary file but it should verify that user who runs it has cap_setuid, cap_setgid, cap_setfcap and cap_dac_override as sr tool will use these privileges when running the commands on behalf of other users. If the user's shell has these privileges in its effective set, sr_admin accept the request of the user to assume the roles of other users and it will write cap_setuid, cap_setgid and cap_dac_override in the extended attributes of sr temporary file, in addition to cap_setfcap and cap_setpcap that already exist in the extended attributes of sr temporary file.  A modification to sr code is also required to consider this feature that is reserved today to root user.
-
-5. Test our module on other distributions of Linux and make our installation et configuration scripts applicable to them.
-
-6. Use YAML or JSON instead of XML to fix quotes and apos in same string problems
-
-7. Use Query language (XPath or other in JSON if To-Do #6) instead of sequential search of role
-
-8. Managing blacklist, whitelist and translating list for environnement variables. [inspirated by sudo environnement variables handling system](https://www.sudo.ws/repos/sudo/file/tip/plugins/sudoers/env.c)
-
-9. Find a way to automate creation of role, when command given that does not exist in roles. This must be done after enhancement of filter system for the capabilities on capable tool ([TODO #3 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)) , and also after the stack analysis of capable ([TODO #1 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do)). And optionnaly after [TODO #2 of Capable](https://github.com/SamerW/RootAsRole/tree/master/ebpf#to-do).
+This logo were generated using DALL-E 2 AI, for any license issue or plagiarism, please note that is not intentionnal and don't hesitate to contact us.
 
 ## References
 

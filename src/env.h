@@ -1,51 +1,25 @@
-/*
- * <capabilities.h>
- *
- * This file contains the signatures of capabilities management functions.
- *
- * Note, the copyright+license information is at end of file.
- */
-#ifndef CAPABILITIES_H_INCLUDED
-#define CAPABILITIES_H_INCLUDED
-#include <sys/capability.h>
+#ifndef ENV_H
+#define ENV_H
 
-/* 
-Add or remove the set_pcap capability in/from the effective set
-of the process.
-Return 0 on success, -1 on failure.
+/**
+ * @brief filter the environment variables according to the whitelist and the checklist
+ * @param envp the environment variables to filter
+ * @param whitelist the whitelist of environment variables to keep separated by a comma
+ * @param checklist the checklist of environment variables to check separated by a comma
+ * @param new_envp the new environment variables
 */
-int setpcap_effective(int enable);
+int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***new_envp);
 
-/*
-Set setuid capabilities in the effective set of the process.
+/**
+ * @brief replace the path by a secure path
 */
-int setuid_effective(int enable);
+int secure_path(char *path, char *secure_path);
 
-/*
-Set setgid capabilities in the effective set of the process.
-*/
-int setgid_effective(int enable);
-
-/* 
-Activate the securebits for the no-root option.
-Return 0 on success, -1 on failure.
-*/
-int activates_securebits();
-
-/* 
-Activate the no-new-privileges for the no-root option.
-Return 0 on success, -1 on failure.
-*/
-int activates_no_new_privs();
-
-
-#endif // CAPABILITIES_H_INCLUDED
-
+#endif
 /* 
  * 
- * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
- * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
- * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
+ * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2022
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

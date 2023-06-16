@@ -1,51 +1,81 @@
-/*
- * <capabilities.h>
- *
- * This file contains the signatures of capabilities management functions.
- *
- * Note, the copyright+license information is at end of file.
- */
-#ifndef CAPABILITIES_H_INCLUDED
-#define CAPABILITIES_H_INCLUDED
-#include <sys/capability.h>
+#ifndef PARAMS_H
+#define PARAMS_H
 
-/* 
-Add or remove the set_pcap capability in/from the effective set
-of the process.
-Return 0 on success, -1 on failure.
+#include <libxml/xpath.h>
+
+struct s_cmd {
+    char *command;
+    int argc;
+    char **argv;
+};
+
+typedef struct s_cmd cmd_t;
+
+struct s_user {
+    int nb_groups;
+    char **groups;
+    char *name;
+};
+
+typedef struct s_user user_t;
+
+struct s_settings {
+    char** env_keep;
+    char** env_check;
+    char *path;
+    char *role;
+    char *setuid;
+    char *setgid;
+    int no_root;
+    int bounding;
+};
+
+typedef struct s_settings settings_t;
+
+/**
+ * @brief Set the POSIX user variables
+ * @param name The input user name
+ * @param nb_groups The input user nb_groups
+ * @param groups The input user groups
+ * @return static user_t on success, NULL on error
 */
-int setpcap_effective(int enable);
+user_t *params_user_posix_set(char *name,int nb_groups,char **groups);
 
-/*
-Set setuid capabilities in the effective set of the process.
+user_t *params_user_get();
+
+/**
+ * @brief Set the command variables
+ * @param command The input command absolute path
+ * @param argc The input command argc
+ * @param argv The input command argv
+ * @param cmd The output command object
+ * @return static cmd_t on success, NULL on error
 */
-int setuid_effective(int enable);
+cmd_t *params_command_set(char *command, int argc, char **argv);
 
-/*
-Set setgid capabilities in the effective set of the process.
+cmd_t *params_command_get();
+
+/**
+ * @brief Set the role variable
 */
-int setgid_effective(int enable);
+char *params_set_role(char *p_role);
 
-/* 
-Activate the securebits for the no-root option.
-Return 0 on success, -1 on failure.
+/**
+ * @brief Get the role param
+ * @return The role param
 */
-int activates_securebits();
+char *params_get_role();
 
-/* 
-Activate the no-new-privileges for the no-root option.
-Return 0 on success, -1 on failure.
-*/
-int activates_no_new_privs();
+void set_default_options(settings_t *settings);
+void options_assign(settings_t *dst, settings_t *src);
+void get_options_from_config(xmlNodePtr task_node, settings_t *options);
+void free_options(settings_t *options);
 
-
-#endif // CAPABILITIES_H_INCLUDED
-
+#endif /* !PARAMS_H */
 /* 
  * 
- * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
- * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
- * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
+ * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2022
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

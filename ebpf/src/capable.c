@@ -3,7 +3,6 @@
 #include "libbpf.h"
 #include "sr_constants.h"
 #include "sorting.h"
-#include "../../src/capabilities.h"
 #include <sched.h>
 #include <getopt.h>
 #include <pwd.h>
@@ -397,6 +396,10 @@ static int printResult()
 			if(childs[i] == parent){ //if parent of actual key is in child list then add key to childs
 				nbchilds++;
 				childs=(unsigned int *)realloc(childs,nbchilds*sizeof(unsigned int));
+				if(childs == NULL){
+					perror("realloc");
+					exit(-1);
+				}
 				childs[nbchilds-1] = key;
 			}
 		}

@@ -1,0 +1,25 @@
+name: Criterion Unit Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Update version
+      run: sudo apt-get update
+    - name: Install Dependencies
+      run: sudo ./configure.sh
+    - name: Install Homebrew
+      run: sudo apt-get install build-essential procps curl file git libcriterion-dev
+    - name: Build Unit Tests
+      run: make unit_test
+    - name: Run Unit Tests
+      run: ./bin/unit_test

@@ -1,51 +1,23 @@
-/*
- * <capabilities.h>
- *
- * This file contains the signatures of capabilities management functions.
- *
- * Note, the copyright+license information is at end of file.
- */
-#ifndef CAPABILITIES_H_INCLUDED
-#define CAPABILITIES_H_INCLUDED
-#include <sys/capability.h>
+#ifndef COMMAND_H
+#define COMMAND_H
+#include "params.h"
 
-/* 
-Add or remove the set_pcap capability in/from the effective set
-of the process.
-Return 0 on success, -1 on failure.
-*/
-int setpcap_effective(int enable);
+cmd_t *get_cmd(int argc, char *argv[]);
 
-/*
-Set setuid capabilities in the effective set of the process.
-*/
-int setuid_effective(int enable);
+int get_abspath_from_cmdline(char *content, char *abspath, int size, char *args, int size_args);
 
-/*
-Set setgid capabilities in the effective set of the process.
-*/
-int setgid_effective(int enable);
+int join_argv(int argc, char **argv, char *res, int res_size, int *res_len);
 
-/* 
-Activate the securebits for the no-root option.
-Return 0 on success, -1 on failure.
-*/
-int activates_securebits();
+int join_cmd(cmd_t *cmd, char *res, int res_size, int *res_len);
 
-/* 
-Activate the no-new-privileges for the no-root option.
-Return 0 on success, -1 on failure.
-*/
-int activates_no_new_privs();
+int may_be_regex(const char *str, int size);
 
-
-#endif // CAPABILITIES_H_INCLUDED
+#endif // COMMAND_H
 
 /* 
  * 
- * Copyright Guillaume Daumas <guillaume.daumas@univ-tlse3.fr>, 2018
- * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2018
- * Copyright Rémi Venant <remi.venant@irit.fr>, 2018
+ * Copyright Ahmad Samer Wazan <ahmad-samer.wazan@irit.fr>, 2022
+ * Copyright Eddie Billoir <eddie.billoir@irit.fr>, 2022
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:

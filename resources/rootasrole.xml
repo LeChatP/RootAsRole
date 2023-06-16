@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rootasrole [
+	<!ELEMENT rootasrole (roles|options?)*>
+	<!ATTLIST rootasrole version CDATA #REQUIRED>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?)*>
+	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
+	<!ELEMENT env-check (#PCDATA|EMPTY)*>
+	<!ELEMENT allow-root EMPTY>
+	<!ATTLIST allow-root enforce (true|false) "false">
+	<!ELEMENT allow-bounding EMPTY>
+	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
+	<!ELEMENT path (#PCDATA|EMPTY)*>
+	<!ELEMENT roles (role*)>
+	<!ELEMENT role (actors?|task*|options?)*>
+	<!ATTLIST role
+		name ID #REQUIRED
+		priority CDATA "0">
+	<!ELEMENT actors (user*|group*)>
+	<!ELEMENT user EMPTY>
+	<!ATTLIST user name CDATA #REQUIRED>
+	<!ELEMENT group EMPTY>
+	<!ATTLIST group names CDATA #REQUIRED>
+	<!ELEMENT task (command*|options?)*>
+	<!ATTLIST task
+		id ID #IMPLIED
+		capabilities CDATA #IMPLIED
+		setuser CDATA #IMPLIED
+		setgroups CDATA #IMPLIED>
+	<!ELEMENT command (#PCDATA)>
+	<!ATTLIST command
+		regex (true|false) "false">
+]>
+<rootasrole version="3.0.0-alpha.1">
+	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific task in a
+	role
+		Be cautionous about changing them.-->
+	<options>
+		<!-- PATH configuration, you could replace, prepend or extend with paths.
+			be warned about this option, you are responsible about misconfiguration 
+			of this variable. Misconfiguration of roles with this variable could lead 
+			to unexpected behaviors. We not recommend to use prepend or extend options.
+			WARNING this could lead to critical attack vectors-->
+		<path>/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin</path>
+
+		<!-- Environment variables to keep
+			WARNING this could lead to critical attack vectors-->
+		<env-keep>HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP</env-keep>
+
+		<!-- Environment variables kept if safe (without % or / chars)
+			WARNING, this could also lead to critical attack vectors-->
+		<env-check>COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ</env-check>
+
+		<!-- By default, root is considered as unprivilegied user.
+			With this option, root is considered as privileged super-user
+			This option could break security features-->
+		<allow-root enforce="false" />
+
+		<!-- By default, capabilities are enforced and permanently removed 
+			from the execution session, even for root. With this option,
+			capabilities are not removed from the bounding set and it could be possible
+			to elevate more privileges than specified in a session.
+			This option could break security features-->
+		<allow-bounding enforce="false" />
+
+		<!-- By default any wildcard will avoid dang,erous characters that could start another
+			command than specified-->
+		<wildcard-denied>;&amp;|</wildcard-denied>
+	</options>
+	<roles>
+		<role name="root">
+			<actors>
+				<user name="ROOTADMINISTRATOR"/>
+			</actors>
+			<task capabilities="all" setuser="root" setgroups="root"> <!-- all capabilities, as root user, root group -->
+				<command>**</command> <!-- all commands with any args, a single wildcard is all commands without args. -->
+			</task>
+		</role>
+		<!--
+		<role name="role1">
+			<actors>
+				<user name="user1"/>
+				<group names="group1"/> group block is not exclusive
+				<group names="group1,group2"/> but you could require multiple groups (comma separated)
+			</actors>
+			<task> No capabilities, not changing user or group, like a simple user
+				<command>*</command>
+			</task>
+			<task capabilities="cap_fowner,cap_setuid" user="sysadmin" groups="adm,syslog"> setting capabilities, changing user and groups
+				<command>/usr/bin/passwd</command>
+				<command>/usr/bin/chmod</command>
+				<command>/opt/myprogram -i</command>
+			</task>
+		</role>
+	-->
+	</roles>
+</rootasrole>

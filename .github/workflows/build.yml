@@ -1,0 +1,23 @@
+name: Build Project
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Update version
+      run: sudo apt-get update
+    - name: Install Dependencies
+      run: sudo ./configure.sh
+    - name: Build Project
+      run: sudo make install
+    - name: Run Project
+      run: sr -h

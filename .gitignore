@@ -58,5 +58,9 @@ obj/
 bin/
 
 # Hidden folders (for Linux IDE)
-/.*/
-.vscode/
+/.idea/
+target/
+version.rs
+
+# Rust crates
+Cargo.lock
