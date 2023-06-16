@@ -1,4 +1,6 @@
 #include "params.h"
+#define __STDC_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
 
 #include <stdlib.h>
 #include <linux/limits.h>
@@ -74,7 +76,7 @@ cmd_t *params_command_get(){
     return command;
 }
 
-char *params_set_role(const char *p_role){
+char *params_set_role(char *p_role){
     role = p_role;
     return role;
 }
@@ -258,15 +260,15 @@ void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 */
 void free_options(settings_t *options)
 {
-	if (options->env_keep != d_keep_vars) {
+	if (options->env_keep != d_keep_vars && options->env_keep != NULL) {
 		xmlFree(*(options->env_keep));
 		free(options->env_keep);
 	}
-	if (options->env_check != d_check_vars) {
+	if (options->env_check != d_check_vars && options->env_check != NULL) {
 		xmlFree(*(options->env_check));
 		free(options->env_check);
 	}
-	if (options->path != d_path) {
+	if (options->path != d_path && options->path != NULL) {
 		free(options->path);
 	}
 	free(options->role);

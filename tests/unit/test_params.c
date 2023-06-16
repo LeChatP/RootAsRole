@@ -2,13 +2,13 @@
 #include "params.c"
 
 Test(params_set_role, sets_role) {
-    const char *tmp_role = "admin";
+    char *tmp_role = "admin";
     char *result = params_set_role(tmp_role);
     cr_assert_str_eq(result, role, "params_set_role did not set the role correctly");
 }
 
 Test(params_get_role, returns_role) {
-    const char *tmp_role = "admin";
+    char *tmp_role = "admin";
     params_set_role(tmp_role);
     char *result = params_get_role();
     cr_assert_str_eq(result, tmp_role, "params_get_role did not return the correct role");
@@ -30,7 +30,7 @@ Test(params_user_posix_set, sets_user_posix) {
 Test(params_command_set, set_command_test) {
     char *tmp_command = "/bin/ls";
     char *tmp_argv[] = {"ls", "-l", NULL};
-    const int tmp_argc = 2;
+    int tmp_argc = 2;
 
     cmd_t *result = params_command_set(tmp_command, tmp_argc, tmp_argv);
     cr_assert_str_eq(result->command, tmp_command, "params_set_command did not set the command correctly");
@@ -42,7 +42,7 @@ Test(params_command_set, set_command_test) {
 Test(params_command_get, get_command_test){
     char *tmp_command = "/bin/ls";
     char *tmp_argv[] = {"ls", "-l", NULL};
-    const int tmp_argc = 2;
+    int tmp_argc = 2;
 
     cmd_t *element = params_command_set(tmp_command, tmp_argc, tmp_argv);
     cmd_t *result = params_command_get();

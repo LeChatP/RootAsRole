@@ -5,7 +5,15 @@
  *
  * Note, the copyright+license information is at end of file.
  */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+#ifndef __STDC_LIB_EXT1__
+#define __STDC_LIB_EXT1__
+#endif
+#ifndef __STDC_WANT_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
+#endif
 #include "xml_manager.h"
 #include "command.h"
 
@@ -13,6 +21,7 @@
 #include <sys/types.h>
 #include <string.h>
 #include <errno.h>
+#include <error.h>
 #include <linux/limits.h>
 #include <syslog.h>
 #include <stdlib.h>
@@ -21,6 +30,14 @@
 
 #ifndef ARG_MAX
 #define ARG_MAX 131072
+#endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#ifndef REGERROR_BUF_SIZE
+#define REGERROR_BUF_SIZE 1024
 #endif
 
 static cap_iab_t iab = NULL;
@@ -138,6 +155,52 @@ int actors_match_max_group(xmlNodePtr actors, char **groups, int nb_groups)
 	return max;
 }
 
+int scorecmp(score_t score_A, score_t score_B)
+{
+	if (score_A > score_B)
+		return 1;
+	else if (score_A < score_B)
+		return -1;
+	else
+		return 0;
+}
+
+int twoscorecmp(score_t user_min_A, score_t cmd_min_A, score_t user_min_B,
+		 score_t cmd_min_B)
+{
+	if (user_min_A > user_min_B)
+		return 1;
+	else if (user_min_A < user_min_B)
+		return -1;
+	else if (cmd_min_A > cmd_min_B)
+		return 1;
+	else if (cmd_min_A < cmd_min_B)
+		return -1;
+	else
+		return 0;
+
+}
+
+int threescorecmp(score_t caps_min_A, score_t setuid_min_A,
+		      score_t security_min_A, score_t caps_min_B,
+		      score_t setuid_min_B, score_t security_min_B)
+{
+	if (caps_min_A > caps_min_B)
+		return 1;
+	else if (caps_min_A < caps_min_B)
+		return -1;
+	else if (setuid_min_A > setuid_min_B)
+		return 1;
+	else if (setuid_min_A < setuid_min_B)
+		return -1;
+	else if (security_min_A > security_min_B)
+		return 1;
+	else if (security_min_A < security_min_B)
+		return -1;
+	else
+		return 0;
+}
+
 /**
  * @brief actor is matching the user criteria
  * @param user the user to match
@@ -146,17 +209,17 @@ int actors_match_max_group(xmlNodePtr actors, char **groups, int nb_groups)
 */
 score_t actors_match(user_t *user, xmlNodePtr actors)
 {
-	score_t max = -1;
 	score_t score = 0;
 	if (!xmlStrcmp(actors->name, (const xmlChar *)"actors")) {
 		if (actors_match_user(actors, user->name)) {
 			score = 1;
 		} else {
-			int n = max - actors_match_max_group(actors,
+			score_t max = -1;
+			score_t n = max - actors_match_max_group(actors,
 							     user->groups,
 							     user->nb_groups);
 			if (n == 0) {
-				printf("Unkown error\n", user->name);
+				printf("Unkown error\n");
 				return 0;
 			} else if (n != max && n > score) {
 				score = n;
@@ -178,119 +241,128 @@ score_t actors_match(user_t *user, xmlNodePtr actors)
 #define PATH_FULL_WILDCARD_ARG_WILDCARD 9
 #define PATH_ARG_FULL_WILDCARD 10
 
+int path_matches(char *full_path, cmd_t *command)
+{
+	int path_matches = NO_MATCH;
+	if (!strncmp(command->command, full_path, PATH_MAX)) {
+		path_matches = PATH_STRICT;
+	} else if (!strcmp(full_path, "*")) {
+		path_matches = PATH_FULL_WILDCARD;
+	} else {
+		//check wildcard on path
+		if (!fnmatch(full_path, command->command,
+			     FNM_PATHNAME | FNM_NOESCAPE | FNM_PERIOD)) {
+			path_matches = PATH_WILDCARD;
+		}
+	}
+	return path_matches;
+}
+
+int regex_matches(char *args, cmd_t *command, xmlNodePtr command_element,
+		  score_t *retval)
+{
+	args[0] = '^';
+	int args_len = strnlen(args, ARG_MAX);
+	if (args_len + 1 > ARG_MAX) {
+		error(0, 0,
+		      "Configuration file malformed, contact administrator or see the logs\n");
+		syslog(LOG_ERR, "Regex in line %d is too long\n",
+		       command_element->line);
+		return 0;
+	}
+	args[args_len] = '$';
+	args_len++;
+	args[args_len] = '\0';
+	
+	//check regex on args
+	regex_t regex;
+	int reti = regcomp(&regex, args, REG_EXTENDED);
+	if (reti) {
+		error(0, 0,
+		      "Configuration file malformed, contact administrator or see the logs\n");
+
+		char error_msg[REGERROR_BUF_SIZE];
+		*error_msg = (char)'\0';
+		regerror(reti, &regex, error_msg, REGERROR_BUF_SIZE);
+		syslog(LOG_ERR, "Regex in line %d is malformed : %s\n",
+		       command_element->line, error_msg);
+		return 0;
+	}
+	char joined[ARG_MAX];
+	int joined_len = 0;
+	join_argv(command->argc, command->argv, joined, ARG_MAX, &joined_len);
+	reti = regexec(&regex, joined, 0, NULL, 0);
+	joined[0] = '\0';
+	regfree(&regex);
+	if (!reti) {
+		switch (*retval) {
+		case PATH_STRICT:
+			*retval = may_be_regex(args + 1, args_len - 2) ?
+					  PATH_STRICT_ARG_WILDCARD :
+					  PATH_ARG_STRICT;
+			break;
+		case PATH_WILDCARD:
+			*retval = may_be_regex(args + 1, args_len - 2) ?
+					  PATH_ARG_WILDCARD :
+					  PATH_WILDCARD_ARG_STRICT;
+			break;
+		case PATH_FULL_WILDCARD:
+			*retval = may_be_regex(args + 1, args_len - 2) ?
+					  PATH_FULL_WILDCARD_ARG_WILDCARD :
+					  PATH_FULL_WILDCARD_ARG_STRICT;
+			break;
+		}
+
+		return 1;
+	}
+	return 0;
+}
+
+int check_path_matches(cmd_t *command, xmlNodePtr command_element,
+		       char *content, score_t *retval)
+{
+	char full_path[PATH_MAX];
+	char args[ARG_MAX];
+
+	if (!get_abspath_from_cmdline((char *)content, full_path, PATH_MAX,
+				      args + 1, ARG_MAX - 2)) {
+		return 0;
+	}
+	if (!strcmp(content,"**")){
+		*retval = PATH_ARG_FULL_WILDCARD;
+		return 1;
+	}
+	*retval = path_matches(full_path, command);
+	if (*retval && args[1] != '\0') {
+		//path matches and args are not empty
+		int ret = regex_matches(args, command, command_element, retval);
+		if (!ret) {
+			*retval = NO_MATCH;
+		}
+	} else if (args[1] == '\0' && command->argc > 1) {
+		*retval = NO_MATCH;
+	}
+	return *retval != NO_MATCH;
+}
+
 /**
  * @brief check if the user input command match the command xml element
  * @param input_command the user input command
  * @param command_element the <command> xml element
- * @return 1 on match, or 0 on error
+ * @return non-zero if the command match, 0 otherwise
 */
-int command_match(cmd_t *command, xmlNodePtr command_element)
+score_t command_match(cmd_t *command, xmlNodePtr command_element)
 {
-	int retval = NO_MATCH;
+	score_t retval = NO_MATCH;
 	if (!xmlStrcmp(command_element->name, (const xmlChar *)"command")) {
 		xmlChar *content = xmlNodeGetContent(command_element);
-		size_t content_len = xmlStrlen((char *)content);
+		size_t content_len = xmlStrlen(content);
 		if (content != NULL && content_len > 0) {
-			char full_path[PATH_MAX];
-			char args[ARG_MAX];
-			int path_matches = NO_MATCH;
-			if (!get_abspath_from_cmdline((char *)content,
-						      full_path, PATH_MAX,
-						      args + 1, ARG_MAX - 2)) {
-				goto ret;
+			if(!check_path_matches(command, command_element,
+						    (char *)content, &retval)){
+				retval = NO_MATCH;
 			}
-			size_t fullpath_len = strnlen(full_path, PATH_MAX);
-			if (!strncmp(command->command, full_path, PATH_MAX)) {
-				path_matches = PATH_STRICT;
-			} else if (*content == '*' && *(content + 1) == '*' &&
-				   content_len == 2) {
-				retval = PATH_ARG_FULL_WILDCARD;
-				goto ret;
-			} else if (*full_path == '*') {
-				path_matches = PATH_FULL_WILDCARD;
-			} else {
-				//check wildcard on path
-				if (!fnmatch(full_path, command->command,
-					     FNM_PATHNAME | FNM_NOESCAPE |
-						     FNM_PERIOD)) {
-					path_matches = PATH_WILDCARD;
-				}
-			}
-			if (command->argc <= 0 && args[1] == '\0') {
-				retval = path_matches; // no args
-			} else if (path_matches &&
-				   args[1] !=
-					   '\0') { //path matches and args are not empty
-				args[0] = '^';
-				int args_len = strnlen(args, ARG_MAX);
-				if (args_len + 1 > ARG_MAX) {
-					error(0, 0,
-					      "Configuration file malformed, contact administrator or see the logs\n");
-					syslog(LOG_ERR,
-					       "Regex in line %d is too long\n",
-					       command_element->line);
-					goto ret;
-				}
-				args[args_len] = '$';
-				args[args_len + 1] = '\0';
-				//check regex on args
-				regex_t regex;
-				int reti = regcomp(&regex, args, REG_EXTENDED);
-				if (reti) {
-					error(0, 0,
-					      "Configuration file malformed, contact administrator or see the logs\n");
-					char *error_msg[1024];
-					regerror(reti, &regex, error_msg, 1024);
-					syslog(LOG_ERR,
-					       "Regex in line %d is malformed : %s\n",
-					       command_element->line,
-					       error_msg);
-					goto ret;
-				}
-				char joined[ARG_MAX];
-				int joined_len = 0;
-				join_argv(command->argc, command->argv, joined,
-					  ARG_MAX, &joined_len);
-				reti = regexec(&regex, joined, 0, NULL, 0);
-				joined[0] = '\0';
-				regfree(&regex);
-				if (!reti) {
-					switch (path_matches) {
-					case PATH_STRICT:
-						retval =
-							may_be_regex(
-								args + 1,
-								strlen(args) -
-									2) ?
-								PATH_STRICT_ARG_WILDCARD :
-								PATH_ARG_STRICT;
-						break;
-					case PATH_WILDCARD:
-						retval =
-							may_be_regex(
-								args + 1,
-								strlen(args) -
-									2) ?
-								PATH_ARG_WILDCARD :
-								PATH_WILDCARD_ARG_STRICT;
-						break;
-					case PATH_FULL_WILDCARD:
-						retval =
-							may_be_regex(
-								args + 1,
-								strlen(args) -
-									2) ?
-								PATH_FULL_WILDCARD_ARG_WILDCARD :
-								PATH_FULL_WILDCARD_ARG_STRICT;
-						break;
-					}
-
-					goto ret;
-				}
-			} // else path does not match, or args are empty but not the input command
-			args[0] = '\0';
 		}
-	ret:
 		xmlFree(content);
 	}
 
@@ -300,10 +372,9 @@ int command_match(cmd_t *command, xmlNodePtr command_element)
 int contains_root(xmlChar *comma_string)
 {
 	char *dup = strdup((char *)comma_string);
-	xmlChar *element = strtok((char *)dup, ",");
+	char *element = strtok((char *)dup, ",");
 	while (element != NULL &&
-	       (!xmlStrcasecmp(element, (const xmlChar *)"root") ||
-		!xmlStrcmp(element, (const xmlChar *)"0"))) {
+	       (!strcasecmp(element, "root") || !strcmp(element, "0"))) {
 		element = strtok(NULL, ",");
 	}
 	free(dup);
@@ -347,53 +418,66 @@ score_t get_caps_min(const xmlNodePtr task_element)
 	return caps_min;
 }
 
+score_t setuser_min(const xmlNodePtr task_element, const settings_t *settings)
+{
+	score_t setuid_min = NO_SETUID_NO_SETGID;
+	xmlChar *setuid = xmlGetProp(task_element, (const xmlChar *)"setuser");
+	if (setuid != NULL && xmlStrlen(setuid) > 0) {
+		if (!settings->no_root &&
+		    xmlStrcmp(setuid, (const xmlChar *)"root") == 0) {
+			setuid_min = SETUID_ROOT;
+		} else {
+			setuid_min = SETUID;
+		}
+	}
+	xmlFree(setuid);
+	return setuid_min;
+}
+
+score_t setgid_min(const xmlNodePtr task_element, const settings_t *settings,
+		   score_t setuid_min)
+{
+	score_t setgid_min = NO_SETUID_NO_SETGID;
+	xmlChar *setgid =
+		xmlGetProp(task_element, (const xmlChar *)"setgroups");
+	if (setgid != NULL && xmlStrlen(setgid) > 0) {
+		switch (setuid_min) {
+		case SETUID_ROOT:
+			if (!settings->no_root && contains_root(setgid)) {
+				setgid_min = SETUID_SETGID_ROOT;
+			} else {
+				setgid_min = SETUID_ROOT_SETGID;
+			}
+			break;
+		case SETUID:
+			if (!settings->no_root && contains_root(setgid)) {
+				setgid_min = SETUID_NOTROOT_SETGID_ROOT;
+			} else {
+				setgid_min = SETUID_SETGID;
+			}
+			break;
+		default: // no_setuid
+			if (!settings->no_root && contains_root(setgid)) {
+				setgid_min = SETGID_ROOT;
+			} else {
+				setgid_min = SETGID;
+			}
+			break;
+		}
+	}
+	xmlFree(setgid);
+	return setgid_min;
+}
+
 score_t get_setuid_min(const xmlNodePtr task_element,
 		       const settings_t *settings)
 {
 	score_t setuid_min = NO_SETUID_NO_SETGID;
 	if (xmlHasProp(task_element, (const xmlChar *)"setuser")) {
-		xmlChar *setuid =
-			xmlGetProp(task_element, (const xmlChar *)"setuser");
-		if (setuid != NULL && xmlStrlen(setuid) > 0) {
-			if (!settings->no_root &&
-			    xmlStrcmp(setuid, (const xmlChar *)"root") == 0) {
-				setuid_min = SETUID_ROOT;
-			} else {
-				setuid_min = SETUID;
-			}
-		}
+		setuid_min = setuser_min(task_element, settings);
 	}
 	if (xmlHasProp(task_element, (const xmlChar *)"setgroups")) {
-		xmlChar *setgid =
-			xmlGetProp(task_element, (const xmlChar *)"setgroups");
-		if (setgid != NULL && xmlStrlen(setgid) > 0) {
-			switch (setuid_min) {
-			case SETUID_ROOT:
-				if (!settings->no_root &&
-				    contains_root(setgid)) {
-					setuid_min = SETUID_SETGID_ROOT;
-				} else {
-					setuid_min = SETUID_ROOT_SETGID;
-				}
-				break;
-			case SETUID:
-				if (!settings->no_root &&
-				    contains_root(setgid)) {
-					setuid_min = SETUID_NOTROOT_SETGID_ROOT;
-				} else {
-					setuid_min = SETUID_SETGID;
-				}
-				break;
-			default: // no_setuid
-				if (!settings->no_root &&
-				    contains_root(setgid)) {
-					setuid_min = SETGID_ROOT;
-				} else {
-					setuid_min = SETGID;
-				}
-				break;
-			}
-		}
+		setuid_min = setgid_min(task_element, settings, setuid_min);
 	}
 	return setuid_min;
 }
@@ -406,23 +490,21 @@ score_t get_setuid_min(const xmlNodePtr task_element,
  * @param caps_min the capabilities level of the task
  * @return 1 if any match, or 0 if no match
 */
-int task_match(const cmd_t *cmd, const xmlNodePtr task_element,
+int task_match(cmd_t *cmd, const xmlNodePtr task_element,
 	       settings_t *settings, score_t *cmd_min, score_t *caps_min,
 	       score_t *setuid_min)
 {
 	*setuid_min = *caps_min = *cmd_min = -1;
 	if (!xmlStrcmp(task_element->name, (const xmlChar *)"task")) {
-		
 		get_options_from_config(task_element, settings);
 		xmlNodePtr command_element = task_element->children;
 
 		while (command_element != NULL) {
-			int match = command_match(cmd, command_element);
+			score_t match = command_match(cmd, command_element);
 			if (match) {
-				*cmd_min = *cmd_min <= 0 || *cmd_min < match ?
-						   match :
-						   *cmd_min;
+				*cmd_min = match < *cmd_min ? match : *cmd_min;
 			}
+			
 			command_element = command_element->next;
 		}
 		if (*cmd_min > 0) {
@@ -430,7 +512,7 @@ int task_match(const cmd_t *cmd, const xmlNodePtr task_element,
 			*setuid_min = get_setuid_min(task_element, settings);
 		}
 	}
-	return *cmd_min > 0 ? 1 : 0;
+	return *cmd_min < (score_t)-1 ? 1 : 0;
 }
 
 #define NO_ROOT_WITH_BOUNDING 1
@@ -439,21 +521,20 @@ int task_match(const cmd_t *cmd, const xmlNodePtr task_element,
 #define ENABLE_ROOT_DISABLE_BOUNDING 4
 
 int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
-		  xmlNode *task_min, settings_t *settings, score_t *cmd_min,
-		  score_t *caps_min, score_t *setuid_min, score_t *security_min)
+		 xmlNodePtr *task_min, settings_t *settings, score_t *cmd_min,
+		 score_t *caps_min, score_t *setuid_min, score_t *security_min)
 {
-    int ret = -1;
+	int ret = -1;
 	score_t task_cmd = -1, task_caps = -1, task_setuid = -1;
-	if (task_match(cmd, role_sub_element, settings, &task_cmd,
-			       &task_caps, &task_setuid)) {
-		if (task_cmd < *cmd_min ||
-		    (task_cmd == *cmd_min && task_caps < *caps_min) ||
-		    (task_cmd == *cmd_min && task_caps == *caps_min &&
-		     task_setuid < *setuid_min)) {
+	if (task_match(cmd, role_sub_element, settings, &task_cmd, &task_caps,
+		       &task_setuid)) {
+		int cmp = threescorecmp(task_cmd, task_caps,
+							task_setuid, *cmd_min, *caps_min, *setuid_min);
+		if (cmp < 0) {
 			*cmd_min = task_cmd;
 			*caps_min = task_caps;
 			*setuid_min = task_setuid;
-			task_min = role_sub_element;
+			*task_min = role_sub_element;
 			if (!settings->no_root && !settings->bounding)
 				*security_min = ENABLE_ROOT_DISABLE_BOUNDING;
 			else if (!settings->no_root)
@@ -462,19 +543,21 @@ int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 				*security_min = DISABLE_BOUNDING;
 			else
 				*security_min = NO_ROOT_WITH_BOUNDING;
-            ret = 1;
-		}else if( cmd_min != -1 && task_cmd == *cmd_min && task_caps == *caps_min && task_setuid == *setuid_min){
-            xmlChar *role_name = xmlGetProp(role_sub_element, (const xmlChar *)"name");
-            syslog(LOG_WARNING, "Duplicate task in role %s", role_name);
-            xmlFree(role_name);
-            ret = 0;
-        }
+			ret = 1;
+		} else if (*cmd_min != (score_t)-1 && cmp == 0) {
+			xmlChar *role_name = xmlGetProp(
+				role_sub_element, (const xmlChar *)"name");
+			syslog(LOG_WARNING, "Duplicate task in role %s",
+			       role_name);
+			xmlFree(role_name);
+			ret = 0;
+		}
 	}
-    return ret;
+	return ret;
 }
 
-int role_match(const xmlNodePtr role_element, const user_t *user,
-	       const cmd_t *cmd, xmlNode *task_min, settings_t *settings,
+int role_match(const xmlNodePtr role_element, user_t *user,
+	       cmd_t *cmd, xmlNode *task_min, settings_t *settings,
 	       score_t *user_min, score_t *cmd_min, score_t *caps_min,
 	       score_t *setuid_min, score_t *security_min)
 {
@@ -482,61 +565,59 @@ int role_match(const xmlNodePtr role_element, const user_t *user,
 		xmlNode *role_sub_element = role_element->children;
 		*user_min = *cmd_min = *caps_min = *setuid_min = *security_min =
 			-1;
-        xmlNodePtr actors_block = find_actors(role_element);
-        int matches = 0;
-        if(actors_block != NULL){
-            *user_min = actors_match(user, actors_block);
-            while (role_sub_element != NULL) {
-                int ret = set_task_min(cmd, role_sub_element, task_min, settings, cmd_min, caps_min, setuid_min, security_min);
-                if (ret == 1)
-                    matches = 1;
-                role_sub_element = role_sub_element->next;
-            }
-        }
-        if (matches)
-            return 1;
-
+		xmlNodePtr actors_block = find_actors(role_element);
+		int matches = 0;
+		if (actors_block != NULL) {
+			*user_min = actors_match(user, actors_block);
+			while (role_sub_element != NULL) {
+				int ret =
+					set_task_min(cmd, role_sub_element,
+						     &task_min, settings,
+						     cmd_min, caps_min,
+						     setuid_min, security_min);
+				if (ret == 1)
+					matches = 1;
+				role_sub_element = role_sub_element->next;
+			}
+		}
+		if (matches)
+			return 1;
 	}
 	return 0;
 }
 
-void min_partial_order_role(xmlNodePtr role_element, user_t *user,
-			    cmd_t *cmd, score_t *user_min,
-			    score_t *cmd_min, score_t *caps_min,
-			    score_t *setuid_min, score_t *security_min,
-			    xmlNode *matched_role, xmlNode *matched_task,
+void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
+			    score_t *user_min, score_t *cmd_min,
+			    score_t *caps_min, score_t *setuid_min,
+			    score_t *security_min, xmlNodePtr *matched_role,
+			    xmlNodePtr *matched_task,
 			    settings_t *matched_settings, int *n_roles)
 {
 	xmlNodePtr tmp_task_element = NULL;
 	settings_t tmp_settings;
 	score_t tmp_user_min = -1, tmp_cmd_min = -1, tmp_caps_min = -1,
 		tmp_setuid_min = -1, tmp_security_min = -1;
-	if (role_match(role_element, user, cmd, &tmp_task_element,
-		       &tmp_settings, &tmp_user_min, &tmp_cmd_min, &tmp_caps_min,
+	if (role_match(role_element, user, cmd, tmp_task_element, &tmp_settings,
+		       &tmp_user_min, &tmp_cmd_min, &tmp_caps_min,
 		       &tmp_setuid_min, &tmp_security_min)) {
-		if (tmp_user_min < user_min ||
-		    (tmp_user_min == user_min && tmp_cmd_min < cmd_min) ||
-		    (tmp_user_min == user_min && tmp_cmd_min == cmd_min &&
-		     tmp_caps_min < caps_min) ||
-		    (tmp_user_min == user_min && tmp_cmd_min == cmd_min &&
-		     tmp_caps_min == caps_min && tmp_setuid_min < setuid_min) ||
-		    (tmp_user_min == user_min && tmp_cmd_min == cmd_min &&
-		     tmp_caps_min == caps_min && tmp_setuid_min == setuid_min &&
-		     tmp_security_min < security_min)) {
-			user_min = tmp_user_min;
-			cmd_min = tmp_cmd_min;
-			caps_min = tmp_caps_min;
-			setuid_min = tmp_setuid_min;
-			security_min = tmp_security_min;
-			matched_role = role_element;
-			matched_task = tmp_task_element;
-			options_assign(matched_settings,&tmp_settings);
+		int precision = twoscorecmp(tmp_user_min, tmp_cmd_min,
+					    *user_min, *cmd_min);
+		int leastprivilege =
+			threescorecmp(tmp_caps_min, tmp_setuid_min,
+					  tmp_security_min, *caps_min,
+					  *setuid_min, *security_min);
+		if (precision < 0 || (precision == 0 && leastprivilege < 0)) {
+			*user_min = tmp_user_min;
+			*cmd_min = tmp_cmd_min;
+			*caps_min = tmp_caps_min;
+			*setuid_min = tmp_setuid_min;
+			*security_min = tmp_security_min;
+			*matched_role = role_element;
+			*matched_task = tmp_task_element;
+			options_assign(matched_settings, &tmp_settings);
 			*n_roles = 1;
-		} else if (tmp_user_min == user_min && tmp_cmd_min == cmd_min &&
-			   tmp_caps_min == caps_min &&
-			   tmp_setuid_min == setuid_min &&
-			   tmp_security_min == security_min) {
-			*n_roles++;
+		} else if (precision == 0 && leastprivilege == 0) {
+			(*n_roles)++;
 		}
 	}
 }
@@ -552,10 +633,9 @@ void min_partial_order_role(xmlNodePtr role_element, user_t *user,
  * @return n roles found
  * 
 */
-int find_partial_order_role(xmlNodeSetPtr roles_element,
-			    user_t *user, cmd_t *cmd,
-			    xmlNode *matched_role, xmlNode *matched_task,
-			    settings_t *matched_settings)
+int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
+			    cmd_t *cmd, xmlNode *matched_role,
+			    xmlNode *matched_task, settings_t *matched_settings)
 {
 	score_t user_min = -1, cmd_min = -1, caps_min = -1, setuid_min = -1,
 		security_min = -1;
@@ -564,8 +644,8 @@ int find_partial_order_role(xmlNodeSetPtr roles_element,
 		xmlNodePtr role_element = roles_element->nodeTab[i];
 		min_partial_order_role(role_element, user, cmd, &user_min,
 				       &cmd_min, &caps_min, &setuid_min,
-				       &security_min, matched_role,
-				       matched_task, matched_settings,
+				       &security_min, &matched_role,
+				       &matched_task, matched_settings,
 				       &n_roles);
 	}
 	return n_roles;
@@ -695,10 +775,10 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	int size = 0;
 	xmlChar *expression = NULL;
 	xmlChar *user_groups_char = NULL;
-    char str_cmd[PATH_MAX+ARG_MAX+1];
-    *str_cmd = '\0';
-    int cmd_len = 0;
-    join_cmd(command,str_cmd,PATH_MAX+ARG_MAX+1,&cmd_len);
+	char str_cmd[PATH_MAX + ARG_MAX + 1];
+	*str_cmd = '\0';
+	int cmd_len = 0;
+	join_cmd(command, str_cmd, PATH_MAX + ARG_MAX + 1, &cmd_len);
 	char *sanitized_str = sanitize_quotes_xpath(str_cmd);
 	if (sanitized_str == NULL) {
 		return NULL;
@@ -760,7 +840,7 @@ xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc,
 	result = xmlXPathEvalExpression(expression, context);
 	if (result == NULL) {
 		fputs("Error in xmlXPathEvalExpression\n", stderr);
-        printf("expression: %s\n", expression);
+		printf("expression: %s\n", expression);
 		goto ret_err;
 	}
 
@@ -861,29 +941,29 @@ xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, user_t *user,
 					     cmd_t *cmd)
 {
 	xmlChar *expression = NULL;
-
+	xmlNodeSetPtr nodeset = NULL;
 	expression = expr_search_role_by_usergroup_command(user, cmd);
 	if (!expression) {
 		fputs("Error expr_search_role_by_usergroup_command()\n",
 		      stderr);
 		goto ret_err;
 	}
-	xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, NULL);
-    if (!nodeset) {
-        fputs("Error find_with_xpath()\n", stderr);
-        goto ret_err;
-    }
+	nodeset = find_with_xpath(expression, doc, NULL);
+	if (!nodeset) {
+		fputs("Error find_with_xpath()\n", stderr);
+		goto ret_err;
+	}
 	nodeset = filter_wrong_groups_roles(nodeset, user->groups,
 					    user->nb_groups);
-    if(!nodeset) {
-        fputs("Error filter_wrong_groups_roles()\n", stderr);
-        goto ret_err;
-    }
+	if (!nodeset) {
+		fputs("Error filter_wrong_groups_roles()\n", stderr);
+		goto ret_err;
+	}
 	nodeset = filter_wrong_commands_roles(nodeset, cmd);
-    if(!nodeset) {
-        fputs("Error filter_wrong_commands_roles()\n", stderr);
-        goto ret_err;
-    }
+	if (!nodeset) {
+		fputs("Error filter_wrong_commands_roles()\n", stderr);
+		goto ret_err;
+	}
 ret_err:
 	xmlFree(expression);
 	return nodeset;
@@ -913,29 +993,6 @@ xmlChar *expr_search_command_block_from_role(char *command)
 }
 
 /**
- * @brief find task matching the command on the role with xpath
- * @param role_node the role node
- * @param command the command to search
- * @return the task node, or NULL on error
-*/
-xmlNodeSetPtr find_task_block_from_role(xmlNodePtr role_node, char *command)
-{
-	xmlChar *expression = expr_search_command_block_from_role(command);
-	if (!expression) {
-		fputs("Error expr_search_command_block_from_role()\n", stderr);
-		goto free_error;
-	}
-	xmlNodeSetPtr nodeset =
-		find_with_xpath(expression, role_node->doc, role_node);
-free_error:
-	xmlFree(expression);
-	if (nodeset == NULL || nodeset->nodeNr == 0) {
-		return NULL;
-	}
-	return nodeset;
-}
-
-/**
  * @brief find task blocks which are empty on the role with xpath
  * @param role_node the role node
  * @return the task node, or NULL on error or if no empty task block
@@ -958,8 +1015,7 @@ xmlNodeSetPtr find_wildcard_task_block_from_role(xmlNodePtr role_node)
 /**
  * @brief find the role node matching the parameters, filter 
 */
-int get_settings(xmlNodePtr role_node, xmlNodePtr task_node, user_t *user,
-		 cmd_t *cmd, settings_t *options)
+int get_settings(xmlNodePtr role_node, xmlNodePtr task_node, settings_t *options)
 {
 	int res = 1;
 	options->role = (char *)xmlGetProp(role_node, (const xmlChar *)"name");
@@ -1012,14 +1068,15 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node, user_t *user,
 	return res;
 }
 
-int find_role_by_name(xmlNodeSetPtr set, char *role_name, xmlNodePtr role_node)
+int find_role_by_name(xmlNodeSetPtr set, char *role_name, xmlNodePtr *role_node)
 {
 	int res = 0;
 	for (int i = 0; i < set->nodeNr; i++) {
 		xmlNodePtr t_node = set->nodeTab[i];
 		xmlChar *name = xmlGetProp(t_node, (const xmlChar *)"name");
-		if (xmlStrcasecmp(name, role_name) == 0) {
-			role_node = t_node;
+
+		if (xmlStrcasecmp(name, (const xmlChar *)role_name) == 0) {
+			*role_node = t_node;
 			res = 1;
 			xmlFree(name);
 		}
@@ -1046,14 +1103,14 @@ int get_settings_from_doc_by_role(char *role, xmlDocPtr doc, user_t *user,
 		return res;
 	}
 	xmlNodePtr role_node = NULL;
-	int result = find_role_by_name(set, role, role_node);
-	if (!result) {
+	int tresult = find_role_by_name(set, role, &role_node);
+	if (!tresult) {
 		xmlXPathFreeNodeSet(set);
 		return res;
 	}
 	xmlNodePtr task_node = NULL;
 
-	return get_settings(role_node, task_node, user, cmd, settings);
+	return get_settings(role_node, task_node, settings);
 }
 
 /**
@@ -1091,6 +1148,39 @@ xmlDocPtr load_xml(char *xml_file)
 ret_err:
 	xmlFreeParserCtxt(ctxt);
 	return NULL;
+}
+
+/**
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @return execution setting in global variables, 1 on success, or 0 on error
+*/
+int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
+					   cmd_t *cmd, settings_t *options)
+{
+	int res = 0;
+	xmlNodeSetPtr set = find_role_by_usergroup_command(doc, user, cmd);
+	if (set == NULL) {
+		return res;
+	}
+	xmlNodePtr role_node = NULL;
+	xmlNodePtr task_node = NULL;
+
+	int nb_colliding = find_partial_order_role(set, user, cmd, role_node,
+						   task_node, options);
+	if (nb_colliding == 0) {
+		return res;
+	} else if (nb_colliding == 1) {
+		return get_settings(role_node, task_node, options);
+	} else {
+		error(0, 0,
+		      "Multiple roles matchs this command, please specify a role.");
+		return res;
+	}
 }
 
 /**
@@ -1212,90 +1302,6 @@ xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user,
 		return NULL;
 	}
 	return nodeset->nodeTab[0];
-}
-
-xmlNodePtr find_task(xmlNodePtr role, char *command)
-{
-	xmlNodeSetPtr taskset = find_task_block_from_role(role, command);
-	if (taskset == NULL || taskset->nodeNr == 0) {
-		xmlNodeSetPtr wildcards =
-			find_wildcard_task_block_from_role(role);
-		if (wildcards == NULL) {
-			return NULL;
-		} else {
-			xmlNodePtr task = NULL;
-			int wildcard_max =
-				0; // we want the less wildcarded, and higher matching chars.
-			// strlen(command) - wilcard_number is the number of matching chars
-			for (int i = 0; i < wildcards->nodeNr && task == NULL;
-			     i++) {
-				xmlNodePtr wildcard = wildcards->nodeTab[i];
-				for (xmlNodePtr child = wildcard->children;
-				     child != NULL && task == NULL;
-				     child = child->next) {
-					char *content =
-						(char *)xmlNodeGetContent(
-							wildcard);
-					/**if (command_match_regex(command, content) && task == NULL){
-                        task = wildcard;
-                    }*/
-					xmlFree(content);
-				}
-			}
-			if (task == NULL) {
-				//return res;
-			}
-		}
-	} else if (taskset->nodeNr == 1) {
-		return taskset->nodeTab[0];
-	} else {
-		return NULL;
-	}
-	xmlNodePtr task = find_task_block_from_role(role, command);
-	if (task != NULL) {
-		xmlNodePtr command = task->children;
-		while (command != NULL) {
-			xmlChar *command_str = xmlNodeGetContent(command);
-			if (!strcmp((char *)command_str, command)) {
-				xmlFree(command_str);
-				return task;
-			}
-			xmlFree(command_str);
-			command = command->next;
-		}
-	}
-	return NULL;
-}
-
-/**
- * @brief retrieve all execution settings from xml document matching user, groups and command 
- * @param doc the document
- * @param user the user
- * @param nb_groups the number of groups
- * @param groups the groups
- * @param command the command
- * @return execution setting in global variables, 1 on success, or 0 on error
-*/
-int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
-					   cmd_t *cmd, settings_t *options)
-{
-	int res = 0;
-	xmlNodeSetPtr set = find_role_by_usergroup_command(doc, user, cmd);
-	if (set == NULL) {
-		return res;
-	}
-	xmlNodePtr role_node = NULL;
-	xmlNodePtr task_node = NULL;
-    
-    int nb_colliding = find_partial_order_role(set, user, cmd, role_node, task_node, options);
-    if (nb_colliding == 0){
-        return res;
-    } else if (nb_colliding == 1){
-        return get_settings(role_node, task_node, user, cmd, options);
-    } else {
-        error(0,0,"Multiple roles matchs this command, please specify a role.");
-        return res;
-    }
 }
 
 /************************************************************************

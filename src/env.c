@@ -1,3 +1,6 @@
+#define _DEFAULT_SOURCE
+#define __STDC_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
 #include "env.h"
 #include <string.h>
 #include <ctype.h>
@@ -138,18 +141,20 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
     }
 
     for(int j = 0; envp[j] != NULL; j++){
-        char *env_var_name = strtok(strdup(envp[j]), "=");
+        char *env_var = strdup(envp[j]);
+        char *env_var_name = strtok(env_var, "=");
         
         if (env_var_name == NULL){
             res++;
             goto error;
         }
-        char *env_var_value = env_var_name + strlen(env_var_name) + 1;
+        char *env_var_value = env_var_name + strnlen(env_var_name,ARG_MAX) + 1;
         if (strncmp(env_var_name, "PATH", 4) == 0 || (is_in_array(env_var_name, checklist) && check_var(env_var_name, env_var_value)) || is_in_array(env_var_name, whitelist)){
             new_envp[i] = envp[j];
             new_envp[i + 1] = NULL;
             i++;
         }
+        free(env_var);
     }
     *p_new_envp = new_envp;
     error:

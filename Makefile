@@ -8,13 +8,14 @@ OBJ_DIR := obj
 BIN_DIR := bin
 TEST_DIR := tests/unit
 DEBUGOPTIONS := -g -fsanitize=address
-WARNINGS := #-Wall -Wextra -Werror -pedantic
+WARNINGS := -Wall -Wextra -Werror -pedantic
 LIBCAP := -lcap -lcap-ng
+STDOPT=-std=c11
 
-COMPOPTIONS = $(WARNINGS) $(shell xml2-config --cflags) $(DEBUGOPTIONS)
-LDOPTIONS := $(LIBCAP) $(WARNINGS) $(DEBUGOPTIONS)
-SR_LDOPTIONS := -lpam -lpam_misc $(WARNINGS) $(shell xml2-config --libs) $(DEBUGOPTIONS)
-UNITOPTIONS := -lcriterion -lgcov --coverage $(LIBCAP) $(WARNINGS) -I$(SRC_DIR) $(shell xml2-config --cflags) $(shell xml2-config --libs) -g -fsanitize=address
+COMPOPTIONS = $(STDOPT) $(WARNINGS) $(shell xml2-config --cflags) $(DEBUGOPTIONS)
+LDOPTIONS := $(STDOPT) $(LIBCAP) $(WARNINGS) $(DEBUGOPTIONS)
+SR_LDOPTIONS := $(STDOPT) -lpam -lpam_misc $(WARNINGS) $(shell xml2-config --libs) $(DEBUGOPTIONS)
+UNITOPTIONS := $(STDOPT) -lcriterion -fprofile-arcs -lgcov --coverage $(LIBCAP) $(WARNINGS) -I$(SRC_DIR) $(shell xml2-config --cflags) $(shell xml2-config --libs) -g -fsanitize=address
 EXECUTABLES := sr
 
 OBJS := $(addprefix $(SRC_DIR)/,capabilities.o user.o xml_manager.o env.o sr.o params.o command.o) $(addprefix $(MANAGER_DIR)/,help.o xml_manager.o role_manager.o undo.o list_manager.o verifier.o xmlNode.o addrole.o editrole.o deleterole.o)

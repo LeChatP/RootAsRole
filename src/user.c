@@ -5,12 +5,26 @@
  *
  * Note, the copyright+license information is at end of file.
  */
+#define _DEFAULT_SOURCE
 #include "user.h"
 #include <pwd.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 #include <grp.h>
 #include <syslog.h>
+#include <error.h>
+
+#ifndef LOGIN_NAME_MAX
+# ifdef _POSIX_LOGIN_NAME_MAX
+#  define LOGIN_NAME_MAX _POSIX_LOGIN_NAME_MAX
+# else
+#  define LOGIN_NAME_MAX 256
+# endif
+#endif
+
+#ifndef MAX
+# define MAX(a,b) (((a)>(b))?(a):(b))
+#endif
 
 /******************************************************************************
  *                      PUBLIC FUNCTIONS DEFINITION                           *
@@ -63,16 +77,18 @@ The username should be deallocated with free afterwards.
 */
 char *get_username(uid_t uid)
 {
-	char *username;
-	int username_len;
+	
 	struct passwd *info_user;
 
 	if ((info_user = getpwuid(uid)) == NULL || info_user->pw_name == NULL) {
 		return NULL;
 	} else {
+		char *username;
+		int username_len;
 		//We do not have to deallocate info_user, as it points to a static
 		//memory adress
-		username_len = strlen(info_user->pw_name) + 1;
+		username_len = strnlen(info_user->pw_name, MAX(LOGIN_NAME_MAX-1,255)) + 1;
+
 		if ((username = malloc(username_len * sizeof(char))) == NULL) {
 			return NULL;
 		}
@@ -135,7 +151,7 @@ gid_t get_group_id_from_name(const char *group)
  * @param groups array of group
  * @return 0 on success, -1 on failure
 */
-int get_group_ids_from_names(const char *groups_str, int *nb_groups, gid_t *groups){
+int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t *groups){
 	char *groups_str_copy = strdup(groups_str);
 	*nb_groups = 1;
 	for (int i=0; groups_str_copy[i] != '\0'; i++) {
@@ -151,7 +167,7 @@ int get_group_ids_from_names(const char *groups_str, int *nb_groups, gid_t *grou
 	char *group = strtok(groups_str_copy, ",");
 	for (int i=0; i<*nb_groups; i++){
 		groups[i] = get_group_id_from_name(group);
-		if(groups[i] == -1){
+		if(groups[i] == (gid_t)-1){
 			syslog(LOG_ERR, "Unable to retrieve group id of group %s", group);
 			return -1;
 		}
@@ -284,6 +300,7 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 		if ((gpname = malloc(gpname_len * sizeof(char))) == NULL)
 			goto on_error;
 		strncpy(gpname, rec->gr_name, gpname_len);
+		gpname[gpname_len - 1] = '\0';
 		(*groups)[i] = gpname;
 	}
 

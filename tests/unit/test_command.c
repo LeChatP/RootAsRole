@@ -1,3 +1,18 @@
+#ifndef __STDC_LIB_EXT1__
+#define __STDC_LIB_EXT1__
+#endif
+#ifndef __STDC_WANT_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#ifndef ARG_MAX
+#define ARG_MAX 131072
+#endif
 #include <criterion/criterion.h>
 #include "command.c"
 
@@ -89,30 +104,30 @@ Test(get_abspath_from_cmdline, command_line_with_some_wildcard_and_args, .init =
 
 
 Test(join_argv, test_join) {
-    char *argv[] = {"ls", "-l"};
+    char *argv[3] = {"ls","-a", "-l"};
     char result[ARG_MAX];
     result[0] = '\0';
     int len = 0;
-    int res = join_argv(2, argv, result, ARG_MAX, &len);
+    int res = join_argv(3, argv, result, ARG_MAX, &len);
     cr_assert_eq(res, 0, "Error: join_argv() failed to return 0");
     cr_assert_eq(len, 5, "Error: join_argv() failed to return the correct length");
-    cr_assert_str_eq(result, "ls -l", "Error: join_argv() failed to return the correct string");
+    cr_assert_str_eq(result, "-a -l", "Error: join_argv() failed to return the correct string");
     
 }
 
 Test(join_cmd, test_join) {
-    char *argv[2] = {"-a", "-l"};
+    char *argv[3] = {"ls","-a", "-l"}; // argv[0] is the command
     cmd_t *cmd = & (struct s_cmd) {
         .command = "/bin/ls",
         .argv = argv,
-        .argc = 2
+        .argc = 3
     };
 
     char result[ARG_MAX];
     int len = 0;
     int res = join_cmd(cmd, result, ARG_MAX, &len);
     cr_assert_eq(res, 0, "Error: join_cmd() failed to return 0");
-    cr_assert_eq(len, 13, "Error: join_cmd() failed to return the correct length");
+    cr_assert_eq(len, 13, "Error: join_cmd() failed to return the correct length, %d expected %d", len, 13);
     cr_assert_str_eq(result, "/bin/ls -a -l", "Error: join_cmd() failed to return the correct string");
 
 

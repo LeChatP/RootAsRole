@@ -6,6 +6,8 @@
  * Note, the copyright+license information is at end of file.
  */
 #define _GNU_SOURCE
+#define __STDC_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
 #include "capabilities.h"
 #include <stdio.h>
 #include <stdlib.h>

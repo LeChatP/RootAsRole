@@ -47,7 +47,7 @@ gid_t get_group_id(uid_t uid);
 
 gid_t get_group_id_from_name(const char *group);
 
-int get_group_ids_from_names(const char *groups_str, int *nb_groups, gid_t *groups);
+int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t *groups);
 
 /*
 Init and close a pam session to authenticate a given user.

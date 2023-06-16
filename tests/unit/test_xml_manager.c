@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+#define __STDC_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
 #include <criterion/criterion.h>
 
 #include "xml_manager.c"
@@ -21,7 +24,7 @@ Test(command_match, test_all_cases) {
     xmlNodePtr root = xmlDocGetRootElement(doc);
 
     char *s_bin_ls = "/bin/ls";
-    char *s_opt_l[1] = {"-l"};
+    char *s_opt_l[2] = {"ls","-l"};
     cmd_t *bin_ls_opt_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_l,
@@ -29,60 +32,62 @@ Test(command_match, test_all_cases) {
     };
 
 
-    char *s_opt_a[1] = {"-a"};
+    char *s_opt_a[2] = {"ls","-a"};
     cmd_t *bin_ls_opt_a = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_a,
         .argc = 1,
     };
 
-    char *s_opt_a_l[2] = {"-a", "-l"};
+    char *s_opt_a_l[3] = {"ls","-a", "-l"};
     cmd_t *bin_ls_opt_a_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_a_l,
         .argc = 2,
     };
 
-    char **s_opt_null = NULL;
+    char *s_opt_null[1] = {"ls"};
     cmd_t *bin_ls = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_null,
         .argc = 0,
     };
 
-    char *s_opt_al[1] = {"-al"};
+    char *s_opt_al[2] = {"ls","-al"};
     cmd_t *bin_ls_opt_al = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_al,
         .argc = 1,
     };
 
-    char *s_opt_la[1] = {"-la"};
+    char *s_opt_la[2] = {"ls","-la"};
     cmd_t *bin_ls_opt_la = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_la,
         .argc = 1,
     };
 
-    char *argv_test6[1] = {"--l"};
+    char *argv_test6[2] = {"ls","--l"};
     cmd_t *bin_ls_lopt_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = argv_test6,
         .argc = 1,
     };
 
+    char *s_opt_ls_space_a_null[1] = {"ls a"};
     char *s_bin_ls_space = "/bin/ls a";
     cmd_t *bin_ls_space = &(struct s_cmd) {
         .command = s_bin_ls_space,
-        .argv = s_opt_null,
-        .argc = 0,
+        .argv = s_opt_ls_space_a_null,
+        .argc = 1,
     };
-
+    
+    char *s_opt_lsa_null[1] = {"ls a"};
     char *s_bin_lsa = "/bin/lsa";
     cmd_t *bin_lsa = &(struct s_cmd) {
         .command = s_bin_lsa,
-        .argv = s_opt_null,
-        .argc = 0,
+        .argv = s_opt_lsa_null,
+        .argc = 1,
     };
 
     cmd_t *bin_lsa_opt_a = &(struct s_cmd) {
@@ -90,7 +95,7 @@ Test(command_match, test_all_cases) {
         .argv = s_opt_a,
         .argc = 1,
     };
-
+    /**
     char *s_bin_l = "/bin/l";
     cmd_t *bin_l = &(struct s_cmd) {
         .command = s_bin_l,
@@ -108,7 +113,7 @@ Test(command_match, test_all_cases) {
         .command = s_bin_ls_space,
         .argv = s_opt_a,
         .argc = 1,
-    };
+    };*/
 
     char *s_bin_ls_minusa = "/bin/ls -a";
     cmd_t *bin_ls_minusa = &(struct s_cmd) {

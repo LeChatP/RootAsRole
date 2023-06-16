@@ -58,7 +58,7 @@ cmd_t *params_command_get();
 /**
  * @brief Set the role variable
 */
-char *params_set_role(const char *p_role);
+char *params_set_role(char *p_role);
 
 /**
  * @brief Get the role param

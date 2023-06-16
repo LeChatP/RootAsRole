@@ -4,7 +4,7 @@
 
 cmd_t *get_cmd(int argc, char *argv[]);
 
-int get_abspath_from_cmdline(const char *content, char *abspath, int size, char *args, int size_args);
+int get_abspath_from_cmdline(char *content, char *abspath, int size, char *args, int size_args);
 
 int join_argv(int argc, char **argv, char *res, int res_size, int *res_len);
 

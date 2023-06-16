@@ -1,4 +1,7 @@
 #define _GNU_SOURCE
+#define __STDC_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
+
 #include <stdlib.h>
 #include <error.h>
 #include <getopt.h>
@@ -51,8 +54,15 @@ int parse_arguments(int *argc, char **argv[], arguments_t *args)
 		{ "help", no_argument, 0, 'h' },
 		{ 0, 0, 0, 0 }
 	};
+	if (*argc < 2 ) {
+		return -1;
+	}
+	//check if argument array is correctly terminated
+	if ((*argv)[*argc] != NULL) {
+		return -1;
+	}
 
-	while ((c = getopt_long(*argc, *argv, "+r:ivh", long_options, NULL)) !=
+	while ((c = getopt_long(*argc, *argv, "+r:ivh", long_options, NULL)) != // Flawfinder: ignore
 	       -1) {
 		switch (c) {
 		case 'r':
@@ -76,6 +86,15 @@ int parse_arguments(int *argc, char **argv[], arguments_t *args)
 	return 1;
 }
 
+void safe_memcpy(void* dest, size_t dest_size, const void* src, size_t count) {
+    if (dest == NULL || src == NULL || dest_size < count) {
+        // Handle error: Invalid arguments or buffer overflow
+        return;
+    }
+
+    memcpy(dest, src, count); // Flawfinder: ignore
+}
+
 
 
 void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
@@ -83,12 +102,13 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 	int i = execve(command, p_argv, p_envp);
 	if (i == -1 || errno == ENOEXEC) {
 		const char **nargv;
-
-		nargv = reallocarray(NULL, p_argc + 1, sizeof(char *));
+		size_t nargc = p_argc + 1;
+		nargv = reallocarray(NULL, nargc, sizeof(char *));
 		if (nargv != NULL) {
 			nargv[0] = "sh";
 			nargv[1] = command;
-			memcpy(nargv + 2, p_argv, p_argc * sizeof(char *));
+			safe_memcpy(nargv + 2, nargc, p_argv, p_argc * sizeof(char *)); 
+			nargv[p_argc + 1] = NULL;
 			execve("/bin/sh", (char **)nargv, p_envp);
 			free(nargv);
 		}
@@ -143,8 +163,8 @@ int sr_setgid(settings_t *options)
 		}
 		int nb_groups = 0;
 		gid_t *groups = NULL;
-		int result = get_group_ids_from_names(options->setgid, &groups,
-						     &nb_groups);
+		int result = get_group_ids_from_names(options->setgid,
+						     &nb_groups, groups);
 		if (result) {
 			error(0, 0,
 			      "Unable to retrieve the gids from the groupnames/numbers '%s'",
@@ -154,7 +174,7 @@ int sr_setgid(settings_t *options)
 			       options->setgid);
 			return -1;
 		}
-		if (setgid(groups[0])) {
+		if (nb_groups > 1 && groups != NULL && setgid(groups[0])) {
 			perror("setgid");
 			syslog(LOG_ERR, "Unable to setgid");
 			return -1;
@@ -215,7 +235,7 @@ void escape_special_chars(char* input) {
     char* special_chars = "%\\";
     char* escape_char = "\\";
 
-    size_t input_length = strlen(input);
+    size_t input_length = strnlen(input, PATH_MAX);
     size_t i, j;
 
     for (i = 0, j = 0; i < input_length; i++, j++) {
@@ -273,7 +293,10 @@ int main(int argc, char *argv[])
 	}
 
 	cmd_t *cmd = get_cmd(argc, argv);
-
+	if (cmd == NULL) {
+		error(0, 0, "Unable to get command");
+		goto free_error;
+	}
 	if (arguments.role){
 		int ret = get_settings_from_config_role(arguments.role, user, cmd, &iab,
 						 &options);
@@ -317,7 +340,7 @@ int main(int argc, char *argv[])
 		error(0, 0, "Unable to secure path");
 		syslog(LOG_ERR, "Unable to secure path");
 		goto free_error;
-	}	
+	}
 	sr_execve(cmd->command, cmd->argc, cmd->argv, env);
 
 free_error:

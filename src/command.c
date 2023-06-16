@@ -1,4 +1,17 @@
+#ifndef __STDC_LIB_EXT1__
+#define __STDC_LIB_EXT1__
+#endif
+#ifndef __STDC_WANT_LIB_EXT1__
+#define __STDC_WANT_LIB_EXT1__ 1
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "command.h"
+
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -8,25 +21,29 @@
 #include <linux/limits.h>
 #include <string.h>
 
-char * find_absolute_path_from_env(char *file)
+int find_absolute_path_from_env(char *file, char **pfull_path)
 {
+
+    int res = 0;
 	char *path = strdup(getenv("PATH"));
 	if (path == NULL) {
-		return NULL;
+		return res;
 	}
 	char *token = strtok(path, ":");
-	char *full_path = NULL;
 	while (token != NULL) {
-		full_path = malloc(strlen(token) + strlen(file) + 2);
-		snprintf(full_path, strlen(token) + strlen(file) + 2, "%s/%s",
+        char *full_path = malloc(sizeof(char) * (strnlen(token,PATH_MAX) + strnlen(file,PATH_MAX) + 2));
+		int len = snprintf(full_path, strnlen(token,PATH_MAX) + strnlen(file,PATH_MAX) + 2, "%s/%s",
 			 token, file);
 		if (access(full_path, X_OK) == 0) {
-			return full_path;
+			res = 1;
+            *pfull_path = malloc(sizeof(char) * (len + 1));
+            strncpy(*pfull_path, full_path, len);
+            (*pfull_path)[len] = '\0';
 		}
 		free(full_path);
 		token = strtok(NULL, ":");
 	}
-	return NULL;
+	return res;
 }
 
 /*********************
@@ -34,6 +51,12 @@ char * find_absolute_path_from_env(char *file)
 **********************/
 
 cmd_t *get_cmd(int argc, char *argv[]) {
+    if (strnlen(argv[0], PATH_MAX+1) >= PATH_MAX) {
+        error(0, 0, "Path too long");
+        syslog(LOG_ERR, "User '%s' failed to execute '%s', path too long",
+                params_user_get()->name, argv[0]);
+        return NULL;
+    }
     char *command = realpath(argv[0], NULL);
 	if (errno == ENAMETOOLONG) {
         user_t *user = params_user_get();
@@ -44,8 +67,10 @@ cmd_t *get_cmd(int argc, char *argv[]) {
 		return NULL;
 	}
 	if (access(command, X_OK) != 0) {
-		command = find_absolute_path_from_env(argv[0]);
-		if (command == NULL) {
+        free(command);
+        command = NULL;
+		int res = find_absolute_path_from_env(argv[0],&command);
+		if (!res) {
             user_t *user = params_user_get();
 			syslog(LOG_ERR,
 					"User '%s' failed to execute '%s', command not found",
@@ -64,6 +89,21 @@ cmd_t *get_cmd(int argc, char *argv[]) {
     return params_command_set(command, argc, argv);	
 }
 
+int get_wildcard_from_path(char *content_ptr, char *abspath_ptr, char *args_ptr){
+    if (*content_ptr == '*') {
+        *abspath_ptr = '*';
+        *(abspath_ptr+1) = '\0';
+        if(*(content_ptr+1) == '*' && strnlen(content_ptr,PATH_MAX) == 2){
+            *args_ptr = '.';
+            *(args_ptr+1) = '*';
+            *(args_ptr+2) = '\0';
+            return 2;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 /**
  * @brief return 1 if command start with absolute path, this is not checking if the path exists
  * @param content the command line
@@ -74,21 +114,12 @@ cmd_t *get_cmd(int argc, char *argv[]) {
  * @note if * provided only, the absolute path is set to * and the arguments to .*
  * @return 1 on success, or 0 if no absolute path found
 */
-int get_abspath_from_cmdline(const char *content, char *abspath, int size, char *args, int size_args){
+int get_abspath_from_cmdline(char *content, char *abspath, int size, char *args, int size_args){
     char *abspath_ptr = abspath;
     char *content_ptr = content;
     char *args_ptr = args;
-    if (*content_ptr == '*') {
-        *abspath_ptr = '*';
-        *(abspath_ptr+1) = '\0';
-        if(*(content_ptr+1) == '*' && strlen(content) == 2){
-            *args_ptr = '.';
-            *(args_ptr+1) = '*';
-            *(args_ptr+2) = '\0';
-            return 1;
-        }
-    }
-    
+    if(get_wildcard_from_path(content_ptr, abspath_ptr, args_ptr) > 1)
+        return 1;
     if (*content_ptr != '/' && *content_ptr != '*'){
         return 0;
     }
@@ -103,6 +134,7 @@ int get_abspath_from_cmdline(const char *content, char *abspath, int size, char 
         abspath_ptr++;
         content_ptr++;
     }
+    
     if(*content_ptr == ' ') content_ptr++;
     *abspath_ptr = '\0';
     if (args != NULL) {
@@ -132,7 +164,7 @@ int join_argv(int argc, char **argv, char *res, int res_size, int *res_len){
     if(argc == 0){
         return 0;
     }
-    for (int i = 0; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         if(res_ptr - res >= res_size){
             return 1;
         }
@@ -159,7 +191,7 @@ int join_argv(int argc, char **argv, char *res, int res_size, int *res_len){
 int join_cmd(cmd_t *cmd, char *res, int res_size, int *res_len){
     char * res_ptr = res;
     *res_len = 0;
-    int commandlen = strlen(cmd->command);
+    int commandlen = strnlen(cmd->command, res_size);
     if(commandlen+1 >= res_size){
         return 1;
     }
@@ -169,7 +201,7 @@ int join_cmd(cmd_t *cmd, char *res, int res_size, int *res_len){
     if (cmd->argc > 1)*res_ptr = ' ';
     res_ptr++;
     int max_len = res_size - (res_ptr - res);
-    if(join_argv(cmd->argc-1, cmd->argv+1, res_ptr, max_len, res_len)) return 1;
+    if(join_argv(cmd->argc, cmd->argv, res_ptr, max_len, res_len)) return 1;
     *res_len += res_ptr - res;
     res_ptr[*res_len] = '\0';
     return 0;
