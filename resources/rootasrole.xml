@@ -68,17 +68,9 @@
 		<wildcard-denied>;&amp;|</wildcard-denied>
 	</options>
 	<roles>
-		<role name="configurator">
-			<actors>
-				<user name="lechatp" />
-			</actors>
-			<task capabilities="cap_linux_immutable" setuser="user1" setgroups="user1">
-				<command regex="true">/usr/sbin/rar autoconf .*</command>
-			</task>
-		</role>
 		<role name="root">
 			<actors>
-				<user name="lechatp"/>
+				<user name="ROOTADMINISTRATOR"/>
 			</actors>
 			<task capabilities="all">
 				<command>*</command>
@@ -91,7 +83,7 @@
 				<group names="group1"/> group block is not exclusive
 				<group names="group1,group2"/> but you could require multiple groups (comma separated)
 			</actors>
-			<task> No capabilities, not changing user or group, alias, like a simple user
+			<task> No capabilities, not changing user or group, like a simple user
 				<command>*</command>
 			</task>
 			<task capabilities="cap_fowner,cap_setuid" user="sysadmin" groups="adm,syslog"> setting capabilities, changing user and groups

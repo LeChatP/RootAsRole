@@ -2,9 +2,9 @@
   <img src="./RootAsRolev2.svg">
 </p>
 
-# RootAsRole (V3.0) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0-beta) : a secure alternative to sudo/su on Linux systems
 
-A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We created a configuration that is the least vulnerability prone by default.
+A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
 ## Installation
 
@@ -15,6 +15,19 @@ A role-based access control tool for administrative tasks on Linux. This tool tr
   3. sudo sh ./configure.sh
   4. make
   5. sudo make install
+
+### How to Configure
+
+Our role manager is currently under development. But you can manually execute these commands :
+
+```
+sr chattr -i /etc/security/rootasrole.xml
+sr nano /etc/security/rootasrole.xml
+```
+
+With the new role management features, you will be able to restrict the responsibilities of configurators, but this remains dangerous and there is still a contract of trust with them.
+
+However, today, you can start to configure this tool with the rootasrole.xml file configuration. Some examples are commented on the preinstalled configuration file.
 
 ### Usage
 
@@ -37,20 +50,18 @@ You may give us your feedbacks  about RootAsRole here:
 
 https://www.youtube.com/watch?v=2Y8hTI912zQ
 
-## Intro
+## Why do you need this tool ?
 
-Traditionally, administering Linux systems is based on the existence of one powerful user (called superuser) who detains alone the complete list of the system's privileges. However, this administrative model is not respecting the least privilege principle because all programs executed in the context of the superuser obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, requires only the privilege cap_net_raw to run. However, by executing it in the context of superuser, tcpdump obtains the complete list of systems' privileges. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e., sniff packet networks). As a result, an attacker may exploit the vulnerabilities of tcpdump to compromise the whole system when the process of tcpdump possesses the complete list of root privileges.
+Traditionally, administering Linux systems is based on the existence of one powerful user (called superuser) who detains alone the complete list of the system's privileges. However, this administrative model is not respecting the least privilege principle because all programs executed in the context of the superuser obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, requires network capabilities to run. However, by executing it in the context of superuser, tcpdump obtains the complete list of systems' privileges, event reboot functionnality. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e., sniff packet networks). As a result, an attacker may exploit the vulnerabilities of tcpdump to compromise the whole system when the process of tcpdump possesses the complete list of root privileges.
 
 RootAsRole module implements a role-based approach for distributing Linux capabilities to users. Our module contains the sr (switch role) tool that allows users to control the list of privileges they give to programs. Thus, with our module, users can stop using sudo and su commands that don't allow controlling the list of privileges granted to programs. Some tools already permit control of the list of privileges to give to programs, such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to the Linux kernel, Ambient Set.
 
-Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module.
-Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
+Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module. Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
 
 ## How do we solve Role conflicts ?
 
-With this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
-
+As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
 
 * Find all the roles that match the user id assignment or the group id, and the command input
 * Within the matching roles, select the one that is the most precise and least privileged : 
@@ -73,26 +84,18 @@ With this RBAC model, it is possible for multiple roles to reference the same co
    1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
 
 
-After these step, other parameters are considered equal, so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
+After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
 
-Regarding the (7),(8), and (9) points, the choice of least privilege is somewhat arbitrary.
+Regarding the (vii),(viii), and (ix) points, the choice of least privilege is somewhat arbitrary. We are currently working on a explaination on a paper.
 
 ## Tested Platforms
 
-Our module has been tested only on Ubuntu>=16.04 (Kernel 4.3) and Debian platforms.
-
-
+Our module has been tested on:
+ * Ubuntu>=16.04
+ * Debian>=10
+ * ArchLinux
 
 After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
-
-To edit the configuration file you must first assume the root role using the sr tool. The role root is defined by default with the list of all privileges. To assume the role Root, type in your shell the following command :
-`sr -r root`
-
-After that a new shell is opened. This shell contains the capabilities of the role that has been taken by the user. You can then edit capabilityRole.xml file to define your own roles (/etc/security/capabilityRole.xml).
-
-![Screenshot](doc/assumerootrole.png)
-
-For more details, please see **[How to use](https://github.com/SamerW/RootAsRole/wiki/How-to-use)**
 
 ## Capable Tool
 
