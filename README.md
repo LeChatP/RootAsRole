@@ -2,7 +2,7 @@
   <img src="./RootAsRolev2.svg">
 </p>
 
-# RootAsRole (V3.0-beta) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
 
 A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
