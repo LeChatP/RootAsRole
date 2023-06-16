@@ -28,7 +28,7 @@ Test(command_match, test_all_cases) {
     cmd_t *bin_ls_opt_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_l,
-        .argc = 1,
+        .argc = 2,
     };
 
 
@@ -36,42 +36,42 @@ Test(command_match, test_all_cases) {
     cmd_t *bin_ls_opt_a = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_a,
-        .argc = 1,
+        .argc = 2,
     };
 
     char *s_opt_a_l[3] = {"ls","-a", "-l"};
     cmd_t *bin_ls_opt_a_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_a_l,
-        .argc = 2,
+        .argc = 3,
     };
 
     char *s_opt_null[1] = {"ls"};
     cmd_t *bin_ls = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_null,
-        .argc = 0,
+        .argc = 1,
     };
 
     char *s_opt_al[2] = {"ls","-al"};
     cmd_t *bin_ls_opt_al = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_al,
-        .argc = 1,
+        .argc = 2,
     };
 
     char *s_opt_la[2] = {"ls","-la"};
     cmd_t *bin_ls_opt_la = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = s_opt_la,
-        .argc = 1,
+        .argc = 2,
     };
 
     char *argv_test6[2] = {"ls","--l"};
     cmd_t *bin_ls_lopt_l = &(struct s_cmd) {
         .command = s_bin_ls,
         .argv = argv_test6,
-        .argc = 1,
+        .argc = 2,
     };
 
     char *s_opt_ls_space_a_null[1] = {"ls a"};
@@ -93,7 +93,7 @@ Test(command_match, test_all_cases) {
     cmd_t *bin_lsa_opt_a = &(struct s_cmd) {
         .command = s_bin_lsa,
         .argv = s_opt_a,
-        .argc = 1,
+        .argc = 2,
     };
     /**
     char *s_bin_l = "/bin/l";
@@ -114,12 +114,12 @@ Test(command_match, test_all_cases) {
         .argv = s_opt_a,
         .argc = 1,
     };*/
-
+    char *s_opt_ls_minusa[1] = {"ls -a"};
     char *s_bin_ls_minusa = "/bin/ls -a";
     cmd_t *bin_ls_minusa = &(struct s_cmd) {
         .command = s_bin_ls_minusa,
-        .argv = s_opt_null,
-        .argc = 0,
+        .argv = s_opt_ls_minusa,
+        .argc = 1,
     };
 
     int tests[11] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};

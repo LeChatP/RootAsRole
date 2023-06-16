@@ -161,7 +161,7 @@ int get_abspath_from_cmdline(char *content, char *abspath, int size, char *args,
 int join_argv(int argc, char **argv, char *res, int res_size, int *res_len){
     *res_len = 0;
     char * res_ptr = res;
-    if(argc == 0){
+    if(argc <= 1){
         return 0;
     }
     for (int i = 1; i < argc; ++i) {
