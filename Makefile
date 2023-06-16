@@ -7,7 +7,7 @@ MANAGER_DIR := new_role_manager
 OBJ_DIR := obj
 BIN_DIR := bin
 TEST_DIR := tests/unit
-DEBUGOPTIONS := -g -fsanitize=address
+#DEBUGOPTIONS := -g -fsanitize=address
 WARNINGS := -Wall -Wextra -Werror -pedantic
 LIBCAP := -lcap -lcap-ng
 STDOPT=-std=c11
