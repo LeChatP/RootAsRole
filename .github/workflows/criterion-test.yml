@@ -2,7 +2,7 @@ name: Criterion Unit Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main,manager-branch ]
   pull_request:
     branches: [ main ]
 
