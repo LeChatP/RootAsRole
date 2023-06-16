@@ -49,34 +49,33 @@ Finally, the RootAsRole module includes the capable tool, which helps Linux user
 
 ## How do we solve Role conflicts ?
 
-With this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen.
+With this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
 
-For lisibility we express user assignment to role configuration as "UA", group assignment as "GA", and command assignment as "CA". So they are checked in order :
 
-1. UA=user1 $>$ GA=group1&group2 $>$ GA=group3
+* Find all the roles that match the user id assignment or the group id, and the command input
+* Within the matching roles, select the one that is the most precise and least privileged : 
+   1. user assignment is more precise than the combination of group assignment
+   1. the combination of group assignment is more precise than single group assignment
+   1. exact command is more precise than command with regex argument
+   1. command with regex argument is more precise than a wildcarded command path
+   1.  wildcarded command path is more precise than wildcarded command path and regex args
+   1. wildcarded command path and regex args is more precise than complete wildcard
+   1. A role granting no capability is less privileged than one granting at least one capability
+   1. A role granting no "ADMIN" capability is less privileged than one granting "ADMIN" capability
+   1. A role granting the "ADMIN" capability is less privileged than one granting all capabilities.
+   1. A role without setuid is less privileged than one has setuid.
+   1. if no root is disabled, a role without 'root' setuid is less privileged than a role with 'root' setuid
+   1. A role without setgid is less privileged than one has setgid.
+   1. A role with a single setgid is less privileged than one that set multiple gid.
+   1. if no root is disabled, A role with multiple setgid is less privileged than one that set root gid
+   1. if no root is disabled, A role with root setgid is less privileged than one that set multiple gid, particularly using root group
+   1. A role that enables root privileges is less privileged than one which disables root privileges (see "no-root" feature)
+   1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
 
-2. CA=foo $>$ CA=fooba* $>$ CA=foo*
-
-3. no capabilities $>$ some capabilities $>$ contains "ADMIN" capability $>$ all capabilities
-
-4. no setuid $>$ setuid=user1 $>$ setuid=root¹
-
-5. no setgid $>$ setgid=group1 $>$ setgid=group2,group3 $>$ 
-setgid=root¹ $>$ setgid=root¹,group4
-
-6. allow root disabled $>$ allow root enabled
-
-7. allow bounding disabled $>$ allow bounding enabled
-
-Where : 
-
-¹  Only if "no root" parameter is disabled
-
-\* wildcard that match every characters except filtered ones (see wildcard-denied in configuration).
 
 After these step, other parameters are considered equal, so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
 
-As you can see, the order of the capabilities is not precise with respect to the least privilege. We worked hard on the analysis of the linux kernel to try to find a precise and automated order for the capabilities. We recommend you to read our research paper on this subject.
+Regarding the (7),(8), and (9) points, the choice of least privilege is somewhat arbitrary.
 
 ## Tested Platforms
 
