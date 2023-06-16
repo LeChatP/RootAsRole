@@ -103,10 +103,12 @@ void set_default_options(settings_t *settings){
 	if(settings->path == NULL){
 		settings->path = d_path;
 	}
-	if(settings->setuid == NULL){
+	if(settings->setuid != NULL){
+		free(settings->setuid);
 		settings->setuid = NULL;
 	}
-	if(settings->setgid == NULL){
+	if(settings->setgid != NULL){
+		free(settings->setgid);
 		settings->setgid = NULL;
 	}
 	if(settings->no_root == 0){
