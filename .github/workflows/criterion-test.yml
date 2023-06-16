@@ -16,7 +16,7 @@ jobs:
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: ./configure.sh
+      run: sudo ./configure.sh
     - name: Install Homebrew
       run: sudo apt-get install build-essential procps curl file git libcriterion-dev
     - name: Build Unit Tests

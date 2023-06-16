@@ -16,7 +16,7 @@ jobs:
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: ./configure.sh
+      run: sudo ./configure.sh
     - name: Build Project
       run: sudo make install
     - name: Run Project
