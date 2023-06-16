@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./RootAsRolev2.svg" width=50%>
+  <img src="./RootAsRolev2.svg" width=75%>
 </p>
 
 # RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
