@@ -72,8 +72,8 @@
 			<actors>
 				<user name="ROOTADMINISTRATOR"/>
 			</actors>
-			<task capabilities="all">
-				<command>*</command>
+			<task capabilities="all" setuser="root" setgroups="root"> <!-- all capabilities, as root user, root group -->
+				<command>**</command> <!-- all commands with any args, a single wildcard is all commands without args. -->
 			</task>
 		</role>
 		<!--

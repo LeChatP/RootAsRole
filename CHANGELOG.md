@@ -34,15 +34,19 @@ With these changes, RootAsRole, has taken initiatives to simplify the deployment
 
  - Evironment Variables management
  - Support for Arch Linux
+ - setUID and Multiple setGID
+ - Partial Order Comparison between roles ! Ghosted roles abolished !
+ - Unit-Test with [Criterion Testing Framework](https://github.com/Snaipe/Criterion)
 
 ## Changed 
 
  - XML Document DTD and conceptual structure
 
+
 ## Deleted
 
  - `sr_aux` program which was useless.
- - Effective user management which never worked.
+ - old `role-manager` implementation. It wasn't working at all, and source code wasn't reusable.
 
 ## [2.2] - 2019-09-27
 

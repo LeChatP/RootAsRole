@@ -321,10 +321,10 @@ int main(int argc, char *argv[])
 	syslog(LOG_INFO,
 			"User '%s' tries to execute '%s' with role '%s'", user->name,
 			cmd->command, options.role);
-	/**if (sr_noroot(&options) || sr_setuid(&options) ||
+	if (sr_noroot(&options) || sr_setuid(&options) ||
 		sr_setgid(&options) || sr_setcaps(iab)) {
 		goto free_error;
-	}*/
+	}
 
 	char **env = NULL;
 	int res = filter_env_vars(environ, options.env_keep,
