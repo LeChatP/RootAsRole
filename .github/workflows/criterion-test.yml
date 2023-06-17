@@ -33,5 +33,5 @@ jobs:
       with:
         gcov: true
         ignore:
-          - "tests/*" 
+        - "tests/*"
         
