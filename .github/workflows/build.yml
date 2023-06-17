@@ -18,6 +18,6 @@ jobs:
     - name: Install Dependencies
       run: sudo ./configure.sh
     - name: Build Project
-      run: sudo make install
+      run: sudo make -e install
     - name: Run Project
       run: sr -h
