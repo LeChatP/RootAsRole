@@ -12,6 +12,7 @@ jobs:
 
     env:
       TEST: 1
+      DEBUG: 1
       COV: 1
 
     steps:
@@ -20,7 +21,7 @@ jobs:
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: sudo ./configure.sh
+      run: sudo -E ./configure.sh
     - name: Build Unit Tests
       run: make -e build_unit_test
     - name: Run Unit Tests
