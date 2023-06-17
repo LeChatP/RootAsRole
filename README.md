@@ -4,6 +4,8 @@
 
 # RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/e1ee65e37c3749568e0aaca7e0e997f5)](https://app.codacy.com/gh/LeChatP/RootAsRole?utm_source=github.com&utm_medium=referral&utm_content=LeChatP/RootAsRole&utm_campaign=Badge_Grade)
+
 A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
 ## Installation
