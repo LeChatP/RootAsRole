@@ -32,6 +32,6 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:
         gcov: true
-        ignore:
-        - "tests/*"
+        gcov_ignore:
+          - "tests/*"
         
