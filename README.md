@@ -1,8 +1,17 @@
 <p align="center">
   <img src="./RootAsRolev2.svg" width=75%>
+ </p>
+ <p align="center">
+  <a href="https://app.codacy.com/gh/LeChatP/RootAsRole/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade"><img src="https://app.codacy.com/project/badge/Grade/60b8105a12ca4419b8471d150ef93ebd"/></a>
+<img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/build.yml?label=Build"/>
+<img alt="Test Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/criterion-test.yml?label=Unit%20Tests">
+
 </p>
 
 # RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
+
+
+
 
 A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
