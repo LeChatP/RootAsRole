@@ -50,9 +50,9 @@ Flag  =  { (CASED_LETTER | "_")+ }
 Host_List   =  { Host | Host ~ "," ~ Host_List }
 Domain_Name = @{ (CASED_LETTER | NUMBER) ~ (CASED_LETTER | NUMBER | "-" | ".")* }
 Host        =  {
-    "!"* ~ Domain_Name
-  | "!"* ~ ip_addr
-  | "!"* ~ netgroup
+    Negate* ~ Domain_Name
+  | Negate* ~ ip_addr
+  | Negate* ~ netgroup
 }
 
 ip_addr   = @{ ip4_addr ~ ("/" ~ netmask4)? | ip6_addr }
@@ -88,7 +88,7 @@ domain_name     = @{ (CASED_LETTER | NUMBER) ~ (CASED_LETTER | NUMBER | "-" | ".
 
 User_List    = _{ User | User ~ "," ~ User_List }
 User         =  {
-    "!"* ~ User_Name
+    Negate* ~ User_Name
 }
 User_Name    = _{ User_Str | id | Group_Name | netgroup }
 Group_Name   = @{ "%" ~ User_Str | "%:" ~ id | "%:" ~ SID_Group | "%" ~ Domain_Group }
@@ -152,6 +152,8 @@ Tag_Spec = {
 }
 
 Include = { "@" ~ (!NEWLINE ~ ANY)* }
+
+Negate = { "!" }
 
 // ### END RULES ###
 // ### COMMENTS ###

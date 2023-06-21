@@ -1,14 +1,39 @@
-use std::{cmp::Ordering, ops::{BitOrAssign, BitAnd}};
+use std::{
+    cmp::Ordering,
+    ops::{BitAnd, BitOrAssign},
+};
 
-#[derive(Clone, PartialEq, PartialOrd,Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub enum Caps {
-    V2(u64),
-    V1(u32),
+    V2(u64), // this will evolve
 }
 
 impl Caps {
-    const MAX : Self = Self::V2(u64::MAX >> (64 - POSITIONS.len()));
-    const MIN : Self = Self::V2(0);
+    const MAX: Self = Self::V2(u64::MAX >> (64 - POSITIONS.len()));
+    const MIN: Self = Self::V2(0);
+
+    /**
+     * Returns true if the capability is set
+     */
+    pub fn capable(&self, cap: usize) -> bool {
+        if cap >= POSITIONS.len() {
+            return false;
+        }
+
+        match self {
+            Caps::V2(v) => v & (1 << cap) > 0,
+        }
+    }
+
+    pub fn set(&mut self, cap: usize) {
+        if cap >= POSITIONS.len() {
+            return;
+        }
+
+        match self {
+            Caps::V2(v) => *v |= 1 << cap,
+        }
+    }
 }
 
 impl From<u64> for Caps {
@@ -17,19 +42,9 @@ impl From<u64> for Caps {
     }
 }
 
-impl From<u32> for Caps {
-    fn from(v: u32) -> Self {
-        Caps::V1(v)
-    }
-}
-
 impl From<usize> for Caps {
     fn from(v: usize) -> Self {
-        if usize::BITS == 64 {
-            Caps::V2(v as u64)
-        } else {
-            Caps::V1(v as u32)
-        }
+        Caps::V2(v as u64)
     }
 }
 
@@ -37,7 +52,6 @@ impl Into<usize> for Caps {
     fn into(self) -> usize {
         match self {
             Caps::V2(v) => v as usize,
-            Caps::V1(v) => v as usize,
         }
     }
 }
@@ -46,36 +60,23 @@ impl Into<u64> for Caps {
     fn into(self) -> u64 {
         match self {
             Caps::V2(v) => v,
-            Caps::V1(v) => v as u64,
         }
     }
 }
 
 impl Into<Vec<String>> for Caps {
     fn into(self) -> Vec<String> {
-        POSITIONS.iter().enumerate()
-        .filter_map(| (index, (name , _)) | 
-            if self.clone() & (1 << index) > Caps::MIN { 
-                Some(format!("CAP_{}",*name))
-            } else {
-                None
-            }).collect()
-        
-    }
-}
-
-impl Into<u32> for Caps {
-    fn into(self) -> u32 {
-        match self {
-            Caps::V2(v) => v as u32,
-            Caps::V1(v) => v,
-        }
-    }
-}
-
-impl From<i32> for Caps {
-    fn from(v: i32) -> Self {
-        Caps::V1(v as u32)
+        POSITIONS
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (name, _))| {
+                if self.capable(index) {
+                    Some(format!("CAP_{}", *name))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -83,7 +84,6 @@ impl BitOrAssign<usize> for Caps {
     fn bitor_assign(&mut self, rhs: usize) {
         match self {
             Caps::V2(v) => *v |= rhs as u64,
-            Caps::V1(v) => *v |= rhs as u32,
         }
     }
 }
@@ -94,7 +94,6 @@ impl BitAnd<usize> for Caps {
     fn bitand(self, rhs: usize) -> Self::Output {
         match self {
             Caps::V2(v) => Caps::V2(v & rhs as u64),
-            Caps::V1(v) => Caps::V1(v & rhs as u32),
         }
     }
 }
@@ -102,13 +101,18 @@ impl BitAnd<usize> for Caps {
 impl From<&str> for Caps {
     fn from(v: &str) -> Self {
         let mut caps: Caps = Caps::MIN;
-        let names : Vec<String> = POSITIONS.iter().map(| (name , _) | format!("CAP_{}",*name)).collect();
+        let names: Vec<String> = POSITIONS
+            .iter()
+            .map(|(name, _)| format!("CAP_{}", *name))
+            .collect();
         for cap in v.split(',') {
-        
-            if cap.to_uppercase().cmp(&"ALL".to_string())==Ordering::Equal {
+            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.cmp(&cap.to_string())==Ordering::Equal) {
+            if let Some(index) = names
+                .iter()
+                .position(|x| x.cmp(&cap.to_string()) == Ordering::Equal)
+            {
                 caps |= 1 << index;
             }
         }
@@ -119,13 +123,18 @@ impl From<&str> for Caps {
 impl From<String> for Caps {
     fn from(v: String) -> Self {
         let mut caps: Caps = Caps::MIN;
-        let names : Vec<String> = POSITIONS.iter().map(| (name , _) | format!("CAP_{}",*name)).collect();
+        let names: Vec<String> = POSITIONS
+            .iter()
+            .map(|(name, _)| format!("CAP_{}", *name))
+            .collect();
         for cap in v.split(',') {
-        
-            if cap.to_uppercase().cmp(&"ALL".to_string())==Ordering::Equal {
+            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.cmp(&String::from(cap))==Ordering::Equal) {
+            if let Some(index) = names
+                .iter()
+                .position(|x| x.cmp(&String::from(cap)) == Ordering::Equal)
+            {
                 caps |= 1 << index;
             }
         }
@@ -136,12 +145,15 @@ impl From<String> for Caps {
 impl From<Vec<String>> for Caps {
     fn from(value: Vec<String>) -> Self {
         let mut caps: Caps = Caps::MIN;
-        let names : Vec<String> = POSITIONS.iter().map(| (name , _) | format!("CAP_{}",*name)).collect();
+        let names: Vec<String> = POSITIONS
+            .iter()
+            .map(|(name, _)| format!("CAP_{}", *name))
+            .collect();
         for cap in value {
-            if cap.to_uppercase().cmp(&"ALL".to_string())==Ordering::Equal {
+            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.cmp(&cap)==Ordering::Equal) {
+            if let Some(index) = names.iter().position(|x| x.cmp(&cap) == Ordering::Equal) {
                 caps |= 1 << index;
             }
         }
@@ -160,7 +172,7 @@ impl ToString for Caps {
                 if caps.len() > 0 {
                     caps.push_str(",");
                 }
-                caps.push_str(&format!("CAP_{}",name));
+                caps.push_str(&format!("CAP_{}", name));
             }
         }
         caps.to_lowercase()
@@ -211,3 +223,30 @@ pub const POSITIONS : [(&str, &str); 41]  = [
 ("BPF","CAP_BPF allows many BPF operations."),
 ("CHECKPOINT_RESTORE","Allow checkpoint/restore related operations."),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caps_v2_to_usize() {
+        let caps = Caps::V2(10);
+        let value: usize = caps.into();
+        assert_eq!(value, 10);
+    }
+
+    #[test]
+    fn caps_v2_into_u64() {
+        let caps = Caps::V2(10);
+        let value: u64 = caps.into();
+        assert_eq!(value, 10u64);
+    }
+
+    #[test]
+    fn caps_v2_into_vec() {
+        let caps = Caps::V2(10);
+        let expected = vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_FOWNER".to_string()];
+        let value: Vec<String> = caps.into();
+        assert_eq!(value, expected);
+    }
+}

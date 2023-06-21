@@ -1,32 +1,32 @@
-pub mod role;
 pub mod actor;
-pub mod options;
 pub mod command;
 pub mod common;
+pub mod options;
+pub mod role;
 
-use cursive::{Cursive, views::Dialog, event::Key};
+use cursive::{event::Key, views::Dialog, Cursive};
 
-use crate::{RoleManager, capabilities::Caps, RoleManagerApp};
+use crate::{capabilities::Caps, rolemanager::RoleContext, RoleManagerApp};
 
 pub trait PushableItemState<T> {
-    fn push(&mut self, manager : &mut RoleManager, item : T);
+    fn push(&mut self, manager: &mut RoleContext, item: T);
 }
 
 pub trait SettableItemState<T> {
-    fn set(&mut self, manager : &mut RoleManager, index : usize, item : T);
+    fn set(&mut self, manager: &mut RoleContext, index: usize, item: T);
 }
 
 pub trait DeletableItemState {
-    fn remove_selected(&mut self, manager : &mut RoleManager, index : usize);
+    fn remove_selected(&mut self, manager: &mut RoleContext, index: usize);
 }
 
 pub enum Input {
     String(String),
     Vec(Vec<String>),
-    Caps(Caps)
+    Caps(Caps),
 }
 
-pub enum ExecuteType{
+pub enum ExecuteType {
     Create,
     Delete(usize),
     Submit(usize),
@@ -34,7 +34,6 @@ pub enum ExecuteType{
     Confirm,
     Config,
     Input(Input),
-
 }
 
 impl Input {
@@ -62,26 +61,26 @@ impl Input {
 }
 
 pub trait State {
-    fn create(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>;
-    fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>;
-    fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>;
-    fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive);
+    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State>;
+    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State>;
+    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State>;
+    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive);
 }
 
 pub trait InitState {
-    fn init(&self, manager : &mut RoleManager) -> Dialog;
+    fn init(&self, manager: &mut RoleContext) -> Dialog;
 }
 
-pub fn execute(s : &mut Cursive, exec_type : ExecuteType) {
+pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
         mut manager,
         mut state,
     } = s.take_user_data().unwrap();
-    
+
     state = match exec_type {
         ExecuteType::Create => state.create(&mut manager),
         ExecuteType::Delete(index) => state.delete(&mut manager, index),
@@ -94,8 +93,5 @@ pub fn execute(s : &mut Cursive, exec_type : ExecuteType) {
     s.pop_layer();
     s.clear_global_callbacks(Key::Del);
     state.render(&mut manager, s);
-    s.set_user_data(RoleManagerApp {
-        manager,
-        state,
-    });
+    s.set_user_data(RoleManagerApp { manager, state });
 }

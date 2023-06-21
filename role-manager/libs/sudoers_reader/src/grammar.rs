@@ -13,7 +13,12 @@ pub enum AstNode {
         alias_name: String,
         alias_values: Vec<AstNode>,
     },
-    Host(String),
+    Host {
+        not : Box<AstNode>, //AstNode::Bool
+        hostaddr: Box<AstNode>, //AstNode::Str
+        user: Option<Box<AstNode>>, //AstNode::User
+        domain: Option<Box<AstNode>>, //AstNode::Str
+    },
     User(String),
     Cmnd(String),
     Flag(String),
@@ -21,7 +26,7 @@ pub enum AstNode {
     Bool(bool),
     Int(i64),
     Defaults {
-        defaults_type: Box<AstNode>, // AstNode::DefaultsType
+        defaults_type: Option<Box<AstNode>>, // AstNode::DefaultsType
         defaults_params: Vec<AstNode>, // Vec<AstNode::Entry>
     },
     DefaultsType {
@@ -41,8 +46,13 @@ pub enum AstNode {
         runas_group_list: Vec<AstNode>, // Vec<AstNode::User>
         tag_list: Vec<AstNode>, // Vec<AstNode::Flag>
         cmnd_list: Vec<AstNode>, // Vec<AstNode::Cmnd>
-        optoin_list: Vec<AstNode>, // Vec<AstNode::OptionSpec> WIP
+        option_list: Vec<AstNode>, // Vec<AstNode::OptionSpec>
     },
+    SudoersConfig {
+        defaults: Vec<AstNode>, // Vec<AstNode::Defaults>
+        aliases: Vec<AstNode>, // Vec<AstNode::Alias>
+        user_spec: Vec<AstNode>, // Vec<AstNode::UserSpec>
+    }
 
 }
 
@@ -58,4 +68,10 @@ pub enum DefaultsType {
     DefaultsUser,
     DefaultsRunAs,
     DefaultsCmnd,
+}
+
+pub enum HostType {
+    Domain,
+    Addr,
+    Netgroup
 }
