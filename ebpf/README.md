@@ -3,7 +3,7 @@
 ## Introduction
 
 In many cases, it is very difficult for a user or administrator to know what kind of capabilities are requested by a program. So we build the capable tool in order to help Linux users know discover the capabilities requested by a program. Our tool uses eBPF in order to intercept the cap_capable() calls in the kernel. This filter uses JIT compilation and is injected to the kernel and will give back information to user-space. More details [https://github.com/pratyushanand/learn-bpf](here)
-However, the kernel retruns the list of capabilities to all programs that are running on the OS. We have added a filtering mecanism in order to let the user see only the capabilites requested by his program. 
+However, the kernel retruns the list of capabilities to all programs that are running on the OS. We have added a filtering mecanism in order to let the user see only the capabilites requested by his program.
 
 ## Tested Plateforms
 
@@ -100,18 +100,18 @@ Now we want to get capabilities used to get addresses in kallsyms file :
 ```Txt
 $ capable -c 'cat /proc/kallsyms'
 ...
-0000000000000000 T acpi_video_get_backlight_type	[video]
-0000000000000000 T acpi_video_set_dmi_backlight_type	[video]
-0000000000000000 t acpi_video_detect_exit	[video]
-0000000000000000 T acpi_video_register	[video]
-0000000000000000 T nfnetlink_init	[nfnetlink]
+0000000000000000 T acpi_video_get_backlight_type [video]
+0000000000000000 T acpi_video_set_dmi_backlight_type [video]
+0000000000000000 t acpi_video_detect_exit [video]
+0000000000000000 T acpi_video_register [video]
+0000000000000000 T nfnetlink_init [nfnetlink]
 Here's all capabilities intercepted :
 cap_sys_admin, cap_syslog
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```
 
-This is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog. 
+This is an interesting example because the command has not been terminated by the kernel because it doesn't have the necessary capabilities. However, the kernel doesn't deliver the content asked by the command cat because it doesn't have the necessary capabilities. We can see that the command output successfuly without permission denied. But adresses are all in 0. So we shall try to understand what kind of capablities we need. By using capable tool, we figure out that we need cap_sys_admin and cap_sys_log. As we told before, we will not use cap_sys_admin because it is not probably needed, so we will try only with cap_syslog.
 
 ```Xml
     <role name="stacktrace">
@@ -136,16 +136,16 @@ Authentication of lechatp...
 Password: 
 Privileged bash launched with the role stacktrace and the following capabilities : cap_syslog.
 ...
-ffffffff******** T acpi_video_unregister	[video]
-ffffffff******** T acpi_video_get_backlight_type	[video]
-ffffffff******** T acpi_video_set_dmi_backlight_type	[video]
-ffffffff******** t acpi_video_detect_exit	[video]
-ffffffff******** T acpi_video_register	[video]
-ffffffff******** T nfnetlink_init	[nfnetlink]
+ffffffff******** T acpi_video_unregister [video]
+ffffffff******** T acpi_video_get_backlight_type [video]
+ffffffff******** T acpi_video_set_dmi_backlight_type [video]
+ffffffff******** t acpi_video_detect_exit [video]
+ffffffff******** T acpi_video_register [video]
+ffffffff******** T nfnetlink_init [nfnetlink]
 End of role stacktrace session.
 ```
 
-Perfect! We can see real adresses. 
+Perfect! We can see real adresses.
 
 ## Example 3
 
@@ -233,7 +233,7 @@ As you can see, the daemon has been launched with lechatp user. All of these ste
 
 ## TO-DO
 
-1. Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer and see https://www.spinics.net/lists/netdev/msg497159.html but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
+1. Get and read stack trace in kernelside to filter capable() calls by fork() which are non-pertinent for user. This enhancement will ignore CAP_SYS_ADMIN and CAP_SYS_RESOURCES capable() calls for each process. But program must still write entry to map, useful to retrieve the process tree. Note : it seems impossible, see <https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#q-can-bpf-programs-access-stack-pointer> and see <https://www.spinics.net/lists/netdev/msg497159.html> but needs confirm. I've read in a commit (I dont resolve him) that bpf_get_stack permits to read stack. Once this found, we will filter capabilities by a "checking" ebpf map. containing list of kallsym ignorable. the ebpf map will lookup in this map for each function trace forwarding 10 iteration max.
 2. In addition to read stack in TODO#1, We need to sort capabilities to 2 list :
     * mandatory, which corresponds to capabilities who returns -EPERM to program in a specific kernel call
     * optionnal, which corresponds to capabilities who change the behavior of kernel in a specific kernel call
