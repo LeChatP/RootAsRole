@@ -1,6 +1,7 @@
 
 
 use std::cell::{RefCell};
+use std::error::Error;
 use std::rc::Rc;
 
 use crate::config::{self, Role, Task, Save};
@@ -14,6 +15,7 @@ pub struct RoleContext {
     selected_command: Option<usize>,
     selected_groups: Option<usize>,
     selected_options: Option<OptType>,
+    error: Option<Box<dyn Error>>,
     
 }
 
@@ -26,30 +28,7 @@ impl RoleContext {
             selected_command: None,
             selected_groups: None,
             selected_options: None,
-        }
-    }
-    
-    fn assert_selected_role(&self) {
-        if self.selected_role.is_none() {
-            panic!("No role selected");
-        }
-    }
-
-    fn assert_selected_commands(&self) {
-        if self.selected_task.is_none() {
-            panic!("No commands selected");
-        }
-    }
-
-    fn assert_selected_command(&self) {
-        if self.selected_command.is_none() {
-            panic!("No command selected");
-        }
-    }
-
-    fn assert_selected_group(&self) {
-        if self.selected_groups.is_none() {
-            panic!("No group selected");
+            error: None,
         }
     }
 
@@ -60,10 +39,10 @@ impl RoleContext {
         }
     }
 
-    pub fn select_role(&mut self, role_index: usize) -> Result<(), &'static str> {
+    pub fn select_role(&mut self, role_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.roles.as_ref().borrow().roles.len();
         if role_index > len - 1 {
-            return Err("role not exist");
+            return Err("role not exist".into());
         } else {
             self.selected_role = Some(role_index);
             return Ok(());
@@ -77,10 +56,10 @@ impl RoleContext {
         self.unselect_options();
     }
 
-    pub fn select_commands(&mut self, command_index: usize) -> Result<(), &'static str> {
+    pub fn select_commands(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks.len();
         if command_index > len - 1 {
-            return Err("command not exist");
+            return Err("command not exist".into());
         } else {
             self.selected_task = Some(command_index);
             return Ok(());
@@ -93,7 +72,7 @@ impl RoleContext {
         self.unselect_options();
     }
 
-    pub fn select_command(&mut self, command_index: usize) -> Result<(), &'static str> {
+    pub fn select_command(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self
             .roles.as_ref().borrow()
             .roles[self.selected_role.unwrap()].as_ref().borrow()
@@ -101,7 +80,7 @@ impl RoleContext {
             .commands
             .len();
         if command_index > len - 1 {
-            return Err("command not exist");
+            return Err("command not exist".into());
         } else {
             self.selected_command = Some(command_index);
             return Ok(());
@@ -112,14 +91,14 @@ impl RoleContext {
         self.selected_command = None;
     }
 
-    pub fn select_groups(&mut self, group_index: usize) -> Result<(), &'static str> {
+    pub fn select_groups(&mut self, group_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self
             .roles.as_ref().borrow()
             .roles[self.selected_role.unwrap()].as_ref().borrow()
             .groups
             .len();
         if group_index > len - 1 {
-            return Err("groups not exist");
+            return Err("groups not exist".into());
         } else {
             self.selected_groups = Some(group_index);
             return Ok(());
@@ -130,7 +109,7 @@ impl RoleContext {
         self.selected_groups = None;
     }
 
-    pub fn select_options(&mut self, option_type: OptType) -> Result<(), &'static str> {
+    pub fn select_options(&mut self, option_type: OptType) -> Result<(), Box<dyn Error>> {
         self.selected_options = Some(option_type);
         return Ok(());
     }
@@ -144,7 +123,7 @@ impl RoleContext {
         .roles.remove(self.selected_role.unwrap());
     }
 
-    pub fn add_group(&mut self, group: Vec<String>) -> Result<(), &'static str> {
+    pub fn add_group(&mut self, group: Vec<String>) -> Result<(), Box<dyn Error>> {
         if self.selected_role.is_some() {
             self.roles.as_ref().borrow()
                 .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
@@ -152,7 +131,7 @@ impl RoleContext {
                 .push(group);
             return Ok(());
         } else {
-            return Err("no role selected");
+            return Err("no role selected".into());
         }
     }
 
@@ -254,14 +233,14 @@ impl RoleContext {
         }
     }
 
-    pub fn set_group(&mut self, group: Vec<String>) -> Result<(), &'static str> {
+    pub fn set_group(&mut self, group: Vec<String>) -> Result<(), Box<dyn Error>> {
         match self.selected_groups {
             Some(i) => {
                 self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow_mut().groups[i] = group;
                 return Ok(());
             }
             None => {
-                return Err("no group selected");
+                return Err("no group selected".into());
             }
         }
     }
@@ -279,8 +258,12 @@ impl RoleContext {
         }
     }
 
-    pub fn saveall(&self) {
-        self.roles.as_ref().borrow().save("/etc/security/rootasrole.xml");
+    pub fn saveall(&self) -> Result<bool, Box<dyn Error>> {
+        self.roles.as_ref().borrow().save("/etc/security/rootasrole.xml")
+    }
+
+    pub fn set_error(&mut self, error: Box<dyn Error>) {
+        self.error = Some(error);
     }
 }
 

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState};
-use super::command::SelectCommandBlockState;
+use super::command::SelectTaskState;
 use super::options::SelectOptionState;
 use super::{execute, ExecuteType, InitState, Input, State};
 
@@ -23,17 +23,21 @@ pub struct EditRoleState;
  * List roles and allow editing, creation and deletion of roles
  */
 impl State for SelectRoleState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(CreateRoleState)
     }
 
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_role(index);
+        if let Err(err) = manager.select_role(index) {
+            manager.set_error(err);
+        }
         Box::new(DeleteRoleState)
     }
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_role(index);
+        if let Err(err) = manager.select_role(index) {
+            manager.set_error(err);
+        }
         Box::new(EditRoleState)
     }
 
@@ -43,15 +47,17 @@ impl State for SelectRoleState {
     }
 
     fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        manager.saveall();
-        self
+        if let Err(err) = manager.saveall() {
+            manager.set_error(err);
+        }
+        Box::new(SelectRoleState)
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectOptionState::new())
     }
 
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
 
@@ -117,27 +123,27 @@ impl InitState for SelectRoleState {
 }
 
 impl State for CreateRoleState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectRoleState)
     }
 
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
@@ -147,7 +153,7 @@ impl State for CreateRoleState {
         Box::new(EditRoleState)
     }
 
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         let text = EditView::new().with_name("name");
         cursive.add_layer(
             Dialog::around(text)
@@ -169,19 +175,19 @@ impl State for CreateRoleState {
 }
 
 impl State for DeleteRoleState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectRoleState)
     }
 
@@ -190,11 +196,11 @@ impl State for DeleteRoleState {
         Box::new(SelectRoleState)
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
 
@@ -216,11 +222,11 @@ impl State for DeleteRoleState {
 }
 
 impl State for EditRoleState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
@@ -231,25 +237,25 @@ impl State for EditRoleState {
                 Some(manager.get_role().unwrap().as_ref().borrow().users.clone()),
             )),
             1 => Box::new(SelectGroupState),
-            2 => Box::new(SelectCommandBlockState),
+            2 => Box::new(SelectTaskState),
             _ => self,
         }
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectRoleState)
     }
 
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         //TODO: save
         Box::new(SelectRoleState)
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectOptionState::new())
     }
 
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
 

@@ -98,10 +98,11 @@ impl AsRef<Opt> for Opt {
     }
 }
 
+#[allow(dead_code)]
 fn attribute_str(key: &str, value: &str) -> String {
     format!("{}=\"{}\"", key, value)
 }
-
+#[allow(dead_code)]
 fn enforce_item_str(item: &(bool, String)) -> String {
     if item.0 {
         String::new()
@@ -109,7 +110,7 @@ fn enforce_item_str(item: &(bool, String)) -> String {
         attribute_str("enforce", &item.0.to_string())
     }
 }
-
+#[allow(dead_code)]
 fn user_item_str(item: &(bool, String)) -> String {
     if item.1.is_empty() {
         String::new()
@@ -117,7 +118,7 @@ fn user_item_str(item: &(bool, String)) -> String {
         attribute_str("user", &item.1)
     }
 }
-
+#[allow(dead_code)]
 fn group_item_str(item: &(bool, String)) -> String {
     if item.1.is_empty() {
         String::new()
@@ -125,7 +126,7 @@ fn group_item_str(item: &(bool, String)) -> String {
         attribute_str("group", &item.1)
     }
 }
-
+#[allow(dead_code)]
 fn setuser_str(item: &(bool, String)) -> String {
     if item.0 {
         String::new()
@@ -133,7 +134,7 @@ fn setuser_str(item: &(bool, String)) -> String {
         [enforce_item_str(item), user_item_str(item)].join(" ")
     }
 }
-
+#[allow(dead_code)]
 fn setgroup_str(item: &(bool, String)) -> String {
     if item.0 {
         String::new()
@@ -141,7 +142,7 @@ fn setgroup_str(item: &(bool, String)) -> String {
         [enforce_item_str(item), group_item_str(item)].join(" ")
     }
 }
-
+#[allow(dead_code)]
 fn setuid_xml_str(setuser: Option<&(bool, String)>, setgroup: Option<&(bool, String)>) -> String {
     let mut str_setuser = String::from("<setuid ");
     if let (Some(setuser), Some(setgroup)) = (&setuser, &setgroup) {

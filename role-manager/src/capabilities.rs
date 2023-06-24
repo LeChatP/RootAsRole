@@ -24,7 +24,7 @@ impl Caps {
             Caps::V2(v) => v & (1 << cap) > 0,
         }
     }
-
+    #[allow(dead_code)]
     pub fn set(&mut self, cap: usize) {
         if cap >= POSITIONS.len() {
             return;

@@ -64,7 +64,7 @@ fn get_groups() -> Vec<String> {
     unsafe { setgrent() };
     let mut group = unsafe { getgrent().as_mut() };
     while !group.is_none() {
-        let gr = unsafe { group.unwrap() };
+        let gr = group.unwrap();
         groups.push(unsafe { CStr::from_ptr(gr.gr_name).to_str().unwrap().to_string() });
         group = unsafe { getgrent().as_mut() };
     }
@@ -77,7 +77,7 @@ fn get_users() -> Vec<String> {
     unsafe { setpwent() };
     let mut pwentry = unsafe { getpwent().as_mut() };
     while !pwentry.is_none() {
-        let user = unsafe { pwentry.unwrap() };
+        let user = pwentry.unwrap();
         users.push(unsafe { CStr::from_ptr(user.pw_name).to_str().unwrap().to_string() });
         pwentry = unsafe { getpwent().as_mut() };
     }
@@ -109,7 +109,6 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
     let actors = match actortype {
         ActorType::User => get_users(),
         ActorType::Group => get_groups(),
-        _ => panic!("Invalid state"),
     };
     for user in actors {
         view.add_item(user.clone(), user.clone());
@@ -117,32 +116,32 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
 }
 
 impl State for SelectUserState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(InputState::new(self, "Enter username or uid", None))
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(EditRoleState)
     }
 
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        let commands = manager.get_role().unwrap().as_ref().borrow_mut().users = input.as_vec();
+        let _commands = manager.get_role().unwrap().as_ref().borrow_mut().users = input.as_vec();
         Box::new(EditRoleState)
     }
 
@@ -216,11 +215,11 @@ impl PushableItemState<String> for SelectUserState {
 }
 
 impl State for SelectGroupState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(EditGroupState::<Self>::new(self, None))
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
@@ -229,19 +228,19 @@ impl State for SelectGroupState {
         Box::new(EditGroupState::<Self>::new(self, manager.get_group()))
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(EditRoleState)
     }
 
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
 
@@ -304,33 +303,35 @@ impl<T> State for EditGroupState<T>
 where
     T: State + Clone + 'static,
 {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(InputState::new(self, "Input new group", None))
     }
 
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         Box::new(ConfirmState::new(self, "Confirm delete group", index))
     }
 
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectGroupState)
     }
 
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
 
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         if manager.get_group().is_some() {
-            manager.set_group(input.as_vec());
+            if let Err(err) = manager.set_group(input.as_vec()) {
+                manager.set_error(err);
+            }
         }
         Box::new(SelectGroupState)
     }
@@ -377,7 +378,7 @@ impl<T> PushableItemState<String> for EditGroupState<T>
 where
     T: State + Clone + 'static,
 {
-    fn push(&mut self, manager: &mut RoleContext, item: String) {
+    fn push(&mut self, _manager: &mut RoleContext, item: String) {
         if !self.gid_list.contains(&item) {
             self.gid_list.push(item);
         }
@@ -388,7 +389,7 @@ impl<T> DeletableItemState for EditGroupState<T>
 where
     T: State + Clone + 'static,
 {
-    fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
+    fn remove_selected(&mut self, _manager: &mut RoleContext, index: usize) {
         self.gid_list.remove(index);
     }
 }

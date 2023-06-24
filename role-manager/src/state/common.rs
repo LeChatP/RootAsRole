@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 
 use cursive::{
     view::Nameable,
@@ -46,29 +45,29 @@ impl<T> State for InputState<T>
 where
     T: State + PushableItemState<String> + Clone + 'static,
 {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(self.previous_state.clone())
     }
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         self.previous_state.push(manager, input.as_string());
         Box::new(self.previous_state.clone())
     }
-    fn render(&self, manager: &mut crate::RoleContext, cursive: &mut cursive::Cursive) {
+    fn render(&self, _manager: &mut crate::RoleContext, cursive: &mut cursive::Cursive) {
         let mut input = EditView::new();
         if let Some(content) = self.content.clone() {
             input.set_content(content);
@@ -94,16 +93,16 @@ impl<T> State for ConfirmState<T>
 where
     T: State + DeletableItemState + Clone + 'static,
 {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(self.previous_state.clone())
     }
     fn confirm(mut self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
@@ -111,13 +110,13 @@ where
         println!("{:?}", manager);
         Box::new(self.previous_state.clone())
     }
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
-    fn render(&self, manager: &mut RoleContext, cursive: &mut cursive::Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut cursive::Cursive) {
         cursive.add_layer(
             Dialog::around(cursive::views::TextView::new(self.title.as_str()))
                 .title("Confirm")

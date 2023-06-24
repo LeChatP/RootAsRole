@@ -115,7 +115,7 @@ impl<'a> Roles<'a> {
         }.into())
     }
 
-    pub fn get_role(&'a self, name: &str) -> Option<Rc<RefCell<Role<'a>>>> {
+    pub fn get_role(&self, name: &str) -> Option<Rc<RefCell<Role<'a>>>> {
         for r in self.roles.iter() {
             if r.as_ref().borrow().name == name {
                 return Some(r.clone());
@@ -139,7 +139,7 @@ impl<'a> Role<'a> {
     pub fn set_parent(&mut self, roles: Weak<RefCell<Roles<'a>>>) {
         self.roles = Some(roles);
     }
-    pub fn get_task(&'a self, id: &IdTask) -> Option<Rc<RefCell<Task<'a>>>> {
+    pub fn get_task(&self, id: &IdTask) -> Option<Rc<RefCell<Task<'a>>>> {
         for t in self.tasks.iter() {
             //test if they are in same enum
             if t.as_ref().borrow().id == *id {
@@ -148,7 +148,7 @@ impl<'a> Role<'a> {
         }
         None
     }
-    pub fn get_parent(&'a self) -> Option<Rc<RefCell<Roles<'a>>>> {
+    pub fn get_parent(&self) -> Option<Rc<RefCell<Roles<'a>>>> {
         match &self.roles {
             Some(r) => r.upgrade(),
             None => None,
@@ -190,7 +190,7 @@ impl<'a> Task<'a> {
             setgid: None,
         }.into())
     }
-    pub fn get_parent(&'a self) -> Option<Rc<RefCell<Role<'a>>>> {
+    pub fn get_parent(&self) -> Option<Rc<RefCell<Role<'a>>>> {
         self.role.upgrade()
     }
 
@@ -295,10 +295,10 @@ pub fn read_file(file_path: &str, contents : &mut String) -> Result<(), Box<dyn 
 }
 
 
-pub fn read_xml_file<'a>(file_path: &'a str) -> Result<Package, sxd_document::parser::Error> {
+pub fn read_xml_file<'a>(file_path: &'a str) -> Result<Package, Box<dyn Error>> {
     let mut contents = String::new();
-    read_file(file_path, &mut contents);
-    parser::parse(&contents)
+    read_file(file_path, &mut contents)?;
+    Ok(parser::parse(&contents)?)
 }
 /**
 fn read_xml_file<'a>(file_path: &'a str, document : &Option<Document<'a>>) -> Result<(), Box<dyn Error>> {
@@ -476,7 +476,7 @@ fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> Resu
     }
     Ok(rc_role)
 }
-
+#[allow(dead_code)]
 pub fn find_role<'a>(doc : &'a Document, name:&'a str) -> Result<Rc<RefCell<Role<'a>>>,Box<dyn Error>>{
     let factory = Factory::new();
     let context = Context::new();
@@ -558,7 +558,7 @@ where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {
     for child in element.children() {
-        if let Some(element) = child.element() {
+        if let Some(_) = child.element() {
             f(child)?;
         }
     }
@@ -586,8 +586,8 @@ pub trait Save {
 impl<'a> Save for Roles<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
         let binding = parser::parse(&self.to_string())?;
-        let newRoles = binding.as_document();
-        let newXmlElement = newRoles
+        let new_roles = binding.as_document();
+        let new_xml_element = new_roles
             .root()
             .children()
             .first()
@@ -600,9 +600,9 @@ impl<'a> Save for Roles<'a> {
         let doc = parser::parse(&contents)?;
         let doc = doc.as_document();
         do_in_main_element(doc, "rootasrole", |element| {
-            element.element().replace(newXmlElement);
+            element.element().replace(new_xml_element);
             Ok(())
-        });
+        })?;
         let mut content: Vec<u8> = Vec::new();
         let writer = Writer::new().set_single_quotes(false);
         writer
@@ -626,7 +626,7 @@ impl<'a> Save for Roles<'a> {
 impl<'a> Save for Role<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
         let binding = parser::parse(&self.to_string())?;
-        let newRole = binding.as_document();
+        let new_role = binding.as_document();
         let mut contents = String::new();
         read_file(path,&mut contents)?;
         let doc = parser::parse(&contents)?;
@@ -635,20 +635,20 @@ impl<'a> Save for Role<'a> {
         do_in_main_element(doc, "rootasrole", |rootelement| {
             foreach_element(rootelement.element().unwrap(), |element| {
                 if element_is_role(&element, self.name.clone()) {
-                    let newXmlElement = newRole
+                    let new_xml_element = new_role
                         .root()
                         .children()
                         .first()
                         .expect("Unable to retrieve element")
                         .element()
                         .expect("Unable to convert to element");
-                    element.element().replace(newXmlElement);
+                    element.element().replace(new_xml_element);
                     found = true;
                 }
                 Ok(())
-            });
+            })?;
             Ok(())
-        });
+        })?;
         if !found {
             return Ok(false);
         }
@@ -660,15 +660,15 @@ impl<'a> Save for Role<'a> {
 impl<'a> Save for Task<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
         let binding = parser::parse(&self.to_string())?;
-        let newTask = binding.as_document();
+        let new_task = binding.as_document();
         let mut contents = String::new();
         read_file(path,&mut contents)?;
         let doc = parser::parse(&contents)?;
         let doc = doc.as_document();
         let mut found = false;
         do_in_main_element(doc, "rootasrole", |rootelement| {
-            self.save_task_roles(rootelement, newTask, &mut found)
-        });
+            self.save_task_roles(rootelement, new_task, &mut found)
+        })?;
         if !found {
             return Ok(false);
         }
@@ -680,20 +680,20 @@ impl<'a> Task<'a> {
     fn save_task_roles(&self, rootelement: ChildOfRoot, new_task: Document, found: &mut bool) -> Result<(),Box<dyn Error>> {
         if let Some(rootelement) = rootelement.element() {
             foreach_element(rootelement, |rolelayer| {
-                if element_is_role(&rolelayer, self.role.upgrade().unwrap().try_borrow()?.name.clone()) {
+                if element_is_role(&rolelayer, self.get_parent().unwrap().try_borrow()?.name.clone()) {
                     return self.save_task_role(rolelayer, new_task, found);
                 }
                 Ok(())
-            });
+            })?;
         }
         Ok(())
     }
 
-    fn save_task_role(&self, rolelayer: ChildOfElement, newTask: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
+    fn save_task_role(&self, rolelayer: ChildOfElement, new_task: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
         let mut taskid = 1;
         foreach_element(rolelayer.element().unwrap(), |task_layer| {
             if element_is_task(&task_layer) {
-                let newXmlElement = newTask
+                let new_xml_element = new_task
                     .root()
                     .children()
                     .first()
@@ -712,7 +712,7 @@ impl<'a> Task<'a> {
                     taskid += 1;
                 }
                 if id == self.id.clone().unwrap() {
-                    task_layer.element().replace(newXmlElement);
+                    task_layer.element().replace(new_xml_element);
                     *found = true;
                 }
             }
@@ -767,7 +767,7 @@ pub fn save_options(
     task_id: Option<String>,
 ) -> Result<bool, Box<dyn Error>> {
     let binding = parser::parse(&options.to_string())?;
-    let newOptions = binding.as_document();
+    let new_options = binding.as_document();
     let mut contents = String::new();
     read_file(path,&mut contents)?;
     let doc = parser::parse(&contents)?;
@@ -779,14 +779,14 @@ pub fn save_options(
                 rootelement,
                 role_name,
                 task_id.clone(),
-                newOptions,
+                new_options,
                 &mut found,
             )?
         } else {
-            save_option_xml_layer(rootelement.into(), newOptions, &mut found)?
+            save_option_xml_layer(rootelement.into(), new_options, &mut found)?
         }
         Ok(())
-    });
+    })?;
     if !found {
         return Ok(false);
     }
@@ -798,15 +798,15 @@ fn save_option_roles(
     rootelement: ChildOfRoot,
     role_name: String,
     task_id: Option<String>,
-    newOptions: Document,
+    new_options: Document,
     found: &mut bool,
 ) -> Result<(), Box<dyn Error>> {
     foreach_element(rootelement.element().unwrap(), |role_layer| {
         if element_is_role(&role_layer, role_name.clone()) {
             if let Some(task_id) = task_id.clone() {
-                save_option_task(role_layer, task_id, newOptions, found)?;
+                save_option_task(role_layer, task_id, new_options, found)?;
             } else {
-                save_option_xml_layer(role_layer, newOptions, found)?;
+                save_option_xml_layer(role_layer, new_options, found)?;
             }
         }
         Ok(())
@@ -817,7 +817,7 @@ fn save_option_roles(
 fn save_option_task(
     role_layer: ChildOfElement,
     task_id: String,
-    newOptions: Document,
+    new_options: Document,
     found: &mut bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut tmp_taskid = 1;
@@ -835,7 +835,7 @@ fn save_option_task(
                 tmp_taskid += 1;
             }
             if id == task_id.clone() {
-                save_option_xml_layer(task_layer, newOptions, found);
+                save_option_xml_layer(task_layer, new_options, found)?;
             }
         }
         Ok(())
@@ -851,24 +851,24 @@ fn element_is_options(element: &ChildOfElement) -> bool {
     false
 }
 
-fn save_option_xml_layer(task_layer: ChildOfElement, newOptions: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
+fn save_option_xml_layer(task_layer: ChildOfElement, new_options: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
     foreach_element(task_layer.element().unwrap(), |option_level| {
         if element_is_options(&option_level) {
-            replace_element(newOptions, option_level, found)?
+            replace_element(new_options, option_level, found)?
         }
         Ok(())
     })
 }
 
-fn replace_element(newOptions: Document, element: ChildOfElement, found: &mut bool) -> Result<(), Box<dyn Error>> {
-    let newXmlElement = newOptions
+fn replace_element(new_options: Document, element: ChildOfElement, found: &mut bool) -> Result<(), Box<dyn Error>> {
+    let new_xml_element = new_options
         .root()
         .children()
         .first()
         .ok_or("Unable to retrieve element")?
         .element()
         .ok_or("Unable to convert to element")?;
-    element.element().replace(newXmlElement);
+    element.element().replace(new_xml_element);
     *found = true;
     Ok(())
 }

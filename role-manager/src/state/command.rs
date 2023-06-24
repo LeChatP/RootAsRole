@@ -19,11 +19,11 @@ use crate::{
     ActorType, Cursive, RoleContext
 };
 
-pub struct SelectCommandBlockState;
-pub struct DeleteCommandBlockState;
+pub struct SelectTaskState;
+pub struct DeleteTaskState;
 
 #[derive(Clone)]
-pub struct EditCommandBlockState;
+pub struct EditTaskState;
 
 pub struct EditCapabilitiesState;
 
@@ -34,27 +34,29 @@ pub struct EditSetIDState {
 pub struct EditCommandState;
 pub struct DeleteCommandState;
 
-impl State for SelectCommandBlockState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(EditCommandBlockState)
+impl State for SelectTaskState {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(EditTaskState)
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_commands(index);
-        Box::new(EditCommandBlockState)
+        if let Err(err) = manager.select_commands(index) {
+            manager.set_error(err);
+        }
+        Box::new(EditTaskState)
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(EditRoleState)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
@@ -88,18 +90,18 @@ impl State for SelectCommandBlockState {
     }
 }
 
-impl State for DeleteCommandBlockState {
+impl State for DeleteTaskState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectCommandBlockState)
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(SelectTaskState)
     }
     fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
         manager
@@ -109,16 +111,15 @@ impl State for DeleteCommandBlockState {
             .borrow_mut()
             .tasks
             .remove(manager.get_commands_index().unwrap());
-        Box::new(SelectCommandBlockState)
+        Box::new(SelectTaskState)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        let command_block = manager.get_task().unwrap();
         let binding = manager.get_task();
         let name = &binding.as_deref().unwrap().borrow().id;
         cursive.add_layer(
@@ -145,12 +146,15 @@ impl State for DeleteCommandBlockState {
  * And used to set the id of the command block (with Dialog)
  * And used to set options on the command block (with Dialog)
  */
-impl State for EditCommandBlockState {
-    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+impl State for EditTaskState {
+    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(EditCommandState)
     }
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_command(index);
+        if let Err(err) = manager.select_command(index){
+            manager.set_error(err);
+            return self;
+        }
         Box::new(ConfirmState::new(
             self,
             &format!(
@@ -161,19 +165,22 @@ impl State for EditCommandBlockState {
         ))
     }
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_command(index);
+        if let Err(err) = manager.select_command(index) {
+            manager.set_error(err);
+            return self;
+        }
         Box::new(EditCommandState)
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectCommandBlockState)
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(SelectTaskState)
     }
     fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(SelectOptionState::new())
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         match input.as_string().as_ref() {
             "u" => Box::new(SelectUserState::new(false, None)),
             "g" => Box::new(SelectGroupState),
@@ -231,14 +238,14 @@ impl State for EditCapabilitiesState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(EditCommandBlockState)
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(EditTaskState)
     }
     fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -252,7 +259,7 @@ impl State for EditCapabilitiesState {
             .unwrap()
             .borrow_mut()
             .capabilities = Some(input.as_caps());
-        Box::new(SelectCommandBlockState)
+        Box::new(SelectTaskState)
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = CheckListView::<(&str, &str)>::new()
@@ -298,14 +305,14 @@ impl State for EditCommandState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(EditCommandBlockState)
+    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(EditTaskState)
     }
     fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -324,7 +331,7 @@ impl State for EditCommandState {
                 .commands
                 .push(input.as_string());
         }
-        Box::new(EditCommandBlockState)
+        Box::new(EditTaskState)
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut edit = EditView::new();
@@ -348,7 +355,7 @@ impl State for EditCommandState {
     }
 }
 
-impl DeletableItemState for EditCommandBlockState {
+impl DeletableItemState for EditTaskState {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
         manager
             .get_task()

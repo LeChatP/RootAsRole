@@ -3,7 +3,7 @@ use cursive::{
     direction,
     event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent},
     impl_enabled, menu,
-    theme::{ColorStyle, Style},
+    theme::ColorStyle,
     utils::{markup::StyledString, span::SpannedStr},
     view::{CannotFocus, Position, View},
     views::{LayerPosition, MenuPopup},
@@ -753,7 +753,7 @@ impl<T: 'static> CheckListView<T> {
         let mut tree = menu::Tree::new();
         for (i, item) in self.items.iter().enumerate() {
             let focus: Rc<Cell<usize>> = Rc::clone(&self.focus);
-            tree.add_leaf(item.label.source(), move |s| {
+            tree.add_leaf(item.label.source(), move |_| {
                 // TODO: What if an item was removed in the meantime?
                 focus.set(i);
             });
@@ -811,7 +811,7 @@ impl<T: 'static> CheckListView<T> {
         }
     }
 }
-
+#[allow(dead_code)]
 impl CheckListView<String> {
     /// Convenient method to use the label as value.
     pub fn add_item_str<S: Into<String>>(&mut self, label: S, checked: bool) {
@@ -886,7 +886,7 @@ impl CheckListView<String> {
         self.with(|s| s.add_all_str(iter))
     }
 }
-
+#[allow(dead_code)]
 impl<T: 'static> CheckListView<T>
 where
     T: Ord,

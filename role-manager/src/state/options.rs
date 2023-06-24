@@ -1,11 +1,11 @@
 use cursive::{
     event::Key,
     view::Nameable,
-    views::{Dialog, EditView, SelectView, TextView},
+    views::{Dialog, SelectView, TextView},
 };
 
 use super::{
-    command::EditCommandBlockState,
+    command::EditTaskState,
     common::{ConfirmState, InputState},
     execute,
     role::{EditRoleState, SelectRoleState},
@@ -32,7 +32,7 @@ impl State for SelectOptionState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         Box::new(ConfirmState::new(
             self,
             "Are you sure you want to delete this option?",
@@ -41,7 +41,7 @@ impl State for SelectOptionState {
     }
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         let opttype = OptType::from_index(index);
-        let mut title = "";
+        let title;
         match opttype {
             OptType::Path => title = "Enter binary locations (PATH) separated by commas",
             OptType::EnvChecklist => {
@@ -71,17 +71,17 @@ impl State for SelectOptionState {
         match manager.get_options().get_level() {
             Level::Global => Box::new(SelectRoleState),
             Level::Role => Box::new(EditRoleState),
-            Level::Task => Box::new(EditCommandBlockState),
+            Level::Task => Box::new(EditTaskState),
             _ => self,
         }
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = SelectView::new()
             .on_select(|s, item: &OptType| {
                 let RoleManagerApp { manager, state } = s.user_data().unwrap();
@@ -155,10 +155,10 @@ impl State for EditOptionState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -170,10 +170,9 @@ impl State for EditOptionState {
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        let edit = EditView::new();
+    fn render(&self, _manager: &mut RoleContext, _cursive: &mut Cursive) {
     }
 }

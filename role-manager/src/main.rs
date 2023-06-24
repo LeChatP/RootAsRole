@@ -11,12 +11,11 @@ mod version;
 
 
 use cli::parse_args;
-use config::{FILENAME, Roles};
+use config::FILENAME;
 use cursive::Cursive;
 use rolemanager::RoleContext;
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
-use version::PACKAGE_VERSION;
 
 pub enum ActorType {
     User,
