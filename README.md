@@ -6,8 +6,8 @@
 <img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/build.yml?label=Build"/>
 <img alt="Test Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/criterion-test.yml?label=Unit%20Tests">
 <a href="https://app.codacy.com/gh/LeChatP/RootAsRole/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade"><img src="https://app.codacy.com/project/badge/Grade/60b8105a12ca4419b8471d150ef93ebd"/></a>
-<a href="https://codecov.io/gh/LeChatP/RootAsRole" > 
- <img src="https://codecov.io/gh/LeChatP/RootAsRole/branch/main/graph/badge.svg?token=6J7CRGEIG8"/> 
+<a href="https://codecov.io/gh/LeChatP/RootAsRole" >
+ <img src="https://codecov.io/gh/LeChatP/RootAsRole/branch/main/graph/badge.svg?token=6J7CRGEIG8"/>
  </a>
  <img alt="GitHub" src="https://img.shields.io/github/license/LeChatP/RootAsRole">
 
@@ -15,16 +15,13 @@
 
 # RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
 
-
-
-
 A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
 
 ## Installation
 
 ### How to Build
 
-  1. git clone https://github.com/SamerW/RootAsRole
+  1. git clone <https://github.com/SamerW/RootAsRole>
   2. cd RootAsRole
   3. sudo sh ./configure.sh
   4. make
@@ -34,7 +31,7 @@ A role-based access control tool for administrative tasks on Linux. This tool tr
 
 Our role manager is currently under development. But you can manually execute these commands :
 
-```
+```sh
 sr chattr -i /etc/security/rootasrole.xml
 sr nano /etc/security/rootasrole.xml
 ```
@@ -45,7 +42,7 @@ However, today, you can start to configure this tool with the rootasrole.xml fil
 
 ### Usage
 
-```
+```txt
 Usage: sr [options] [command [args]]
 Options:
   -r, --role <role>      Role to use
@@ -62,7 +59,7 @@ You may give us your feedbacks  about RootAsRole here:
 
 ## Video presentation of the version 1.0 (in French)
 
-https://www.youtube.com/watch?v=2Y8hTI912zQ
+<https://www.youtube.com/watch?v=2Y8hTI912zQ>
 
 ## Why do you need this tool ?
 
@@ -72,18 +69,17 @@ RootAsRole module implements a role-based approach for distributing Linux capabi
 
 Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module. Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
 
-
 ## How do we solve Role conflicts ?
 
 As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
 
 * Find all the roles that match the user id assignment or the group id, and the command input
-* Within the matching roles, select the one that is the most precise and least privileged : 
+* Within the matching roles, select the one that is the most precise and least privileged :
    1. user assignment is more precise than the combination of group assignment
    1. the combination of group assignment is more precise than single group assignment
    1. exact command is more precise than command with regex argument
    1. command with regex argument is more precise than a wildcarded command path
-   1.  wildcarded command path is more precise than wildcarded command path and regex args
+   1. wildcarded command path is more precise than wildcarded command path and regex args
    1. wildcarded command path and regex args is more precise than complete wildcard
    1. A role granting no capability is less privileged than one granting at least one capability
    1. A role granting no "ADMIN" capability is less privileged than one granting "ADMIN" capability
@@ -97,7 +93,6 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. A role that enables root privileges is less privileged than one which disables root privileges (see "no-root" feature)
    1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
 
-
 After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
 
 Regarding the (vii),(viii), and (ix) points, the choice of least privilege is somewhat arbitrary. We are currently working on a explaination on a paper.
@@ -105,9 +100,10 @@ Regarding the (vii),(viii), and (ix) points, the choice of least privilege is so
 ## Tested Platforms
 
 Our module has been tested on:
- * Ubuntu>=16.04
- * Debian>=10
- * ArchLinux
+
+* Ubuntu>=16.04
+* Debian>=10
+* ArchLinux
 
 After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
@@ -118,6 +114,7 @@ Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabil
 For more information please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
 
 ## Role Manager
+
 Since V2.3 We created a set of tools that allow to add/edit/delete roles without ncessarily needs to edit XML file manaualy.
 For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/role-manager)
 
@@ -127,17 +124,17 @@ For more information please check here [Here](https://github.com/SamerW/RootAsRo
 
 ## Contributors
 
-Ahmad Samer Wazan : ahmad-samer.wazan@irit.fr
+Ahmad Samer Wazan : <ahmad-samer.wazan@irit.fr>
 
-Rémi Venant: remi.venant@gmail.com
+Rémi Venant: <remi.venant@gmail.com>
 
-Guillaume Daumas : guillaume.daumas@univ-tlse3.fr
+Guillaume Daumas : <guillaume.daumas@univ-tlse3.fr>
 
-Eddie Billoir : eddie.billoir@gmail.com
+Eddie Billoir : <eddie.billoir@gmail.com>
 
-Anderson Hemlee : anderson.hemlee@protonmail.com
+Anderson Hemlee : <anderson.hemlee@protonmail.com>
 
-Romain Laborde : laborde@irit.fr
+Romain Laborde : <laborde@irit.fr>
 
 ## About Logo
 
