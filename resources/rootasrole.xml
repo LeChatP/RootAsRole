@@ -14,8 +14,7 @@
 	<!ELEMENT roles (role*)>
 	<!ELEMENT role (actors?|task*|options?)*>
 	<!ATTLIST role
-		name ID #REQUIRED
-		priority CDATA "0">
+		name ID #REQUIRED>
 	<!ELEMENT actors (user*|group*)>
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>
