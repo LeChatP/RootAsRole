@@ -3,8 +3,16 @@ pub mod command;
 pub mod common;
 pub mod options;
 pub mod role;
+mod task;
 
-use cursive::{event::Key, views::Dialog, Cursive};
+use std::error::Error;
+
+use cursive::{
+    event::Key,
+    theme::{BaseColor, Color, ColorStyle, Effect, Style},
+    views::{Dialog, TextView},
+    Cursive,
+};
 
 use crate::{capabilities::Caps, rolemanager::RoleContext, RoleManagerApp};
 
@@ -48,14 +56,14 @@ impl Input {
         match self {
             Input::String(str) => str.split(",").map(|s| s.to_string()).collect(),
             Input::Vec(vec) => vec.to_vec(),
-            Input::Caps(caps) => caps.clone().into(),
+            Input::Caps(caps) => caps.to_owned().into(),
         }
     }
     pub fn as_caps(&self) -> Caps {
         match self {
-            Input::String(str) => Caps::from(str.clone()),
+            Input::String(str) => Caps::from(str.to_owned()),
             Input::Vec(vec) => Caps::from(vec.to_vec()),
-            Input::Caps(caps) => caps.clone(),
+            Input::Caps(caps) => caps.to_owned(),
         }
     }
 }
@@ -92,6 +100,15 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     };
     s.pop_layer();
     s.clear_global_callbacks(Key::Del);
+
     state.render(&mut manager, s);
+    if let Some(err) = manager.take_error() {
+        let mut style = Style::from(ColorStyle::new(
+            Color::Light(BaseColor::White),
+            Color::Dark(BaseColor::Red),
+        ));
+        style.effects.insert(Effect::Bold);
+        s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).dismiss_button("Understood"));
+    }
     s.set_user_data(RoleManagerApp { manager, state });
 }

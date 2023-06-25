@@ -307,7 +307,7 @@ impl<T: 'static> CheckListView<T> {
             .iter()
             .filter(|item| item.checked)
             .map(|item| {
-                let label = item.label.clone();
+                let label = item.label.to_owned();
                 let value = &*item.value;
                 (label, value)
             })
@@ -741,7 +741,7 @@ impl<T: 'static> CheckListView<T> {
 
     /// Returns a callback from selection change.
     fn make_select_cb(&self) -> Option<Callback> {
-        self.on_select.clone().and_then(|cb| {
+        self.on_select.to_owned().and_then(|cb| {
             self.selection()
                 .map(|v| Callback::from_fn(move |s| cb(s, &v)))
         })
@@ -816,7 +816,7 @@ impl CheckListView<String> {
     /// Convenient method to use the label as value.
     pub fn add_item_str<S: Into<String>>(&mut self, label: S, checked: bool) {
         let label = label.into();
-        self.add_item(label.clone(), checked, label);
+        self.add_item(label.to_owned(), checked, label);
     }
 
     /// Chainable variant of add_item_str
@@ -842,7 +842,7 @@ impl CheckListView<String> {
         S: Into<String>,
     {
         let label = label.into();
-        self.insert_item(index, label.clone(), false, label);
+        self.insert_item(index, label.to_owned(), false, label);
     }
 
     /// Adds all strings from an iterator.

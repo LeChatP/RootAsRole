@@ -168,7 +168,7 @@ impl ToString for Caps {
             return "ALL".to_string();
         }
         for (i, (name, _)) in POSITIONS.iter().enumerate() {
-            if self.clone() & (1 << i) != Caps::MIN {
+            if self.to_owned() & (1 << i) != Caps::MIN {
                 if caps.len() > 0 {
                     caps.push_str(",");
                 }

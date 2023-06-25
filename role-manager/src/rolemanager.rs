@@ -1,35 +1,109 @@
 
 
+use std::borrow::Borrow;
 use std::cell::{RefCell};
 use std::error::Error;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
-use crate::config::{self, Role, Task, Save};
+use crate::config::{self, Role, Task, Save, Groups, IdTask};
 use crate::options::{OptType, Opt, OptStack, Level};
+pub trait ContextMemento<T> {
+    fn restore(&self) -> T;
+}
+
+#[derive(Debug)]
+pub struct RoleContextHistory {
+    mementos: Vec<RoleContext>
+}
+
+impl RoleContextHistory {
+    pub fn new() -> Self {
+        RoleContextHistory {
+            mementos: Vec::new()
+        }
+    }
+
+    pub fn save(&mut self, memento: RoleContext) {
+        self.mementos.push(memento);
+    }
+
+    pub fn restore(&mut self) -> Option<RoleContext> {
+        self.mementos.pop()
+    }
+}
 
 #[derive(Debug)]
 pub struct RoleContext {
+    history: Weak<RefCell<RoleContextHistory>>,
     pub roles: Rc<RefCell<config::Roles<'static>>>,
     selected_role: Option<usize>,
+    new_role: Option<Rc<RefCell<Role<'static>>>>,
     selected_task: Option<usize>,
+    new_task: Option<Rc<RefCell<Task<'static>>>>,
     selected_command: Option<usize>,
+    new_command: Option<String>,
     selected_groups: Option<usize>,
+    new_groups: Option<Groups>,
     selected_options: Option<OptType>,
+    new_options: Option<Opt>,
     error: Option<Box<dyn Error>>,
+    is_new: bool,
     
+}
+
+impl Clone for RoleContext {
+    fn clone(&self) -> Self {
+        RoleContext {
+            history: Rc::downgrade(&self.history.upgrade().unwrap()),
+            roles: Rc::new(RefCell::new(self.roles.as_ref().borrow().clone())),
+            selected_role: self.selected_role.clone(),
+            new_role: Some(Rc::new(RefCell::new(self.new_role.clone().unwrap().as_ref().borrow().clone()))),
+            selected_task: self.selected_task.clone(),
+            new_task: Some(Rc::new(RefCell::new(self.new_task.clone().unwrap().as_ref().borrow().clone()))),
+            selected_command: self.selected_command.clone(),
+            new_command: self.new_command.clone(),
+            selected_groups: self.selected_groups.clone(),
+            new_groups: self.new_groups.clone(),
+            selected_options: self.selected_options.clone(),
+            new_options: self.new_options.clone(),
+            error: None,
+            is_new: self.is_new.clone(),
+        }
+    }
 }
 
 impl RoleContext {
     pub fn new(roles: Rc<RefCell<config::Roles<'static>>>) -> RoleContext {
         RoleContext {
+            history: Rc::downgrade(&Rc::new(RoleContextHistory::new().into())),
             roles,
             selected_role: None,
             selected_task: None,
             selected_command: None,
             selected_groups: None,
             selected_options: None,
+            new_role: None,
+            new_task: None,
+            new_command: None,
+            new_groups: None,
+            new_options: None,
             error: None,
+            is_new: false,
         }
+    }
+
+    pub fn save_state(&self) {
+        self.history.upgrade().unwrap().borrow_mut().save(self.clone())
+    }
+
+    pub fn restore_state(&mut self) {
+        if let Some(memento) = self.history.upgrade().unwrap().borrow_mut().restore() {
+            *self = memento;
+        }
+    }
+
+    pub fn is_new(&self) -> bool {
+        self.is_new
     }
 
     pub fn list_roles(&self) {
@@ -49,14 +123,64 @@ impl RoleContext {
         }
     }
 
-    pub fn unselected_role(&mut self) {
+    pub fn create_new_role(&mut self, name: String) {
+        self.new_role = Some(Role::new(name, Some(Rc::downgrade(&self.roles.to_owned()))));
+    }
+
+    pub fn delete_new_role(&mut self) {
+        self.new_role = None;
+    }
+
+    pub fn save_new_role(&mut self) {
+        if let Some(role) = &self.new_role {
+            self.roles.as_ref().borrow_mut().roles.push(role.to_owned());
+        }
+        self.new_role = None;
+    }
+
+    pub fn create_new_task(&mut self, pid: Option<String>) -> Result<(), Box<dyn Error>> {
+        let parent;
+        let mut id;
+        if let Some(role) = self.get_role().or(self.get_new_role().to_owned()){
+            id = IdTask::Number(role.as_ref().borrow().tasks.len());
+            parent = Rc::downgrade(&role);
+        } else {
+            return Err("role not selected".into());
+        }
+        if let Some(pid) = pid {
+            id = IdTask::Name(pid);
+        }
+        self.new_task = Some(Task::new(id, parent));
+        Ok(())
+    }
+
+    pub fn delete_new_task(&mut self) {
+        self.new_task = None;
+    }
+
+    pub fn save_new_task(&mut self) {
+        if let Some(task) = &self.new_task {
+            task.as_ref().borrow().get_parent().unwrap().borrow_mut().tasks.push(task.to_owned());
+        }
+        self.new_task = None;
+    }
+
+    pub fn get_new_role(&self) -> Option<Rc<RefCell<Role<'static>>>> {
+        self.new_role.to_owned()
+    }
+
+    pub fn get_new_task(&self) -> Option<Rc<RefCell<Task<'static>>>> {
+        self.new_task.to_owned()
+    }
+
+    pub fn unselect_role(&mut self) {
         self.selected_role = None;
-        self.unselect_commands();
+        self.unselect_task();
         self.unselect_groups();
         self.unselect_options();
     }
 
-    pub fn select_commands(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn select_task(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks.len();
         if command_index > len - 1 {
             return Err("command not exist".into());
@@ -66,7 +190,7 @@ impl RoleContext {
         }
     }
 
-    pub fn unselect_commands(&mut self) {
+    pub fn unselect_task(&mut self) {
         self.selected_task = None;
         self.unselect_command();
         self.unselect_options();
@@ -76,7 +200,7 @@ impl RoleContext {
         let len = self
             .roles.as_ref().borrow()
             .roles[self.selected_role.unwrap()].as_ref().borrow()
-            .tasks[self.selected_task.unwrap()].borrow()
+            .tasks[self.selected_task.unwrap()].as_ref().borrow()
             .commands
             .len();
         if command_index > len - 1 {
@@ -175,7 +299,7 @@ impl RoleContext {
     pub fn get_role(&self) -> Option<Rc<RefCell<Role<'static>>>> {
         match self.selected_role {
             Some(i) => {
-                return Some(self.roles.as_ref().borrow().roles[i].clone());
+                return Some(self.roles.as_ref().borrow().roles[i].to_owned());
             }
             None => {
                 return None;
@@ -186,7 +310,7 @@ impl RoleContext {
     pub fn get_task(&self) -> Option<Rc<RefCell<Task<'static>>>> {
         match self.selected_task {
             Some(i) => {
-                let id = self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].borrow().tasks[i].clone();
+                let id = self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks[i].to_owned();
                 return Some(id);
             }
             None => {
@@ -195,14 +319,14 @@ impl RoleContext {
         }
     }
 
-    pub fn get_commands_index(&self) -> Option<usize> {
+    pub fn get_task_index(&self) -> Option<usize> {
         return self.selected_task;
     }
 
     pub fn get_command(&self) -> Option<String> {
         match self.selected_command {
             Some(i) => {
-                return Some(self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks[self.selected_task.unwrap()].borrow().commands[i].clone());
+                return Some(self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks[self.selected_task.unwrap()].as_ref().borrow().commands[i].to_owned());
             }
             None => {
                 return None;
@@ -210,14 +334,14 @@ impl RoleContext {
         }
     }
 
-    pub fn set_command(&mut self, command: String) -> Result<(), &'static str> {
+    pub fn set_command(&mut self, command: String) -> Result<(), Box<dyn Error>> {
         match self.selected_command {
             Some(i) => {
                 self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().tasks[self.selected_task.unwrap()].borrow_mut().commands[i] = command;
                 return Ok(());
             }
             None => {
-                return Err("no command selected");
+                return Err("no command selected".into());
             }
         }
     }
@@ -225,7 +349,7 @@ impl RoleContext {
     pub fn get_group(&self) -> Option<Vec<String>> {
         match self.selected_groups {
             Some(i) => {
-                return Some(self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().groups[i].clone());
+                return Some(self.roles.as_ref().borrow().roles[self.selected_role.unwrap()].as_ref().borrow().groups[i].to_owned());
             }
             None => {
                 return None;
@@ -250,7 +374,7 @@ impl RoleContext {
 */
     pub fn get_options(&self) -> OptStack  {
         if self.selected_task.is_some() {
-            OptStack::from_commands(&self.roles.as_ref().borrow(), &self.selected_role.unwrap(), &self.selected_task.unwrap())
+            OptStack::from_task(&self.roles.as_ref().borrow(), &self.selected_role.unwrap(), &self.selected_task.unwrap())
         } else if self.selected_role.is_some() {
             OptStack::from_role(&self.roles.as_ref().borrow(), &self.selected_role.unwrap())
         } else {
@@ -264,6 +388,10 @@ impl RoleContext {
 
     pub fn set_error(&mut self, error: Box<dyn Error>) {
         self.error = Some(error);
+    }
+
+    pub fn take_error(&mut self) -> Option<Box<dyn Error>> {
+        return self.error.take();
     }
 }
 

@@ -88,6 +88,7 @@ pub struct Opt {
     pub path: Option<String>,
     pub env_whitelist: Option<String>,
     pub env_checklist: Option<String>,
+    pub wildcard_denied: Option<String>,
     pub no_root: Option<bool>,
     pub bounding: Option<bool>,
 }
@@ -183,19 +184,19 @@ impl ToString for Opt {
         if let Some(path) = self.path.borrow().as_ref() {
             content.push_str(&format!(
                 "<path>{}</path>",
-                config::sxd_sanitize(path.clone().borrow_mut())
+                config::sxd_sanitize(path.to_owned().borrow_mut())
             ));
         }
         if let Some(env_whitelist) = self.env_whitelist.borrow().as_ref() {
             content.push_str(&format!(
                 "<env-keep>{}</env-keep>",
-                config::sxd_sanitize(env_whitelist.clone().borrow_mut())
+                config::sxd_sanitize(env_whitelist.to_owned().borrow_mut())
             ));
         }
         if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
             content.push_str(&format!(
                 "<env-check>{}</env-check>",
-                config::sxd_sanitize(env_checklist.clone().borrow_mut())
+                config::sxd_sanitize(env_checklist.to_owned().borrow_mut())
             ));
         }
         if let Some(no_root) = self.no_root.borrow().as_ref() {
@@ -221,6 +222,7 @@ impl Default for Opt {
             env_checklist: Some("COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ".to_string()).into(),
             no_root: Some(true).into(),
             bounding: Some(true).into(),
+            wildcard_denied: Some(";&amp;|".to_string()).into()
         }
     }
 }
@@ -234,6 +236,7 @@ impl Opt {
             env_checklist: None.into(),
             no_root: None.into(),
             bounding: None.into(),
+            wildcard_denied: None.into(),
         }
     }
 }
@@ -252,14 +255,14 @@ impl Default for OptStack {
 }
 
 impl OptStack {
-    pub fn from_commands(roles: &Roles, role: &usize, commands: &usize) -> Self {
+    pub fn from_task(roles: &Roles, role: &usize, commands: &usize) -> Self {
         let mut stack = OptStack::from_role(roles, role);
         stack.set_opt(
             roles.roles[*role].as_ref().borrow().tasks[*commands]
                 .as_ref()
                 .borrow()
                 .options
-                .clone()
+                .to_owned()
                 .unwrap(),
         );
         stack
@@ -271,14 +274,14 @@ impl OptStack {
                 .as_ref()
                 .borrow()
                 .options
-                .clone()
+                .to_owned()
                 .unwrap(),
         );
         stack
     }
     pub fn from_roles(roles: &Roles) -> Self {
         let mut stack = OptStack::default();
-        stack.set_opt(roles.options.clone().unwrap());
+        stack.set_opt(roles.options.to_owned().unwrap());
         stack
     }
     pub fn get_level(&self) -> Level {
@@ -300,7 +303,7 @@ impl OptStack {
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, T)>, T>(&self, f: F) -> Option<(Level, T)> {
         for opt in self.stack.iter().rev() {
-            if let Some(opt) = opt.clone() {
+            if let Some(opt) = opt.to_owned() {
                 let res = f(opt.as_ref().borrow().as_ref());
                 if res.is_some() {
                     return res;
@@ -343,27 +346,27 @@ impl OptStack {
                 match opttype {
                     OptType::Path => {
                         if let Some(value) = opt.path.borrow().as_ref() {
-                            return Some(OptValue::String(value.clone()));
+                            return Some(OptValue::String(value.to_owned()));
                         }
                     }
                     OptType::EnvWhitelist => {
                         if let Some(value) = opt.env_whitelist.borrow().as_ref() {
-                            return Some(OptValue::String(value.clone()));
+                            return Some(OptValue::String(value.to_owned()));
                         }
                     }
                     OptType::EnvChecklist => {
                         if let Some(value) = opt.env_checklist.borrow().as_ref() {
-                            return Some(OptValue::String(value.clone()));
+                            return Some(OptValue::String(value.to_owned()));
                         }
                     }
                     OptType::NoRoot => {
                         if let Some(value) = opt.no_root.borrow().as_ref() {
-                            return Some(OptValue::Bool(value.clone()));
+                            return Some(OptValue::Bool(value.to_owned()));
                         }
                     }
                     OptType::Bounding => {
                         if let Some(value) = opt.bounding.borrow().as_ref() {
-                            return Some(OptValue::Bool(value.clone()));
+                            return Some(OptValue::Bool(value.to_owned()));
                         }
                     }
                 }
@@ -375,7 +378,7 @@ impl OptStack {
     pub fn get_path(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().path.borrow().as_ref() {
-                return Some((opt.borrow().level, p.clone())).into();
+                return Some((opt.borrow().level, p.to_owned())).into();
             }
             None.into()
         })
@@ -384,7 +387,7 @@ impl OptStack {
     pub fn get_env_whitelist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().env_whitelist.borrow().as_ref() {
-                return Some((opt.borrow().level, p.clone())).into();
+                return Some((opt.borrow().level, p.to_owned())).into();
             }
             None.into()
         })
@@ -393,7 +396,7 @@ impl OptStack {
     pub fn get_env_checklist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().env_checklist.borrow().as_ref() {
-                return Some((opt.borrow().level, p.clone())).into();
+                return Some((opt.borrow().level, p.to_owned())).into();
             }
             None.into()
         })
@@ -402,7 +405,7 @@ impl OptStack {
     pub fn get_no_root(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().no_root.borrow().as_ref() {
-                return Some((opt.borrow().level, p.clone())).into();
+                return Some((opt.borrow().level, p.to_owned())).into();
             }
             None.into()
         })
@@ -411,7 +414,7 @@ impl OptStack {
     pub fn get_bounding(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().bounding.borrow().as_ref() {
-                return Some((opt.borrow().level, p.clone())).into();
+                return Some((opt.borrow().level, p.to_owned())).into();
             }
             None.into()
         })
@@ -492,7 +495,7 @@ mod tests {
 
         let res = options.find_in_options(|opt| {
             if let Some(value) = opt.path.borrow().as_ref() {
-                Some((opt.level, value.clone()))
+                Some((opt.level, value.to_owned()))
             } else {
                 None
             }

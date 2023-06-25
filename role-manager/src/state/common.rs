@@ -55,7 +55,7 @@ where
         self
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(self.previous_state.clone())
+        Box::new(self.previous_state)
     }
     fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -65,7 +65,7 @@ where
     }
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         self.previous_state.push(manager, input.as_string());
-        Box::new(self.previous_state.clone())
+        Box::new(self.previous_state)
     }
     fn render(&self, _manager: &mut crate::RoleContext, cursive: &mut cursive::Cursive) {
         let mut input = EditView::new();
@@ -103,12 +103,11 @@ where
         self
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(self.previous_state.clone())
+        Box::new(self.previous_state)
     }
     fn confirm(mut self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
         self.previous_state.remove_selected(manager, self.index);
-        println!("{:?}", manager);
-        Box::new(self.previous_state.clone())
+        Box::new(self.previous_state)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self

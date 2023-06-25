@@ -33,6 +33,10 @@ pub const FILENAME: &str = "/etc/security/rootasrole.xml";
 
 pub type Groups = Vec<String>;
 
+pub trait ToXml {
+    fn to_xml_string(&self) -> String;
+}
+
 #[derive(Clone, Debug)]
 pub enum IdTask {
     Name(String),
@@ -63,7 +67,7 @@ impl ToString for IdTask {
     fn to_string(&self) -> String {
         match self {
             IdTask::Name(s) => s.to_string(),
-            IdTask::Number(n) => n.to_string(),
+            IdTask::Number(n) => format!("Task #{}",n.to_string()),
         }
     }
 }
@@ -118,7 +122,7 @@ impl<'a> Roles<'a> {
     pub fn get_role(&self, name: &str) -> Option<Rc<RefCell<Role<'a>>>> {
         for r in self.roles.iter() {
             if r.as_ref().borrow().name == name {
-                return Some(r.clone());
+                return Some(r.to_owned());
             }
         }
         None
@@ -143,7 +147,7 @@ impl<'a> Role<'a> {
         for t in self.tasks.iter() {
             //test if they are in same enum
             if t.as_ref().borrow().id == *id {
-                return Some(t.clone());
+                return Some(t.to_owned());
             }
         }
         None
@@ -161,20 +165,26 @@ impl<'a> Role<'a> {
     }
     pub fn get_groups_info(&self) -> String {
         let mut groups_info = String::new();
-        groups_info.push_str(&format!("Groups:\n({})\n", self.groups.clone().into_iter().map(|x| x.join(" & ").to_string()).collect::<Vec<String>>().join(")\n(")));
+        groups_info.push_str(&format!("Groups:\n({})\n", self.groups.to_owned().into_iter().map(|x| x.join(" & ").to_string()).collect::<Vec<String>>().join(")\n(")));
         groups_info
     }
-    pub fn get_commands_info(&self) -> String {
-        let mut commands_info = String::new();
-        commands_info.push_str(&format!("Commands:\n{}", self.tasks.clone().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
-        commands_info
+    pub fn get_tasks_info(&self) -> String {
+        let mut tasks_info = String::new();
+        tasks_info.push_str(&format!("Tasks:\n{}", self.tasks.to_owned().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
+        tasks_info
     }
     pub fn get_description(&self) -> String {
         let mut description = String::new();
         description.push_str(&self.get_users_info());
         description.push_str(&self.get_groups_info());
-        description.push_str(&self.get_commands_info());
+        description.push_str(&self.get_tasks_info());
         description
+    }
+
+    pub fn remove_task(&mut self, id: IdTask) {
+        let mut tasks = self.tasks.to_owned();
+        tasks.retain(|x| x.as_ref().borrow().id != id);
+        self.tasks = tasks;
     }
 }
 
@@ -194,68 +204,106 @@ impl<'a> Task<'a> {
         self.role.upgrade()
     }
 
+    pub fn get_description(&self) -> String {
+        let mut description = self.id.to_owned().to_string();
+        if let Some(caps) = self.capabilities.to_owned() {
+            description.push_str(&format!(
+                "\nCapabilities:\n({})\n",
+                caps.to_string()
+            ));
+        }
+        if let Some(setuid) = self.setuid.to_owned() {
+            description.push_str(&format!(
+                "Setuid:\n({})\n",
+                setuid
+            ));
+        }
+        if let Some(setgid) = self.setgid.to_owned() {
+            description.push_str(&format!(
+                "Setgid:\n({})\n",
+                setgid.join(" & ")
+            ));
+        }
+        
+        if let Some(options) = self.options.to_owned() {
+            description.push_str(&format!(
+                "Options:\n({})\n",
+                options.as_ref().borrow().to_string()
+            ));
+        }
+        
+        description.push_str(&format!("Commands:\n{}\n", self.commands.join("\n")));
+        description
+    }
+
 }
 
-impl<'a> ToString for Task<'a> {
-    fn to_string(&self) -> String {
-        let mut commands = String::from("<commands ");
+impl<'a> ToXml for Task<'a> {
+    fn to_xml_string(&self) -> String {
+        let mut task = String::from("<task ");
         if self.id.is_some() {
-            commands.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
+            task.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
         }
         if self.capabilities.is_some() {
-            commands.push_str(&format!(
+            task.push_str(&format!(
                 "capabilities=\"{}\" ",
                 self.capabilities
-                    .clone()
+                    .to_owned()
                     .unwrap()
                     .to_string()
                     .to_lowercase()
             ));
         }
-        commands.push_str(">");
-        commands.push_str(
+        task.push_str(">");
+        task.push_str(
             &self
                 .commands
-                .clone()
+                .to_owned()
                 .into_iter()
                 .map(|x| format!("<command>{}</command>", x))
                 .collect::<Vec<String>>()
                 .join(""),
         );
-        commands.push_str("</commands>");
-        commands
+        task.push_str("</task>");
+        task
     }
 }
 
-impl<'a> ToString for Role<'a> {
-    fn to_string(&self) -> String {
+impl<'a> ToXml for Role<'a> {
+    fn to_xml_string(&self) -> String {
         let mut role = String::from("<role ");
         role.push_str(&format!("name=\"{}\" ", self.name));
         role.push_str(">");
-        role.push_str(
+        if self.users.len() > 0 || self.groups.len() > 0 {
+            role.push_str("<actors>\n");
+            role.push_str(
             &self
                 .users
-                .clone()
+                .to_owned()
                 .into_iter()
-                .map(|x| format!("<user name=\"{}\"/>", x))
+                .map(|x| format!("<user name=\"{}\"/>\n", x))
                 .collect::<Vec<String>>()
                 .join(""),
-        );
-        role.push_str(
-            &self
-                .groups
-                .clone()
-                .into_iter()
-                .map(|x| format!("<groups names=\"{}\"/>", x.join(",")))
-                .collect::<Vec<String>>()
-                .join(""),
-        );
+            );
+            role.push_str(
+                &self
+                    .groups
+                    .to_owned()
+                    .into_iter()
+                    .map(|x| format!("<groups names=\"{}\"/>\n", x.join(",")))
+                    .collect::<Vec<String>>()
+                    .join(""),
+                );
+            role.push_str("</actors>\n");
+        }
+        
+
         role.push_str(
             &self
                 .tasks
-                .clone()
+                .to_owned()
                 .into_iter()
-                .map(|x| x.as_ref().borrow().to_string())
+                .map(|x| x.as_ref().borrow().to_xml_string())
                 .collect::<Vec<String>>()
                 .join(""),
         );
@@ -264,11 +312,11 @@ impl<'a> ToString for Role<'a> {
     }
 }
 
-impl<'a> ToString for Roles<'a> {
-    fn to_string(&self) -> String {
+impl<'a> ToXml for Roles<'a> {
+    fn to_xml_string(&self) -> String {
         let mut roles = String::from("<rootasrole ");
         roles.push_str(&format!("version=\"{}\">", self.version));
-        if let Some(options) = self.options.clone() {
+        if let Some(options) = self.options.to_owned() {
             roles.push_str(&format!(
                 "<options>{}</options>",
                 options.as_ref().borrow().to_string()
@@ -279,7 +327,7 @@ impl<'a> ToString for Roles<'a> {
             &self
                 .roles
                 .iter()
-                .map(|x| x.as_ref().borrow().to_string())
+                .map(|x| x.as_ref().borrow().to_xml_string())
                 .collect::<Vec<String>>()
                 .join(""),
         );
@@ -394,6 +442,14 @@ fn get_options(level: Level, node: Element) -> Opt {
                 }
                 "allow-root" => options.no_root = Some(is_enforced(elem)).into(),
                 "allow-bounding" => options.bounding = Some(is_enforced(elem)).into(),
+                "wildcard-denied" => options.wildcard_denied = Some(
+                    elem.children()
+                        .first()
+                        .unwrap()
+                        .text()
+                        .expect("Cannot read Checklist option")
+                        .text()
+                        .to_string()),
                 _ => warn!("Unknown option: {}", elem.name().local_part()),
             }
         }
@@ -433,6 +489,26 @@ fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result
     Ok(task)
 }
 
+fn add_actors(role : &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
+    for child in node.children() {
+        if let Some(elem) = child.element() {
+            println!("{}", elem.name().local_part());
+            match elem.name().local_part() {
+                "user" => role.users.push(
+                    elem
+                        .attribute_value("name")
+                        .ok_or("Unable to retrieve user name")?
+                        .to_string()
+                        .into(),
+                ),
+                "group" => role.groups.push(get_groups(elem).into()),
+                _ => warn!("Unknown element: {}", elem.name().local_part()),
+            }
+        }
+    }
+    Ok(())
+}
+
 fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
     let rc_role = Role::new(
         element.attribute_value("name").unwrap().to_string().into(),
@@ -447,14 +523,7 @@ fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> Resu
         let mut role = rc_role.as_ref().borrow_mut();
         if let Some(element) = child.element() {
             match element.name().local_part() {
-                "user" => role.users.push(
-                    element
-                        .attribute_value("name")
-                        .ok_or("Unable to retrieve user name")?
-                        .to_string()
-                        .into(),
-                ),
-                "group" => role.groups.push(get_groups(element).into()),
+                "actors" => add_actors(&mut role, element)?,
                 "task" => {
                     i += 1;
                     role.tasks
@@ -513,7 +582,7 @@ pub fn load_roles<'a>(filename : &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn
                                     if let Some(element) = role.element() {
                                         if element.name().local_part() == "role" {
                                             roles.roles.push(
-                                                get_role(element,Some(rc_roles.clone()))?);
+                                                get_role(element,Some(rc_roles.to_owned()))?);
                                         }
                                     }
                                 }
@@ -524,7 +593,7 @@ pub fn load_roles<'a>(filename : &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn
                             }
                         }
                     }
-                    return Ok(rc_roles.clone());
+                    return Ok(rc_roles.to_owned());
                 }
             }
         }
@@ -585,7 +654,7 @@ pub trait Save {
 
 impl<'a> Save for Roles<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_string())?;
+        let binding = parser::parse(&self.to_xml_string())?;
         let new_roles = binding.as_document();
         let new_xml_element = new_roles
             .root()
@@ -625,7 +694,7 @@ impl<'a> Save for Roles<'a> {
 
 impl<'a> Save for Role<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_string())?;
+        let binding = parser::parse(&self.to_xml_string())?;
         let new_role = binding.as_document();
         let mut contents = String::new();
         read_file(path,&mut contents)?;
@@ -634,7 +703,7 @@ impl<'a> Save for Role<'a> {
         let mut found = false;
         do_in_main_element(doc, "rootasrole", |rootelement| {
             foreach_element(rootelement.element().unwrap(), |element| {
-                if element_is_role(&element, self.name.clone()) {
+                if element_is_role(&element, self.name.to_owned()) {
                     let new_xml_element = new_role
                         .root()
                         .children()
@@ -659,7 +728,7 @@ impl<'a> Save for Role<'a> {
 
 impl<'a> Save for Task<'a> {
     fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_string())?;
+        let binding = parser::parse(&self.to_xml_string())?;
         let new_task = binding.as_document();
         let mut contents = String::new();
         read_file(path,&mut contents)?;
@@ -680,7 +749,7 @@ impl<'a> Task<'a> {
     fn save_task_roles(&self, rootelement: ChildOfRoot, new_task: Document, found: &mut bool) -> Result<(),Box<dyn Error>> {
         if let Some(rootelement) = rootelement.element() {
             foreach_element(rootelement, |rolelayer| {
-                if element_is_role(&rolelayer, self.get_parent().unwrap().try_borrow()?.name.clone()) {
+                if element_is_role(&rolelayer, self.get_parent().unwrap().try_borrow()?.name.to_owned()) {
                     return self.save_task_role(rolelayer, new_task, found);
                 }
                 Ok(())
@@ -711,7 +780,7 @@ impl<'a> Task<'a> {
                 } else {
                     taskid += 1;
                 }
-                if id == self.id.clone().unwrap() {
+                if id == self.id.to_owned().unwrap() {
                     task_layer.element().replace(new_xml_element);
                     *found = true;
                 }
@@ -774,11 +843,11 @@ pub fn save_options(
     let doc = doc.as_document();
     let mut found = false;
     do_in_main_element(doc, "rootasrole", |rootelement| {
-        if let Some(role_name) = role_name.clone() {
+        if let Some(role_name) = role_name.to_owned() {
             save_option_roles(
                 rootelement,
                 role_name,
-                task_id.clone(),
+                task_id.to_owned(),
                 new_options,
                 &mut found,
             )?
@@ -802,8 +871,8 @@ fn save_option_roles(
     found: &mut bool,
 ) -> Result<(), Box<dyn Error>> {
     foreach_element(rootelement.element().unwrap(), |role_layer| {
-        if element_is_role(&role_layer, role_name.clone()) {
-            if let Some(task_id) = task_id.clone() {
+        if element_is_role(&role_layer, role_name.to_owned()) {
+            if let Some(task_id) = task_id.to_owned() {
                 save_option_task(role_layer, task_id, new_options, found)?;
             } else {
                 save_option_xml_layer(role_layer, new_options, found)?;
@@ -834,7 +903,7 @@ fn save_option_task(
             } else {
                 tmp_taskid += 1;
             }
-            if id == task_id.clone() {
+            if id == task_id.to_owned() {
                 save_option_xml_layer(task_layer, new_options, found)?;
             }
         }

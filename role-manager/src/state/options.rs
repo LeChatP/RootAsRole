@@ -5,11 +5,10 @@ use cursive::{
 };
 
 use super::{
-    command::EditTaskState,
     common::{ConfirmState, InputState},
     execute,
     role::{EditRoleState, SelectRoleState},
-    Cursive, DeletableItemState, ExecuteType, Input, PushableItemState, State,
+    Cursive, DeletableItemState, ExecuteType, Input, PushableItemState, State, task::EditTaskState,
 };
 use crate::{
     options::{Level, OptType, OptValue},
@@ -55,7 +54,7 @@ impl State for SelectOptionState {
                 stack.set_value(
                     opttype,
                     Some(OptValue::Bool(
-                        !stack.get_from_type(opttype.clone()).1.as_bool(),
+                        !stack.get_from_type(opttype.to_owned()).1.as_bool(),
                     )),
                 );
                 return self;
@@ -84,10 +83,10 @@ impl State for SelectOptionState {
     fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = SelectView::new()
             .on_select(|s, item: &OptType| {
-                let RoleManagerApp { manager, state } = s.user_data().unwrap();
+                let RoleManagerApp { manager, state:_ } = s.user_data().unwrap();
                 let stack = manager.get_options();
                 let highest_level = stack.get_level();
-                let (level, value) = stack.get_from_type(item.clone());
+                let (level, value) = stack.get_from_type(item.to_owned());
                 let mut leveldesc = "";
                 if level != highest_level {
                     leveldesc = match level {

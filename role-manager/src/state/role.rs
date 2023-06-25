@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState};
-use super::command::SelectTaskState;
 use super::options::SelectOptionState;
+use super::task::SelectTaskState;
 use super::{execute, ExecuteType, InitState, Input, State};
 
 use cursive::direction::Orientation;
@@ -42,7 +42,7 @@ impl State for SelectRoleState {
     }
 
     fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        manager.unselected_role();
+        manager.unselect_role();
         Box::new(SelectRoleState)
     }
 
@@ -84,7 +84,7 @@ impl InitState for SelectRoleState {
             });
         let mut pos = 0;
         for role in &manager.roles.as_ref().borrow().roles {
-            select.add_item(role.as_ref().borrow().name.clone(), pos);
+            select.add_item(role.as_ref().borrow().name.to_owned(), pos);
             pos += 1;
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
@@ -100,7 +100,6 @@ impl InitState for SelectRoleState {
                     .as_ref()
                     .borrow()
                     .get_description()
-                    .clone(),
             )
             .with_name("info"),
         );
@@ -148,8 +147,7 @@ impl State for CreateRoleState {
     }
 
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        let role = Role::new(input.as_string().trim().to_owned(), Some(Rc::downgrade(&manager.roles)));
-        manager.roles.as_ref().borrow_mut().roles.push(role.clone());
+        manager.create_new_role(input.as_string());
         Box::new(EditRoleState)
     }
 
@@ -234,7 +232,7 @@ impl State for EditRoleState {
         match index {
             0 => Box::new(SelectUserState::new(
                 true,
-                Some(manager.get_role().unwrap().as_ref().borrow().users.clone()),
+                Some(manager.get_role().unwrap().as_ref().borrow().users.to_owned()),
             )),
             1 => Box::new(SelectGroupState),
             2 => Box::new(SelectTaskState),
@@ -242,12 +240,17 @@ impl State for EditRoleState {
         }
     }
 
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        if manager.get_new_role().is_some() {
+            manager.delete_new_role();
+        }
         Box::new(SelectRoleState)
     }
 
-    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        //TODO: save
+    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        if manager.get_new_role().is_some() {
+            manager.save_new_role();
+        }
         Box::new(SelectRoleState)
     }
 
@@ -294,7 +297,7 @@ impl State for EditRoleState {
                                     .unwrap()
                                     .as_ref()
                                     .borrow()
-                                    .get_commands_info(),
+                                    .get_tasks_info(),
                             );
                         }
                         _ => {
@@ -307,7 +310,7 @@ impl State for EditRoleState {
             .on_submit(move |s, item| {
                 execute(s, ExecuteType::Submit(*item));
             });
-        select.add_all([("Edit Users", 0), ("Edit Groups", 1), ("Edit Commands", 2)]);
+        select.add_all([("Edit Users", 0), ("Edit Groups", 1), ("Edit Tasks", 2)]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
         layout.add_child(
@@ -321,9 +324,16 @@ impl State for EditRoleState {
             )
             .with_name("info"),
         );
+        let title = match manager.is_new() {
+            true => "Create a new role".to_string(),
+            false => format!("Edit role {}", manager.get_role().unwrap().as_ref().borrow().name),
+        };
         cursive.add_layer(
             Dialog::around(layout)
-                .title("Edit a role")
+                .title(title)
+                .button("Cancel", move |s| {
+                    execute(s, ExecuteType::Cancel);
+                })
                 .button("Save", move |s| {
                     execute(s, ExecuteType::Confirm);
                 }),

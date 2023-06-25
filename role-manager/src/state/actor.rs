@@ -98,9 +98,9 @@ fn add_actors(
     let some = already_in_list.is_some();
     for user in actors {
         view.add_item(
-            user.clone(),
+            user.to_owned(),
             some && already_in_list.as_ref().unwrap().contains(&user),
-            user.clone(),
+            user,
         );
     }
 }
@@ -111,7 +111,7 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
         ActorType::Group => get_groups(),
     };
     for user in actors {
-        view.add_item(user.clone(), user.clone());
+        view.add_item(&user, user.to_owned());
     }
 }
 
@@ -176,7 +176,7 @@ impl State for SelectUserState {
                     .button("Ok", |s| {
                         let select = s.find_name::<CheckListView<String>>("users").unwrap();
                         let items = select.get_checked_item();
-                        let mut users = items.iter().map(|x| x.1.clone()).collect();
+                        let users = items.iter().map(|x| x.1.clone()).collect();
                         execute(s, ExecuteType::Input(Input::Vec(users)));
                     }),
             );
@@ -224,7 +224,10 @@ impl State for SelectGroupState {
     }
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        manager.select_groups(index);
+        if let Err(err) =  manager.select_groups(index){
+            manager.set_error(err);
+            return self;
+        }
         Box::new(EditGroupState::<Self>::new(self, manager.get_group()))
     }
 
