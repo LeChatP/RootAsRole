@@ -11,23 +11,29 @@ use super::{
     Cursive, DeletableItemState, ExecuteType, Input, PushableItemState, State, task::EditTaskState,
 };
 use crate::{
-    options::{Level, OptType, OptValue},
+    options::{Level, OptType, OptValue, Opt, OptEntry},
     RoleContext, RoleManagerApp,
 };
+use std::cell::RefCell;
 
 #[derive(Clone)]
-pub struct SelectOptionState {
-    selected: Option<usize>,
+pub struct SelectOptionState<T>
+where T: State + 'static {
+    selected: RefCell<Option<usize>>,
+    previous: T,
 }
 pub struct EditOptionState;
 
-impl SelectOptionState {
-    pub fn new() -> Self {
-        SelectOptionState { selected: None }
+
+impl<T> SelectOptionState<T>
+where T: State + Clone + 'static {
+    pub fn new( previous : T ) -> Self {
+        SelectOptionState { selected: RefCell::new(None), previous }
     }
 }
 
-impl State for SelectOptionState {
+impl<T> State for SelectOptionState<T>
+where T: State + Clone + 'static {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
@@ -42,7 +48,7 @@ impl State for SelectOptionState {
         let opttype = OptType::from_index(index);
         let title;
         match opttype {
-            OptType::Path => title = "Enter binary locations (PATH) separated by commas",
+            OptType::Path => title = "Enter binary locations (PATH) separated by semicolon",
             OptType::EnvChecklist => {
                 title = "Enter environment variables to check separated by commas"
             }
@@ -61,18 +67,14 @@ impl State for SelectOptionState {
             }
         }
         let value = manager.get_options().get_from_type(opttype).1.to_string();
+        self.selected.borrow_mut().replace(index);
         Box::new(InputState::new(self, title, Some(value)))
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
     fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        match manager.get_options().get_level() {
-            Level::Global => Box::new(SelectRoleState),
-            Level::Role => Box::new(EditRoleState),
-            Level::Task => Box::new(EditTaskState),
-            _ => self,
-        }
+        Box::new(self.previous)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -80,27 +82,20 @@ impl State for SelectOptionState {
     fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
         self
     }
-    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = SelectView::new()
             .on_select(|s, item: &OptType| {
-                let RoleManagerApp { manager, state:_ } = s.user_data().unwrap();
+                let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+            let info = s.find_name::<TextView>("description");
+            if let Some(mut info) = info {
                 let stack = manager.get_options();
-                let highest_level = stack.get_level();
-                let (level, value) = stack.get_from_type(item.to_owned());
-                let mut leveldesc = "";
-                if level != highest_level {
-                    leveldesc = match level {
-                        Level::Default => " (Inherited from Default)",
-                        Level::Global => " (Inherited from Global)",
-                        Level::Role => " (Inherited from Role)",
-                        Level::Task => " (Inherited from Commands)",
-                        Level::None => " (Inherited from None)",
-                    };
-                }
-                let desc = format!("{}{}", value.to_string(), leveldesc);
-                s.call_on_name("description", |view: &mut TextView| {
-                    view.set_content(desc);
-                });
+                info.set_content(stack.get_description(manager.get_options().get_level(),item.to_owned()));
+            } else {
+                panic!("No info view found");
+            }
+            s.set_user_data(RoleManagerApp { manager, state });
+                
+                
             })
             .on_submit(|s, item: &OptType| {
                 execute(s, ExecuteType::Submit(item.as_index()));
@@ -108,8 +103,10 @@ impl State for SelectOptionState {
         for (option, desc) in OptType::item_list_str() {
             select.add_item(desc, option);
         }
-        let description = TextView::new("Select an option to edit");
-        let layout = cursive::views::LinearLayout::vertical()
+        let stack = manager.get_options();
+        let desc = stack.get_description(stack.get_level(),OptType::Path);
+        let description = TextView::new(desc).with_name("description");
+        let layout = cursive::views::LinearLayout::horizontal()
             .child(select.with_name("select"))
             .child(description);
         cursive.add_layer(Dialog::around(layout).button("Ok", |s| {
@@ -127,7 +124,8 @@ impl State for SelectOptionState {
     }
 }
 
-impl DeletableItemState for SelectOptionState {
+impl<T> DeletableItemState for SelectOptionState<T>
+where T: State + Clone + 'static {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
         manager
             .get_options()
@@ -135,19 +133,21 @@ impl DeletableItemState for SelectOptionState {
     }
 }
 
-impl PushableItemState<String> for SelectOptionState {
+impl<T> PushableItemState<String> for SelectOptionState<T>
+where T: State + Clone + 'static {
     fn push(&mut self, manager: &mut RoleContext, value: String) {
         if value == "" {
             manager
                 .get_options()
-                .set_value(OptType::from_index(self.selected.unwrap()), None)
+                .set_value(OptType::from_index(self.selected.borrow().unwrap()), None)
         } else {
             manager.get_options().set_value(
-                OptType::from_index(self.selected.unwrap()),
+                OptType::from_index(self.selected.borrow().unwrap()),
                 Some(OptValue::String(value)),
             );
         }
     }
+    
 }
 
 impl State for EditOptionState {

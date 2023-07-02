@@ -91,6 +91,7 @@ pub struct Task<'a> {
     pub capabilities: Option<Caps>,
     pub setuid: Option<String>,
     pub setgid: Option<Groups>,
+    pub purpose: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +153,12 @@ impl<'a> Role<'a> {
         }
         None
     }
+    pub fn get_task_from_index(&self, index: &usize) -> Option<Rc<RefCell<Task<'a>>>> {
+        if self.tasks.len() > *index {
+            return Some(self.tasks[*index].to_owned());
+        }
+        None
+    }
     pub fn get_parent(&self) -> Option<Rc<RefCell<Roles<'a>>>> {
         match &self.roles {
             Some(r) => r.upgrade(),
@@ -170,14 +177,23 @@ impl<'a> Role<'a> {
     }
     pub fn get_tasks_info(&self) -> String {
         let mut tasks_info = String::new();
-        tasks_info.push_str(&format!("Tasks:\n{}", self.tasks.to_owned().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
+        tasks_info.push_str(&format!("Tasks:\n{}\n", self.tasks.to_owned().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
         tasks_info
     }
+    pub fn get_options_info(&self) -> String {
+        let mut options_info = String::new();
+        if let Some(o) = &self.options {
+            options_info.push_str(&format!("Options:\n{}", o.as_ref().borrow().get_description()));
+        }
+        options_info
+    }
+    
     pub fn get_description(&self) -> String {
         let mut description = String::new();
         description.push_str(&self.get_users_info());
         description.push_str(&self.get_groups_info());
         description.push_str(&self.get_tasks_info());
+        description.push_str(&self.get_options_info());
         description
     }
 
@@ -198,17 +214,24 @@ impl<'a> Task<'a> {
             capabilities: None,
             setuid: None,
             setgid: None,
+            purpose: None,
         }.into())
     }
     pub fn get_parent(&self) -> Option<Rc<RefCell<Role<'a>>>> {
         self.role.upgrade()
     }
 
+
     pub fn get_description(&self) -> String {
-        let mut description = self.id.to_owned().to_string();
+        let mut description = String::new();
+
+        if let Some(p) = &self.purpose {
+            description.push_str(&format!("Purpose :\n{}\n", p));
+        }
+
         if let Some(caps) = self.capabilities.to_owned() {
             description.push_str(&format!(
-                "\nCapabilities:\n({})\n",
+                "Capabilities:\n({})\n",
                 caps.to_string()
             ));
         }
@@ -228,7 +251,7 @@ impl<'a> Task<'a> {
         if let Some(options) = self.options.to_owned() {
             description.push_str(&format!(
                 "Options:\n({})\n",
-                options.as_ref().borrow().to_string()
+                options.as_ref().borrow().get_description()
             ));
         }
         
@@ -255,6 +278,12 @@ impl<'a> ToXml for Task<'a> {
             ));
         }
         task.push_str(">");
+        if self.purpose.is_some() {
+            task.push_str(&format!(
+                "<purpose>{}</purpose>",
+                self.purpose.as_ref().unwrap()
+            ));
+        }
         task.push_str(
             &self
                 .commands
@@ -481,6 +510,17 @@ fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result
                 ),
                 "options" => {
                     task.as_ref().borrow_mut().options = Some(Rc::new(get_options(Level::Task, elem).into()));
+                },
+                "purpose" => {
+                    task.as_ref().borrow_mut().purpose = Some(
+                        elem.children()
+                            .first()
+                            .ok_or("Unable to get text from purpose")?
+                            .text()
+                            .map(|f| f.text().to_string())
+                            .ok_or("Unable to get text from purpose")?
+                            .into(),
+                    );
                 }
                 _ => warn!("Unknown element: {}", elem.name().local_part()),
             }

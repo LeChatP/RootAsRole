@@ -1,8 +1,10 @@
+use std::borrow::Borrow;
+
 use cursive::{
     event::Key,
     view::{Nameable, Scrollable},
     views::{Dialog, SelectView, LinearLayout, TextView},
-    Cursive,
+    Cursive, align::{HAlign, VAlign},
 };
 
 use crate::{rolemanager::RoleContext, state::State, RoleManagerApp};
@@ -10,11 +12,11 @@ use crate::{rolemanager::RoleContext, state::State, RoleManagerApp};
 use super::{
     actor::{SelectGroupState, SelectUserState},
     command::{EditCapabilitiesState, EditCommandState},
-    common::ConfirmState,
+    common::{ConfirmState, InputState},
     execute,
     options::SelectOptionState,
     role::{EditRoleState, SelectRoleState},
-    DeletableItemState, ExecuteType, Input,
+    DeletableItemState, ExecuteType, Input, PushableItemState,
 };
 
 #[derive(Clone)]
@@ -22,6 +24,8 @@ pub struct SelectTaskState;
 
 #[derive(Clone)]
 pub struct EditTaskState;
+
+pub struct EditPurposeState;
 
 impl State for SelectTaskState {
     fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
@@ -71,17 +75,21 @@ impl State for SelectTaskState {
         
         let mut select = SelectView::new().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
-        }).on_select(move |s, _ | {
+        }).on_select(move |s, i | {
             let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
             let info = s.find_name::<TextView>("info");
             if let Some(mut info) = info {
-                let task = manager.get_task().or(manager.get_new_task());
-                if let Some(task) = task {
+                let role = manager.get_role();
+                if let Some(role) = role {
+                    let role = role.as_ref().borrow();
+                    let task = role.get_task_from_index(i).unwrap();
                     let task = task.as_ref().borrow();
                     info.set_content(task.get_description());
                 }else {
                     info.set_content("No task selected");
                 }
+            } else {
+                panic!("No info view found");
             }
             s.set_user_data(RoleManagerApp { manager, state });
         });
@@ -206,13 +214,14 @@ impl State for EditTaskState {
         Box::new(SelectTaskState)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectOptionState::new())
+        Box::new(SelectOptionState::new(*self))
     }
-    fn input(self: Box<Self>, _manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         match input.as_string().as_ref() {
             "u" => Box::new(SelectUserState::new(false, None)),
             "g" => Box::new(SelectGroupState),
             "c" => Box::new(EditCapabilitiesState),
+            "p" => Box::new(InputState::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -232,6 +241,8 @@ impl State for EditTaskState {
             execute(s, ExecuteType::Submit(*item));
         });
 
+        let purpose;
+
         if let Some(task) = task {
             task.as_ref().borrow()
                 .commands
@@ -249,13 +260,27 @@ impl State for EditTaskState {
                 execute(s, ExecuteType::Delete(*sel));
             });
             title = format!("Edit {}", task.as_ref().borrow().id.to_string());
+            if let Some(p) = &task.as_ref().borrow().purpose {
+                purpose = format!("Purpose : {}", p);
+            }else {
+                purpose = "".to_owned();
+            }
+        }else {
+            purpose = "".to_owned();
         }
 
+        let layout = LinearLayout::vertical()
+            .child(select.with_name("select").scrollable())
+            .child(TextView::new(purpose).align(cursive::align::Align { h: HAlign::Center , v: VAlign::Bottom }));
+
         cursive.add_layer(
-            Dialog::around(select.with_name("select").scrollable())
+            Dialog::around(layout)
                 .title(title)
                 .button("Add Cmd", |s| {
                     execute(s, ExecuteType::Create);
+                })
+                .button("Set Purpose", |s| {
+                    execute(s, ExecuteType::Input(Input::String("p".to_owned())));
                 })
                 .button("Options", |s| {
                     execute(s, ExecuteType::Config);
@@ -293,4 +318,11 @@ impl DeletableItemState for EditTaskState {
             .commands
             .remove(index);
     }
+}
+
+impl PushableItemState<String> for EditTaskState {
+    fn push(&mut self, manager: &mut RoleContext, item: String) {
+        manager.get_task().or(manager.get_new_task()).unwrap().borrow_mut().purpose.replace(item);
+    }
+
 }

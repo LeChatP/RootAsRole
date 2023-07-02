@@ -92,6 +92,7 @@ impl RoleContext {
         }
     }
 
+
     pub fn save_state(&self) {
         self.history.upgrade().unwrap().borrow_mut().save(self.clone())
     }
@@ -124,6 +125,7 @@ impl RoleContext {
     }
 
     pub fn create_new_role(&mut self, name: String) {
+        self.unselect_role();
         self.new_role = Some(Role::new(name, Some(Rc::downgrade(&self.roles.to_owned()))));
     }
 
@@ -141,8 +143,9 @@ impl RoleContext {
     pub fn create_new_task(&mut self, pid: Option<String>) -> Result<(), Box<dyn Error>> {
         let parent;
         let mut id;
+        self.unselect_task();
         if let Some(role) = self.get_role().or(self.get_new_role().to_owned()){
-            id = IdTask::Number(role.as_ref().borrow().tasks.len());
+            id = IdTask::Number(role.as_ref().borrow().tasks.len()+1);
             parent = Rc::downgrade(&role);
         } else {
             return Err("role not selected".into());
@@ -242,9 +245,14 @@ impl RoleContext {
         self.selected_options = None;
     }
 
-    pub fn delete_role(&mut self) {
-        self.roles.as_ref().borrow_mut()
-        .roles.remove(self.selected_role.unwrap());
+    pub fn delete_role(&mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(i) = self.selected_role {
+            self.roles.as_ref().borrow_mut().roles.remove(i);
+            self.unselect_role();
+            return Ok(());
+        } else {
+            return Err("no role selected".into());
+        }
     }
 
     pub fn add_group(&mut self, group: Vec<String>) -> Result<(), Box<dyn Error>> {
@@ -372,13 +380,13 @@ impl RoleContext {
 /**
 * Return a OptStack that contains Opt in function of selections
 */
-    pub fn get_options(&self) -> OptStack  {
+    pub fn get_options(&self) -> OptStack<'static>  {
         if self.selected_task.is_some() {
-            OptStack::from_task(&self.roles.as_ref().borrow(), &self.selected_role.unwrap(), &self.selected_task.unwrap())
+            OptStack::from_task(self.roles.clone(), &self.selected_role.unwrap(), &self.selected_task.unwrap())
         } else if self.selected_role.is_some() {
-            OptStack::from_role(&self.roles.as_ref().borrow(), &self.selected_role.unwrap())
+            OptStack::from_role(self.roles.clone(), &self.selected_role.unwrap())
         } else {
-            OptStack::from_roles(&self.roles.as_ref().borrow())
+            OptStack::from_roles(self.roles.clone())
         }
     }
 

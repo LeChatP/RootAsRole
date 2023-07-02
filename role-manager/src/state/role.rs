@@ -2,9 +2,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState};
+use super::common::ConfirmState;
 use super::options::SelectOptionState;
 use super::task::SelectTaskState;
-use super::{execute, ExecuteType, InitState, Input, State};
+use super::{execute, ExecuteType, InitState, Input, State, DeletableItemState};
 
 use cursive::direction::Orientation;
 use cursive::view::{Nameable, Scrollable};
@@ -14,9 +15,12 @@ use cursive::Cursive;
 use crate::config::Role;
 use crate::{RoleContext, RoleManagerApp};
 
+#[derive(Clone)]
 pub struct SelectRoleState;
 pub struct CreateRoleState;
 pub struct DeleteRoleState;
+
+#[derive(Clone)]
 pub struct EditRoleState;
 
 /**
@@ -31,7 +35,7 @@ impl State for SelectRoleState {
         if let Err(err) = manager.select_role(index) {
             manager.set_error(err);
         }
-        Box::new(DeleteRoleState)
+        Box::new(ConfirmState::new(self, format!("Delete Role {}?", manager.get_role().or(manager.get_new_role()).unwrap().borrow().name).as_str(), index))
     }
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
@@ -54,7 +58,7 @@ impl State for SelectRoleState {
     }
 
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectOptionState::new())
+        Box::new(SelectOptionState::new(*self))
     }
 
     fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
@@ -63,6 +67,14 @@ impl State for SelectRoleState {
 
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         cursive.add_layer(self.init(manager));
+    }
+}
+
+impl DeletableItemState for SelectRoleState {
+    fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
+        if let Err(err) = manager.delete_role() {
+            manager.set_error(err);
+        }
     }
 }
 
@@ -172,53 +184,6 @@ impl State for CreateRoleState {
     }
 }
 
-impl State for DeleteRoleState {
-    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-
-    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-
-    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectRoleState)
-    }
-
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        manager.delete_role();
-        Box::new(SelectRoleState)
-    }
-
-    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-
-    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
-        self
-    }
-
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        cursive.add_layer(
-            Dialog::around(TextView::new(format!(
-                "Are you sure you want to delete the role {}?",
-                manager.get_role().unwrap().as_ref().borrow().name
-            )))
-            .title("Confirm delete role")
-            .button("Yes", move |s| {
-                execute(s, ExecuteType::Confirm);
-            })
-            .button("No", move |s| {
-                execute(s, ExecuteType::Cancel);
-            }),
-        );
-    }
-}
-
 impl State for EditRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -236,6 +201,7 @@ impl State for EditRoleState {
             )),
             1 => Box::new(SelectGroupState),
             2 => Box::new(SelectTaskState),
+            3 => Box::new(SelectOptionState::new(*self)),
             _ => self,
         }
     }
@@ -255,7 +221,7 @@ impl State for EditRoleState {
     }
 
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectOptionState::new())
+        Box::new(SelectOptionState::new(*self))
     }
 
     fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
@@ -299,6 +265,16 @@ impl State for EditRoleState {
                                     .borrow()
                                     .get_tasks_info(),
                             );
+                        },
+                        3 => {
+                            info.set_content(
+                                manager
+                                    .get_role()
+                                    .unwrap()
+                                    .as_ref()
+                                    .borrow()
+                                    .get_options_info(),
+                            );
                         }
                         _ => {
                             info.set_content("Unknown");
@@ -310,7 +286,7 @@ impl State for EditRoleState {
             .on_submit(move |s, item| {
                 execute(s, ExecuteType::Submit(*item));
             });
-        select.add_all([("Edit Users", 0), ("Edit Groups", 1), ("Edit Tasks", 2)]);
+        select.add_all([("Edit Users", 0), ("Edit Groups", 1), ("Edit Tasks", 2), ("Edit Options", 3)]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
         layout.add_child(

@@ -70,6 +70,24 @@ impl OptValue {
     }
 }
 
+impl OptValue {
+    pub fn get_description(&self, opttype : OptType) -> String {
+        match opttype {
+            OptType::Path => self.to_string().split(':').collect::<Vec<&str>>().join("\n"),
+            OptType::EnvWhitelist => self.to_string().split(',').collect::<Vec<&str>>().join("\n"),
+            OptType::EnvChecklist => self.to_string().split(',').collect::<Vec<&str>>().join("\n"),
+            OptType::NoRoot => {
+                if self.as_bool() {String::from("Enforce NoRoot")}
+                else {String::from("Do not enforce NoRoot")}
+            },
+            OptType::Bounding => {
+                if self.as_bool() {String::from("Restrict with Bounding")}
+                else {String::from("Do not restrict with Bounding")}
+            },
+        }
+    }
+}
+
 impl OptType {
     pub fn item_list_str() -> Vec<(OptType, String)> {
         vec![
@@ -91,6 +109,12 @@ pub struct Opt {
     pub wildcard_denied: Option<String>,
     pub no_root: Option<bool>,
     pub bounding: Option<bool>,
+}
+
+pub struct OptEntry {
+    pub level: Level,
+    pub opttype: OptType,
+    pub optvalue: OptValue,
 }
 
 impl AsRef<Opt> for Opt {
@@ -239,51 +263,112 @@ impl Opt {
             wildcard_denied: None.into(),
         }
     }
+
+    pub fn get_description(&self) -> String {
+        let mut description = String::new();
+        if let Some(path) = self.path.borrow().as_ref() {
+            description.push_str(format!("Path: {}\n", path).as_str());
+        }
+        if let Some(env_whitelist) = self.env_whitelist.borrow().as_ref() {
+            description.push_str(format!("Env whitelist: {}\n", env_whitelist).as_str());
+        }
+        if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
+            description.push_str(format!("Env checklist: {}\n", env_checklist).as_str());
+        }
+        if let Some(no_root) = self.no_root.borrow().as_ref() {
+            description.push_str(format!("No root: {}\n", no_root).as_str());
+        }
+        if let Some(bounding) = self.bounding.borrow().as_ref() {
+            description.push_str(format!("Bounding: {}\n", bounding).as_str());
+        }
+        if let Some(wildcard_denied) = self.wildcard_denied.borrow().as_ref() {
+            description.push_str(format!("Wildcard denied: {}\n", wildcard_denied).as_str());
+        }
+        return description;
+    }
 }
 
 #[derive(Debug)]
-pub struct OptStack {
+pub struct OptStack<'a> {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
+    roles : Rc<RefCell<Roles<'a>>>,
+    role : Option<usize>,
+    task : Option<usize>,
 }
 
-impl Default for OptStack {
-    fn default() -> OptStack {
+impl<'a> OptStack<'a> {
+    pub fn from_task(roles: Rc<RefCell<Roles<'a>>>, role: &usize, task: &usize) -> Self {
+        let mut stack = OptStack::from_role(roles, role);
+        stack.task = Some(*task);
+        stack.set_opt(Level::Task,
+            stack.get_roles().as_ref().borrow().roles[*role].as_ref().borrow().tasks[*task]
+                .as_ref()
+                .borrow()
+                .options
+                .to_owned(),
+        );
+        stack
+    }
+    pub fn from_role(roles: Rc<RefCell<Roles<'a>>>, role: &usize) -> Self {
+        let mut stack = OptStack::from_roles(roles);
+        stack.role = Some(*role);
+        stack.set_opt(Level::Role,
+            stack.get_roles().as_ref().borrow().roles[*role]
+                .as_ref()
+                .borrow()
+                .options
+                .to_owned(),
+        );
+        stack
+    }
+    pub fn from_roles(roles: Rc<RefCell<Roles<'a>>>) -> Self {
+        let mut stack = OptStack::new(roles);
+        stack.set_opt(Level::Global, stack.get_roles().as_ref().borrow().options.to_owned());
+        stack
+    }
+
+    fn new(roles : Rc<RefCell<Roles<'a>>>) -> OptStack<'a> {
         OptStack {
             stack: [None, Some(Rc::new(Opt::default().into())), None, None, None],
+            roles,
+            role : None,
+            task : None,
         }
     }
-}
 
-impl OptStack {
-    pub fn from_task(roles: &Roles, role: &usize, commands: &usize) -> Self {
-        let mut stack = OptStack::from_role(roles, role);
-        stack.set_opt(
-            roles.roles[*role].as_ref().borrow().tasks[*commands]
-                .as_ref()
-                .borrow()
-                .options
-                .to_owned()
-                .unwrap(),
-        );
-        stack
+    fn get_roles(&self) -> Rc<RefCell<Roles<'a>>> {
+        self.roles.to_owned()
     }
-    pub fn from_role(roles: &Roles, role: &usize) -> Self {
-        let mut stack = OptStack::from_roles(roles);
-        stack.set_opt(
-            roles.roles[*role]
-                .as_ref()
-                .borrow()
-                .options
-                .to_owned()
-                .unwrap(),
-        );
-        stack
+
+    fn save(&mut self) {
+        let level = self.get_level();
+        let opt = self.get_opt(level);
+        match level {
+            Level::Global => {
+                self.get_roles().as_ref().borrow_mut().options = opt;
+            }
+            Level::Role => {
+                self.get_roles().as_ref().borrow().roles[self.role.unwrap()]
+                    .as_ref()
+                    .borrow_mut()
+                    .options = opt;
+            }
+            Level::Task => {
+                self.get_roles().as_ref().borrow().roles[self.role.unwrap()]
+                    .as_ref()
+                    .borrow()
+                    .tasks[self.task.unwrap()]
+                    .as_ref()
+                    .borrow_mut()
+                    .options = opt;
+            }
+            Level::None | Level::Default => {
+                panic!("Cannot save None/default options");
+            }
+        }
     }
-    pub fn from_roles(roles: &Roles) -> Self {
-        let mut stack = OptStack::default();
-        stack.set_opt(roles.options.to_owned().unwrap());
-        stack
-    }
+
+
     pub fn get_level(&self) -> Level {
         self.stack
             .iter()
@@ -296,9 +381,16 @@ impl OptStack {
             .borrow()
             .level
     }
-    fn set_opt(&mut self, opt: Rc<RefCell<Opt>>) {
-        let level = opt.as_ref().borrow().level;
-        self.stack[level as usize] = Some(opt);
+    fn set_opt(&mut self, level : Level, opt: Option<Rc<RefCell<Opt>>>) {
+        if let Some(opt) = opt.to_owned() {
+            self.stack[level as usize] = Some(opt);
+        } else {
+            self.stack[level as usize] = Some(Rc::new(Opt::new(level).into()));
+        }
+    }
+
+    fn get_opt(&self, level: Level) -> Option<Rc<RefCell<Opt>>> {
+        self.stack[level as usize].to_owned()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, T)>, T>(&self, f: F) -> Option<(Level, T)> {
@@ -425,6 +517,7 @@ impl OptStack {
         let ulevel = level as usize;
         if self.stack[ulevel].is_none() {
             self.stack[ulevel].replace(Rc::new(Opt::new(level).into()));
+            return;
         }
         let binding = self.stack[ulevel].as_ref().unwrap();
         let mut opt = binding.as_ref().borrow_mut();
@@ -472,6 +565,29 @@ impl OptStack {
      */
     pub fn set_value(&mut self, opttype: OptType, value: Option<OptValue>) {
         self.set_at_level(opttype, value, self.get_level());
+        self.save();
+    }
+
+
+    pub fn get_description(&self, current_level : Level, opttype: OptType) -> String {
+        let (level, value) = self.get_from_type(opttype.to_owned());
+        
+        eprintln!("getdesc optstack: {:?}, level : {:?}", self.stack, self.get_level());
+        eprintln!("current_level: {:?}, optype : {:?}", current_level, opttype);
+        eprintln!("obtained level : {:?}, value : {:?}", level, value);
+        let leveldesc;
+        if level != current_level {
+            leveldesc = match level {
+                Level::Default => " (Inherited from Default)",
+                Level::Global => " (Inherited from Global)",
+                Level::Role => " (Inherited from Role)",
+                Level::Task => " (Inherited from Commands)",
+                Level::None => " (Inherited from None)",
+            };
+        } else {
+            leveldesc = " (setted at this level)";
+        }
+        format!("{}\n{}", leveldesc, value.get_description(opttype))
     }
 }
 
@@ -481,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_find_in_options() {
-        let mut options = OptStack::default();
+        let mut options = OptStack::new(Roles::new("3.0.0"));
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
@@ -501,5 +617,41 @@ mod tests {
             }
         });
         assert_eq!(res, Some((Level::Role, "path2".to_string())));
+    }
+
+    #[test]
+    fn test_get_description() {
+        let mut options = OptStack::new(Roles::new("3.0.0"));
+        options.set_at_level(
+            OptType::Path,
+            Some(OptValue::String("path1".to_string())),
+            Level::Global,
+        );
+        options.set_at_level(
+            OptType::EnvWhitelist,
+            Some(OptValue::String("tets".to_string())),
+            Level::Role,
+        );
+
+        let res = options.get_description(Level::Role, OptType::Path);
+        assert_eq!(res, " (Inherited from Global)\npath1");
+    }
+
+    #[test]
+    fn test_get_description_inherited() {
+        let mut options = OptStack::new(Roles::new("3.0.0"));
+        options.set_at_level(
+            OptType::Path,
+            Some(OptValue::String("path1".to_string())),
+            Level::Global,
+        );
+        options.set_at_level(
+            OptType::EnvWhitelist,
+            Some(OptValue::String("tets".to_string())),
+            Level::Global,
+        );
+
+        let res = options.get_description(Level::Global, OptType::Path);
+        assert_eq!(res, " (setted at this level)\npath1");
     }
 }
