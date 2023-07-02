@@ -117,7 +117,7 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
 
 impl State for SelectUserState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(InputState::new(self, "Enter username or uid", None))
+        Box::new(InputState::<SelectUserState,SelectUserState>::new(self, "Enter username or uid", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
@@ -232,11 +232,12 @@ impl State for SelectGroupState {
     }
 
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+        // todo rollback
         Box::new(EditRoleState)
     }
 
     fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
+        Box::new(EditRoleState)
     }
 
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -270,6 +271,9 @@ impl State for SelectGroupState {
                 })
                 .button("Add", move |s| {
                     execute(s, ExecuteType::Create);
+                })
+                .button("Ok" , move |s| {
+                    execute(s, ExecuteType::Confirm);
                 }),
         );
     }
@@ -307,7 +311,7 @@ where
     T: State + Clone + 'static,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(InputState::new(self, "Input new group", None))
+        Box::new(InputState::<EditGroupState<T>,EditGroupState<T>>::new(self, "Input new group", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
@@ -335,6 +339,10 @@ where
             if let Err(err) = manager.set_group(input.as_vec()) {
                 manager.set_error(err);
             }
+        }else {
+            if let Err(err) = manager.add_group(input.as_vec()) {
+                manager.set_error(err);
+            }
         }
         Box::new(SelectGroupState)
     }
@@ -349,7 +357,7 @@ where
 
         cursive.add_layer(
             Dialog::around(select.with_name("select"))
-                .title("Select Group")
+                .title("Select Groups combination")
                 .button("Input new group", |s| {
                     execute(s, ExecuteType::Create);
                 })

@@ -68,7 +68,7 @@ where T: State + Clone + 'static {
         }
         let value = manager.get_options().get_from_type(opttype).1.to_string();
         self.selected.borrow_mut().replace(index);
-        Box::new(InputState::new(self, title, Some(value)))
+        Box::new(InputState::<SelectOptionState<T>,SelectOptionState<T>>::new(self, title, Some(value)))
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self

@@ -55,10 +55,10 @@ impl IdTask {
         self
     }
 
-    pub fn unwrap(&self) -> &str {
+    pub fn unwrap(&self) -> String {
         match self {
-            IdTask::Name(s) => s.as_str(),
-            IdTask::Number(_) => panic!("Called `unwrap()` on an `IdTask::Number` value"),
+            IdTask::Name(s) => s.to_owned(),
+            IdTask::Number(s) => s.to_string(),
         }
     }
 }
@@ -703,31 +703,32 @@ impl<'a> Save for Roles<'a> {
             .expect("Unable to retrieve element")
             .element()
             .expect("Unable to convert to element");
-        println!("Saving roles: {:?}", &self);
         let mut contents = String::new();
         read_file(path,&mut contents)?;
         let doc = parser::parse(&contents)?;
         let doc = doc.as_document();
-        do_in_main_element(doc, "rootasrole", |element| {
-            element.element().replace(new_xml_element);
-            Ok(())
-        })?;
+        for child in doc.root().children() {
+            if let Some(element) = child.element() {
+                if element.name().local_part() == "rootasrole" {
+                    child.element().replace(new_xml_element);
+                }
+            }
+        }
         let mut content: Vec<u8> = Vec::new();
         let writer = Writer::new().set_single_quotes(false);
         writer
-            .format_document(&doc, &mut content)
-            .expect("Unable to write file");
+            .format_document(&doc, &mut content)?;
         let mut content = String::from_utf8(content).expect("Unable to convert to string");
         content.insert_str(content.match_indices("?>").next().unwrap().0 + 2, DTD);
         toggle_lock_config(path, true).expect("Unable to remove immuable");
         let mut file = File::options()
             .write(true)
             .truncate(true)
-            .open(FILENAME)
-            .expect("Unable to create file");
-        file.write_all(content.as_bytes())
-            .expect("Unable to write file");
-        toggle_lock_config(path, false).expect("Unable to set immuable");
+            .open(FILENAME)?;
+        eprintln!("Saving roles: {}", &content);
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        toggle_lock_config(path, false)?;
         Ok(true)
     }
 }
@@ -785,6 +786,13 @@ impl<'a> Save for Task<'a> {
         Ok(true)
     }
 }
+
+impl Save for Opt {
+    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
+        Ok(true)
+    }
+}
+
 impl<'a> Task<'a> {
     fn save_task_roles(&self, rootelement: ChildOfRoot, new_task: Document, found: &mut bool) -> Result<(),Box<dyn Error>> {
         if let Some(rootelement) = rootelement.element() {

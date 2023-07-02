@@ -43,7 +43,7 @@ impl State for EditCapabilitiesState {
         self
     }
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        let task = manager.get_task().or(manager.get_new_task());
+        let task = manager.get_task();
         if let Some(task) = task {
             task.borrow_mut()
                 .capabilities = Some(input.as_caps());
@@ -60,7 +60,7 @@ impl State for EditCapabilitiesState {
                     info.set_content(item.1);
                 }
             });
-        let task = manager.get_task().or(manager.get_new_task());
+        let task = manager.get_task();
         let mut selected = Caps::V2(0);
         if let Some(task) = task {
             selected = task
@@ -120,7 +120,7 @@ impl State for EditCommandState {
             }
         } else {
             manager
-                .get_task().or(manager.get_new_task())
+                .get_task()
                 .unwrap()
                 .borrow_mut()
                 .commands

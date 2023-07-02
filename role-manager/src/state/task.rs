@@ -42,7 +42,7 @@ impl State for SelectTaskState {
                 return self;
             }
             Ok(_) => {
-                let task = manager.get_task().or(manager.get_new_task()).unwrap();
+                let task = manager.get_task().unwrap();
                 let id = task.as_ref().borrow().id.clone();
                 return Box::new(ConfirmState::new(
                     self,
@@ -102,9 +102,9 @@ impl State for SelectTaskState {
                 .unwrap();
             execute(s, ExecuteType::Delete(*sel));
         });
+        let mut layout = LinearLayout::horizontal();
         match manager
-            .get_role()
-            .or(manager.get_new_role()) {
+            .get_role(){
             Some(role) => {
                 role.as_ref()
             .borrow()
@@ -118,13 +118,15 @@ impl State for SelectTaskState {
                     select.add_item(format!("Task #{}", index), index);
                 }
             });
-            if let Err(err) = manager.select_task(0) {
-                manager.set_error(err);
-                return;
+            layout.add_child(select.with_name("select"));
+            let info;
+            if role.as_ref().borrow().tasks.len() > 0 {
+                info = TextView::new(role.as_ref().borrow().tasks[0].as_ref().borrow().get_description()).with_name("info");
+            } else {
+                info = TextView::new("There is no tasks").with_name("info");
             }
-        let layout = LinearLayout::horizontal()
-            .child(select.with_name("select").scrollable())
-            .child(TextView::new(manager.get_task().unwrap().as_ref().borrow().get_description()).with_name("info"));
+            layout.add_child(info);
+            
         cursive.add_layer(
             Dialog::around(layout)
                 .button("Add", |s| {
@@ -150,7 +152,6 @@ impl DeletableItemState for SelectTaskState {
     fn remove_selected(&mut self, manager: &mut RoleContext, _index: usize) {
         let task = manager
             .get_task()
-            .or(manager.get_new_task())
             .unwrap_or_else(|| {
                 let msg = "No task selected";
                 manager.set_error(msg.into());
@@ -221,7 +222,7 @@ impl State for EditTaskState {
             "u" => Box::new(SelectUserState::new(false, None)),
             "g" => Box::new(SelectGroupState),
             "c" => Box::new(EditCapabilitiesState),
-            "p" => Box::new(InputState::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
+            "p" => Box::new(InputState::<EditTaskState,EditTaskState>::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -322,7 +323,7 @@ impl DeletableItemState for EditTaskState {
 
 impl PushableItemState<String> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
-        manager.get_task().or(manager.get_new_task()).unwrap().borrow_mut().purpose.replace(item);
+        manager.get_task().unwrap().borrow_mut().purpose.replace(item);
     }
 
 }

@@ -9,11 +9,13 @@ use crate::RoleContext;
 use super::{execute, DeletableItemState, ExecuteType, Input, PushableItemState, State};
 
 #[derive(Clone)]
-pub struct InputState<T>
+pub struct InputState<T,V>
 where
+    V: State + Clone + 'static,
     T: State + PushableItemState<String> + Clone + 'static,
 {
-    previous_state: T,
+    previous_state: V,
+    next_state: T,
     title: String,
     content: Option<String>,
 }
@@ -28,21 +30,28 @@ where
     index: usize,
 }
 
-impl<T> InputState<T>
+impl<T,V> InputState<T,V>
 where
-    T: State + PushableItemState<String> + 'static + Clone,
+    V: State + Clone + 'static,
+    T: State + Clone + 'static + PushableItemState<String>,
+    Box<T>: Into<Box<V>>,
 {
-    pub fn new(previous_state: Box<T>, title: &str, content: Option<String>) -> Self {
+    pub fn new(previous_state: Box<T>, title: &str, content: Option<String>) -> Self{
+        InputState::new_with_next(previous_state.clone().into(), previous_state, title, content)
+    }
+    pub fn new_with_next(previous_state: Box<V>, next_state: Box<T>, title: &str, content: Option<String>) -> Self {
         InputState {
             previous_state: *previous_state,
+            next_state: *next_state,
             title: title.to_owned(),
             content,
         }
     }
 }
 
-impl<T> State for InputState<T>
+impl<T,V> State for InputState<T,V>
 where
+    V: State + Clone + 'static,
     T: State + PushableItemState<String> + Clone + 'static,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -64,8 +73,8 @@ where
         self
     }
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        self.previous_state.push(manager, input.as_string());
-        Box::new(self.previous_state)
+        self.next_state.push(manager, input.as_string());
+        Box::new(self.next_state)
     }
     fn render(&self, _manager: &mut crate::RoleContext, cursive: &mut cursive::Cursive) {
         let mut input = EditView::new();

@@ -2,12 +2,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState};
-use super::common::ConfirmState;
+use super::common::{ConfirmState, InputState};
 use super::options::SelectOptionState;
 use super::task::SelectTaskState;
-use super::{execute, ExecuteType, InitState, Input, State, DeletableItemState};
+use super::{execute, ExecuteType, InitState, Input, State, DeletableItemState, PushableItemState};
 
 use cursive::direction::Orientation;
+use cursive::event::Event;
 use cursive::view::{Nameable, Scrollable};
 use cursive::views::{Dialog, EditView, LinearLayout, SelectView, TextView};
 use cursive::Cursive;
@@ -17,8 +18,6 @@ use crate::{RoleContext, RoleManagerApp};
 
 #[derive(Clone)]
 pub struct SelectRoleState;
-pub struct CreateRoleState;
-pub struct DeleteRoleState;
 
 #[derive(Clone)]
 pub struct EditRoleState;
@@ -28,14 +27,14 @@ pub struct EditRoleState;
  */
 impl State for SelectRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(CreateRoleState)
+        Box::new(InputState::<EditRoleState,SelectRoleState>::new_with_next(self,Box::new(EditRoleState), "Enter the new role name:", None))
     }
 
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         if let Err(err) = manager.select_role(index) {
             manager.set_error(err);
         }
-        Box::new(ConfirmState::new(self, format!("Delete Role {}?", manager.get_role().or(manager.get_new_role()).unwrap().borrow().name).as_str(), index))
+        Box::new(ConfirmState::new(self, format!("Delete Role {}?", manager.get_role().unwrap().borrow().name).as_str(), index))
     }
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
@@ -67,6 +66,12 @@ impl State for SelectRoleState {
 
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         cursive.add_layer(self.init(manager));
+    }
+}
+
+impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
+    fn into(self) -> Box<SelectRoleState> {
+        Box::new(SelectRoleState)
     }
 }
 
@@ -117,7 +122,7 @@ impl InitState for SelectRoleState {
         );
         Dialog::around(layout)
             .title("Select a role")
-            .button("Create", move |s| {
+            .button("New Role", move |s| {
                 execute(s, ExecuteType::Create);
             })
             .button("Options", move |s| {
@@ -133,56 +138,6 @@ impl InitState for SelectRoleState {
     }
 }
 
-impl State for CreateRoleState {
-    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-
-    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-
-    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(SelectRoleState)
-    }
-
-    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-
-    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        manager.create_new_role(input.as_string());
-        Box::new(EditRoleState)
-    }
-
-    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
-        let text = EditView::new().with_name("name");
-        cursive.add_layer(
-            Dialog::around(text)
-                .title("Enter a name for the new role")
-                .button("Create", move |s| {
-                    let name = s.find_name::<EditView>("name");
-                    if let Some(name) = name {
-                        execute(
-                            s,
-                            ExecuteType::Input(Input::String(name.get_content().to_string())),
-                        );
-                    }
-                })
-                .button("Cancel", move |s| {
-                    execute(s, ExecuteType::Cancel);
-                }),
-        );
-    }
-}
 
 impl State for EditRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -289,21 +244,30 @@ impl State for EditRoleState {
         select.add_all([("Edit Users", 0), ("Edit Groups", 1), ("Edit Tasks", 2), ("Edit Options", 3)]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
+        let title ;
+        let role = manager
+        .get_role();
+        if role.is_none() {
+            manager.set_error("No role selected".into());
+            return;
+        }
+        let role = role.unwrap();
         layout.add_child(
             TextView::new(
-                manager
-                    .get_role()
-                    .unwrap()
+                
+                    role
                     .as_ref()
                     .borrow()
                     .get_users_info(),
             )
-            .with_name("info"),
+            .with_name("info")
         );
-        let title = match manager.is_new() {
-            true => "Create a new role".to_string(),
-            false => format!("Edit role {}", manager.get_role().unwrap().as_ref().borrow().name),
-        };
+
+        match manager.is_new() {
+            true => title = format!("Edit role {}", role.as_ref().borrow().name),
+            false => title = format!("Create the role {}", role.as_ref().borrow().name),
+        }
+        
         cursive.add_layer(
             Dialog::around(layout)
                 .title(title)
@@ -314,5 +278,11 @@ impl State for EditRoleState {
                     execute(s, ExecuteType::Confirm);
                 }),
         );
+    }
+}
+
+impl PushableItemState<String> for EditRoleState {
+    fn push(&mut self, manager: &mut RoleContext, item: String) {
+        manager.create_new_role(item);
     }
 }

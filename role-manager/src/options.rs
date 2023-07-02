@@ -246,7 +246,7 @@ impl Default for Opt {
             env_checklist: Some("COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ".to_string()).into(),
             no_root: Some(true).into(),
             bounding: Some(true).into(),
-            wildcard_denied: Some(";&amp;|".to_string()).into()
+            wildcard_denied: Some(";&|".to_string()).into()
         }
     }
 }
