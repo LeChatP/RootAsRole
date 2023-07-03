@@ -12,7 +12,6 @@ use crate::{checklist::CheckListView, config::Groups, ActorType, RoleContext};
 use super::{
     common::{ConfirmState, InputState},
     execute,
-    role::EditRoleState,
     DeletableItemState, ExecuteType, Input, PushableItemState, State,
 };
 
