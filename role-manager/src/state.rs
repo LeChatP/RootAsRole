@@ -5,7 +5,6 @@ pub mod options;
 pub mod role;
 mod task;
 
-use std::error::Error;
 
 use cursive::{
     event::Key,

@@ -8,6 +8,7 @@ mod options;
 mod rolemanager;
 mod state;
 mod version;
+mod xml_manager;
 
 
 use cli::parse_args;
@@ -40,7 +41,7 @@ fn main() {
         tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
         
         
-        let roles = config::load_roles(FILENAME).expect("Failed to load roles");
+        let roles = xml_manager::load_roles(FILENAME).expect("Failed to load roles");
         let mut rc_role_manager = RoleContext::new(roles);
         let mut siv = cursive::default();
         //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();

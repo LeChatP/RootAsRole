@@ -1,11 +1,12 @@
 use std::{
-    borrow::{BorrowMut, Borrow},
+    borrow::{Borrow, BorrowMut},
     cell::RefCell,
+    collections::HashSet,
     error::Error,
     fs::{self, File},
     io::{self, Read, Write},
     os::fd::AsRawFd,
-    rc::{Rc, Weak},
+    rc::{Rc, Weak}, path::Iter, hash::{Hasher, Hash},
 };
 
 use sxd_document::{
@@ -20,8 +21,9 @@ use tracing::warn;
 use libc::{c_int, c_ulong, ioctl, FILE};
 
 use crate::{
-    capabilities::Caps,
+    capabilities::{self, Caps},
     options::{Level, Opt},
+    rolemanager::RoleContext,
     version::{DTD, PACKAGE_VERSION},
 };
 
@@ -31,7 +33,69 @@ const FS_IMMUTABLE_FL: c_int = 0x00000010;
 
 pub const FILENAME: &str = "/etc/security/rootasrole.xml";
 
-pub type Groups = Vec<String>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Groups {
+    pub groups: HashSet<String>,
+}
+
+impl Iterator for Groups {
+    fn next(&mut self) -> Option<String> {
+        self.groups.iter().next().map(|s| s.to_owned())
+    }
+    type Item = String;
+}
+
+impl Hash for Groups {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for group in self.groups.iter() {
+            group.hash(state);
+        }
+    }
+}
+
+impl FromIterator<String> for Groups {
+    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Groups {
+        let mut groups = HashSet::new();
+        for group in iter {
+            groups.insert(group);
+        }
+        Groups { groups }
+    }
+}
+
+impl From<Vec<String>> for Groups {
+    fn from(groups: Vec<std::string::String>) -> Self {
+        let mut set = HashSet::new();
+        for group in groups {
+            set.insert(group);
+        }
+        Groups { groups: set }
+    }
+}
+
+impl Groups {
+    pub fn join(&self, sep: &str) -> String {
+        self.groups.iter().fold(String::new(), |acc, s| {
+            if acc.is_empty() {
+                s.to_owned()
+            } else {
+                format!("{}{}{}", acc, sep, s)
+            }
+        })
+    }
+    fn contains(&self, group: &str) -> bool {
+        self.groups.contains(group)
+    }
+}
+
+
+impl Into<Vec<String>> for Groups {
+    fn into(self) -> Vec<String> {
+        self.into_iter().collect()
+    }
+}
+
+
 
 pub trait ToXml {
     fn to_xml_string(&self) -> String;
@@ -44,10 +108,10 @@ pub enum IdTask {
 }
 
 impl IdTask {
-    pub fn is_some(&self) -> bool {
+    pub fn is_name(&self) -> bool {
         match self {
-            IdTask::Name(s) => !s.is_empty(),
-            IdTask::Number(n) => *n != 0,
+            IdTask::Name(s) => true,
+            IdTask::Number(n) => false,
         }
     }
 
@@ -67,7 +131,7 @@ impl ToString for IdTask {
     fn to_string(&self) -> String {
         match self {
             IdTask::Name(s) => s.to_string(),
-            IdTask::Number(n) => format!("Task #{}",n.to_string()),
+            IdTask::Number(n) => format!("Task #{}", n.to_string()),
         }
     }
 }
@@ -112,12 +176,15 @@ pub struct Roles<'a> {
 }
 
 impl<'a> Roles<'a> {
-    pub fn new(version : &str) -> Rc<RefCell<Roles>> {
-        Rc::new(Roles {
-            roles: Vec::new(),
-            options: None,
-            version: version,
-        }.into())
+    pub fn new(version: &str) -> Rc<RefCell<Roles>> {
+        Rc::new(
+            Roles {
+                roles: Vec::new(),
+                options: None,
+                version: version,
+            }
+            .into(),
+        )
     }
 
     pub fn get_role(&self, name: &str) -> Option<Rc<RefCell<Role<'a>>>> {
@@ -131,15 +198,18 @@ impl<'a> Roles<'a> {
 }
 
 impl<'a> Role<'a> {
-    pub fn new(name: String, roles : Option<Weak<RefCell<Roles<'a>>>>) -> Rc<RefCell<Role<'a>>> {
-        Rc::new(Role {
-            roles,
-            name,
-            users: Vec::new(),
-            groups: Vec::new(),
-            tasks: Vec::new(),
-            options: None,
-        }.into())
+    pub fn new(name: String, roles: Option<Weak<RefCell<Roles<'a>>>>) -> Rc<RefCell<Role<'a>>> {
+        Rc::new(
+            Role {
+                roles,
+                name,
+                users: Vec::new(),
+                groups: Vec::new(),
+                tasks: Vec::new(),
+                options: None,
+            }
+            .into(),
+        )
     }
     pub fn set_parent(&mut self, roles: Weak<RefCell<Roles<'a>>>) {
         self.roles = Some(roles);
@@ -167,27 +237,46 @@ impl<'a> Role<'a> {
     }
     pub fn get_users_info(&self) -> String {
         let mut users_info = String::new();
-        users_info.push_str(&format!("Users:\n({})\n", self.users.join(", ")));
+        users_info.push_str(&format!("Users:\n({})\n", self.users.to_owned().into_iter().map(|e| e.to_string()).collect::<Vec<String>>().join(", ")));
         users_info
     }
     pub fn get_groups_info(&self) -> String {
         let mut groups_info = String::new();
-        groups_info.push_str(&format!("Groups:\n({})\n", self.groups.to_owned().into_iter().map(|x| x.join(" & ").to_string()).collect::<Vec<String>>().join(")\n(")));
+        groups_info.push_str(&format!(
+            "Groups:\n({})\n",
+            self.groups
+                .to_owned()
+                .into_iter()
+                .map(|x| x.join(" & ").to_string())
+                .collect::<Vec<String>>()
+                .join(")\n(")
+        ));
         groups_info
     }
     pub fn get_tasks_info(&self) -> String {
         let mut tasks_info = String::new();
-        tasks_info.push_str(&format!("Tasks:\n{}\n", self.tasks.to_owned().into_iter().map(|x| x.as_ref().borrow().commands.join("\n")).collect::<Vec<String>>().join("\n")));
+        tasks_info.push_str(&format!(
+            "Tasks:\n{}\n",
+            self.tasks
+                .to_owned()
+                .into_iter()
+                .map(|x| x.as_ref().borrow().commands.join("\n"))
+                .collect::<Vec<String>>()
+                .join("\n")
+        ));
         tasks_info
     }
     pub fn get_options_info(&self) -> String {
         let mut options_info = String::new();
         if let Some(o) = &self.options {
-            options_info.push_str(&format!("Options:\n{}", o.as_ref().borrow().get_description()));
+            options_info.push_str(&format!(
+                "Options:\n{}",
+                o.as_ref().borrow().get_description()
+            ));
         }
         options_info
     }
-    
+
     pub fn get_description(&self) -> String {
         let mut description = String::new();
         description.push_str(&self.get_users_info());
@@ -206,21 +295,23 @@ impl<'a> Role<'a> {
 
 impl<'a> Task<'a> {
     pub fn new(id: IdTask, role: Weak<RefCell<Role<'a>>>) -> Rc<RefCell<Task<'a>>> {
-        Rc::new(Task {
-            role,
-            id,
-            options: None,
-            commands: Vec::new(),
-            capabilities: None,
-            setuid: None,
-            setgid: None,
-            purpose: None,
-        }.into())
+        Rc::new(
+            Task {
+                role,
+                id,
+                options: None,
+                commands: Vec::new(),
+                capabilities: None,
+                setuid: None,
+                setgid: None,
+                purpose: None,
+            }
+            .into(),
+        )
     }
     pub fn get_parent(&self) -> Option<Rc<RefCell<Role<'a>>>> {
         self.role.upgrade()
     }
-
 
     pub fn get_description(&self) -> String {
         let mut description = String::new();
@@ -230,44 +321,34 @@ impl<'a> Task<'a> {
         }
 
         if let Some(caps) = self.capabilities.to_owned() {
-            description.push_str(&format!(
-                "Capabilities:\n({})\n",
-                caps.to_string()
-            ));
+            description.push_str(&format!("Capabilities:\n({})\n", caps.to_string()));
         }
         if let Some(setuid) = self.setuid.to_owned() {
-            description.push_str(&format!(
-                "Setuid:\n({})\n",
-                setuid
-            ));
+            description.push_str(&format!("Setuid:\n({})\n", setuid));
         }
         if let Some(setgid) = self.setgid.to_owned() {
-            description.push_str(&format!(
-                "Setgid:\n({})\n",
-                setgid.join(" & ")
-            ));
+            description.push_str(&format!("Setgid:\n({})\n", setgid.join(" & ")));
         }
-        
+
         if let Some(options) = self.options.to_owned() {
             description.push_str(&format!(
                 "Options:\n({})\n",
                 options.as_ref().borrow().get_description()
             ));
         }
-        
+
         description.push_str(&format!("Commands:\n{}\n", self.commands.join("\n")));
         description
     }
-
 }
 
 impl<'a> ToXml for Task<'a> {
     fn to_xml_string(&self) -> String {
         let mut task = String::from("<task ");
-        if self.id.is_some() {
+        if self.id.is_name() {
             task.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
         }
-        if self.capabilities.is_some() {
+        if self.capabilities.is_some() && self.capabilities.to_owned().unwrap().is_not_empty() {
             task.push_str(&format!(
                 "capabilities=\"{}\" ",
                 self.capabilities
@@ -306,13 +387,13 @@ impl<'a> ToXml for Role<'a> {
         if self.users.len() > 0 || self.groups.len() > 0 {
             role.push_str("<actors>\n");
             role.push_str(
-            &self
-                .users
-                .to_owned()
-                .into_iter()
-                .map(|x| format!("<user name=\"{}\"/>\n", x))
-                .collect::<Vec<String>>()
-                .join(""),
+                &self
+                    .users
+                    .to_owned()
+                    .into_iter()
+                    .map(|x| format!("<user name=\"{}\"/>\n", x))
+                    .collect::<Vec<String>>()
+                    .join(""),
             );
             role.push_str(
                 &self
@@ -322,10 +403,9 @@ impl<'a> ToXml for Role<'a> {
                     .map(|x| format!("<groups names=\"{}\"/>\n", x.join(",")))
                     .collect::<Vec<String>>()
                     .join(""),
-                );
+            );
             role.push_str("</actors>\n");
         }
-        
 
         role.push_str(
             &self
@@ -365,12 +445,11 @@ impl<'a> ToXml for Roles<'a> {
     }
 }
 
-pub fn read_file(file_path: &str, contents : &mut String) -> Result<(), Box<dyn Error>> {
+pub fn read_file(file_path: &str, contents: &mut String) -> Result<(), Box<dyn Error>> {
     let mut file = File::open(file_path)?;
     file.read_to_string(contents)?;
     Ok(())
 }
-
 
 pub fn read_xml_file<'a>(file_path: &'a str) -> Result<Package, Box<dyn Error>> {
     let mut contents = String::new();
@@ -387,8 +466,7 @@ fn read_xml_file<'a>(file_path: &'a str, document : &Option<Document<'a>>) -> Re
     Ok(())
 }*/
 
-
-fn set_immuable(path: &str, immuable: bool) -> Result<(), std::io::Error> {
+fn set_immuable(path: &String, immuable: bool) -> Result<(), std::io::Error> {
     let metadata = fs::metadata(path).expect("Unable to retrieve file metadata");
     let mut permissions = metadata.permissions();
     permissions.set_readonly(immuable);
@@ -406,7 +484,7 @@ pub fn sxd_sanitize(element: &mut str) -> String {
 }
 
 // get groups names from comma separated list in attribute "names"
-fn get_groups(node: Element) -> Groups {
+pub fn get_groups(node: Element) -> Groups {
     node.attribute("names")
         .expect("Unable to retrieve group names")
         .value()
@@ -415,7 +493,7 @@ fn get_groups(node: Element) -> Groups {
         .collect()
 }
 
-fn is_enforced(node: Element) -> bool {
+pub fn is_enforced(node: Element) -> bool {
     let enforce = node.attribute("enforce");
     (enforce.is_some()
         && enforce
@@ -423,222 +501,6 @@ fn is_enforced(node: Element) -> bool {
             .value()
             == "true")
         || enforce.is_none()
-}
-
-fn get_options(level: Level, node: Element) -> Opt {
-    let mut rc_options = Opt::new(level);
-
-    for child in node.children() {
-        let mut options = rc_options.borrow_mut();
-        if let Some(elem) = child.element() {
-            println!("{}", elem.name().local_part());
-            match elem.name().local_part() {
-                "path" => {
-                    options.path = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read PATH option")
-                            .text()
-                            .to_string(),
-                    )
-                    .into()
-                }
-                "env-keep" => {
-                    options.env_whitelist = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read Whitelist option")
-                            .text()
-                            .to_string(),
-                    )
-                    .into()
-                }
-                "env-check" => {
-                    options.env_checklist = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read Checklist option")
-                            .text()
-                            .to_string(),
-                    )
-                    .into()
-                }
-                "allow-root" => options.no_root = Some(is_enforced(elem)).into(),
-                "allow-bounding" => options.bounding = Some(is_enforced(elem)).into(),
-                "wildcard-denied" => options.wildcard_denied = Some(
-                    elem.children()
-                        .first()
-                        .unwrap()
-                        .text()
-                        .expect("Cannot read Checklist option")
-                        .text()
-                        .to_string()),
-                _ => warn!("Unknown option: {}", elem.name().local_part()),
-            }
-        }
-    }
-    rc_options
-}
-
-fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result<Rc<RefCell<Task<'a>>>, Box<dyn Error>> {
-    let task = Task::new(IdTask::Number(i), Rc::downgrade(role));
-    if let Some(id) = node.attribute_value("id") {
-        task.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
-    }
-    task.as_ref().borrow_mut().capabilities = match node.attribute_value("capabilities") {
-        Some(cap) => Some(cap.into()).into(),
-        None => None.into(),
-    };
-    for child in node.children() {
-        if let Some(elem) = child.element() {
-            println!("{}", elem.name().local_part());
-            match elem.name().local_part() {
-                "command" => task.as_ref().borrow_mut().commands.push(
-                    elem.children()
-                        .first()
-                        .ok_or("Unable to get text from command")?
-                        .text()
-                        .map(|f| f.text().to_string())
-                        .ok_or("Unable to get text from command")?
-                        .into(),
-                ),
-                "options" => {
-                    task.as_ref().borrow_mut().options = Some(Rc::new(get_options(Level::Task, elem).into()));
-                },
-                "purpose" => {
-                    task.as_ref().borrow_mut().purpose = Some(
-                        elem.children()
-                            .first()
-                            .ok_or("Unable to get text from purpose")?
-                            .text()
-                            .map(|f| f.text().to_string())
-                            .ok_or("Unable to get text from purpose")?
-                            .into(),
-                    );
-                }
-                _ => warn!("Unknown element: {}", elem.name().local_part()),
-            }
-        }
-    }
-    Ok(task)
-}
-
-fn add_actors(role : &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
-    for child in node.children() {
-        if let Some(elem) = child.element() {
-            println!("{}", elem.name().local_part());
-            match elem.name().local_part() {
-                "user" => role.users.push(
-                    elem
-                        .attribute_value("name")
-                        .ok_or("Unable to retrieve user name")?
-                        .to_string()
-                        .into(),
-                ),
-                "group" => role.groups.push(get_groups(elem).into()),
-                _ => warn!("Unknown element: {}", elem.name().local_part()),
-            }
-        }
-    }
-    Ok(())
-}
-
-fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
-    let rc_role = Role::new(
-        element.attribute_value("name").unwrap().to_string().into(),
-        match roles {
-            Some(roles) => Some(Rc::downgrade(&roles)),
-            None => None,
-        }
-    );
-    
-    let mut i: usize = 0;
-    for child in element.children() {
-        let mut role = rc_role.as_ref().borrow_mut();
-        if let Some(element) = child.element() {
-            match element.name().local_part() {
-                "actors" => add_actors(&mut role, element)?,
-                "task" => {
-                    i += 1;
-                    role.tasks
-                        .push(get_task(&rc_role, element, i)?)
-                }
-                "options" => {
-                    role.options = Some(Rc::new(get_options(Level::Role, element).into())).into()
-                }
-                _ => warn!(
-                    "Unknown element: {}",
-                    child
-                        .element()
-                        .expect("Unable to convert unknown to element")
-                        .name()
-                        .local_part()
-                ),
-            }
-        }
-    }
-    Ok(rc_role)
-}
-#[allow(dead_code)]
-pub fn find_role<'a>(doc : &'a Document, name:&'a str) -> Result<Rc<RefCell<Role<'a>>>,Box<dyn Error>>{
-    let factory = Factory::new();
-    let context = Context::new();
-    let xpath = factory.build(&format!("//role[@name='{}']", name))?;
-    let value = xpath.unwrap().evaluate(&context, doc.root())?;
-    if let Value::Nodeset(nodes) = value {
-        if nodes.size() != 0 {
-            let role_element = nodes
-                .iter()
-                .next()
-                .expect("Unable to retrieve element")
-                .element()
-                .expect("Unable to convert role node to element");
-            return get_role(role_element, None);
-        }
-    }
-    Err("Role not found".into())
-}
-
-pub fn load_roles<'a>(filename : &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn Error>> {
-        let package = read_xml_file(filename).expect("Failed to read xml file");
-        let doc = package.as_document();
-        let rc_roles = Roles::new(PACKAGE_VERSION);
-        {
-        let mut roles = rc_roles.as_ref().borrow_mut();
-        for child in doc.root().children() {
-            if let Some(element) = child.element() {
-                if element.name().local_part() == "rootasrole" {
-                   
-                    for role in element.children() {
-                        if let Some(element) = role.element() {
-                            if element.name().local_part() == "roles" {
-                                for role in element.children() {
-                                    if let Some(element) = role.element() {
-                                        if element.name().local_part() == "role" {
-                                            roles.roles.push(
-                                                get_role(element,Some(rc_roles.to_owned()))?);
-                                        }
-                                    }
-                                }
-                            }
-                            if element.name().local_part() == "options" {
-                                roles.options =
-                                    Some(Rc::new(get_options(Level::Global, element).into()));
-                            }
-                        }
-                    }
-                    return Ok(rc_roles.to_owned());
-                }
-            }
-        }
-    }
-    Err("Unable to find rootasrole element".into())
 }
 
 fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
@@ -689,115 +551,359 @@ where
 }
 
 pub trait Save {
-    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>>;
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>>;
 }
 
 impl<'a> Save for Roles<'a> {
-    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_xml_string())?;
-        let new_roles = binding.as_document();
-        let new_xml_element = new_roles
-            .root()
-            .children()
-            .first()
-            .expect("Unable to retrieve element")
-            .element()
-            .expect("Unable to convert to element");
-        let mut contents = String::new();
-        read_file(path,&mut contents)?;
-        let doc = parser::parse(&contents)?;
-        let doc = doc.as_document();
-        for child in doc.root().children() {
-            if let Some(element) = child.element() {
-                if element.name().local_part() == "rootasrole" {
-                    child.element().replace(new_xml_element);
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>> {
+        if element.name().local_part() != "rootasrole" {
+            return Err("Unable to save roles".into());
+        }
+        let mut edited = false;
+        foreach_element(element,  move |child| {
+            if let Some(child) = child.element() {
+                match child.name().local_part() {
+                    "roles" => {
+                        foreach_element(child, |role_element| {
+                            if let Some(role_element) = role_element.element() {
+                                let role =
+                                    self.get_role(role_element.attribute_value("name").unwrap());
+                                if role.is_some() {
+                                    if role.unwrap().as_ref().borrow().save(doc, role_element)? {
+                                        edited = true;
+                                    }
+                                }
+                            }
+                            Ok(())
+                        })?;
+                    }
+                    "options" => {
+                        if self.to_owned().options.unwrap().as_ref().borrow().save(doc, child)? {
+                            edited = true;
+                        }
+                    },
+                    _ => (),
                 }
             }
-        }
-        let mut content: Vec<u8> = Vec::new();
-        let writer = Writer::new().set_single_quotes(false);
-        writer
-            .format_document(&doc, &mut content)?;
-        let mut content = String::from_utf8(content).expect("Unable to convert to string");
-        content.insert_str(content.match_indices("?>").next().unwrap().0 + 2, DTD);
-        toggle_lock_config(path, true).expect("Unable to remove immuable");
-        let mut file = File::options()
-            .write(true)
-            .truncate(true)
-            .open(FILENAME)?;
-        eprintln!("Saving roles: {}", &content);
-        file.write_all(content.as_bytes())?;
-        file.sync_all()?;
-        toggle_lock_config(path, false)?;
-        Ok(true)
+            Ok(())
+        })?;
+        Ok(edited)
     }
 }
 
 impl<'a> Save for Role<'a> {
-    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_xml_string())?;
-        let new_role = binding.as_document();
-        let mut contents = String::new();
-        read_file(path,&mut contents)?;
-        let doc = parser::parse(&contents)?;
-        let doc = doc.as_document();
-        let mut found = false;
-        do_in_main_element(doc, "rootasrole", |rootelement| {
-            foreach_element(rootelement.element().unwrap(), |element| {
-                if element_is_role(&element, self.name.to_owned()) {
-                    let new_xml_element = new_role
-                        .root()
-                        .children()
-                        .first()
-                        .expect("Unable to retrieve element")
-                        .element()
-                        .expect("Unable to convert to element");
-                    element.element().replace(new_xml_element);
-                    found = true;
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>> {
+        if element.name().local_part() != "role" {
+            return Err("Unable to save role".into());
+        }
+        let mut edited = false;
+        foreach_element(element, |child| {
+            if let Some(child) = child.element() {
+                match child.name().local_part() {
+                    "actors" => {
+                        let mut users = HashSet::new();
+                        users.extend(self.users.clone());
+                        let mut groups = HashSet::new();
+                        groups.extend(self.groups.clone());
+                        foreach_element(child, |actor_element| {
+                            if let Some(actor_element) = actor_element.element() {
+                                match actor_element.name().local_part() {
+                                    "user" => {
+                                        let username = actor_element
+                                            .attribute_value("name")
+                                            .unwrap()
+                                            .to_string();
+                                        if !users.contains(&username) {
+                                            actor_element.remove_from_parent();
+                                            edited = true;
+                                        } else {
+                                            users.remove(&username);
+                                        }
+                                    }
+                                    "group" => {
+                                        let groupnames = actor_element
+                                            .attribute_value("names")
+                                            .unwrap()
+                                            .split(",")
+                                            .map(|s| s.to_string())
+                                            .collect::<Groups>();
+                                        if !groups.contains(&groupnames) {
+                                            actor_element.remove_from_parent();
+                                            edited = true;
+                                        } else {
+                                            groups.remove(&groupnames);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Ok(())
+                        })?;
+                        if users.len() >= 0 || groups.len() >= 0 {
+                            for user in users {
+                                let mut actor_element = doc.create_element("user");
+                                actor_element.set_attribute_value("name", &user);
+                                child.append_child(actor_element);
+                            }
+                            for group in groups {
+                                let mut actor_element = doc.create_element("group");
+                                actor_element.set_attribute_value("names", &group.join(","));
+                                child.append_child(actor_element);
+                            }
+                            edited = true;
+                        }
+                    }
+                    "tasks" => {
+                        for task in self.tasks.clone() {
+                            if task.as_ref().borrow().save(doc, child)? {
+                                edited = true;
+                            }
+                        }
+                    }
+                    "options" => {
+                        if self.to_owned().options.unwrap().as_ref().borrow().save(doc, child)? {
+                            edited = true;
+                        }
+                    },
+                    _ => (),
                 }
-                Ok(())
-            })?;
+            }
             Ok(())
         })?;
-        if !found {
-            return Ok(false);
-        }
-        save_in_file(doc, path);
-        Ok(true)
+        Ok(edited)
     }
 }
 
 impl<'a> Save for Task<'a> {
-    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        let binding = parser::parse(&self.to_xml_string())?;
-        let new_task = binding.as_document();
-        let mut contents = String::new();
-        read_file(path,&mut contents)?;
-        let doc = parser::parse(&contents)?;
-        let doc = doc.as_document();
-        let mut found = false;
-        do_in_main_element(doc, "rootasrole", |rootelement| {
-            self.save_task_roles(rootelement, new_task, &mut found)
-        })?;
-        if !found {
-            return Ok(false);
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>> {
+        if element.name().local_part() != "task" {
+            return Err("Unable to save task".into());
         }
-        save_in_file(doc, path);
-        Ok(true)
+        let mut edited = false;
+        if let Some(capabilities) = self.capabilities.to_owned() {
+            if <Caps as Into<u64>>::into(capabilities.to_owned()) > 0 {
+                element.set_attribute_value("capabilities", capabilities.to_string().as_str());
+            } else if element.attribute_value("capabilities").is_some() {
+                element.remove_attribute("capabilities");
+            }
+        }
+        if let Some(setuid) = self.setuid.to_owned() {
+            element.set_attribute_value("setuser", setuid.to_string().as_str());
+        } else if element.attribute_value("setuser").is_some() {
+            element.remove_attribute("setuser");
+        }
+        if let Some(setgid) = self.setgid.to_owned() {
+            element.set_attribute_value("setgroups", setgid.join(",").to_string().as_str());
+        } else if element.attribute_value("setgroups").is_some() {
+            element.remove_attribute("setgroups");
+        }
+
+        let mut commands = HashSet::new();
+        commands.extend(self.commands.clone());
+        foreach_element(element, |child| {
+            if let Some(child_element) = child.element() {
+                match child_element.name().local_part() {
+                    "command" => {
+                        let command = child
+                            .text()
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve command Text".into())?
+                            .text()
+                            .to_string();
+                        if !commands.contains(&command) {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else {
+                            commands.remove(&command);
+                        }
+                    }
+                    "purpose" => {
+                        if let Some(purpose) = self.purpose.to_owned() {
+                            if child
+                                .text()
+                                .ok_or::<Box<dyn Error>>("Unable to retrieve command Text".into())?
+                                .text()
+                                != purpose
+                            {
+                                child_element.set_text(&purpose);
+                                edited = true;
+                            }
+                        } else {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        }
+                    }
+                    "options" => {
+                        if self.to_owned()
+                            .options
+                            .and_then(|o| Some(o.as_ref().borrow().save(doc, child_element)))
+                            .unwrap()?
+                        {
+                            edited = true;
+                        }
+                    },
+                    _ => {}
+                }
+            }
+            Ok(())
+        })?;
+        if commands.len() > 0 {
+            for command in commands {
+                let mut command_element = doc.create_element("command");
+                command_element.set_text(&command);
+                element.append_child(command_element);
+            }
+            edited = true;
+        }
+        Ok(edited)
     }
 }
 
+
+
 impl Save for Opt {
-    fn save(&self, path: &str) -> Result<bool, Box<dyn Error>> {
-        Ok(true)
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>> {
+        if element.name().local_part() != "options" {
+            return Err("Unable to save options".into());
+        }
+        let mut edited = false;
+        foreach_element(element, |child| {
+            if let Some(child_element) = child.element() {
+                match child_element.name().local_part() {
+                    "path" => {
+                        if self.path.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if child
+                            .text()
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve path Text".into())?
+                            .text()
+                            != self.path.as_ref().unwrap()
+                        {
+                            child_element.set_text(self.path.as_ref().unwrap());
+                            edited = true;
+                        }
+                    },
+                    "env_whitelist" => {
+                        if self.env_whitelist.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if child
+                            .text()
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve env_whitelist Text".into())?
+                            .text().to_string()
+                            != self.to_owned().env_whitelist.unwrap()
+                        {
+                            child_element.set_text(self.to_owned().env_whitelist.unwrap().as_str());
+                            edited = true;
+                        }
+                    },
+                    "env_checklist" => {
+                        if self.env_checklist.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if child
+                            .text()
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve env_checklist Text".into())?
+                            .text().to_string()
+                            != self.to_owned().env_checklist.unwrap()
+                        {
+                            child_element.set_text(self.to_owned().env_checklist.unwrap().as_str());
+                            edited = true;
+                        }
+                    },
+                    "no_root"  => {
+                        let noroot = child.text()
+                        .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
+                        .text() == "true";
+                        if self.no_root.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if noroot != self.no_root.unwrap()
+                        {
+                            child_element.set_text(match self.no_root.unwrap() {
+                                true => "true",
+                                false => "false",
+                            });
+                            edited = true;
+                        }
+                    },
+                    "bounding" => {
+                        let bounding = child.text()
+                        .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
+                        .text() == "true";
+                        if self.bounding.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if bounding != self.bounding.unwrap()
+                        {
+                            child_element.set_text(match self.bounding.unwrap() {
+                                true => "true",
+                                false => "false",
+                            });
+                            edited = true;
+                        }
+                    },
+                    "wildcard_denied" => {
+                        if self.wildcard_denied.is_none() {
+                            child_element.remove_from_parent();
+                            edited = true;
+                        } else if child.text().unwrap().text().to_string() != self.to_owned().wildcard_denied.unwrap()
+                        {
+                            child_element.set_text(self.to_owned().wildcard_denied.unwrap().as_str());
+                            edited = true;
+                        }
+                    },
+                    _ => {},
+                }
+            }
+            Ok(())
+        })?;
+        Ok(edited)
+    }
+}
+
+impl Save for RoleContext {
+    fn save(&self, doc: Document, element: Element) -> Result<bool, Box<dyn Error>> {
+        let mut path = "/etc/security/rootasrole.xml";
+        let package = read_xml_file(path)?;
+        let doc = package.as_document();
+        let element = doc.root().children().first().unwrap().element().unwrap();
+        if self.roles.as_ref().borrow().save(doc, element)? {
+            let mut content = Vec::new();
+            let writer = Writer::new().set_single_quotes(false);
+            writer
+                .format_document(&doc, &mut content)
+                .expect("Unable to write file");
+            let mut content = String::from_utf8(content).expect("Unable to convert to string");
+            content.insert_str(content.match_indices("?>").next().unwrap().0 + 2, DTD);
+            toggle_lock_config(path, true).expect("Unable to remove immuable");
+            let mut file = File::options()
+                .write(true)
+                .truncate(true)
+                .open(path)
+                .expect("Unable to create file");
+            file.write_all(content.as_bytes())
+                .expect("Unable to write file");
+            toggle_lock_config(path, false).expect("Unable to set immuable");
+        }
+
+        return Ok(true);
     }
 }
 
 impl<'a> Task<'a> {
-    fn save_task_roles(&self, rootelement: ChildOfRoot, new_task: Document, found: &mut bool) -> Result<(),Box<dyn Error>> {
+    fn save_task_roles(
+        &self,
+        rootelement: ChildOfRoot,
+        new_task: Document,
+        found: &mut bool,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(rootelement) = rootelement.element() {
             foreach_element(rootelement, |rolelayer| {
-                if element_is_role(&rolelayer, self.get_parent().unwrap().try_borrow()?.name.to_owned()) {
+                if element_is_role(
+                    &rolelayer,
+                    self.get_parent().unwrap().try_borrow()?.name.to_owned(),
+                ) {
                     return self.save_task_role(rolelayer, new_task, found);
                 }
                 Ok(())
@@ -806,7 +912,12 @@ impl<'a> Task<'a> {
         Ok(())
     }
 
-    fn save_task_role(&self, rolelayer: ChildOfElement, new_task: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
+    fn save_task_role(
+        &self,
+        rolelayer: ChildOfElement,
+        new_task: Document,
+        found: &mut bool,
+    ) -> Result<(), Box<dyn Error>> {
         let mut taskid = 1;
         foreach_element(rolelayer.element().unwrap(), |task_layer| {
             if element_is_task(&task_layer) {
@@ -876,17 +987,17 @@ fn save_in_file(doc: Document, path: &str) {
         .expect("Unable to write file");
     toggle_lock_config(path, false).expect("Unable to set immuable");
 }
-
+/*
 pub fn save_options(
     options: &Opt,
-    path: &str,
+    element: &Element,
     role_name: Option<String>,
     task_id: Option<String>,
 ) -> Result<bool, Box<dyn Error>> {
     let binding = parser::parse(&options.to_string())?;
     let new_options = binding.as_document();
     let mut contents = String::new();
-    read_file(path,&mut contents)?;
+    read_file(path, &mut contents)?;
     let doc = parser::parse(&contents)?;
     let doc = doc.as_document();
     let mut found = false;
@@ -909,7 +1020,7 @@ pub fn save_options(
     }
     save_in_file(doc, path);
     Ok(true)
-}
+} **/
 
 fn save_option_roles(
     rootelement: ChildOfRoot,
@@ -968,7 +1079,11 @@ fn element_is_options(element: &ChildOfElement) -> bool {
     false
 }
 
-fn save_option_xml_layer(task_layer: ChildOfElement, new_options: Document, found: &mut bool) -> Result<(), Box<dyn Error>> {
+fn save_option_xml_layer(
+    task_layer: ChildOfElement,
+    new_options: Document,
+    found: &mut bool,
+) -> Result<(), Box<dyn Error>> {
     foreach_element(task_layer.element().unwrap(), |option_level| {
         if element_is_options(&option_level) {
             replace_element(new_options, option_level, found)?
@@ -977,7 +1092,11 @@ fn save_option_xml_layer(task_layer: ChildOfElement, new_options: Document, foun
     })
 }
 
-fn replace_element(new_options: Document, element: ChildOfElement, found: &mut bool) -> Result<(), Box<dyn Error>> {
+fn replace_element(
+    new_options: Document,
+    element: ChildOfElement,
+    found: &mut bool,
+) -> Result<(), Box<dyn Error>> {
     let new_xml_element = new_options
         .root()
         .children()

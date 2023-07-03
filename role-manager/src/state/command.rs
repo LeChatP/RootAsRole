@@ -49,7 +49,7 @@ impl State for EditCapabilitiesState {
                 .capabilities = Some(input.as_caps());
         }
         
-        Box::new(SelectTaskState)
+        Box::new(EditTaskState)
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = CheckListView::<(&str, &str)>::new()

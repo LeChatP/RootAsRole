@@ -250,7 +250,7 @@ impl RoleContext {
         }
     }
 
-    pub fn add_group(&mut self, group: Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub fn add_group(&mut self, group: Groups) -> Result<(), Box<dyn Error>> {
         if self.selected_role.is_some() {
             self.roles.as_ref().borrow()
                 .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
@@ -357,7 +357,7 @@ impl RoleContext {
         }
     }
 
-    pub fn get_group(&self) -> Option<Vec<String>> {
+    pub fn get_group(&self) -> Option<Groups> {
         match self.selected_groups {
             Some(i) => {
                 return Some(self.get_role().unwrap().as_ref().borrow().groups[i].to_owned());
@@ -368,7 +368,7 @@ impl RoleContext {
         }
     }
 
-    pub fn set_group(&mut self, group: Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub fn set_group(&mut self, group: Groups) -> Result<(), Box<dyn Error>> {
         match self.selected_groups {
             Some(i) => {
                 self.get_role().unwrap().as_ref().borrow_mut().groups[i] = group;
@@ -391,10 +391,6 @@ impl RoleContext {
         } else {
             OptStack::from_roles(self.roles.clone())
         }
-    }
-
-    pub fn saveall(&self) -> Result<bool, Box<dyn Error>> {
-        self.roles.as_ref().borrow().save("/etc/security/rootasrole.xml")
     }
 
     pub fn set_error(&mut self, error: Box<dyn Error>) {

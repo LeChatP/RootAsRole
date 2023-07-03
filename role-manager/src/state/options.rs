@@ -22,7 +22,6 @@ where T: State + 'static {
     selected: RefCell<Option<usize>>,
     previous: T,
 }
-pub struct EditOptionState;
 
 
 impl<T> SelectOptionState<T>
@@ -68,7 +67,7 @@ where T: State + Clone + 'static {
         }
         let value = manager.get_options().get_from_type(opttype).1.to_string();
         self.selected.borrow_mut().replace(index);
-        Box::new(InputState::<SelectOptionState<T>,SelectOptionState<T>>::new(self, title, Some(value)))
+        Box::new(InputState::<SelectOptionState<T>,SelectOptionState<T>,String>::new(self, title, Some(value)))
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -148,30 +147,4 @@ where T: State + Clone + 'static {
         }
     }
     
-}
-
-impl State for EditOptionState {
-    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-    fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-    fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
-        self
-    }
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-    fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        self
-    }
-    fn input(self: Box<Self>, _manager: &mut RoleContext, _input: Input) -> Box<dyn State> {
-        self
-    }
-    fn render(&self, _manager: &mut RoleContext, _cursive: &mut Cursive) {
-    }
 }

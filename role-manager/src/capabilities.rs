@@ -34,6 +34,11 @@ impl Caps {
             Caps::V2(v) => *v |= 1 << cap,
         }
     }
+    pub fn is_not_empty(&self) -> bool {
+        match self {
+            Caps::V2(v) => *v > 0,
+        }
+    }
 }
 
 impl From<u64> for Caps {

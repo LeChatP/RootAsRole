@@ -7,10 +7,10 @@ use cursive::{
     Cursive, align::{HAlign, VAlign},
 };
 
-use crate::{rolemanager::RoleContext, state::State, RoleManagerApp};
+use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::Groups};
 
 use super::{
-    actor::{SelectGroupState, SelectUserState},
+    actor::{SelectGroupState, SelectUserState, EditGroupState, User},
     command::{EditCapabilitiesState, EditCommandState},
     common::{ConfirmState, InputState},
     execute,
@@ -112,7 +112,7 @@ impl State for SelectTaskState {
             .iter()
             .enumerate()
             .for_each(|(index, tasks)| {
-                if tasks.as_ref().borrow().id.is_some() {
+                if tasks.as_ref().borrow().id.is_name() {
                     select.add_item(tasks.as_ref().borrow().id.to_owned().to_string(), index);
                 } else {
                     select.add_item(format!("Task #{}", index), index);
@@ -219,10 +219,13 @@ impl State for EditTaskState {
     }
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         match input.as_string().as_ref() {
-            "u" => Box::new(SelectUserState::new(false, None)),
-            "g" => Box::new(SelectGroupState),
+            "u" => Box::new(SelectUserState::new(*self.clone(),*self,false, None)),
+            "g" => {
+                let setgid = manager.get_task().unwrap().as_ref().borrow().setgid.to_owned();
+                Box::new(EditGroupState::new(*self.clone(),*self,setgid))
+            },
             "c" => Box::new(EditCapabilitiesState),
-            "p" => Box::new(InputState::<EditTaskState,EditTaskState>::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
+            "p" => Box::new(InputState::<EditTaskState,EditTaskState,String>::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -242,7 +245,7 @@ impl State for EditTaskState {
             execute(s, ExecuteType::Submit(*item));
         });
 
-        let purpose;
+        let mut purpose = String::new();
 
         if let Some(task) = task {
             task.as_ref().borrow()
@@ -262,9 +265,16 @@ impl State for EditTaskState {
             });
             title = format!("Edit {}", task.as_ref().borrow().id.to_string());
             if let Some(p) = &task.as_ref().borrow().purpose {
-                purpose = format!("Purpose : {}", p);
-            }else {
-                purpose = "".to_owned();
+                purpose.push_str(format!("Purpose : {}\n", p).as_str());
+            }
+            if let Some(setuid) = &task.as_ref().borrow().setuid {
+                purpose.push_str(format!("Setuid : {}\n", setuid).as_str());
+            }
+            if let Some(setgid) = &task.as_ref().borrow().setgid {
+                purpose.push_str(format!("Setgid : {}\n", setgid.join(",")).as_str());
+            }
+            if let Some(caps) = &task.as_ref().borrow().capabilities {
+                purpose.push_str(format!("Capabilities : {}\n", caps.to_string()).as_str());
             }
         }else {
             purpose = "".to_owned();
@@ -320,10 +330,21 @@ impl DeletableItemState for EditTaskState {
             .remove(index);
     }
 }
+impl PushableItemState<User> for EditTaskState {
+    fn push(&mut self, manager: &mut RoleContext, item: User) {
+        manager.get_task().unwrap().borrow_mut().setuid.replace(item.name);
+    }
+
+}
 
 impl PushableItemState<String> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
         manager.get_task().unwrap().borrow_mut().purpose.replace(item);
     }
+}
 
+impl PushableItemState<Groups> for EditTaskState {
+    fn push(&mut self, manager: &mut RoleContext, item: Groups) {
+        manager.get_task().unwrap().borrow_mut().setgid.replace(item);
+    }
 }

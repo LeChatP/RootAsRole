@@ -1,19 +1,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::actor::{SelectGroupState, SelectUserState};
+use super::actor::{SelectGroupState, SelectUserState, User};
 use super::common::{ConfirmState, InputState};
 use super::options::SelectOptionState;
 use super::task::SelectTaskState;
 use super::{execute, ExecuteType, InitState, Input, State, DeletableItemState, PushableItemState};
 
 use cursive::direction::Orientation;
-use cursive::event::Event;
 use cursive::view::{Nameable, Scrollable};
-use cursive::views::{Dialog, EditView, LinearLayout, SelectView, TextView};
+use cursive::views::{Dialog, LinearLayout, SelectView, TextView};
 use cursive::Cursive;
 
-use crate::config::Role;
+use crate::config::{Role, Save, read_xml_file, Groups};
 use crate::{RoleContext, RoleManagerApp};
 
 #[derive(Clone)]
@@ -27,7 +26,7 @@ pub struct EditRoleState;
  */
 impl State for SelectRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(InputState::<EditRoleState,SelectRoleState>::new_with_next(self,Box::new(EditRoleState), "Enter the new role name:", None))
+        Box::new(InputState::<EditRoleState,SelectRoleState,String>::new_with_next(self,Box::new(EditRoleState), "Enter the new role name:", None))
     }
 
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
@@ -50,7 +49,15 @@ impl State for SelectRoleState {
     }
 
     fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        if let Err(err) = manager.saveall() {
+        let xml = read_xml_file("/etc/security/rootasrole.xml");
+        if let Err(err) = xml {
+            manager.set_error(err);
+            return self;
+        }
+        let package = xml.unwrap();
+        let doc = package.as_document();
+        let element = doc.root().children().first().unwrap().element().unwrap();
+        if let Err(err) = manager.save(doc, element) {
             manager.set_error(err);
         }
         Box::new(SelectRoleState)
@@ -76,7 +83,7 @@ impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
 }
 
 impl DeletableItemState for SelectRoleState {
-    fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
+    fn remove_selected(&mut self, manager: &mut RoleContext, _index: usize) {
         if let Err(err) = manager.delete_role() {
             manager.set_error(err);
         }
@@ -150,11 +157,11 @@ impl State for EditRoleState {
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         match index {
-            0 => Box::new(SelectUserState::new(
+            0 => Box::new(SelectUserState::new(*self.clone(),*self,
                 true,
                 Some(manager.get_role().unwrap().as_ref().borrow().users.to_owned()),
             )),
-            1 => Box::new(SelectGroupState),
+            1 => Box::new(SelectGroupState::new(*self.clone(), *self,manager.get_role().unwrap().as_ref().borrow().groups.to_owned())),
             2 => Box::new(SelectTaskState),
             3 => Box::new(SelectOptionState::new(*self)),
             _ => self,
@@ -284,5 +291,17 @@ impl State for EditRoleState {
 impl PushableItemState<String> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
         manager.create_new_role(item);
+    }
+}
+
+impl PushableItemState<User> for EditRoleState {
+    fn push(&mut self, manager: &mut RoleContext, item: User) {
+        manager.get_role().unwrap().as_ref().borrow_mut().users.push(item.name);
+    }
+}
+
+impl<'a> PushableItemState<Groups> for EditRoleState {
+    fn push(&mut self, manager: &mut RoleContext, item: Groups) {
+        manager.get_role().unwrap().as_ref().borrow_mut().groups.push(item);
     }
 }
