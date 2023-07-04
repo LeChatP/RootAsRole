@@ -104,7 +104,7 @@ impl RoleContext {
     }
 
     pub fn is_new(&self) -> bool {
-        self.is_new
+        self.new_role.is_some() || self.new_task.is_some()
     }
 
     pub fn list_roles(&self) {
@@ -384,12 +384,13 @@ impl RoleContext {
 * Return a OptStack that contains Opt in function of selections
 */
     pub fn get_options(&self) -> OptStack<'static>  {
-        if self.selected_task.is_some() {
-            OptStack::from_task(self.roles.clone(), &self.selected_role.unwrap(), &self.selected_task.unwrap())
-        } else if self.selected_role.is_some() {
-            OptStack::from_role(self.roles.clone(), &self.selected_role.unwrap())
+        if let Some(task) = self.get_task() {
+            let role = task.as_ref().borrow().get_parent().unwrap();
+            OptStack::from_task(self.roles.to_owned(), role, task)
+        } else if let Some(role) = self.get_role() {
+            OptStack::from_role(self.roles.to_owned(), role)
         } else {
-            OptStack::from_roles(self.roles.clone())
+            OptStack::from_roles(self.roles.to_owned())
         }
     }
 

@@ -48,6 +48,7 @@ fn main() {
         //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
 
         siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
+        SelectRoleState.config_cursive(&mut siv);
 
         let app = RoleManagerApp {
             manager: rc_role_manager,

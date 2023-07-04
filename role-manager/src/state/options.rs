@@ -72,7 +72,7 @@ where T: State + Clone + 'static {
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
     }
-    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(self.previous)
     }
     fn config(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {

@@ -1,11 +1,11 @@
 use cursive::{
     direction::Orientation,
-    view::{Nameable, Scrollable},
-    views::{Dialog, EditView, LinearLayout, TextView},
+    view::{Nameable, Scrollable, Margins, Resizable},
+    views::{Dialog, EditView, LinearLayout, TextView, TextArea},
 };
 
 use super::{
-    execute,ExecuteType, Input, State, task::{EditTaskState, SelectTaskState},
+    execute,ExecuteType, Input, State, task::EditTaskState,
 };
 use crate::{
     capabilities::{self, Caps},
@@ -129,15 +129,16 @@ impl State for EditCommandState {
         Box::new(EditTaskState)
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        let mut edit = EditView::new();
+        let mut edit = TextArea::new();
         if manager.get_command().is_some() {
             edit.set_content(manager.get_command().unwrap());
         }
+        
         cursive.add_layer(
-            Dialog::around(edit.with_name("edit"))
+            Dialog::around(edit.with_name("edit").full_screen())
                 .title("Edit command")
                 .button("Ok", move |s| {
-                    let view = s.find_name::<EditView>("edit").unwrap();
+                    let view = s.find_name::<TextArea>("edit").unwrap();
                     execute(
                         s,
                         ExecuteType::Input(Input::String(view.get_content().to_string())),
@@ -145,7 +146,8 @@ impl State for EditCommandState {
                 })
                 .button("Cancel", move |s| {
                     execute(s, ExecuteType::Cancel);
-                }),
+                }).padding(Margins::trbl(1,1,1,0))
+                
         );
     }
 }

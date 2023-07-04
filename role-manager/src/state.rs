@@ -27,12 +27,14 @@ pub trait DeletableItemState {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize);
 }
 
+#[derive(PartialEq, Eq, Clone)]
 pub enum Input {
     String(String),
     Vec(Vec<String>),
     Caps(Caps),
 }
 
+#[derive(PartialEq, Eq, Clone)]
 pub enum ExecuteType {
     Create,
     Delete(usize),
@@ -41,6 +43,7 @@ pub enum ExecuteType {
     Confirm,
     Config,
     Input(Input),
+    Exit,
 }
 
 impl Input {
@@ -80,7 +83,10 @@ pub trait State {
 
 pub trait InitState {
     fn init(&self, manager: &mut RoleContext) -> Dialog;
+    fn config_cursive(&self, cursive: &mut Cursive);
 }
+
+static mut exiting : bool = false;
 
 pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
@@ -96,9 +102,16 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         ExecuteType::Confirm => state.confirm(&mut manager),
         ExecuteType::Config => state.config(&mut manager),
         ExecuteType::Input(input) => state.input(&mut manager, input),
+        ExecuteType::Exit => {
+            unsafe {
+                exiting = true;
+            }
+            state.confirm(&mut manager)
+        },
     };
     s.pop_layer();
     s.clear_global_callbacks(Key::Del);
+    s.clear_global_callbacks(Key::Enter);
 
     state.render(&mut manager, s);
     if let Some(err) = manager.take_error() {
@@ -107,7 +120,15 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
             Color::Dark(BaseColor::Red),
         ));
         style.effects.insert(Effect::Bold);
-        s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).dismiss_button("Understood"));
+        s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", | s | {
+            s.pop_layer();
+            if unsafe { exiting } {
+                s.quit();
+            }
+        }));
+    } else if unsafe { exiting } {
+        s.quit();
     }
+    
     s.set_user_data(RoleManagerApp { manager, state });
 }

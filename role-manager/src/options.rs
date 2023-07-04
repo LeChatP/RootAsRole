@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::config::{self, Roles};
+use crate::config::{self, Roles, Role, Task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -292,29 +292,27 @@ impl Opt {
 pub struct OptStack<'a> {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
     roles : Rc<RefCell<Roles<'a>>>,
-    role : Option<usize>,
-    task : Option<usize>,
+    role : Option<Rc<RefCell<Role<'a>>>>,
+    task : Option<Rc<RefCell<Task<'a>>>>,
 }
 
 impl<'a> OptStack<'a> {
-    pub fn from_task(roles: Rc<RefCell<Roles<'a>>>, role: &usize, task: &usize) -> Self {
+    pub fn from_task(roles: Rc<RefCell<Roles<'a>>>, role: Rc<RefCell<Role<'a>>>, task: Rc<RefCell<Task<'a>>>) -> Self {
         let mut stack = OptStack::from_role(roles, role);
-        stack.task = Some(*task);
+        stack.task = Some(task.to_owned());
         stack.set_opt(Level::Task,
-            stack.get_roles().as_ref().borrow().roles[*role].as_ref().borrow().tasks[*task]
-                .as_ref()
+            task.as_ref()
                 .borrow()
                 .options
                 .to_owned(),
         );
         stack
     }
-    pub fn from_role(roles: Rc<RefCell<Roles<'a>>>, role: &usize) -> Self {
+    pub fn from_role(roles: Rc<RefCell<Roles<'a>>>, role: Rc<RefCell<Role<'a>>>) -> Self {
         let mut stack = OptStack::from_roles(roles);
-        stack.role = Some(*role);
+        stack.role = Some(role.to_owned());
         stack.set_opt(Level::Role,
-            stack.get_roles().as_ref().borrow().roles[*role]
-                .as_ref()
+            role.as_ref()
                 .borrow()
                 .options
                 .to_owned(),
@@ -331,8 +329,8 @@ impl<'a> OptStack<'a> {
         OptStack {
             stack: [None, Some(Rc::new(Opt::default().into())), None, None, None],
             roles,
-            role : None,
-            task : None,
+            role: None,
+            task: None,
         }
     }
 
@@ -348,16 +346,13 @@ impl<'a> OptStack<'a> {
                 self.get_roles().as_ref().borrow_mut().options = opt;
             }
             Level::Role => {
-                self.get_roles().as_ref().borrow().roles[self.role.unwrap()]
+                self.role.to_owned().unwrap()
                     .as_ref()
                     .borrow_mut()
                     .options = opt;
             }
             Level::Task => {
-                self.get_roles().as_ref().borrow().roles[self.role.unwrap()]
-                    .as_ref()
-                    .borrow()
-                    .tasks[self.task.unwrap()]
+                self.task.to_owned().unwrap()
                     .as_ref()
                     .borrow_mut()
                     .options = opt;

@@ -7,10 +7,10 @@ use cursive::{
     Cursive, align::{HAlign, VAlign},
 };
 
-use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::Groups};
+use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::{Groups, IdTask}};
 
 use super::{
-    actor::{SelectGroupState, SelectUserState, EditGroupState, User},
+    actor::{SelectGroupState, SelectUserState, EditGroupState, Users},
     command::{EditCapabilitiesState, EditCommandState},
     common::{ConfirmState, InputState},
     execute,
@@ -226,6 +226,7 @@ impl State for EditTaskState {
             },
             "c" => Box::new(EditCapabilitiesState),
             "p" => Box::new(InputState::<EditTaskState,EditTaskState,String>::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
+            "i" => Box::new(InputState::<EditTaskState,EditTaskState,IdTask>::new(self, "Set task id", Some(manager.get_task().unwrap().as_ref().borrow().id.to_owned()))),
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -305,6 +306,9 @@ impl State for EditTaskState {
                 .button("GID", |s| {
                     execute(s, ExecuteType::Input(Input::String("g".to_owned())));
                 })
+                .button("Task Id", |s| {
+                    execute(s, ExecuteType::Input(Input::String("i".to_owned())));
+                })
                 .button("Cancel", |s| {
                     execute(s, ExecuteType::Cancel);
                 })
@@ -330,9 +334,9 @@ impl DeletableItemState for EditTaskState {
             .remove(index);
     }
 }
-impl PushableItemState<User> for EditTaskState {
-    fn push(&mut self, manager: &mut RoleContext, item: User) {
-        manager.get_task().unwrap().borrow_mut().setuid.replace(item.name);
+impl PushableItemState<Users> for EditTaskState {
+    fn push(&mut self, manager: &mut RoleContext, item: Users) {
+        manager.get_task().unwrap().borrow_mut().setuid.replace(item.name[0].to_owned());
     }
 
 }
@@ -340,6 +344,14 @@ impl PushableItemState<User> for EditTaskState {
 impl PushableItemState<String> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
         manager.get_task().unwrap().borrow_mut().purpose.replace(item);
+    }
+}
+
+impl PushableItemState<IdTask> for EditTaskState {
+    fn push(&mut self, manager: &mut RoleContext, item: IdTask) {
+        if item.to_string().len() > 0 {
+            manager.get_task().unwrap().borrow_mut().id = item;
+        }
     }
 }
 

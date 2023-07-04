@@ -16,30 +16,38 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct User {
-    pub name: String,
+pub struct Users {
+    pub name: Vec<String>,
 }
 
-impl From<String> for User {
+impl From<String> for Users {
     fn from(name: String) -> Self {
-        User { name }
+        let mut vname = Vec::new();
+        vname.push(name);
+        Users { name: vname.to_owned() }
     }
 }
-impl ToString for User {
+impl ToString for Users {
     fn to_string(&self) -> String {
-        self.name.clone()
+        self.name.join(",").clone()
     }
 }
-impl Into<String> for User {
+impl Into<String> for Users {
     fn into(self) -> String {
-        self.name
+        self.name.join(",")
+    }
+}
+
+impl From<Vec<String>> for Users {
+    fn from(name: Vec<String>) -> Self {
+        Users { name }
     }
 }
 
 #[derive(Clone)]
 pub struct SelectUserState<T, V>
 where
-    T: State + Clone + PushableItemState<User> + 'static,
+    T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
     previous_state: V,
@@ -50,7 +58,7 @@ where
 
 impl<T, V> SelectUserState<T, V>
 where
-    T: State + Clone + PushableItemState<User> + 'static,
+    T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
     /**
@@ -179,14 +187,14 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
 
 impl<T, V> State for SelectUserState<T, V>
 where
-    T: State + Clone + PushableItemState<User> + 'static,
+    T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(InputState::<
             SelectUserState<T, V>,
             SelectUserState<T, V>,
-            User,
+            String,
         >::new(self, "Enter username or uid", None))
     }
 
@@ -210,8 +218,8 @@ where
         self
     }
 
-    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
-        let _commands = manager.get_role().unwrap().as_ref().borrow_mut().users = input.as_vec();
+    fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+        self.next_state.push(manager, input.as_vec().into());
         Box::new(self.next_state)
     }
 
@@ -257,19 +265,13 @@ where
     }
 }
 
-impl<T, V> PushableItemState<User> for SelectUserState<T, V>
+impl<T, V> PushableItemState<String> for SelectUserState<T, V>
 where
-    T: State + Clone + PushableItemState<User> + 'static,
+    T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
-    fn push(&mut self, manager: &mut RoleContext, item: User) {
-        manager
-            .get_role()
-            .unwrap()
-            .as_ref()
-            .borrow_mut()
-            .users
-            .push(item.name);
+    fn push(&mut self, manager: &mut RoleContext, item: String) {
+        self.selected.to_owned().unwrap_or_default().push(item);
     }
 }
 

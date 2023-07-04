@@ -3,7 +3,7 @@ use std::{
     ops::{BitAnd, BitOrAssign},
 };
 
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, Eq, PartialEq, PartialOrd, Debug)]
 pub enum Caps {
     V2(u64), // this will evolve
 }
