@@ -12,7 +12,7 @@ In this Major version, conception of sr tool is redesigned. ancient versions of 
 
 In this new version, we focuses on usability and conception of the tool. Because sudo is simpler to use, we redesigned `sr` argument management, which is now minimal, for the happiness of lazy people. RootAsRole is now a more lazy tool than `sudo` because our tool needs only 2 characters, which means 2 times less than `sudo`. We know that `sudo` is used in majority of distributions, so to avoid to change habits, we tried to reproduce the default usage of this tool. We know that sudo provides more functionnalities than our tool. But we think that sudo tries to resolve overloaded amount of needs which became very hard to modify without incidents.
 
-As reminder, `sudo` doesn't respect any security model https://security.stackexchange.com/a/67218. With `sr` we tried to setup a Role based access control model which allows administrator to manage privileges granting in respect of least privilege management. We also know that capabilities tries to respect capability based security model by using similar words. But the design is not respecting this model. Contrary to `sudo`, RootAsRole doesn't permit to user to change his effective identity.
+As reminder, `sudo` doesn't respect any security model <https://security.stackexchange.com/a/67218>. With `sr` we tried to setup a Role based access control model which allows administrator to manage privileges granting in respect of least privilege management. We also know that capabilities tries to respect capability based security model by using similar words. But the design is not respecting this model. Contrary to `sudo`, RootAsRole doesn't permit to user to change his effective identity.
 
 Also, With this new version, many vulnerabilities were fixed.
 
@@ -28,31 +28,28 @@ In next versions, we'll enhance eBPF with new ways of implementation and some ex
 
 With these changes, RootAsRole, has taken initiatives to simplify the deployment of least privilege principle based on process criteria.
 
+## Added on 3.0
 
+- Evironment Variables management
+- Support for Arch Linux
+- setUID and Multiple setGID
+- Partial Order Comparison between roles ! Ghosted roles abolished !
+- Unit-Test with [Criterion Testing Framework](https://github.com/Snaipe/Criterion)
 
-## Added
+## Changed on 3.0
 
- - Evironment Variables management
- - Support for Arch Linux
- - setUID and Multiple setGID
- - Partial Order Comparison between roles ! Ghosted roles abolished !
- - Unit-Test with [Criterion Testing Framework](https://github.com/Snaipe/Criterion)
+- XML Document DTD and conceptual structure
 
-## Changed 
+## Deleted on 3.0
 
- - XML Document DTD and conceptual structure
-
-
-## Deleted
-
- - `sr_aux` program which was useless.
- - old `role-manager` implementation. It wasn't working at all, and source code wasn't reusable.
+- `sr_aux` program which was useless.
+- old `role-manager` implementation. It wasn't working at all, and source code wasn't reusable.
 
 ## [2.2] - 2019-09-27
 
 This version is focused on sr command, no changes in capable command
 
-### Added
+### Added on 2.2
 
 - Improve "-i" option, as user-friendly as possible. Explain every possibilities to specific user. If you don't know if you can, then do "-i"
 
@@ -66,12 +63,12 @@ This version is focused on sr command, no changes in capable command
 
 This version is focused on capable program, no changes on sr command.
 
-### Added
+### Added on 2.1
 
 - New algorithm capabilities detection for capable command, based on namespaces with recursive namespace creation detection. This algorithm will work for almost all cases and is much more optimized than 2.0 algorithm.
 - Beginning of stack trace filtering for capable command, we want to remove the cap_sys_admin capability when _do_fork is in the stack will work only on kernel version 5.X, the program remains retro-compatible for 4.10 version
 
-### Modified
+### Modified on 2.1
 
 - 2.0 algorithm has now the namespace retrieving
 - fix big mistakes on 2.0 algorithm
@@ -84,19 +81,19 @@ This version is focused on capable program, no changes on sr command.
 
 ## [2.0] - 2019-06-04
 
-### Added
+### Added on 2.0
 
 - New Tool called "capable". this tool can be used to resolve capabilities asked by a program, this can be run as daemon, or with command to test.
 - sr is now print which role is used when start
 
-### Changed
+### Changed on 2.0
 
 - option -c is optionnal but it's mandatory to precise the command in the configuration.
 - Fix bugs and memory leaks from testing suite and sr
 
 ## [1.1] - 2019-05-02
 
-### Added
+### Added on 1.1
 
 - Ability to no longer specify a role for the command sr
 - Adding tests for functionality without role
@@ -106,7 +103,7 @@ This version is focused on capable program, no changes on sr command.
 - Added optional parameter -v to get the RAR version
 - Added Changelog file
 
-### Changed
+### Changed on 1.1
 
 - Correction of syntactical faults in the main README
 - Fixed DTD on capabilities (require at least one capability in a role)
@@ -118,7 +115,6 @@ This version is focused on capable program, no changes on sr command.
 - sr command which uses capabilities and xml role system to replace `sudo` or any alternative.
 - initial project
 
-[Unreleased]: https://github.com/SamerW/RootAsRole/compare/V2.2...HEAD
 [2.2]: https://github.com/SamerW/RootAsRole/compare/V2.1...V2.2
 [2.1]: https://github.com/SamerW/RootAsRole/compare/V2.0...V2.1
 [2.0]: https://github.com/SamerW/RootAsRole/compare/V1.1...V2.0

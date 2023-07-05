@@ -1,32 +1,41 @@
-pub mod role;
 pub mod actor;
-pub mod options;
 pub mod command;
 pub mod common;
+pub mod options;
+pub mod role;
+mod task;
 
-use cursive::{Cursive, views::Dialog, event::Key};
 
-use crate::{RoleManager, capabilities::Caps, RoleManagerApp};
+use cursive::{
+    event::Key,
+    theme::{BaseColor, Color, ColorStyle, Effect, Style},
+    views::{Dialog, TextView},
+    Cursive,
+};
+
+use crate::{capabilities::Caps, rolemanager::RoleContext, RoleManagerApp};
 
 pub trait PushableItemState<T> {
-    fn push(&mut self, manager : &mut RoleManager, item : T);
+    fn push(&mut self, manager: &mut RoleContext, item: T);
 }
 
 pub trait SettableItemState<T> {
-    fn set(&mut self, manager : &mut RoleManager, index : usize, item : T);
+    fn set(&mut self, manager: &mut RoleContext, index: usize, item: T);
 }
 
 pub trait DeletableItemState {
-    fn remove_selected(&mut self, manager : &mut RoleManager, index : usize);
+    fn remove_selected(&mut self, manager: &mut RoleContext, index: usize);
 }
 
+#[derive(PartialEq, Eq, Clone)]
 pub enum Input {
     String(String),
     Vec(Vec<String>),
-    Caps(Caps)
+    Caps(Caps),
 }
 
-pub enum ExecuteType{
+#[derive(PartialEq, Eq, Clone)]
+pub enum ExecuteType {
     Create,
     Delete(usize),
     Submit(usize),
@@ -34,7 +43,7 @@ pub enum ExecuteType{
     Confirm,
     Config,
     Input(Input),
-
+    Exit,
 }
 
 impl Input {
@@ -49,39 +58,42 @@ impl Input {
         match self {
             Input::String(str) => str.split(",").map(|s| s.to_string()).collect(),
             Input::Vec(vec) => vec.to_vec(),
-            Input::Caps(caps) => caps.clone().into(),
+            Input::Caps(caps) => caps.to_owned().into(),
         }
     }
     pub fn as_caps(&self) -> Caps {
         match self {
-            Input::String(str) => Caps::from(str.clone()),
+            Input::String(str) => Caps::from(str.to_owned()),
             Input::Vec(vec) => Caps::from(vec.to_vec()),
-            Input::Caps(caps) => caps.clone(),
+            Input::Caps(caps) => caps.to_owned(),
         }
     }
 }
 
 pub trait State {
-    fn create(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn delete(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>;
-    fn submit(self: Box<Self>, manager : &mut RoleManager, index : usize) -> Box<dyn State>;
-    fn cancel(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn confirm(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn config(self: Box<Self>, manager : &mut RoleManager) -> Box<dyn State>;
-    fn input(self: Box<Self>, manager : &mut RoleManager, input : Input) -> Box<dyn State>;
-    fn render(&self, manager : &mut RoleManager, cursive : &mut Cursive);
+    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State>;
+    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State>;
+    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn config(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State>;
+    fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State>;
+    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive);
 }
 
 pub trait InitState {
-    fn init(&self, manager : &mut RoleManager) -> Dialog;
+    fn init(&self, manager: &mut RoleContext) -> Dialog;
+    fn config_cursive(&self, cursive: &mut Cursive);
 }
 
-pub fn execute(s : &mut Cursive, exec_type : ExecuteType) {
+static mut EXITING : bool = false;
+
+pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
         mut manager,
         mut state,
     } = s.take_user_data().unwrap();
-    
+
     state = match exec_type {
         ExecuteType::Create => state.create(&mut manager),
         ExecuteType::Delete(index) => state.delete(&mut manager, index),
@@ -90,12 +102,33 @@ pub fn execute(s : &mut Cursive, exec_type : ExecuteType) {
         ExecuteType::Confirm => state.confirm(&mut manager),
         ExecuteType::Config => state.config(&mut manager),
         ExecuteType::Input(input) => state.input(&mut manager, input),
+        ExecuteType::Exit => {
+            unsafe {
+                EXITING = true;
+            }
+            state.confirm(&mut manager)
+        },
     };
     s.pop_layer();
     s.clear_global_callbacks(Key::Del);
+    s.clear_global_callbacks(Key::Enter);
+
     state.render(&mut manager, s);
-    s.set_user_data(RoleManagerApp {
-        manager,
-        state,
-    });
+    if let Some(err) = manager.take_error() {
+        let mut style = Style::from(ColorStyle::new(
+            Color::Light(BaseColor::White),
+            Color::Dark(BaseColor::Red),
+        ));
+        style.effects.insert(Effect::Bold);
+        s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", | s | {
+            s.pop_layer();
+            if unsafe { EXITING } {
+                s.quit();
+            }
+        }));
+    } else if unsafe { EXITING } {
+        s.quit();
+    }
+    
+    s.set_user_data(RoleManagerApp { manager, state });
 }

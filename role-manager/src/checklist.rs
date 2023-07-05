@@ -2,12 +2,12 @@ use cursive::{
     align::{Align, HAlign, VAlign},
     direction,
     event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent},
-    menu,
-    theme::{ColorStyle, Style},
+    impl_enabled, menu,
+    theme::ColorStyle,
     utils::{markup::StyledString, span::SpannedStr},
     view::{CannotFocus, Position, View},
     views::{LayerPosition, MenuPopup},
-    Cursive, Printer, Vec2, With, XY, impl_enabled, Rect,
+    Cursive, Printer, Rect, Vec2, With, XY,
 };
 use std::cell::Cell;
 use std::cmp::{min, Ordering};
@@ -271,10 +271,7 @@ impl<T: 'static> CheckListView<T> {
     }
 
     /// Gets a mut item at given idx or None.
-    pub fn get_item_mut(
-        &mut self,
-        i: usize,
-    ) -> Option<(&mut StyledString, &mut bool, &mut T)> {
+    pub fn get_item_mut(&mut self, i: usize) -> Option<(&mut StyledString, &mut bool, &mut T)> {
         if i >= self.items.len() {
             None
         } else {
@@ -289,15 +286,11 @@ impl<T: 'static> CheckListView<T> {
         }
     }
 
-    pub fn get_selected_item_mut(
-        &mut self,
-    ) -> Option<(&mut StyledString, &mut bool, &mut T)> {
+    pub fn get_selected_item_mut(&mut self) -> Option<(&mut StyledString, &mut bool, &mut T)> {
         self.get_item_mut(self.focus())
     }
 
-    pub fn get_checked_item_mut(
-        &mut self,
-    ) -> Vec<(&mut StyledString, &mut T)> {
+    pub fn get_checked_item_mut(&mut self) -> Vec<(&mut StyledString, &mut T)> {
         self.items
             .iter_mut()
             .filter(|item| item.checked)
@@ -305,20 +298,20 @@ impl<T: 'static> CheckListView<T> {
                 let label = &mut item.label;
                 let value = Rc::get_mut(&mut item.value).unwrap();
                 (label, value)
-            }).collect()
+            })
+            .collect()
     }
 
-    pub fn get_checked_item(
-        &self,
-    ) -> Vec<(StyledString, &T)> {
+    pub fn get_checked_item(&self) -> Vec<(StyledString, &T)> {
         self.items
             .iter()
             .filter(|item| item.checked)
             .map(|item| {
-                let label = item.label.clone();
+                let label = item.label.to_owned();
                 let value = &*item.value;
                 (label, value)
-            }).collect()
+            })
+            .collect()
     }
 
     /// Iterate mutably on the items in this view.
@@ -329,16 +322,18 @@ impl<T: 'static> CheckListView<T> {
     /// `Rc<T>` is still alive after calling `CheckListView::selection()`).
     ///
     /// If `T` does not implement `Clone`, check `CheckListView::try_iter_mut()`.
-    pub fn iter_mut(
-        &mut self,
-    ) -> impl Iterator<Item = (&mut StyledString, &mut bool, &mut T)>
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut StyledString, &mut bool, &mut T)>
     where
         T: Clone,
     {
         self.last_required_size = None;
-        self.items
-            .iter_mut()
-            .map(|item| (&mut item.label, &mut item.checked, Rc::make_mut(&mut item.value)))
+        self.items.iter_mut().map(|item| {
+            (
+                &mut item.label,
+                &mut item.checked,
+                Rc::make_mut(&mut item.value),
+            )
+        })
     }
 
     /// Try to iterate mutably on the items in this view.
@@ -351,9 +346,13 @@ impl<T: 'static> CheckListView<T> {
         &mut self,
     ) -> impl Iterator<Item = (&mut StyledString, &mut bool, Option<&mut T>)> {
         self.last_required_size = None;
-        self.items
-            .iter_mut()
-            .map(|item| (&mut item.label, &mut item.checked, Rc::get_mut(&mut item.value)))
+        self.items.iter_mut().map(|item| {
+            (
+                &mut item.label,
+                &mut item.checked,
+                Rc::get_mut(&mut item.value),
+            )
+        })
     }
 
     /// Iterate on the items in this view.
@@ -369,9 +368,13 @@ impl<T: 'static> CheckListView<T> {
     ///
     /// Returns an iterator with each item and their labels.
     pub fn iter_checked(&self) -> impl Iterator<Item = (&str, &T)> {
-        self.items
-            .iter()
-            .filter_map(|item| if item.checked {Some((item.label.source(), &*item.value))} else {None})
+        self.items.iter().filter_map(|item| {
+            if item.checked {
+                Some((item.label.source(), &*item.value))
+            } else {
+                None
+            }
+        })
     }
 
     /// Removes an item from the list.
@@ -398,7 +401,8 @@ impl<T: 'static> CheckListView<T> {
     where
         S: Into<StyledString>,
     {
-        self.items.insert(index, Item::new(label.into(), checked, value));
+        self.items
+            .insert(index, Item::new(label.into(), checked, value));
         let focus = self.focus();
         if focus >= index {
             self.focus.set(focus + 1);
@@ -451,25 +455,24 @@ impl<T: 'static> CheckListView<T> {
     pub fn with_all<S, I>(self, iter: I) -> Self
     where
         S: Into<StyledString>,
-        I: IntoIterator<Item = (S,bool, T)>,
+        I: IntoIterator<Item = (S, bool, T)>,
     {
         self.with(|s| s.add_all(iter))
     }
 
     fn draw_item(&self, printer: &Printer, i: usize) {
-        let l = self.items[i].label.width()+4;
+        let l = self.items[i].label.width() + 4;
         let x = self.align.h.get_offset(l, printer.size.x);
         printer.print_hline::<XY<usize>>(XY::new(0, 0), x, " ");
         printer.print(XY::new(0, 0), "[ ] ");
         if self.items[i].checked {
             printer.print(XY::new(1, 0), "X");
         }
-        printer.print_styled::<XY<usize>>(XY::new(x+4, 0), SpannedStr::from(&self.items[i].label));
+        printer.print_styled(XY::new(x + 4, 0), SpannedStr::from(&self.items[i].label));
         if l < printer.size.x {
             assert!((l + x) <= printer.size.x);
             printer.print_hline(XY::new(x + l, 0), printer.size.x - (l + x), " ");
         }
-        
     }
 
     /// Returns the id of the item currently selected.
@@ -640,12 +643,11 @@ impl<T: 'static> CheckListView<T> {
     }
 
     fn submit(&mut self) -> EventResult {
-        
         let item = self.get_selected_item_mut();
         if let Some(item) = item {
             *item.1 = !*item.1;
         }
-        
+
         EventResult::Consumed(None)
     }
 
@@ -679,9 +681,11 @@ impl<T: 'static> CheckListView<T> {
             let lower_c: Vec<char> = c.to_lowercase().collect();
             let lower_c: &[char] = &lower_c;
 
-            if let Some((i,_)) = iter.enumerate().skip(self.focus() + 1).find(
-                |&(_, (label, _,_))| label.to_lowercase().starts_with(lower_c),
-            ) {
+            if let Some((i, _)) = iter
+                .enumerate()
+                .skip(self.focus() + 1)
+                .find(|&(_, (label, _, _))| label.to_lowercase().starts_with(lower_c))
+            {
                 i % self.len()
             } else {
                 return EventResult::Ignored;
@@ -697,24 +701,18 @@ impl<T: 'static> CheckListView<T> {
     fn on_event_regular(&mut self, event: Event) -> EventResult {
         match event {
             Event::Key(Key::Up) if self.focus() > 0 => self.focus_up(1),
-            Event::Key(Key::Down) if self.focus() + 1 < self.items.len() => {
-                self.focus_down(1)
-            }
+            Event::Key(Key::Down) if self.focus() + 1 < self.items.len() => self.focus_down(1),
             Event::Key(Key::PageUp) => self.focus_up(10),
             Event::Key(Key::PageDown) => self.focus_down(10),
             Event::Key(Key::Home) => self.focus.set(0),
-            Event::Key(Key::End) => {
-                self.focus.set(self.items.len().saturating_sub(1))
-            }
+            Event::Key(Key::End) => self.focus.set(self.items.len().saturating_sub(1)),
             Event::Mouse {
                 event: MouseEvent::Press(_),
                 position,
                 offset,
             } if position
                 .checked_sub(offset)
-                .map(|position| {
-                    position < self.last_size && position.y < self.len()
-                })
+                .map(|position| position < self.last_size && position.y < self.len())
                 .unwrap_or(false) =>
             {
                 self.focus.set(position.y - offset.y)
@@ -724,19 +722,16 @@ impl<T: 'static> CheckListView<T> {
                 position,
                 offset,
             } if position
-                    .checked_sub(offset)
-                    .map(|position| {
-                        position < self.last_size && position.y == self.focus()
-                    })
-                    .unwrap_or(false) =>
+                .checked_sub(offset)
+                .map(|position| position < self.last_size && position.y == self.focus())
+                .unwrap_or(false) =>
             {
                 return self.submit();
             }
-            Event::Char(' ') |
-            Event::Key(Key::Enter) => return self.submit(),
-            Event::CtrlChar ('a') => self.checkall(),
-            Event::CtrlChar ('u') => self.uncheckall(),
-            Event::CtrlChar ('d') => self.toggleall(),
+            Event::Char(' ') | Event::Key(Key::Enter) => return self.submit(),
+            Event::CtrlChar('a') => self.checkall(),
+            Event::CtrlChar('u') => self.uncheckall(),
+            Event::CtrlChar('d') => self.toggleall(),
             Event::Char(c) if self.autojump => return self.on_char_event(c),
             _ => return EventResult::Ignored,
         }
@@ -746,7 +741,7 @@ impl<T: 'static> CheckListView<T> {
 
     /// Returns a callback from selection change.
     fn make_select_cb(&self) -> Option<Callback> {
-        self.on_select.clone().and_then(|cb| {
+        self.on_select.to_owned().and_then(|cb| {
             self.selection()
                 .map(|v| Callback::from_fn(move |s| cb(s, &v)))
         })
@@ -758,7 +753,7 @@ impl<T: 'static> CheckListView<T> {
         let mut tree = menu::Tree::new();
         for (i, item) in self.items.iter().enumerate() {
             let focus: Rc<Cell<usize>> = Rc::clone(&self.focus);
-            tree.add_leaf(item.label.source(), move |s| {
+            tree.add_leaf(item.label.source(), move |_| {
                 // TODO: What if an item was removed in the meantime?
                 focus.set(i);
             });
@@ -781,7 +776,7 @@ impl<T: 'static> CheckListView<T> {
         let offset = self.last_offset.get();
         let offset = offset + (text_offset, 0);
         let offset = offset.saturating_sub((0, focus));
-        let offset = offset.saturating_sub::<XY<usize>>(XY::new(2 , 1));
+        let offset = offset.saturating_sub::<XY<usize>>(XY::new(2, 1));
 
         // And now, we can return the callback that will create the popup.
         EventResult::with_cb(move |s| {
@@ -797,10 +792,8 @@ impl<T: 'static> CheckListView<T> {
                 .unwrap_or_else(Vec2::zero);
             let offset = offset.signed() - current_offset;
             // And finally, put the view in view!
-            s.screen_mut().add_layer_at(
-                Position::parent(offset),
-                MenuPopup::new(tree).focus(focus),
-            );
+            s.screen_mut()
+                .add_layer_at(Position::parent(offset), MenuPopup::new(tree).focus(focus));
         })
     }
 
@@ -813,19 +806,17 @@ impl<T: 'static> CheckListView<T> {
                 event: MouseEvent::Release(MouseButton::Left),
                 position,
                 offset,
-            } if position.fits_in_rect(offset, self.last_size) => {
-                self.open_popup()
-            }
+            } if position.fits_in_rect(offset, self.last_size) => self.open_popup(),
             _ => EventResult::Ignored,
         }
     }
 }
-
+#[allow(dead_code)]
 impl CheckListView<String> {
     /// Convenient method to use the label as value.
     pub fn add_item_str<S: Into<String>>(&mut self, label: S, checked: bool) {
         let label = label.into();
-        self.add_item(label.clone(), checked, label);
+        self.add_item(label.to_owned(), checked, label);
     }
 
     /// Chainable variant of add_item_str
@@ -842,7 +833,7 @@ impl CheckListView<String> {
     /// ```
     #[must_use]
     pub fn item_str<S: Into<String>>(self, label: S) -> Self {
-        self.with(|s| s.add_item_str(label,false))
+        self.with(|s| s.add_item_str(label, false))
     }
 
     /// Convenient method to use the label as value.
@@ -851,7 +842,7 @@ impl CheckListView<String> {
         S: Into<String>,
     {
         let label = label.into();
-        self.insert_item(index, label.clone(),false, label);
+        self.insert_item(index, label.to_owned(), false, label);
     }
 
     /// Adds all strings from an iterator.
@@ -895,7 +886,7 @@ impl CheckListView<String> {
         self.with(|s| s.add_all_str(iter))
     }
 }
-
+#[allow(dead_code)]
 impl<T: 'static> CheckListView<T>
 where
     T: Ord,
@@ -938,12 +929,9 @@ impl<T: 'static> View for CheckListView<T> {
                 printer.print::<XY<usize>>(XY::new(0, 0), "<");
                 printer.print::<XY<usize>>(XY::new(x, 0), ">");
 
-                if let Some(label) =
-                    self.items.get(self.focus()).map(|item| &item.label)
-                {
+                if let Some(label) = self.items.get(self.focus()).map(|item| &item.label) {
                     // And center the text?
-                    let offset =
-                        HAlign::Center.get_offset(label.width(), x + 1);
+                    let offset = HAlign::Center.get_offset(label.width(), x + 1);
 
                     printer.print_styled(XY::new(offset, 0), SpannedStr::from(label));
                 }
@@ -958,13 +946,10 @@ impl<T: 'static> View for CheckListView<T> {
                 printer.offset::<XY<usize>>((0, i).into()).with_selection(
                     i == self.focus(),
                     |printer| {
-                        if i != self.focus()
-                            && !(self.enabled && printer.enabled)
-                        {
-                            printer.with_color(
-                                ColorStyle::secondary(),
-                                |printer| self.draw_item(printer, i),
-                            );
+                        if i != self.focus() && !(self.enabled && printer.enabled) {
+                            printer.with_color(ColorStyle::secondary(), |printer| {
+                                self.draw_item(printer, i)
+                            });
                         } else {
                             self.draw_item(printer, i);
                         }
@@ -984,7 +969,7 @@ impl<T: 'static> View for CheckListView<T> {
         let w = self
             .items
             .iter()
-            .map(|item| item.label.width()+4)
+            .map(|item| item.label.width() + 4)
             .max()
             .unwrap_or(1);
         let size = if self.popup {
@@ -1010,10 +995,7 @@ impl<T: 'static> View for CheckListView<T> {
         }
     }
 
-    fn take_focus(
-        &mut self,
-        source: direction::Direction,
-    ) -> Result<EventResult, CannotFocus> {
+    fn take_focus(&mut self, source: direction::Direction) -> Result<EventResult, CannotFocus> {
         (self.enabled && !self.items.is_empty())
             .then(|| {
                 if !self.popup {
@@ -1021,9 +1003,7 @@ impl<T: 'static> View for CheckListView<T> {
                         direction::Direction::Abs(direction::Absolute::Up) => {
                             self.focus.set(0);
                         }
-                        direction::Direction::Abs(
-                            direction::Absolute::Down,
-                        ) => {
+                        direction::Direction::Abs(direction::Absolute::Down) => {
                             self.focus.set(self.items.len().saturating_sub(1));
                         }
                         _ => (),
@@ -1047,7 +1027,6 @@ impl<T: 'static> View for CheckListView<T> {
 
 // We wrap each value in a `Rc` and add a label
 struct Item<T> {
-    
     label: StyledString,
     checked: bool,
     value: Rc<T>,
@@ -1056,7 +1035,11 @@ struct Item<T> {
 impl<T> Item<T> {
     fn new(label: StyledString, checked: bool, value: T) -> Self {
         let value = Rc::new(value);
-        Item { label, checked, value }
+        Item {
+            label,
+            checked,
+            value,
+        }
     }
 }
 
