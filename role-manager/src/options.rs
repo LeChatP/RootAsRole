@@ -111,11 +111,6 @@ pub struct Opt {
     pub bounding: Option<bool>,
 }
 
-pub struct OptEntry {
-    pub level: Level,
-    pub opttype: OptType,
-    pub optvalue: OptValue,
-}
 
 impl AsRef<Opt> for Opt {
     fn as_ref(&self) -> &Opt {
@@ -566,10 +561,6 @@ impl<'a> OptStack<'a> {
 
     pub fn get_description(&self, current_level : Level, opttype: OptType) -> String {
         let (level, value) = self.get_from_type(opttype.to_owned());
-        
-        eprintln!("getdesc optstack: {:?}, level : {:?}", self.stack, self.get_level());
-        eprintln!("current_level: {:?}, optype : {:?}", current_level, opttype);
-        eprintln!("obtained level : {:?}, value : {:?}", level, value);
         let leveldesc;
         if level != current_level {
             leveldesc = match level {

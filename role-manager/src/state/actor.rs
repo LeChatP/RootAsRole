@@ -94,7 +94,7 @@ where
 #[derive(Clone)]
 pub struct SelectGroupState<T, V>
 where
-    T: State + Clone + PushableItemState<Groups> + 'static,
+    T: State + Clone + PushableItemState<Vec<Groups>> + 'static,
     V: State + Clone + 'static,
 {
     previous_state: V,
@@ -223,7 +223,7 @@ where
         Box::new(self.next_state)
     }
 
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         if self.checklist {
             let mut select = CheckListView::<String>::new().autojump();
             add_actors(ActorType::User, &mut select, self.selected.to_owned());
@@ -270,14 +270,14 @@ where
     T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
-    fn push(&mut self, manager: &mut RoleContext, item: String) {
+    fn push(&mut self, _manager: &mut RoleContext, item: String) {
         self.selected.to_owned().unwrap_or_default().push(item);
     }
 }
 
 impl<T, V> SelectGroupState<T, V>
 where
-    T: State + Clone + PushableItemState<Groups> + 'static,
+    T: State + Clone + PushableItemState<Vec<Groups>> + 'static,
     V: State + Clone + 'static,
 {
     pub fn new(previous_state: V, next_state: T, groups: Vec<Groups>) -> Self {
@@ -291,7 +291,7 @@ where
 
 impl<T, V> State for SelectGroupState<T, V>
 where
-    T: State + Clone + PushableItemState<Groups> + 'static,
+    T: State + Clone + PushableItemState<Vec<Groups>> + 'static,
     V: State + Clone + 'static,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -306,7 +306,7 @@ where
         self
     }
 
-    fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
+    fn submit(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         Box::new(EditGroupState::<Self, Self>::new(
             *self.clone(),
             *self.clone(),
@@ -319,7 +319,11 @@ where
         Box::new(self.previous_state)
     }
 
-    fn confirm(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+    fn confirm(mut self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        self.next_state.push(
+            manager,
+            self.groups,
+        );
         Box::new(self.next_state)
     }
 
@@ -331,7 +335,7 @@ where
         self
     }
 
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = SelectView::<usize>::new().autojump().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
         });
@@ -427,7 +431,7 @@ where
         Box::new(self.next_state)
     }
 
-    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = CheckListView::<String>::new().autojump();
         if let Some(group_list) = self.selected.to_owned() {
             add_actors(ActorType::Group, &mut select, Some(group_list.into()));
@@ -480,10 +484,10 @@ where
 impl<T, V> PushableItemState<Groups> for SelectGroupState<T, V>
 where
     V: State + Clone + 'static,
-    T: State + Clone + PushableItemState<Groups> + 'static,
+    T: State + Clone + PushableItemState<Vec<Groups>> + 'static,
 {
-    fn push(&mut self, manager: &mut RoleContext, item: Groups) {
-        manager.set_group(item);
+    fn push(&mut self, _manager: &mut RoleContext, item: Groups) {
+        self.groups.push(item.to_owned());
     }
 }
 

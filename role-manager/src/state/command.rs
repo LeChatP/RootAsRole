@@ -1,7 +1,7 @@
 use cursive::{
     direction::Orientation,
     view::{Nameable, Scrollable, Margins, Resizable},
-    views::{Dialog, EditView, LinearLayout, TextView, TextArea},
+    views::{Dialog, LinearLayout, TextView, TextArea},
 };
 
 use super::{
@@ -10,16 +10,12 @@ use super::{
 use crate::{
     capabilities::{self, Caps},
     checklist::CheckListView,
-    ActorType, Cursive, RoleContext
+    Cursive, RoleContext
 };
 
 
 
 pub struct EditCapabilitiesState;
-
-pub struct EditSetIDState {
-    pub actor_type: ActorType,
-}
 
 pub struct EditCommandState;
 

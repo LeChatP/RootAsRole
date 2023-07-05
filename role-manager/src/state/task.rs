@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use cursive::{
     event::Key,
     view::{Nameable, Scrollable},
@@ -10,12 +8,12 @@ use cursive::{
 use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::{Groups, IdTask}};
 
 use super::{
-    actor::{SelectGroupState, SelectUserState, EditGroupState, Users},
+    actor::{SelectUserState, EditGroupState, Users},
     command::{EditCapabilitiesState, EditCommandState},
     common::{ConfirmState, InputState},
     execute,
     options::SelectOptionState,
-    role::{EditRoleState, SelectRoleState},
+    role::EditRoleState,
     DeletableItemState, ExecuteType, Input, PushableItemState,
 };
 
@@ -24,8 +22,6 @@ pub struct SelectTaskState;
 
 #[derive(Clone)]
 pub struct EditTaskState;
-
-pub struct EditPurposeState;
 
 impl State for SelectTaskState {
     fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {

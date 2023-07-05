@@ -132,7 +132,6 @@ impl InitState for SelectRoleState {
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("roles").scrollable());
-        println!("{:?}", manager.roles);
         layout.add_child(
             TextView::new(
                 manager
@@ -348,14 +347,13 @@ impl PushableItemState<Users> for EditRoleState {
     }
 }
 
-impl<'a> PushableItemState<Groups> for EditRoleState {
-    fn push(&mut self, manager: &mut RoleContext, item: Groups) {
+impl<'a> PushableItemState<Vec<Groups>> for EditRoleState {
+    fn push(&mut self, manager: &mut RoleContext, item: Vec<Groups>) {
         manager
             .get_role()
             .unwrap()
             .as_ref()
             .borrow_mut()
-            .groups
-            .push(item);
+            .groups = item;
     }
 }

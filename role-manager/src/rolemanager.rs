@@ -1,12 +1,10 @@
 
-
-use std::borrow::Borrow;
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::error::Error;
 use std::rc::{Rc, Weak};
 
-use crate::config::{self, Role, Task, Save, Groups, IdTask};
-use crate::options::{OptType, Opt, OptStack, Level};
+use crate::config::{self, Role, Task, Groups, IdTask};
+use crate::options::{Opt, OptStack};
 pub trait ContextMemento<T> {
     fn restore(&self) -> T;
 }
@@ -42,9 +40,7 @@ pub struct RoleContext {
     new_task: Option<Rc<RefCell<Task<'static>>>>,
     selected_command: Option<usize>,
     new_command: Option<String>,
-    selected_groups: Option<usize>,
     new_groups: Option<Groups>,
-    selected_options: Option<OptType>,
     new_options: Option<Opt>,
     error: Option<Box<dyn Error>>,
     is_new: bool,
@@ -62,9 +58,7 @@ impl Clone for RoleContext {
             new_task: Some(Rc::new(RefCell::new(self.new_task.clone().unwrap().as_ref().borrow().clone()))),
             selected_command: self.selected_command.clone(),
             new_command: self.new_command.clone(),
-            selected_groups: self.selected_groups.clone(),
             new_groups: self.new_groups.clone(),
-            selected_options: self.selected_options.clone(),
             new_options: self.new_options.clone(),
             error: None,
             is_new: self.is_new.clone(),
@@ -80,8 +74,6 @@ impl RoleContext {
             selected_role: None,
             selected_task: None,
             selected_command: None,
-            selected_groups: None,
-            selected_options: None,
             new_role: None,
             new_task: None,
             new_command: None,
@@ -179,8 +171,6 @@ impl RoleContext {
     pub fn unselect_role(&mut self) {
         self.selected_role = None;
         self.unselect_task();
-        self.unselect_groups();
-        self.unselect_options();
     }
 
     pub fn select_task(&mut self, task_index: usize) -> Result<(), Box<dyn Error>> {
@@ -195,8 +185,6 @@ impl RoleContext {
 
     pub fn unselect_task(&mut self) {
         self.selected_task = None;
-        self.unselect_command();
-        self.unselect_options();
     }
 
     pub fn select_command(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
@@ -209,37 +197,6 @@ impl RoleContext {
         }
     }
 
-    pub fn unselect_command(&mut self) {
-        self.selected_command = None;
-    }
-
-    pub fn select_groups(&mut self, group_index: usize) -> Result<(), Box<dyn Error>> {
-        let len = self
-            .roles.as_ref().borrow()
-            .roles[self.selected_role.unwrap()].as_ref().borrow()
-            .groups
-            .len();
-        if group_index > len - 1 {
-            return Err("groups not exist".into());
-        } else {
-            self.selected_groups = Some(group_index);
-            return Ok(());
-        }
-    }
-
-    pub fn unselect_groups(&mut self) {
-        self.selected_groups = None;
-    }
-
-    pub fn select_options(&mut self, option_type: OptType) -> Result<(), Box<dyn Error>> {
-        self.selected_options = Some(option_type);
-        return Ok(());
-    }
-
-    pub fn unselect_options(&mut self) {
-        self.selected_options = None;
-    }
-
     pub fn delete_role(&mut self) -> Result<(), Box<dyn Error>> {
         if let Some(i) = self.selected_role {
             self.roles.as_ref().borrow_mut().roles.remove(i);
@@ -247,55 +204,6 @@ impl RoleContext {
             return Ok(());
         } else {
             return Err("no role selected".into());
-        }
-    }
-
-    pub fn add_group(&mut self, group: Groups) -> Result<(), Box<dyn Error>> {
-        if self.selected_role.is_some() {
-            self.roles.as_ref().borrow()
-                .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
-                .groups
-                .push(group);
-            return Ok(());
-        } else {
-            return Err("no role selected".into());
-        }
-    }
-
-    pub fn add_option(&mut self, level : Level, option: Opt) {
-        match level {
-            Level::Global => {
-                self.roles.as_ref().borrow_mut().options = Some(Rc::new(option.into()));
-            }
-            Level::Role => {
-                match self.selected_role {
-                    Some(i) => {
-                        self.roles.as_ref().borrow()
-                            .roles[i].as_ref().borrow_mut()
-                            .options = Some(Rc::new(option.into()));
-                    }
-                    None => {
-                        println!("no role selected");
-                    }
-                }
-            }
-            Level::Task => {
-                match self.selected_task {
-                    Some(i) => {
-                        self.roles.as_ref().borrow()
-                            .roles[self.selected_role.unwrap()].as_ref().borrow_mut()
-                            .tasks[i]
-                            .as_ref().borrow_mut()
-                            .options = Some(Rc::new(option.into()));
-                    }
-                    None => {
-                        println!("no command selected");
-                    }
-                }
-            }
-            _ => {
-                println!("unimplemented level");
-            }
         }
     }
 
@@ -330,10 +238,6 @@ impl RoleContext {
         self.get_selected_task().or(self.get_new_task())
     }
 
-    pub fn get_task_index(&self) -> Option<usize> {
-        return self.selected_task;
-    }
-
     pub fn get_command(&self) -> Option<String> {
         match self.selected_command {
             Some(i) => {
@@ -353,29 +257,6 @@ impl RoleContext {
             }
             None => {
                 return Err("no command selected".into());
-            }
-        }
-    }
-
-    pub fn get_group(&self) -> Option<Groups> {
-        match self.selected_groups {
-            Some(i) => {
-                return Some(self.get_role().unwrap().as_ref().borrow().groups[i].to_owned());
-            }
-            None => {
-                return None;
-            }
-        }
-    }
-
-    pub fn set_group(&mut self, group: Groups) -> Result<(), Box<dyn Error>> {
-        match self.selected_groups {
-            Some(i) => {
-                self.get_role().unwrap().as_ref().borrow_mut().groups[i] = group;
-                return Ok(());
-            }
-            None => {
-                return Err("no group selected".into());
             }
         }
     }

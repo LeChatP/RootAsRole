@@ -7,11 +7,10 @@ use cursive::{
 use super::{
     common::{ConfirmState, InputState},
     execute,
-    role::{EditRoleState, SelectRoleState},
-    Cursive, DeletableItemState, ExecuteType, Input, PushableItemState, State, task::EditTaskState,
+    Cursive, DeletableItemState, ExecuteType, Input, PushableItemState, State,
 };
 use crate::{
-    options::{Level, OptType, OptValue, Opt, OptEntry},
+    options::{OptType, OptValue},
     RoleContext, RoleManagerApp,
 };
 use std::cell::RefCell;

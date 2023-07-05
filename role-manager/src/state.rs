@@ -86,7 +86,7 @@ pub trait InitState {
     fn config_cursive(&self, cursive: &mut Cursive);
 }
 
-static mut exiting : bool = false;
+static mut EXITING : bool = false;
 
 pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
@@ -104,7 +104,7 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         ExecuteType::Input(input) => state.input(&mut manager, input),
         ExecuteType::Exit => {
             unsafe {
-                exiting = true;
+                EXITING = true;
             }
             state.confirm(&mut manager)
         },
@@ -122,11 +122,11 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         style.effects.insert(Effect::Bold);
         s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", | s | {
             s.pop_layer();
-            if unsafe { exiting } {
+            if unsafe { EXITING } {
                 s.quit();
             }
         }));
-    } else if unsafe { exiting } {
+    } else if unsafe { EXITING } {
         s.quit();
     }
     

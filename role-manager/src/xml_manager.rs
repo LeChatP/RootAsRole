@@ -1,13 +1,11 @@
 use std::{
-    borrow::{BorrowMut},
+    borrow::BorrowMut,
     cell::RefCell,
     error::Error,
     rc::Rc,
 };
 
-use sxd_document::{
-    dom::{Document, Element},
-};
+use sxd_document::dom::{Document, Element};
 use sxd_xpath::{Context, Factory, Value};
 use tracing::warn;
 
@@ -46,7 +44,6 @@ fn get_options(level: Level, node: Element) -> Opt {
     for child in node.children() {
         let mut options = rc_options.borrow_mut();
         if let Some(elem) = child.element() {
-            println!("{}", elem.name().local_part());
             match elem.name().local_part() {
                 "path" => {
                     options.path = Some(
@@ -154,7 +151,6 @@ fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result
 fn add_actors(role : &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     for child in node.children() {
         if let Some(elem) = child.element() {
-            println!("{}", elem.name().local_part());
             match elem.name().local_part() {
                 "user" => role.users.push(
                     elem
