@@ -53,6 +53,7 @@ where T: State + Clone + 'static {
             OptType::EnvWhitelist => {
                 title = "Enter environment variables to whitelist separated by commas"
             }
+            OptType::Wildcard => title = "Enter wildcard chars",
             OptType::Bounding | OptType::NoRoot => {
                 let mut stack = manager.get_options();
                 stack.set_value(

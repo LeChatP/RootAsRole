@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use std::str::Split;
 use std::rc::{Weak, Rc};
 
 use sxd_document::dom::{Document, Element};
@@ -46,6 +47,16 @@ impl From<Vec<String>> for Groups {
         let mut set = HashSet::new();
         for group in groups {
             set.insert(group);
+        }
+        Groups { groups: set }
+    }
+}
+
+impl From<Split<'_,&str>> for Groups {
+    fn from(groups: Split<&str>) -> Self {
+        let mut set = HashSet::new();
+        for group in groups {
+            set.insert(group.to_owned());
         }
         Groups { groups: set }
     }

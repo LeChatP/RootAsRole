@@ -45,7 +45,7 @@ impl State for SelectRoleState {
     }
 
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        if let Err(err) = manager.select_role(index) {
+        if let Err(err) = manager.select_role_by_index(index) {
             manager.set_error(err);
         }
         Box::new(ConfirmState::new(
@@ -56,7 +56,7 @@ impl State for SelectRoleState {
     }
 
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        if let Err(err) = manager.select_role(index) {
+        if let Err(err) = manager.select_role_by_index(index) {
             manager.set_error(err);
         }
         Box::new(EditRoleState)
@@ -97,7 +97,7 @@ impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
 
 impl DeletableItemState for SelectRoleState {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
-        if let Err(err) = manager.select_role(index){
+        if let Err(err) = manager.select_role_by_index(index){
             manager.set_error(err);
             return; 
         }

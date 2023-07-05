@@ -1,6 +1,8 @@
+use std::{error::Error, collections::HashSet};
+
 use clap::{Parser, Subcommand};
 
-use crate::version::PACKAGE_VERSION;
+use crate::{version::PACKAGE_VERSION, rolemanager::RoleContext, config::structs::{Groups, Save, IdTask}, capabilities::Caps, options::{OptType, OptValue}};
 
 //rar newrole "role1" --user "user1" --group "group1" "group2"
 //rar addtask "role1" --cmds "command1" --caps "cap_dac_override,cap_dac_read_search"
@@ -27,8 +29,7 @@ use crate::version::PACKAGE_VERSION;
 A role is a set of tasks that can be executed by a user or a group of users.
 These tasks are multiple commands associated with their permissions (capabilities).
 Like Sudo, you could manipulate environment variables, PATH, and other options.
-But Sudo is not designed to use permissions for commands.
-"
+But Sudo is not designed to use permissions for commands."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -114,8 +115,9 @@ enum CCommand {
         allow_bounding: Option<bool>,
         /// When you configure command with wildcard, you can except chars of wildcard match
         #[arg(long)]
-        wildcard_denied: Option<bool>,
+        wildcard_denied: Option<String>,
     },
+    /// NOT IMPLEMENTED: Import sudoers file
     Import {
         /// Import sudoers file as RootAsRole roles
         file: String,
@@ -125,23 +127,66 @@ enum CCommand {
 /**
  * Parse the command line arguments
  */
-pub fn parse_args() {
+pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
     let args = Cli::parse();
     match args.command.as_ref() {
         Some(CCommand::NewRole { role, user, group }) => {
-            println!("new role: {}", role);
-            println!("new user: {:?}", user);
-            println!("new group: {:?}", group);
+            manager.create_new_role(role.to_owned());
+            let role = manager.get_role().unwrap();
+            if let Some(user) = user.to_owned() {
+                let user = user.into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                role.as_ref().borrow_mut().users = user.to_owned();
+            }
+            if let Some(group) = group.to_owned() {
+                let group = group.into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<String>>();
+                role.as_ref().borrow_mut().groups = group.iter().map(|x| Into::<Groups>::into(x.split(","))).collect::<Vec<Groups>>();
+            }
+            manager.save_new_role();
+            manager.save(None, None)?;
+            Ok(true)
         }
         Some(CCommand::Grant { role, user, group }) => {
-            println!("grant role: {}", role);
-            println!("grant user: {:?}", user);
-            println!("grant group: {:?}", group);
+            let mut res = false;
+            if let Some(role) = manager.find_role(&role) {
+                if let Some(user) = user.to_owned() {
+                    for u in user {
+                        if !role.as_ref().borrow().users.contains(&u) {
+                            role.as_ref().borrow_mut().users.push(u);
+                        }
+                    }
+                    res = true;
+                }
+                if let Some(group) = group.to_owned() {
+                    role.as_ref().borrow_mut().groups.append(&mut group.iter().map(|x| Into::<Groups>::into(x.split("&"))).collect::<Vec<Groups>>());
+                    role.as_ref().borrow_mut().groups = role.as_ref().borrow_mut().groups.clone().into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                    res = true;
+                }
+                if res {
+                    manager.save(None, None)?;
+                }
+            }
+            Ok(res)
         }
         Some(CCommand::Revoke { role, user, group }) => {
-            println!("revoke role: {}", role);
-            println!("revoke user: {:?}", user);
-            println!("revoke group: {:?}", group);
+            let mut res = false;
+            if let Some(role) = manager.find_role(&role) {
+                if let Some(user) = user.to_owned() {
+                    for u in user {
+                        if !role.as_ref().borrow().users.contains(&u) {
+                            role.as_ref().borrow_mut().users.retain(|x| x != &u);
+                        }
+                    }
+                    res = true;
+                }
+                if let Some(group) = group.to_owned() {
+                    role.as_ref().borrow_mut().groups = group.iter().map(|x| Into::<Groups>::into(x.split("&"))).collect::<Vec<Groups>>();
+                    res = true;
+                }
+                if res {
+                    manager.save(None, None)?;
+                }
+            }
+            Ok(res)
         }
         Some(CCommand::AddTask {
             role,
@@ -149,17 +194,30 @@ pub fn parse_args() {
             cmds,
             caps,
         }) => {
-            println!("add task: {}", role);
-            println!("add withid: {:?}", withid);
-            println!("add cmds: {:?}", cmds);
-            println!("add caps: {:?}", caps);
+            manager.select_role_by_name(&role)?;
+            manager.create_new_task(withid.to_owned())?;
+            let task = manager.get_task().unwrap();
+            if let Some(cmds) = cmds.to_owned() {
+                task.as_ref().borrow_mut().commands = cmds;
+            }
+            if let Some(caps) = caps.to_owned() {
+                task.as_ref().borrow_mut().capabilities = Some(Caps::from(caps));
+            }
+            manager.save(None, None)?;
+            Ok(true)
         }
         Some(CCommand::DelTask { role, id }) => {
-            println!("del task: {}", role);
-            println!("del id: {:?}", id);
+            manager.select_role_by_name(&role)?;
+            manager.select_task_by_id(&IdTask::Name(id.to_owned()))?;
+            manager.delete_task()?;
+            manager.save(None, None)?;
+            Ok(true)
         }
         Some(CCommand::DelRole { role }) => {
-            println!("del role: {}", role);
+            manager.select_role_by_name(&role)?;
+            manager.delete_role()?;
+            manager.save(None, None)?;
+            Ok(true)
         }
         Some(CCommand::Config {
             role,
@@ -170,23 +228,58 @@ pub fn parse_args() {
             allow_bounding,
             wildcard_denied,
         }) => {
-            println!("config role: {:?}", role);
-            println!("config task: {:?}", task);
-            println!("config path: {:?}", path);
-            println!("config env_keep: {:?}", env_keep);
-            println!("config env_check: {:?}", env_check);
-            println!("config allow_bounding: {:?}", allow_bounding);
-            println!("config wildcard_denied: {:?}", wildcard_denied);
+            if let Some(role) = role {
+                manager.select_role_by_name(&role)?;
+            }
+            if let Some(task) = task {
+                let tid = match task.parse::<usize>() {
+                    Ok(id) => IdTask::Number(id),
+                    Err(_) => IdTask::Name(task.to_owned()),
+                };
+                manager.select_task_by_id(&tid)?;
+            }
+            if let Some(path) = path {
+                manager.get_options().set_value(OptType::Path, Some(OptValue::String(path.to_owned())));
+            }
+            if let Some(env_keep) = env_keep {
+                manager.get_options().set_value(OptType::EnvWhitelist, Some(OptValue::String(env_keep.to_owned())));
+            }
+            if let Some(env_check) = env_check {
+                manager.get_options().set_value(OptType::EnvChecklist, Some(OptValue::String(env_check.to_owned())));
+            }
+            if let Some(allow_bounding) = allow_bounding {
+                manager.get_options().set_value(OptType::Bounding, Some(OptValue::Bool(allow_bounding.to_owned())));
+            }
+            if let Some(wildcard_denied) = wildcard_denied {
+                manager.get_options().set_value(OptType::Wildcard, Some(OptValue::String(wildcard_denied.to_owned())));
+            }
+            manager.save(None, None)?;
+            Ok(true)
         }
         Some(CCommand::List { role, task }) => {
-            println!("config role: {:?}", role);
-            println!("config task: {:?}", task);
+            if let Some(role) = role {
+                manager.select_role_by_name(&role)?;
+                if let Some(task) = task {
+                    let tid = match task.parse::<usize>() {
+                        Ok(id) => IdTask::Number(id),
+                        Err(_) => IdTask::Name(task.to_owned()),
+                    };
+                    manager.select_task_by_id(&tid)?;
+                    let task = manager.get_task().unwrap();
+                    println!("{}", task.as_ref().borrow().get_description());
+                }else {
+                    let role = manager.get_role().unwrap();
+                    println!("{}", role.as_ref().borrow().get_description());
+                }
+                
+            }
+            Ok(true)
         }
-        Some(CCommand::Import { file }) => {
-            println!("import file: {:?}", file);
+        Some(CCommand::Import { file: _ }) => {
+            Err("not implemented".into())
         }
         None => {
-            println!("no command");
+            Ok(false)
         }
     }
 }
@@ -298,7 +391,7 @@ mod tests {
             env_keep: Some("env1".to_string()),
             env_check: Some("env2".to_string()),
             allow_bounding: Some(true),
-            wildcard_denied: Some(false),
+            wildcard_denied: Some(";;".to_string()),
         });
         assert_eq!(args, expected_command);
     }

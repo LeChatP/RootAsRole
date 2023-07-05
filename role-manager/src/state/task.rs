@@ -32,7 +32,7 @@ impl State for SelectTaskState {
         Box::new(EditTaskState)
     }
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        match manager.select_task(index) {
+        match manager.select_task_by_index(index) {
             Err(err) => {
                 manager.set_error(err);
                 return self;
@@ -49,7 +49,7 @@ impl State for SelectTaskState {
         }
     }
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        if let Err(err) = manager.select_task(index) {
+        if let Err(err) = manager.select_task_by_index(index) {
             manager.set_error(err);
         }
         Box::new(EditTaskState)

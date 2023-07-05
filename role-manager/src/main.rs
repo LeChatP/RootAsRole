@@ -27,7 +27,12 @@ pub struct RoleManagerApp {
 }
 
 fn main() {
-    parse_args();
+    let roles = config::load::load_roles(FILENAME).expect("Failed to load roles");
+    let mut rc_role_manager = RoleContext::new(roles);
+    if let Err(err) = parse_args(&mut rc_role_manager) {
+        eprintln!("{}", err);
+        std::process::exit(1);
+    }
     // a builder for `FmtSubscriber`.
     let subscriber = FmtSubscriber::builder()
         // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
@@ -39,8 +44,7 @@ fn main() {
         tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
         
         
-        let roles = config::load::load_roles(FILENAME).expect("Failed to load roles");
-        let mut rc_role_manager = RoleContext::new(roles);
+        
         let mut siv = cursive::default();
         //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
         //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));

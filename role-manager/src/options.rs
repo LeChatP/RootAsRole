@@ -22,6 +22,7 @@ pub enum OptType {
     EnvChecklist,
     NoRoot,
     Bounding,
+    Wildcard,
 }
 
 impl OptType {
@@ -42,6 +43,7 @@ impl OptType {
             OptType::EnvChecklist => 2,
             OptType::NoRoot => 3,
             OptType::Bounding => 4,
+            OptType::Wildcard => 5,
         }
     }
 }
@@ -84,6 +86,7 @@ impl OptValue {
                 if self.as_bool() {String::from("Restrict with Bounding")}
                 else {String::from("Do not restrict with Bounding")}
             },
+            OptType::Wildcard => self.to_string(),
         }
     }
 }
@@ -407,6 +410,10 @@ impl<'a> OptStack<'a> {
                 let res = self.get_bounding();
                 (res.0, OptValue::Bool(res.1))
             }
+            OptType::Wildcard => {
+                let res = self.get_wildcard();
+                (res.0, OptValue::String(res.1))
+            }
         }
     }
 
@@ -439,6 +446,11 @@ impl<'a> OptStack<'a> {
                     OptType::Bounding => {
                         if let Some(value) = opt.bounding.borrow().as_ref() {
                             return Some(OptValue::Bool(value.to_owned()));
+                        }
+                    }
+                    OptType::Wildcard => {
+                        if let Some(value) = opt.wildcard_denied.borrow().as_ref() {
+                            return Some(OptValue::String(value.to_owned()));
                         }
                     }
                 }
@@ -492,6 +504,15 @@ impl<'a> OptStack<'a> {
         })
         .unwrap_or((Level::None.into(), true))
     }
+    pub fn get_wildcard(&self) -> (Level, String) {
+        self.find_in_options(|opt| {
+            if let Some(p) = opt.borrow().wildcard_denied.borrow().as_ref() {
+                return Some((opt.borrow().level, p.to_owned())).into();
+            }
+            None.into()
+        })
+        .unwrap_or((Level::None.into(), "".to_string()))
+    }
 
     fn set_at_level(&mut self, opttype: OptType, value: Option<OptValue>, level: Level) {
         let ulevel = level as usize;
@@ -534,6 +555,13 @@ impl<'a> OptStack<'a> {
                 if let Some(value) = value.borrow() {
                     if let OptValue::Bool(value) = value {
                         opt.bounding.replace(*value);
+                    }
+                }
+            }
+            OptType::Wildcard => {
+                if let Some(value) = value.borrow() {
+                    if let OptValue::String(value) = value {
+                        opt.wildcard_denied.replace(value.to_string());
                     }
                 }
             }

@@ -106,13 +106,29 @@ impl RoleContext {
         }
     }
 
-    pub fn select_role(&mut self, role_index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn select_role_by_index(&mut self, role_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.roles.as_ref().borrow().roles.len();
         if role_index > len - 1 {
             return Err("role not exist".into());
         } else {
             self.selected_role = Some(role_index);
             return Ok(());
+        }
+    }
+
+    pub fn select_role_by_name(&mut self, role_name: &String) -> Result<(), Box<dyn Error>> {
+        let mut index = None;
+        for (i, r) in self.roles.as_ref().borrow().roles.iter().enumerate() {
+            if r.as_ref().borrow().name == *role_name {
+                index = Some(i);
+                break;
+            }
+        }
+        if let Some(index) = index {
+            self.selected_role = Some(index);
+            return Ok(());
+        } else {
+            return Err("role not exist".into());
         }
     }
 
@@ -173,13 +189,29 @@ impl RoleContext {
         self.unselect_task();
     }
 
-    pub fn select_task(&mut self, task_index: usize) -> Result<(), Box<dyn Error>> {
+    pub fn select_task_by_index(&mut self, task_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.get_role().unwrap().as_ref().borrow().tasks.len();
         if task_index > len - 1 {
             return Err("command not exist".into());
         } else {
             self.selected_task = Some(task_index);
             return Ok(());
+        }
+    }
+
+    pub fn select_task_by_id(&mut self, task_id: &IdTask) -> Result<(), Box<dyn Error>> {
+        let mut index = None;
+        for (i, t) in self.get_role().unwrap().as_ref().borrow().tasks.iter().enumerate() {
+            if t.as_ref().borrow().id == *task_id {
+                index = Some(i);
+                break;
+            }
+        }
+        if let Some(index) = index {
+            self.selected_task = Some(index);
+            return Ok(());
+        } else {
+            return Err("task not exist".into());
         }
     }
 
@@ -207,6 +239,16 @@ impl RoleContext {
         }
     }
 
+    pub fn delete_task(&mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(i) = self.selected_task {
+            self.get_role().unwrap().as_ref().borrow_mut().tasks.remove(i);
+            self.unselect_task();
+            return Ok(());
+        } else {
+            return Err("no task selected".into());
+        }
+    }
+
     pub fn get_selected_role(&self) -> Option<Rc<RefCell<Role<'static>>>> {
         match self.selected_role {
             Some(i) => {
@@ -216,6 +258,15 @@ impl RoleContext {
                 return None;
             }
         }
+    }
+
+    pub fn find_role(&self, name: &String) -> Option<Rc<RefCell<Role<'static>>>> {
+        for role in self.roles.as_ref().borrow().roles.iter() {
+            if role.as_ref().borrow().name == *name {
+                return Some(role.to_owned());
+            }
+        }
+        return None;
     }
 
     pub fn get_role(&self) -> Option<Rc<RefCell<Role<'static>>>> {
