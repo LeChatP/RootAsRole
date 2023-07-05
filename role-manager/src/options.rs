@@ -1,10 +1,10 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
+    borrow::Borrow,
     cell::RefCell,
     rc::Rc,
 };
 
-use crate::config::{self, Roles, Role, Task};
+use crate::config::structs::{Roles, Role, Task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -118,6 +118,31 @@ impl AsRef<Opt> for Opt {
     }
 }
 
+impl ToString for Opt {
+    fn to_string(&self) -> String {
+        let mut str = String::new();
+        if let Some(path) = &self.path {
+            str.push_str(format!("path={}\n", path).as_str());
+        }
+        if let Some(env_whitelist) = &self.env_whitelist {
+            str.push_str(format!("env_whitelist={}\n", env_whitelist).as_str());
+        }
+        if let Some(env_checklist) = &self.env_checklist {
+            str.push_str(format!("env_checklist={}\n", env_checklist).as_str());
+        }
+        if let Some(wildcard_denied) = &self.wildcard_denied {
+            str.push_str(format!("wildcard_denied={}\n", wildcard_denied).as_str());
+        }
+        if let Some(no_root) = &self.no_root {
+            str.push_str(format!("no_root={}\n", no_root).as_str());
+        }
+        if let Some(bounding) = &self.bounding {
+            str.push_str(format!("bounding={}\n", bounding).as_str());
+        }
+        str
+    }
+}
+
 #[allow(dead_code)]
 fn attribute_str(key: &str, value: &str) -> String {
     format!("{}=\"{}\"", key, value)
@@ -195,41 +220,6 @@ fn setuid_xml_str(setuser: Option<&(bool, String)>, setgroup: Option<&(bool, Str
     }
     str_setuser.push_str("/>");
     str_setuser
-}
-
-impl ToString for Opt {
-    fn to_string(&self) -> String {
-        let mut content = String::new();
-        if let Some(path) = self.path.borrow().as_ref() {
-            content.push_str(&format!(
-                "<path>{}</path>",
-                config::sxd_sanitize(path.to_owned().borrow_mut())
-            ));
-        }
-        if let Some(env_whitelist) = self.env_whitelist.borrow().as_ref() {
-            content.push_str(&format!(
-                "<env-keep>{}</env-keep>",
-                config::sxd_sanitize(env_whitelist.to_owned().borrow_mut())
-            ));
-        }
-        if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
-            content.push_str(&format!(
-                "<env-check>{}</env-check>",
-                config::sxd_sanitize(env_checklist.to_owned().borrow_mut())
-            ));
-        }
-        if let Some(no_root) = self.no_root.borrow().as_ref() {
-            if no_root == &false {
-                content.push_str(&format!("<allow-root enforce=\"{}\"/>", !no_root));
-            }
-        }
-        if let Some(bounding) = self.bounding.borrow().as_ref() {
-            if bounding == &false {
-                content.push_str(&format!("<allow-bounding enforce=\"{}\"/>", !bounding));
-            }
-        }
-        format!("<options>{}</options>", content)
-    }
 }
 
 impl Default for Opt {

@@ -3,20 +3,18 @@
 mod capabilities;
 mod checklist;
 mod cli;
-mod config;
 mod options;
 mod rolemanager;
 mod state;
 mod version;
-mod xml_manager;
-
+mod config;
 
 use cli::parse_args;
-use config::FILENAME;
 use cursive::Cursive;
 use rolemanager::RoleContext;
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
+use crate::config::FILENAME;
 
 pub enum ActorType {
     User,
@@ -41,7 +39,7 @@ fn main() {
         tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
         
         
-        let roles = xml_manager::load_roles(FILENAME).expect("Failed to load roles");
+        let roles = config::load::load_roles(FILENAME).expect("Failed to load roles");
         let mut rc_role_manager = RoleContext::new(roles);
         let mut siv = cursive::default();
         //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();

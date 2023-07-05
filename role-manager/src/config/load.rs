@@ -1,19 +1,27 @@
-use std::{
-    borrow::BorrowMut,
-    cell::RefCell,
-    error::Error,
-    rc::Rc,
-};
+pub fn is_enforced(node: Element) -> bool {
+    let enforce = node.attribute("enforce");
+    (enforce.is_some()
+        && enforce
+            .expect("Unable to retrieve enforce attribute")
+            .value()
+            == "true")
+        || enforce.is_none()
+}
+
+use std::{borrow::BorrowMut, cell::RefCell, error::Error, rc::Rc};
 
 use sxd_document::dom::{Document, Element};
 use sxd_xpath::{Context, Factory, Value};
 use tracing::warn;
 
-
 use crate::{
     options::{Level, Opt},
     version::PACKAGE_VERSION,
-    config::{Role, Roles, Task, IdTask, is_enforced, get_groups, read_xml_file},
+};
+
+use super::{
+    do_in_main_element, get_groups, read_xml_file,
+    structs::{IdTask, Role, Roles, Task},
 };
 
 pub fn find_role<'a>(
@@ -83,14 +91,17 @@ fn get_options(level: Level, node: Element) -> Opt {
                 }
                 "allow-root" => options.no_root = Some(is_enforced(elem)).into(),
                 "allow-bounding" => options.bounding = Some(is_enforced(elem)).into(),
-                "wildcard-denied" => options.wildcard_denied = Some(
-                    elem.children()
-                        .first()
-                        .unwrap()
-                        .text()
-                        .expect("Cannot read Checklist option")
-                        .text()
-                        .to_string()),
+                "wildcard-denied" => {
+                    options.wildcard_denied = Some(
+                        elem.children()
+                            .first()
+                            .unwrap()
+                            .text()
+                            .expect("Cannot read Checklist option")
+                            .text()
+                            .to_string(),
+                    )
+                }
                 _ => warn!("Unknown option: {}", elem.name().local_part()),
             }
         }
@@ -98,7 +109,11 @@ fn get_options(level: Level, node: Element) -> Opt {
     rc_options
 }
 
-fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result<Rc<RefCell<Task<'a>>>, Box<dyn Error>> {
+fn get_task<'a>(
+    role: &Rc<RefCell<Role<'a>>>,
+    node: Element,
+    i: usize,
+) -> Result<Rc<RefCell<Task<'a>>>, Box<dyn Error>> {
     let task = Task::new(IdTask::Number(i), Rc::downgrade(role));
     if let Some(id) = node.attribute_value("id") {
         task.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
@@ -128,8 +143,9 @@ fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result
                         .into(),
                 ),
                 "options" => {
-                    task.as_ref().borrow_mut().options = Some(Rc::new(get_options(Level::Task, elem).into()));
-                },
+                    task.as_ref().borrow_mut().options =
+                        Some(Rc::new(get_options(Level::Task, elem).into()));
+                }
                 "purpose" => {
                     task.as_ref().borrow_mut().purpose = Some(
                         elem.children()
@@ -148,13 +164,12 @@ fn get_task<'a>(role: &Rc<RefCell<Role<'a>>>, node: Element, i: usize) -> Result
     Ok(task)
 }
 
-fn add_actors(role : &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
+fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     for child in node.children() {
         if let Some(elem) = child.element() {
             match elem.name().local_part() {
                 "user" => role.users.push(
-                    elem
-                        .attribute_value("name")
+                    elem.attribute_value("name")
                         .ok_or("Unable to retrieve user name")?
                         .to_string()
                         .into(),
@@ -167,15 +182,18 @@ fn add_actors(role : &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
+pub fn get_role<'a>(
+    element: Element,
+    roles: Option<Rc<RefCell<Roles<'a>>>>,
+) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
     let rc_role = Role::new(
         element.attribute_value("name").unwrap().to_string().into(),
         match roles {
             Some(roles) => Some(Rc::downgrade(&roles)),
             None => None,
-        }
+        },
     );
-    
+
     let mut i: usize = 0;
     for child in element.children() {
         let mut role = rc_role.as_ref().borrow_mut();
@@ -184,8 +202,7 @@ pub fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> 
                 "actors" => add_actors(&mut role, element)?,
                 "task" => {
                     i += 1;
-                    role.tasks
-                        .push(get_task(&rc_role, element, i)?)
+                    role.tasks.push(get_task(&rc_role, element, i)?)
                 }
                 "options" => {
                     role.options = Some(Rc::new(get_options(Level::Role, element).into())).into()
@@ -204,24 +221,23 @@ pub fn get_role<'a>(element: Element, roles: Option<Rc<RefCell<Roles<'a>>>>) -> 
     Ok(rc_role)
 }
 
-pub fn load_roles<'a>(filename : &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn Error>> {
+pub fn load_roles<'a>(filename: &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn Error>> {
     let package = read_xml_file(filename).expect("Failed to read xml file");
     let doc = package.as_document();
     let rc_roles = Roles::new(PACKAGE_VERSION);
     {
-    let mut roles = rc_roles.as_ref().borrow_mut();
-    for child in doc.root().children() {
-        if let Some(element) = child.element() {
-            if element.name().local_part() == "rootasrole" {
-               
+        let mut roles = rc_roles.as_ref().borrow_mut();
+        do_in_main_element(doc, "rootasrole", |element| {
+            if let Some(element) = element.element() {
                 for role in element.children() {
                     if let Some(element) = role.element() {
                         if element.name().local_part() == "roles" {
                             for role in element.children() {
                                 if let Some(element) = role.element() {
                                     if element.name().local_part() == "role" {
-                                        roles.roles.push(
-                                            get_role(element,Some(rc_roles.to_owned()))?);
+                                        roles
+                                            .roles
+                                            .push(get_role(element, Some(rc_roles.to_owned()))?);
                                     }
                                 }
                             }
@@ -232,10 +248,10 @@ pub fn load_roles<'a>(filename : &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn
                         }
                     }
                 }
-                return Ok(rc_roles.to_owned());
+                return Ok(());
             }
-        }
+            Err("Unable to find rootasrole element".into())
+        })?;
+        return Ok(rc_roles.to_owned());
     }
-}
-Err("Unable to find rootasrole element".into())
 }

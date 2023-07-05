@@ -8,13 +8,12 @@ use super::task::SelectTaskState;
 use super::{execute, DeletableItemState, ExecuteType, InitState, Input, PushableItemState, State};
 
 use cursive::direction::Orientation;
-use cursive::event::{Event, Key};
+use cursive::event::Key;
 use cursive::view::{Nameable, Scrollable};
 use cursive::views::{Dialog, LinearLayout, SelectView, TextView};
 use cursive::Cursive;
-use sxd_document::writer::Writer;
 
-use crate::config::{read_xml_file, Groups, Role, Save};
+use crate::config::structs::{Groups, Role, Save};
 use crate::{RoleContext, RoleManagerApp};
 
 #[derive(Clone)]

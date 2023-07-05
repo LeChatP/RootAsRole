@@ -7,7 +7,7 @@ use cursive::{
 };
 use libc::{endgrent, endpwent, getgrent, getpwent, setgrent, setpwent};
 
-use crate::{checklist::CheckListView, config::Groups, ActorType, RoleContext};
+use crate::{checklist::CheckListView, ActorType, RoleContext, config::structs::Groups};
 
 use super::{
     common::{ConfirmState, InputState},

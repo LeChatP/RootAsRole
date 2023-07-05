@@ -5,7 +5,7 @@ use cursive::{
     Cursive, align::{HAlign, VAlign},
 };
 
-use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::{Groups, IdTask}};
+use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::structs::{Groups, IdTask}};
 
 use super::{
     actor::{SelectUserState, EditGroupState, Users},

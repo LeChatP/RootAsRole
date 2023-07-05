@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::{Rc, Weak};
 
-use crate::config::{self, Role, Task, Groups, IdTask};
+use crate::config::structs::{Roles, Role, Task, Groups, IdTask};
 use crate::options::{Opt, OptStack};
 pub trait ContextMemento<T> {
     fn restore(&self) -> T;
@@ -33,7 +33,7 @@ impl RoleContextHistory {
 #[derive(Debug)]
 pub struct RoleContext {
     history: Weak<RefCell<RoleContextHistory>>,
-    pub roles: Rc<RefCell<config::Roles<'static>>>,
+    pub roles: Rc<RefCell<Roles<'static>>>,
     selected_role: Option<usize>,
     new_role: Option<Rc<RefCell<Role<'static>>>>,
     selected_task: Option<usize>,
@@ -67,7 +67,7 @@ impl Clone for RoleContext {
 }
 
 impl RoleContext {
-    pub fn new(roles: Rc<RefCell<config::Roles<'static>>>) -> RoleContext {
+    pub fn new(roles: Rc<RefCell<Roles<'static>>>) -> RoleContext {
         RoleContext {
             history: Rc::downgrade(&Rc::new(RoleContextHistory::new().into())),
             roles,
