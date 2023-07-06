@@ -21,6 +21,9 @@ jobs:
       with:
         toolchain: stable
         override: true
+    
+    - name: Go to role-manager
+      run: cd role-manager
 
     - name: Format code with Rustfmt
       run: cargo fmt --all -- --check
@@ -29,4 +32,4 @@ jobs:
       run: cargo clippy --all -- -D warnings
 
     - name: Build and run tests
-      run: cargo test --all
+      run: cargo test --all --
