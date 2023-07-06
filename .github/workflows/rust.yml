@@ -1,0 +1,32 @@
+name: Rust Code Quality
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Format code with Rustfmt
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy
+      run: cargo clippy --all -- -D warnings
+
+    - name: Build and run tests
+      run: cargo test --all
