@@ -21,15 +21,16 @@ jobs:
       with:
         toolchain: stable
         override: true
-    
-    - name: Go to role-manager
-      run: cd role-manager
+      
 
     - name: Format code with Rustfmt
       run: cargo fmt --all -- --check
+      working-directory: role-manager
 
     - name: Run Clippy
       run: cargo clippy --all -- -D warnings
+      working-directory: role-manager
 
     - name: Build and run tests
       run: cargo test --all --
+      working-directory: role-manager
