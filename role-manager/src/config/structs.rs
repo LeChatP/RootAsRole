@@ -2,15 +2,13 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use std::rc::{Rc, Weak};
 use std::str::Split;
-use std::rc::{Weak, Rc};
 
 use sxd_document::dom::{Document, Element};
 
 use crate::capabilities::Caps;
 use crate::options::Opt;
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Groups {
@@ -52,7 +50,7 @@ impl From<Vec<String>> for Groups {
     }
 }
 
-impl From<Split<'_,&str>> for Groups {
+impl From<Split<'_, &str>> for Groups {
     fn from(groups: Split<&str>) -> Self {
         let mut set = HashSet::new();
         for group in groups {
@@ -340,12 +338,11 @@ impl<'a> Task<'a> {
                 .map(|s| {
                     if s.len() < 64 {
                         return s.to_owned();
-                    }else {
-                        let mut  s = s.to_owned().chars().take(64).collect::<String>();
+                    } else {
+                        let mut s = s.to_owned().chars().take(64).collect::<String>();
                         s.push_str("...");
                         s
                     }
-                    
                 })
                 .fold(String::new(), |acc, x| acc + &format!("{}\n", x))
         ));
@@ -354,5 +351,9 @@ impl<'a> Task<'a> {
 }
 
 pub trait Save {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>>;
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>>;
 }

@@ -5,7 +5,6 @@ pub mod options;
 pub mod role;
 mod task;
 
-
 use cursive::{
     event::Key,
     theme::{BaseColor, Color, ColorStyle, Effect, Style},
@@ -86,7 +85,7 @@ pub trait InitState {
     fn config_cursive(&self, cursive: &mut Cursive);
 }
 
-static mut EXITING : bool = false;
+static mut EXITING: bool = false;
 
 pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
@@ -107,7 +106,7 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
                 EXITING = true;
             }
             state.confirm(&mut manager)
-        },
+        }
     };
     s.pop_layer();
     s.clear_global_callbacks(Key::Del);
@@ -120,15 +119,17 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
             Color::Dark(BaseColor::Red),
         ));
         style.effects.insert(Effect::Bold);
-        s.add_layer(Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", | s | {
-            s.pop_layer();
-            if unsafe { EXITING } {
-                s.quit();
-            }
-        }));
+        s.add_layer(
+            Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", |s| {
+                s.pop_layer();
+                if unsafe { EXITING } {
+                    s.quit();
+                }
+            }),
+        );
     } else if unsafe { EXITING } {
         s.quit();
     }
-    
+
     s.set_user_data(RoleManagerApp { manager, state });
 }

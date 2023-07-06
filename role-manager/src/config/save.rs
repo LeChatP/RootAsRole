@@ -1,16 +1,28 @@
-use std::{fs::File, error::Error, collections::HashSet, io::Write, borrow::{Borrow, BorrowMut}, os::fd::AsRawFd};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    collections::HashSet,
+    error::Error,
+    fs::File,
+    io::Write,
+    os::fd::AsRawFd,
+};
 
-use libc::{ioctl, c_ulong, c_int};
-use sxd_document::{dom::{Document, Element}, writer::Writer};
+use libc::{c_int, c_ulong, ioctl};
+use sxd_document::{
+    dom::{Document, Element},
+    writer::Writer,
+};
 
-use crate::{rolemanager::RoleContext, capabilities::Caps, options::Opt, version::DTD};
+use crate::{capabilities::Caps, options::Opt, rolemanager::RoleContext, version::DTD};
 
-use super::{structs::{ToXml, Task, Roles, Role, Groups, Save}, read_xml_file, foreach_element};
+use super::{
+    foreach_element, read_xml_file,
+    structs::{Groups, Role, Roles, Save, Task, ToXml},
+};
 
 const FS_IOC_GETFLAGS: c_ulong = 0x80086601;
 const FS_IOC_SETFLAGS: c_ulong = 0x40086602;
 const FS_IMMUTABLE_FL: c_int = 0x00000010;
-
 
 fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
     let file = match File::open(file) {
@@ -42,10 +54,12 @@ pub fn sxd_sanitize(element: &mut str) -> String {
         .replace("'", "&apos;")
 }
 
-
-
 impl<'a> Save for Roles<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "rootasrole" {
@@ -61,7 +75,11 @@ impl<'a> Save for Roles<'a> {
                             if let Some(role_element) = role_element.element() {
                                 let rolename = role_element.attribute_value("name").unwrap();
                                 if let Some(role) = self.get_role(rolename) {
-                                    if role.as_ref().borrow().save(doc.into(), Some(&role_element))? {
+                                    if role
+                                        .as_ref()
+                                        .borrow()
+                                        .save(doc.into(), Some(&role_element))?
+                                    {
                                         edited = true;
                                     }
                                 } else {
@@ -78,10 +96,11 @@ impl<'a> Save for Roles<'a> {
                             let role = self.get_role(&rolename).unwrap();
                             let role_element = doc.create_element("role");
                             role_element.set_attribute_value("name", &rolename);
-                            role.as_ref().borrow().save(doc.into(), Some(&role_element))?;
+                            role.as_ref()
+                                .borrow()
+                                .save(doc.into(), Some(&role_element))?;
                             child.append_child(role_element);
                         }
-                        
                     }
                     "options" => {
                         if self
@@ -105,7 +124,11 @@ impl<'a> Save for Roles<'a> {
 }
 
 impl<'a> Save for Role<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "role" {
@@ -197,7 +220,11 @@ impl<'a> Save for Role<'a> {
 }
 
 impl<'a> Save for Task<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "task" {
@@ -260,7 +287,9 @@ impl<'a> Save for Task<'a> {
                         if self
                             .to_owned()
                             .options
-                            .and_then(|o| Some(o.as_ref().borrow().save(doc.into(), Some(&child_element))))
+                            .and_then(|o| {
+                                Some(o.as_ref().borrow().save(doc.into(), Some(&child_element)))
+                            })
                             .unwrap()?
                         {
                             edited = true;
@@ -284,7 +313,11 @@ impl<'a> Save for Task<'a> {
 }
 
 impl Save for Opt {
-    fn save(&self, _doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        _doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "options" {
             return Err("Unable to save options".into());
@@ -297,12 +330,16 @@ impl Save for Opt {
                         if self.path.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child_element.children().iter().fold(String::new(), |acc, c| {
-                            acc + match c.text() {
-                                Some(t) => t.text(),
-                                None => "",
-                            }
-                        }) != *self.path.as_ref().unwrap()
+                        } else if child_element
+                            .children()
+                            .iter()
+                            .fold(String::new(), |acc, c| {
+                                acc + match c.text() {
+                                    Some(t) => t.text(),
+                                    None => "",
+                                }
+                            })
+                            != *self.path.as_ref().unwrap()
                         {
                             child_element.set_text(self.path.as_ref().unwrap());
                             edited = true;
@@ -398,12 +435,21 @@ impl Save for Opt {
 }
 
 impl Save for RoleContext {
-    fn save(&self, _doc: Option<&Document>, _element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        _doc: Option<&Document>,
+        _element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let path = "/etc/security/rootasrole.xml";
         let package = read_xml_file(path)?;
         let doc = package.as_document();
         let element = doc.root().children().first().unwrap().element().unwrap();
-        if self.roles.as_ref().borrow().save(Some(&doc), Some(&element))? {
+        if self
+            .roles
+            .as_ref()
+            .borrow()
+            .save(Some(&doc), Some(&element))?
+        {
             let mut content = Vec::new();
             let writer = Writer::new().set_single_quotes(false);
             writer

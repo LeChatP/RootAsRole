@@ -22,11 +22,11 @@ pub struct SelectRoleState;
 #[derive(Clone)]
 pub struct EditRoleState;
 
-fn delete_role( s : &mut Cursive ) {
-            s.find_name::<SelectView<usize>>("roles").and_then(|view| {
-                view.selection()
-                    .and_then(|i| Some(execute(s, ExecuteType::Delete(*i))))
-            });
+fn delete_role(s: &mut Cursive) {
+    s.find_name::<SelectView<usize>>("roles").and_then(|view| {
+        view.selection()
+            .and_then(|i| Some(execute(s, ExecuteType::Delete(*i))))
+    });
 }
 
 /**
@@ -85,7 +85,6 @@ impl State for SelectRoleState {
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         self.config_cursive(cursive);
         cursive.add_layer(self.init(manager));
-        
     }
 }
 
@@ -97,9 +96,9 @@ impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
 
 impl DeletableItemState for SelectRoleState {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
-        if let Err(err) = manager.select_role_by_index(index){
+        if let Err(err) = manager.select_role_by_index(index) {
             manager.set_error(err);
-            return; 
+            return;
         }
         if let Err(err) = manager.delete_role() {
             manager.set_error(err);
@@ -348,11 +347,6 @@ impl PushableItemState<Users> for EditRoleState {
 
 impl<'a> PushableItemState<Vec<Groups>> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Vec<Groups>) {
-        manager
-            .get_role()
-            .unwrap()
-            .as_ref()
-            .borrow_mut()
-            .groups = item;
+        manager.get_role().unwrap().as_ref().borrow_mut().groups = item;
     }
 }

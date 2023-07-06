@@ -3,18 +3,18 @@
 mod capabilities;
 mod checklist;
 mod cli;
+mod config;
 mod options;
 mod rolemanager;
 mod state;
 mod version;
-mod config;
 
+use crate::config::FILENAME;
 use cli::parse_args;
 use cursive::Cursive;
 use rolemanager::RoleContext;
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
-use crate::config::FILENAME;
 
 pub enum ActorType {
     User,
@@ -41,23 +41,20 @@ fn main() {
         // completes the builder.
         .finish();
 
-        tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-        
-        
-        
-        let mut siv = cursive::default();
-        //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
-        //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-        siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
-        SelectRoleState.config_cursive(&mut siv);
+    let mut siv = cursive::default();
+    //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
+    //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
 
-        let app = RoleManagerApp {
-            manager: rc_role_manager,
-            state: Box::new(SelectRoleState),
-        };
+    siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
+    SelectRoleState.config_cursive(&mut siv);
 
-        siv.set_user_data(app);
-        siv.run();
-    
+    let app = RoleManagerApp {
+        manager: rc_role_manager,
+        state: Box::new(SelectRoleState),
+    };
+
+    siv.set_user_data(app);
+    siv.run();
 }

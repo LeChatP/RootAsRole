@@ -1,9 +1,8 @@
-
 use std::cell::RefCell;
 use std::error::Error;
 use std::rc::{Rc, Weak};
 
-use crate::config::structs::{Roles, Role, Task, Groups, IdTask};
+use crate::config::structs::{Groups, IdTask, Role, Roles, Task};
 use crate::options::{Opt, OptStack};
 pub trait ContextMemento<T> {
     fn restore(&self) -> T;
@@ -11,13 +10,13 @@ pub trait ContextMemento<T> {
 
 #[derive(Debug)]
 pub struct RoleContextHistory {
-    mementos: Vec<RoleContext>
+    mementos: Vec<RoleContext>,
 }
 
 impl RoleContextHistory {
     pub fn new() -> Self {
         RoleContextHistory {
-            mementos: Vec::new()
+            mementos: Vec::new(),
         }
     }
 
@@ -44,7 +43,6 @@ pub struct RoleContext {
     new_options: Option<Opt>,
     error: Option<Box<dyn Error>>,
     is_new: bool,
-    
 }
 
 impl Clone for RoleContext {
@@ -53,9 +51,13 @@ impl Clone for RoleContext {
             history: Rc::downgrade(&self.history.upgrade().unwrap()),
             roles: Rc::new(RefCell::new(self.roles.as_ref().borrow().clone())),
             selected_role: self.selected_role.clone(),
-            new_role: Some(Rc::new(RefCell::new(self.new_role.clone().unwrap().as_ref().borrow().clone()))),
+            new_role: Some(Rc::new(RefCell::new(
+                self.new_role.clone().unwrap().as_ref().borrow().clone(),
+            ))),
             selected_task: self.selected_task.clone(),
-            new_task: Some(Rc::new(RefCell::new(self.new_task.clone().unwrap().as_ref().borrow().clone()))),
+            new_task: Some(Rc::new(RefCell::new(
+                self.new_task.clone().unwrap().as_ref().borrow().clone(),
+            ))),
             selected_command: self.selected_command.clone(),
             new_command: self.new_command.clone(),
             new_groups: self.new_groups.clone(),
@@ -84,9 +86,12 @@ impl RoleContext {
         }
     }
 
-
     pub fn save_state(&self) {
-        self.history.upgrade().unwrap().borrow_mut().save(self.clone())
+        self.history
+            .upgrade()
+            .unwrap()
+            .borrow_mut()
+            .save(self.clone())
     }
 
     pub fn restore_state(&mut self) {
@@ -152,8 +157,8 @@ impl RoleContext {
         let parent;
         let mut id;
         self.unselect_task();
-        if let Some(role) = self.get_role(){
-            id = IdTask::Number(role.as_ref().borrow().tasks.len()+1);
+        if let Some(role) = self.get_role() {
+            id = IdTask::Number(role.as_ref().borrow().tasks.len() + 1);
             parent = Rc::downgrade(&role);
         } else {
             return Err("role not selected".into());
@@ -171,7 +176,13 @@ impl RoleContext {
 
     pub fn save_new_task(&mut self) {
         if let Some(task) = &self.new_task {
-            task.as_ref().borrow().get_parent().unwrap().borrow_mut().tasks.push(task.to_owned());
+            task.as_ref()
+                .borrow()
+                .get_parent()
+                .unwrap()
+                .borrow_mut()
+                .tasks
+                .push(task.to_owned());
         }
         self.new_task = None;
     }
@@ -201,7 +212,15 @@ impl RoleContext {
 
     pub fn select_task_by_id(&mut self, task_id: &IdTask) -> Result<(), Box<dyn Error>> {
         let mut index = None;
-        for (i, t) in self.get_role().unwrap().as_ref().borrow().tasks.iter().enumerate() {
+        for (i, t) in self
+            .get_role()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .tasks
+            .iter()
+            .enumerate()
+        {
             if t.as_ref().borrow().id == *task_id {
                 index = Some(i);
                 break;
@@ -241,7 +260,12 @@ impl RoleContext {
 
     pub fn delete_task(&mut self) -> Result<(), Box<dyn Error>> {
         if let Some(i) = self.selected_task {
-            self.get_role().unwrap().as_ref().borrow_mut().tasks.remove(i);
+            self.get_role()
+                .unwrap()
+                .as_ref()
+                .borrow_mut()
+                .tasks
+                .remove(i);
             self.unselect_task();
             return Ok(());
         } else {
@@ -312,10 +336,10 @@ impl RoleContext {
         }
     }
 
-/**
-* Return a OptStack that contains Opt in function of selections
-*/
-    pub fn get_options(&self) -> OptStack<'static>  {
+    /**
+    * Return a OptStack that contains Opt in function of selections
+    */
+    pub fn get_options(&self) -> OptStack<'static> {
         if let Some(task) = self.get_task() {
             let role = task.as_ref().borrow().get_parent().unwrap();
             OptStack::from_task(self.roles.to_owned(), role, task)
@@ -334,4 +358,3 @@ impl RoleContext {
         return self.error.take();
     }
 }
-

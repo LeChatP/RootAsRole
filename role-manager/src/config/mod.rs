@@ -1,9 +1,11 @@
-use std::{fs::File, error::Error, io::Read};
+use std::{error::Error, fs::File, io::Read};
 
-use sxd_document::{parser, Package, dom::{Element, ChildOfElement, Document, ChildOfRoot}};
+use sxd_document::{
+    dom::{ChildOfElement, ChildOfRoot, Document, Element},
+    parser, Package,
+};
 
 use self::structs::Groups;
-
 
 pub mod load;
 pub mod save;

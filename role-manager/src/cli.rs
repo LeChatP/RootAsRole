@@ -1,8 +1,14 @@
-use std::{error::Error, collections::HashSet};
+use std::{collections::HashSet, error::Error};
 
 use clap::{Parser, Subcommand};
 
-use crate::{version::PACKAGE_VERSION, rolemanager::RoleContext, config::structs::{Groups, Save, IdTask}, capabilities::Caps, options::{OptType, OptValue}};
+use crate::{
+    capabilities::Caps,
+    config::structs::{Groups, IdTask, Save},
+    options::{OptType, OptValue},
+    rolemanager::RoleContext,
+    version::PACKAGE_VERSION,
+};
 
 //rar newrole "role1" --user "user1" --group "group1" "group2"
 //rar addtask "role1" --cmds "command1" --caps "cap_dac_override,cap_dac_read_search"
@@ -127,19 +133,30 @@ enum CCommand {
 /**
  * Parse the command line arguments
  */
-pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
+pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
     let args = Cli::parse();
     match args.command.as_ref() {
         Some(CCommand::NewRole { role, user, group }) => {
             manager.create_new_role(role.to_owned());
             let role = manager.get_role().unwrap();
             if let Some(user) = user.to_owned() {
-                let user = user.into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                let user = user
+                    .into_iter()
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
                 role.as_ref().borrow_mut().users = user.to_owned();
             }
             if let Some(group) = group.to_owned() {
-                let group = group.into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<String>>();
-                role.as_ref().borrow_mut().groups = group.iter().map(|x| Into::<Groups>::into(x.split(","))).collect::<Vec<Groups>>();
+                let group = group
+                    .into_iter()
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<String>>();
+                role.as_ref().borrow_mut().groups = group
+                    .iter()
+                    .map(|x| Into::<Groups>::into(x.split(",")))
+                    .collect::<Vec<Groups>>();
             }
             manager.save_new_role();
             manager.save(None, None)?;
@@ -157,8 +174,21 @@ pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
                     res = true;
                 }
                 if let Some(group) = group.to_owned() {
-                    role.as_ref().borrow_mut().groups.append(&mut group.iter().map(|x| Into::<Groups>::into(x.split("&"))).collect::<Vec<Groups>>());
-                    role.as_ref().borrow_mut().groups = role.as_ref().borrow_mut().groups.clone().into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                    role.as_ref().borrow_mut().groups.append(
+                        &mut group
+                            .iter()
+                            .map(|x| Into::<Groups>::into(x.split("&")))
+                            .collect::<Vec<Groups>>(),
+                    );
+                    role.as_ref().borrow_mut().groups = role
+                        .as_ref()
+                        .borrow_mut()
+                        .groups
+                        .clone()
+                        .into_iter()
+                        .collect::<HashSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>();
                     res = true;
                 }
                 if res {
@@ -179,7 +209,10 @@ pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
                     res = true;
                 }
                 if let Some(group) = group.to_owned() {
-                    role.as_ref().borrow_mut().groups = group.iter().map(|x| Into::<Groups>::into(x.split("&"))).collect::<Vec<Groups>>();
+                    role.as_ref().borrow_mut().groups = group
+                        .iter()
+                        .map(|x| Into::<Groups>::into(x.split("&")))
+                        .collect::<Vec<Groups>>();
                     res = true;
                 }
                 if res {
@@ -239,19 +272,33 @@ pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
                 manager.select_task_by_id(&tid)?;
             }
             if let Some(path) = path {
-                manager.get_options().set_value(OptType::Path, Some(OptValue::String(path.to_owned())));
+                manager
+                    .get_options()
+                    .set_value(OptType::Path, Some(OptValue::String(path.to_owned())));
             }
             if let Some(env_keep) = env_keep {
-                manager.get_options().set_value(OptType::EnvWhitelist, Some(OptValue::String(env_keep.to_owned())));
+                manager.get_options().set_value(
+                    OptType::EnvWhitelist,
+                    Some(OptValue::String(env_keep.to_owned())),
+                );
             }
             if let Some(env_check) = env_check {
-                manager.get_options().set_value(OptType::EnvChecklist, Some(OptValue::String(env_check.to_owned())));
+                manager.get_options().set_value(
+                    OptType::EnvChecklist,
+                    Some(OptValue::String(env_check.to_owned())),
+                );
             }
             if let Some(allow_bounding) = allow_bounding {
-                manager.get_options().set_value(OptType::Bounding, Some(OptValue::Bool(allow_bounding.to_owned())));
+                manager.get_options().set_value(
+                    OptType::Bounding,
+                    Some(OptValue::Bool(allow_bounding.to_owned())),
+                );
             }
             if let Some(wildcard_denied) = wildcard_denied {
-                manager.get_options().set_value(OptType::Wildcard, Some(OptValue::String(wildcard_denied.to_owned())));
+                manager.get_options().set_value(
+                    OptType::Wildcard,
+                    Some(OptValue::String(wildcard_denied.to_owned())),
+                );
             }
             manager.save(None, None)?;
             Ok(true)
@@ -267,20 +314,15 @@ pub fn parse_args(manager : &mut RoleContext) -> Result<bool,Box<dyn Error>> {
                     manager.select_task_by_id(&tid)?;
                     let task = manager.get_task().unwrap();
                     println!("{}", task.as_ref().borrow().get_description());
-                }else {
+                } else {
                     let role = manager.get_role().unwrap();
                     println!("{}", role.as_ref().borrow().get_description());
                 }
-                
             }
             Ok(true)
         }
-        Some(CCommand::Import { file: _ }) => {
-            Err("not implemented".into())
-        }
-        None => {
-            Ok(false)
-        }
+        Some(CCommand::Import { file: _ }) => Err("not implemented".into()),
+        None => Ok(false),
     }
 }
 

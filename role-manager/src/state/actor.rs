@@ -7,12 +7,11 @@ use cursive::{
 };
 use libc::{endgrent, endpwent, getgrent, getpwent, setgrent, setpwent};
 
-use crate::{checklist::CheckListView, ActorType, RoleContext, config::structs::Groups};
+use crate::{checklist::CheckListView, config::structs::Groups, ActorType, RoleContext};
 
 use super::{
     common::{ConfirmState, InputState},
-    execute,
-    DeletableItemState, ExecuteType, Input, PushableItemState, State,
+    execute, DeletableItemState, ExecuteType, Input, PushableItemState, State,
 };
 
 #[derive(Clone)]
@@ -24,7 +23,9 @@ impl From<String> for Users {
     fn from(name: String) -> Self {
         let mut vname = Vec::new();
         vname.push(name);
-        Users { name: vname.to_owned() }
+        Users {
+            name: vname.to_owned(),
+        }
     }
 }
 impl ToString for Users {
@@ -320,10 +321,7 @@ where
     }
 
     fn confirm(mut self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        self.next_state.push(
-            manager,
-            self.groups,
-        );
+        self.next_state.push(manager, self.groups);
         Box::new(self.next_state)
     }
 

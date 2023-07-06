@@ -1,10 +1,6 @@
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    rc::Rc,
-};
+use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
-use crate::config::structs::{Roles, Role, Task};
+use crate::config::structs::{Role, Roles, Task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -73,19 +69,37 @@ impl OptValue {
 }
 
 impl OptValue {
-    pub fn get_description(&self, opttype : OptType) -> String {
+    pub fn get_description(&self, opttype: OptType) -> String {
         match opttype {
-            OptType::Path => self.to_string().split(':').collect::<Vec<&str>>().join("\n"),
-            OptType::EnvWhitelist => self.to_string().split(',').collect::<Vec<&str>>().join("\n"),
-            OptType::EnvChecklist => self.to_string().split(',').collect::<Vec<&str>>().join("\n"),
+            OptType::Path => self
+                .to_string()
+                .split(':')
+                .collect::<Vec<&str>>()
+                .join("\n"),
+            OptType::EnvWhitelist => self
+                .to_string()
+                .split(',')
+                .collect::<Vec<&str>>()
+                .join("\n"),
+            OptType::EnvChecklist => self
+                .to_string()
+                .split(',')
+                .collect::<Vec<&str>>()
+                .join("\n"),
             OptType::NoRoot => {
-                if self.as_bool() {String::from("Enforce NoRoot")}
-                else {String::from("Do not enforce NoRoot")}
-            },
+                if self.as_bool() {
+                    String::from("Enforce NoRoot")
+                } else {
+                    String::from("Do not enforce NoRoot")
+                }
+            }
             OptType::Bounding => {
-                if self.as_bool() {String::from("Restrict with Bounding")}
-                else {String::from("Do not restrict with Bounding")}
-            },
+                if self.as_bool() {
+                    String::from("Restrict with Bounding")
+                } else {
+                    String::from("Do not restrict with Bounding")
+                }
+            }
             OptType::Wildcard => self.to_string(),
         }
     }
@@ -113,7 +127,6 @@ pub struct Opt {
     pub no_root: Option<bool>,
     pub bounding: Option<bool>,
 }
-
 
 impl AsRef<Opt> for Opt {
     fn as_ref(&self) -> &Opt {
@@ -279,41 +292,38 @@ impl Opt {
 #[derive(Debug)]
 pub struct OptStack<'a> {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
-    roles : Rc<RefCell<Roles<'a>>>,
-    role : Option<Rc<RefCell<Role<'a>>>>,
-    task : Option<Rc<RefCell<Task<'a>>>>,
+    roles: Rc<RefCell<Roles<'a>>>,
+    role: Option<Rc<RefCell<Role<'a>>>>,
+    task: Option<Rc<RefCell<Task<'a>>>>,
 }
 
 impl<'a> OptStack<'a> {
-    pub fn from_task(roles: Rc<RefCell<Roles<'a>>>, role: Rc<RefCell<Role<'a>>>, task: Rc<RefCell<Task<'a>>>) -> Self {
+    pub fn from_task(
+        roles: Rc<RefCell<Roles<'a>>>,
+        role: Rc<RefCell<Role<'a>>>,
+        task: Rc<RefCell<Task<'a>>>,
+    ) -> Self {
         let mut stack = OptStack::from_role(roles, role);
         stack.task = Some(task.to_owned());
-        stack.set_opt(Level::Task,
-            task.as_ref()
-                .borrow()
-                .options
-                .to_owned(),
-        );
+        stack.set_opt(Level::Task, task.as_ref().borrow().options.to_owned());
         stack
     }
     pub fn from_role(roles: Rc<RefCell<Roles<'a>>>, role: Rc<RefCell<Role<'a>>>) -> Self {
         let mut stack = OptStack::from_roles(roles);
         stack.role = Some(role.to_owned());
-        stack.set_opt(Level::Role,
-            role.as_ref()
-                .borrow()
-                .options
-                .to_owned(),
-        );
+        stack.set_opt(Level::Role, role.as_ref().borrow().options.to_owned());
         stack
     }
     pub fn from_roles(roles: Rc<RefCell<Roles<'a>>>) -> Self {
         let mut stack = OptStack::new(roles);
-        stack.set_opt(Level::Global, stack.get_roles().as_ref().borrow().options.to_owned());
+        stack.set_opt(
+            Level::Global,
+            stack.get_roles().as_ref().borrow().options.to_owned(),
+        );
         stack
     }
 
-    fn new(roles : Rc<RefCell<Roles<'a>>>) -> OptStack<'a> {
+    fn new(roles: Rc<RefCell<Roles<'a>>>) -> OptStack<'a> {
         OptStack {
             stack: [None, Some(Rc::new(Opt::default().into())), None, None, None],
             roles,
@@ -334,23 +344,16 @@ impl<'a> OptStack<'a> {
                 self.get_roles().as_ref().borrow_mut().options = opt;
             }
             Level::Role => {
-                self.role.to_owned().unwrap()
-                    .as_ref()
-                    .borrow_mut()
-                    .options = opt;
+                self.role.to_owned().unwrap().as_ref().borrow_mut().options = opt;
             }
             Level::Task => {
-                self.task.to_owned().unwrap()
-                    .as_ref()
-                    .borrow_mut()
-                    .options = opt;
+                self.task.to_owned().unwrap().as_ref().borrow_mut().options = opt;
             }
             Level::None | Level::Default => {
                 panic!("Cannot save None/default options");
             }
         }
     }
-
 
     pub fn get_level(&self) -> Level {
         self.stack
@@ -364,7 +367,7 @@ impl<'a> OptStack<'a> {
             .borrow()
             .level
     }
-    fn set_opt(&mut self, level : Level, opt: Option<Rc<RefCell<Opt>>>) {
+    fn set_opt(&mut self, level: Level, opt: Option<Rc<RefCell<Opt>>>) {
         if let Some(opt) = opt.to_owned() {
             self.stack[level as usize] = Some(opt);
         } else {
@@ -576,8 +579,7 @@ impl<'a> OptStack<'a> {
         self.save();
     }
 
-
-    pub fn get_description(&self, current_level : Level, opttype: OptType) -> String {
+    pub fn get_description(&self, current_level: Level, opttype: OptType) -> String {
         let (level, value) = self.get_from_type(opttype.to_owned());
         let leveldesc;
         if level != current_level {

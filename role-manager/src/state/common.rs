@@ -1,17 +1,15 @@
-
 use cursive::{
+    event::{Event, Key},
     view::Nameable,
-    views::{Dialog, EditView}, event::{Event, Key},
+    views::{Dialog, EditView},
 };
 
 use crate::RoleContext;
 
 use super::{execute, DeletableItemState, ExecuteType, Input, PushableItemState, State};
 
-
-
 #[derive(Clone)]
-pub struct InputState<T,V,U>
+pub struct InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + PushableItemState<U> + Clone + 'static,
@@ -33,17 +31,27 @@ where
     index: usize,
 }
 
-impl<T,V,U> InputState<T,V,U>
+impl<T, V, U> InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + Clone + 'static + PushableItemState<U>,
     U: From<String> + ToString + Into<String> + Clone,
     Box<T>: Into<Box<V>>,
 {
-    pub fn new(previous_state: Box<T>, title: &str, content: Option<U>) -> Self{
-        InputState::new_with_next(previous_state.clone().into(), previous_state, title, content)
+    pub fn new(previous_state: Box<T>, title: &str, content: Option<U>) -> Self {
+        InputState::new_with_next(
+            previous_state.clone().into(),
+            previous_state,
+            title,
+            content,
+        )
     }
-    pub fn new_with_next(previous_state: Box<V>, next_state: Box<T>, title: &str, content: Option<U>) -> Self {
+    pub fn new_with_next(
+        previous_state: Box<V>,
+        next_state: Box<T>,
+        title: &str,
+        content: Option<U>,
+    ) -> Self {
         InputState {
             previous_state: *previous_state,
             next_state: *next_state,
@@ -53,7 +61,7 @@ where
     }
 }
 
-impl<T,V,U> State for InputState<T,V,U>
+impl<T, V, U> State for InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + PushableItemState<U> + Clone + 'static,
@@ -89,10 +97,10 @@ where
         }
         cursive.add_global_callback(Event::Key(Key::Enter), |s| {
             let input = s.find_name::<EditView>("input").unwrap();
-                    execute(
-                        s,
-                        ExecuteType::Input(Input::String(input.get_content().as_str().into())),
-                    );
+            execute(
+                s,
+                ExecuteType::Input(Input::String(input.get_content().as_str().into())),
+            );
         });
         cursive.add_layer(
             Dialog::around(input.with_name("input"))
