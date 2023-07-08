@@ -69,13 +69,13 @@ impl From<Caps> for u64 {
     }
 }
 
-impl Into<Vec<String>> for Caps {
-    fn into(self) -> Vec<String> {
+impl From<Caps> for Vec<String> {
+    fn from(value: Caps) -> Self {
         POSITIONS
             .iter()
             .enumerate()
             .filter_map(|(index, (name, _))| {
-                if self.capable(index) {
+                if value.capable(index) {
                     Some(format!("CAP_{}", *name))
                 } else {
                     None

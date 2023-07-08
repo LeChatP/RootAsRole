@@ -225,10 +225,7 @@ impl<'a> Role<'a> {
         let mut users_info = String::new();
         users_info.push_str(&format!(
             "Users:\n({})\n",
-            self.users
-                .to_owned()
-                .into_iter()
-                .collect::<Vec<String>>()
+            self.users.to_vec()
                 .join(", ")
         ));
         users_info
@@ -238,8 +235,7 @@ impl<'a> Role<'a> {
         groups_info.push_str(&format!(
             "Groups:\n({})\n",
             self.groups
-                .to_owned()
-                .into_iter()
+                .iter().cloned()
                 .map(|x| x.join(" & "))
                 .collect::<Vec<String>>()
                 .join(")\n(")
@@ -251,8 +247,7 @@ impl<'a> Role<'a> {
         tasks_info.push_str(&format!(
             "Tasks:\n{}\n",
             self.tasks
-                .to_owned()
-                .into_iter()
+                .iter().cloned()
                 .map(|x| x.as_ref().borrow().commands.join("\n"))
                 .collect::<Vec<String>>()
                 .join("\n")

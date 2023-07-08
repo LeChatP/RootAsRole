@@ -49,10 +49,9 @@ impl From<Users> for Vec<String> {
 
 impl From<String> for Users {
     fn from(name: String) -> Self {
-        let mut vname = Vec::new();
-        vname.push(name);
+        let vname = vec![name];
         Users {
-            name: RefCell::new(vname.to_owned()).into(),
+            name: RefCell::new(vname).into(),
         }
     }
 }
@@ -177,7 +176,7 @@ fn add_actors(
         ActorType::Group => get_groups(),
     };
     let some = already_in_list.is_some();
-    for user in actors.to_owned() {
+    for user in actors.iter().cloned() {
         view.add_item(
             user.to_owned(),
             some && already_in_list.as_ref().unwrap().contains(&user),
@@ -186,16 +185,15 @@ fn add_actors(
     }
     let Some(already_in_list) = already_in_list else { return };
     for user in already_in_list
-        .iter()
-        .map(|x| x.to_owned())
-        .collect::<HashSet<String>>()
-        .difference(
-            &actors
-                .iter()
-                .map(|x| x.to_owned())
-                .collect::<HashSet<String>>(),
-        )
-        .to_owned()
+         .iter()
+         .map(|x| x.to_owned())
+         .collect::<HashSet<String>>()
+         .difference(
+             &actors
+                 .iter()
+                 .map(|x| x.to_owned())
+                 .collect::<HashSet<String>>(),
+         )
     {
         view.add_item(user.to_owned(), true, user.to_owned());
     }
@@ -221,7 +219,7 @@ where
             SelectUserState<T, V>,
             SelectUserState<T, V>,
             String,
-        >::new(self, "Enter username or uid", None))
+        >::new(*self, "Enter username or uid", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
@@ -279,8 +277,7 @@ where
                 manager.selected_actors.clone().map(|e| {
                     e.as_ref()
                         .borrow()
-                        .to_owned()
-                        .into_iter()
+                        .iter().cloned()
                         .collect::<Vec<String>>()
                 }),
             );
@@ -455,11 +452,11 @@ where
             EditGroupState<T, V>,
             EditGroupState<T, V>,
             String,
-        >::new(self, "Input new group", None))
+        >::new(*self, "Input new group", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        Box::new(ConfirmState::new(self, "Confirm delete group", index))
+        Box::new(ConfirmState::new(*self, "Confirm delete group", index))
     }
 
     fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
@@ -509,8 +506,7 @@ where
                     group_list
                         .as_ref()
                         .borrow()
-                        .to_owned()
-                        .into_iter()
+                        .iter().cloned()
                         .collect(),
                 ),
             );

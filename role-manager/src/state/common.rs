@@ -36,9 +36,9 @@ where
     V: State + Clone + 'static,
     T: State + Clone + 'static + PushableItemState<U>,
     U: From<String> + ToString + Into<String> + Clone,
-    Box<T>: Into<Box<V>>,
+    T: Into<V>,
 {
-    pub fn new(previous_state: Box<T>, title: &str, content: Option<U>) -> Self {
+    pub fn new(previous_state: T, title: &str, content: Option<U>) -> Self {
         InputState::new_with_next(
             previous_state.clone().into(),
             previous_state,
@@ -47,14 +47,14 @@ where
         )
     }
     pub fn new_with_next(
-        previous_state: Box<V>,
-        next_state: Box<T>,
+        previous_state: V,
+        next_state: T,
         title: &str,
         content: Option<U>,
     ) -> Self {
         InputState {
-            previous_state: *previous_state,
-            next_state: *next_state,
+            previous_state,
+            next_state,
             title: title.to_owned(),
             content,
         }
@@ -66,7 +66,7 @@ where
     V: State + Clone + 'static,
     T: State + PushableItemState<U> + Clone + 'static,
     U: From<String> + ToString + Into<String> + Clone + 'static,
-    Box<T>: Into<Box<V>>,
+    T: Into<V>,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -163,9 +163,9 @@ impl<T> ConfirmState<T>
 where
     T: State + DeletableItemState + Clone + 'static,
 {
-    pub fn new(previous_state: Box<T>, title: &str, index: usize) -> Self {
+    pub fn new(previous_state: T, title: &str, index: usize) -> Self {
         ConfirmState {
-            previous_state: *previous_state,
+            previous_state,
             title: title.to_owned(),
             index,
         }

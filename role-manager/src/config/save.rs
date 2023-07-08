@@ -494,8 +494,7 @@ impl<'a> ToXml for Task<'a> {
         task.push_str(
             &self
                 .commands
-                .to_owned()
-                .into_iter()
+                .iter().cloned()
                 .map(|x| format!("<command>{}</command>", x))
                 .collect::<Vec<String>>()
                 .join(""),
@@ -515,8 +514,7 @@ impl<'a> ToXml for Role<'a> {
             role.push_str(
                 &self
                     .users
-                    .to_owned()
-                    .into_iter()
+                    .iter().cloned()
                     .map(|x| format!("<user name=\"{}\"/>\n", x))
                     .collect::<Vec<String>>()
                     .join(""),
@@ -524,8 +522,7 @@ impl<'a> ToXml for Role<'a> {
             role.push_str(
                 &self
                     .groups
-                    .to_owned()
-                    .into_iter()
+                    .iter().cloned()
                     .map(|x| format!("<groups names=\"{}\"/>\n", x.join(",")))
                     .collect::<Vec<String>>()
                     .join(""),
@@ -536,8 +533,7 @@ impl<'a> ToXml for Role<'a> {
         role.push_str(
             &self
                 .tasks
-                .to_owned()
-                .into_iter()
+                .iter().cloned()
                 .map(|x| x.as_ref().borrow().to_xml_string())
                 .collect::<Vec<String>>()
                 .join(""),

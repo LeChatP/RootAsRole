@@ -38,8 +38,8 @@ impl State for SelectRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(
             InputState::<EditRoleState, SelectRoleState, String>::new_with_next(
-                self,
-                Box::new(EditRoleState),
+                *self,
+                EditRoleState,
                 "Enter the new role name:",
                 None,
             ),
@@ -51,7 +51,7 @@ impl State for SelectRoleState {
             manager.set_error(err);
         }
         Box::new(ConfirmState::new(
-            self,
+            *self,
             format!("Delete Role {}?", manager.get_role().unwrap().borrow().name).as_str(),
             index,
         ))
@@ -90,9 +90,9 @@ impl State for SelectRoleState {
     }
 }
 
-impl From<Box<EditRoleState>> for Box<SelectRoleState> {
-    fn from(_val: Box<EditRoleState>) -> Self {
-        Box::new(SelectRoleState)
+impl From<EditRoleState> for SelectRoleState {
+    fn from(_val: EditRoleState) -> Self {
+        SelectRoleState
     }
 }
 
@@ -125,10 +125,8 @@ impl InitState for SelectRoleState {
             .on_submit(|s, item| {
                 execute(s, ExecuteType::Submit(*item));
             });
-        let mut pos = 0;
-        for role in &manager.roles.as_ref().borrow().roles {
+        for (pos,role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
             select.add_item(role.as_ref().borrow().name.to_owned(), pos);
-            pos += 1;
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("roles").scrollable());
@@ -303,7 +301,6 @@ impl State for EditRoleState {
         ]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
-        let title;
         let role = manager.get_role();
         if role.is_none() {
             manager.set_error("No role selected".into());
@@ -312,10 +309,10 @@ impl State for EditRoleState {
         let role = role.unwrap();
         layout.add_child(TextView::new(role.as_ref().borrow().get_users_info()).with_name("info"));
 
-        match manager.is_new() {
-            true => title = format!("Edit role {}", role.as_ref().borrow().name),
-            false => title = format!("Create the role {}", role.as_ref().borrow().name),
-        }
+        let title = match manager.is_new() {
+            true => format!("Edit role {}", role.as_ref().borrow().name),
+            false => format!("Create the role {}", role.as_ref().borrow().name),
+        };
 
         cursive.add_layer(
             Dialog::around(layout)

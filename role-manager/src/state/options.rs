@@ -44,23 +44,22 @@ where
     }
     fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         Box::new(ConfirmState::new(
-            self,
+            *self,
             "Are you sure you want to delete this option?",
             index,
         ))
     }
     fn submit(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         let opttype = OptType::from_index(index);
-        let title;
-        match opttype {
-            OptType::Path => title = "Enter binary locations (PATH) separated by semicolon",
+        let title: &str = match opttype {
+            OptType::Path => "Enter binary locations (PATH) separated by semicolon",
             OptType::EnvChecklist => {
-                title = "Enter environment variables to check separated by commas"
+                "Enter environment variables to check separated by commas"
             }
             OptType::EnvWhitelist => {
-                title = "Enter environment variables to whitelist separated by commas"
+                "Enter environment variables to whitelist separated by commas"
             }
-            OptType::Wildcard => title = "Enter wildcard chars",
+            OptType::Wildcard => "Enter wildcard chars",
             OptType::Bounding | OptType::NoRoot => {
                 let mut stack = manager.get_options();
                 stack.set_value(
@@ -71,14 +70,14 @@ where
                 );
                 return self;
             }
-        }
+        };
         let value = manager.get_options().get_from_type(opttype).1.to_string();
         self.selected.borrow_mut().replace(index);
         Box::new(InputState::<
             SelectOptionState<T>,
             SelectOptionState<T>,
             String,
-        >::new(self, title, Some(value)))
+        >::new(*self, title, Some(value)))
     }
     fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self

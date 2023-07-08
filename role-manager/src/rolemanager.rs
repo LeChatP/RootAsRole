@@ -125,7 +125,7 @@ impl RoleContext {
         }
     }
 
-    pub fn select_role_by_name(&mut self, role_name: &String) -> Result<(), Box<dyn Error>> {
+    pub fn select_role_by_name(&mut self, role_name: &str) -> Result<(), Box<dyn Error>> {
         let mut index = None;
         for (i, r) in self.roles.as_ref().borrow().roles.iter().enumerate() {
             if r.as_ref().borrow().name == *role_name {
@@ -286,9 +286,9 @@ impl RoleContext {
         }
     }
 
-    pub fn find_role(&self, name: &String) -> Option<Rc<RefCell<Role<'static>>>> {
+    pub fn find_role(&self, name: &str) -> Option<Rc<RefCell<Role<'static>>>> {
         for role in self.roles.as_ref().borrow().roles.iter() {
-            if role.as_ref().borrow().name == *name {
+            if role.as_ref().borrow().name == name {
                 return Some(role.to_owned());
             }
         }

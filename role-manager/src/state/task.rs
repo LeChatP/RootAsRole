@@ -47,7 +47,7 @@ impl State for SelectTaskState {
                 let task = manager.get_task().unwrap();
                 let id = task.as_ref().borrow().id.clone();
                 Box::new(ConfirmState::new(
-                    self,
+                    *self,
                     &format!("Are you sure to delete {}?", id.to_string()),
                     index,
                 ))
@@ -190,7 +190,7 @@ impl State for EditTaskState {
             return self;
         }
         Box::new(ConfirmState::new(
-            self,
+            *self,
             &format!(
                 "Are you sure to delete Command #{}?\n\"{}\"",
                 index,
@@ -238,7 +238,7 @@ impl State for EditTaskState {
             }
             "c" => Box::new(EditCapabilitiesState),
             "p" => Box::new(InputState::<EditTaskState, EditTaskState, String>::new(
-                self,
+                *self,
                 "Set purpose",
                 manager
                     .get_task()
@@ -249,7 +249,7 @@ impl State for EditTaskState {
                     .to_owned(),
             )),
             "i" => Box::new(InputState::<EditTaskState, EditTaskState, IdTask>::new(
-                self,
+                *self,
                 "Set task id",
                 Some(manager.get_task().unwrap().as_ref().borrow().id.to_owned()),
             )),

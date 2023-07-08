@@ -56,10 +56,8 @@ impl State for EditCapabilitiesState {
         if let Some(task) = task {
             selected = task.borrow().capabilities.to_owned().unwrap_or(Caps::V2(0));
         }
-        let mut pos = 0;
-        for capability in capabilities::POSITIONS {
-            select.add_item(capability.0, selected.capable(pos), capability);
-            pos += 1;
+        for (pos,capability) in capabilities::POSITIONS.iter().enumerate() {
+            select.add_item(capability.0, selected.capable(pos), *capability);
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("capabilities").scrollable());

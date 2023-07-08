@@ -527,45 +527,33 @@ impl<'a> OptStack<'a> {
         let mut opt = binding.as_ref().borrow_mut();
         match opttype {
             OptType::Path => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::String(value) = value {
-                        opt.path.replace(value.to_string());
-                    }
+                if let Some(OptValue::String(value)) = value.borrow() {
+                    opt.path.replace(value.to_string());
                 }
             }
             OptType::EnvWhitelist => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::String(value) = value {
-                        opt.env_whitelist.replace(value.to_string());
-                    }
+                if let Some(OptValue::String(value)) = value.borrow() {
+                    opt.env_whitelist.replace(value.to_string());
                 }
             }
             OptType::EnvChecklist => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::String(value) = value {
-                        opt.env_checklist.replace(value.to_string());
-                    }
+                if let Some(OptValue::String(value)) = value.borrow() {
+                    opt.env_checklist.replace(value.to_string());
                 }
             }
             OptType::NoRoot => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::Bool(value) = value {
-                        opt.no_root.replace(*value);
-                    }
+                if let Some(OptValue::Bool(value)) = value.borrow() {
+                    opt.no_root.replace(*value);
                 }
             }
             OptType::Bounding => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::Bool(value) = value {
-                        opt.bounding.replace(*value);
-                    }
+                if let Some(OptValue::Bool(value)) = value.borrow() {
+                    opt.bounding.replace(*value);
                 }
             }
             OptType::Wildcard => {
-                if let Some(value) = value.borrow() {
-                    if let OptValue::String(value) = value {
-                        opt.wildcard_denied.replace(value.to_string());
-                    }
+                if let Some(OptValue::String(value)) = value.borrow() {
+                    opt.wildcard_denied.replace(value.to_string());
                 }
             }
         }
@@ -581,18 +569,17 @@ impl<'a> OptStack<'a> {
 
     pub fn get_description(&self, current_level: Level, opttype: OptType) -> String {
         let (level, value) = self.get_from_type(opttype.to_owned());
-        let leveldesc;
-        if level != current_level {
-            leveldesc = match level {
+        let leveldesc = if level != current_level {
+            match level {
                 Level::Default => " (Inherited from Default)",
                 Level::Global => " (Inherited from Global)",
                 Level::Role => " (Inherited from Role)",
                 Level::Task => " (Inherited from Commands)",
                 Level::None => " (Inherited from None)",
-            };
+            }
         } else {
-            leveldesc = " (setted at this level)";
-        }
+            " (setted at this level)"
+        };
         format!("{}\n{}", leveldesc, value.get_description(opttype))
     }
 }
