@@ -435,7 +435,7 @@ where
     }
 
     pub fn new(previous_state: T, next_state: V, selected: Option<Groups>) -> Self {
-        let a = Self::complete_list(selected.to_owned().map(|g| Into::<Vec<String>>::into(g)));
+        let a = Self::complete_list(selected.to_owned().map(Into::<Vec<String>>::into));
         EditGroupState {
             gid_list: a,
             previous_state,

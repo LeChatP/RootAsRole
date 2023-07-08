@@ -122,18 +122,17 @@ impl State for SelectTaskState {
                         }
                     });
                 layout.add_child(select.with_name("select"));
-                let info;
-                if !role.as_ref().borrow().tasks.is_empty() {
-                    info = TextView::new(
+                let info = if !role.as_ref().borrow().tasks.is_empty() {
+                    TextView::new(
                         role.as_ref().borrow().tasks[0]
                             .as_ref()
                             .borrow()
                             .get_description(),
                     )
-                    .with_name("info");
+                    .with_name("info")
                 } else {
-                    info = TextView::new("There is no tasks").with_name("info");
-                }
+                    TextView::new("There is no tasks").with_name("info")
+                };
                 layout.add_child(info);
 
                 cursive.add_layer(

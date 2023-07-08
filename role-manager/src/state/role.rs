@@ -27,7 +27,6 @@ fn delete_role(s: &mut Cursive) {
     s.find_name::<SelectView<usize>>("roles").and_then(|view| {
         view.selection().map(|i| {
             execute(s, ExecuteType::Delete(*i));
-            ()
         })
     });
 }
@@ -344,7 +343,7 @@ impl PushableItemState<Users> for EditRoleState {
     }
 }
 
-impl<'a> PushableItemState<Vec<Groups>> for EditRoleState {
+impl PushableItemState<Vec<Groups>> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Vec<Groups>) {
         manager.get_role().unwrap().as_ref().borrow_mut().groups = item;
     }
