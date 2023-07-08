@@ -47,11 +47,11 @@ fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
 
 pub fn sxd_sanitize(element: &mut str) -> String {
     element
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&apos;")
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 impl<'a> Save for Roles<'a> {
@@ -89,7 +89,7 @@ impl<'a> Save for Roles<'a> {
                             }
                             Ok(())
                         })?;
-                        if rolesnames.len() > 0 {
+                        if !rolesnames.is_empty() {
                             edited = true;
                         }
                         for rolename in rolesnames {
@@ -177,7 +177,7 @@ impl<'a> Save for Role<'a> {
                             }
                             Ok(())
                         })?;
-                        if users.len() > 0 || groups.len() > 0 {
+                        if !users.is_empty() || !groups.is_empty() {
                             for user in users {
                                 let actor_element = doc.create_element("user");
                                 actor_element.set_attribute_value("name", &user);
@@ -239,12 +239,12 @@ impl<'a> Save for Task<'a> {
             }
         }
         if let Some(setuid) = self.setuid.to_owned() {
-            element.set_attribute_value("setuser", setuid.to_string().as_str());
+            element.set_attribute_value("setuser", setuid.as_str());
         } else if element.attribute_value("setuser").is_some() {
             element.remove_attribute("setuser");
         }
         if let Some(setgid) = self.setgid.to_owned() {
-            element.set_attribute_value("setgroups", setgid.join(",").to_string().as_str());
+            element.set_attribute_value("setgroups", setgid.join(",").as_str());
         } else if element.attribute_value("setgroups").is_some() {
             element.remove_attribute("setgroups");
         }
@@ -287,9 +287,7 @@ impl<'a> Save for Task<'a> {
                         if self
                             .to_owned()
                             .options
-                            .and_then(|o| {
-                                Some(o.as_ref().borrow().save(doc.into(), Some(&child_element)))
-                            })
+                            .map(|o| o.as_ref().borrow().save(doc.into(), Some(&child_element)))
                             .unwrap()?
                         {
                             edited = true;
@@ -300,7 +298,7 @@ impl<'a> Save for Task<'a> {
             }
             Ok(())
         })?;
-        if commands.len() > 0 {
+        if !commands.is_empty() {
             for command in commands {
                 let command_element = doc.create_element("command");
                 command_element.set_text(&command);
@@ -349,13 +347,12 @@ impl Save for Opt {
                         if self.env_whitelist.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child
+                        } else if *child
                             .text()
                             .ok_or::<Box<dyn Error>>(
                                 "Unable to retrieve env_whitelist Text".into(),
                             )?
                             .text()
-                            .to_string()
                             != self.to_owned().env_whitelist.unwrap()
                         {
                             child_element.set_text(self.to_owned().env_whitelist.unwrap().as_str());
@@ -366,13 +363,12 @@ impl Save for Opt {
                         if self.env_checklist.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child
+                        } else if *child
                             .text()
                             .ok_or::<Box<dyn Error>>(
                                 "Unable to retrieve env_checklist Text".into(),
                             )?
                             .text()
-                            .to_string()
                             != self.to_owned().env_checklist.unwrap()
                         {
                             child_element.set_text(self.to_owned().env_checklist.unwrap().as_str());
@@ -417,7 +413,7 @@ impl Save for Opt {
                         if self.wildcard_denied.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child.text().unwrap().text().to_string()
+                        } else if *child.text().unwrap().text()
                             != self.to_owned().wildcard_denied.unwrap()
                         {
                             child_element
@@ -468,7 +464,7 @@ impl Save for RoleContext {
             toggle_lock_config(path, false).expect("Unable to set immuable");
         }
 
-        return Ok(true);
+        Ok(true)
     }
 }
 
@@ -488,7 +484,7 @@ impl<'a> ToXml for Task<'a> {
                     .to_lowercase()
             ));
         }
-        task.push_str(">");
+        task.push('>');
         if self.purpose.is_some() {
             task.push_str(&format!(
                 "<purpose>{}</purpose>",
@@ -513,8 +509,8 @@ impl<'a> ToXml for Role<'a> {
     fn to_xml_string(&self) -> String {
         let mut role = String::from("<role ");
         role.push_str(&format!("name=\"{}\" ", self.name));
-        role.push_str(">");
-        if self.users.len() > 0 || self.groups.len() > 0 {
+        role.push('>');
+        if !self.users.is_empty() || !self.groups.is_empty() {
             role.push_str("<actors>\n");
             role.push_str(
                 &self

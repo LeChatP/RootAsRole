@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState, Users};
@@ -25,8 +25,10 @@ pub struct EditRoleState;
 
 fn delete_role(s: &mut Cursive) {
     s.find_name::<SelectView<usize>>("roles").and_then(|view| {
-        view.selection()
-            .and_then(|i| Some(execute(s, ExecuteType::Delete(*i))))
+        view.selection().map(|i| {
+            execute(s, ExecuteType::Delete(*i));
+            ()
+        })
     });
 }
 
@@ -89,8 +91,8 @@ impl State for SelectRoleState {
     }
 }
 
-impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
-    fn into(self) -> Box<SelectRoleState> {
+impl From<Box<EditRoleState>> for Box<SelectRoleState> {
+    fn from(_val: Box<EditRoleState>) -> Self {
         Box::new(SelectRoleState)
     }
 }

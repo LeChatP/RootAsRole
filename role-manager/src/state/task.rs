@@ -41,16 +41,16 @@ impl State for SelectTaskState {
         match manager.select_task_by_index(index) {
             Err(err) => {
                 manager.set_error(err);
-                return self;
+                self
             }
             Ok(_) => {
                 let task = manager.get_task().unwrap();
                 let id = task.as_ref().borrow().id.clone();
-                return Box::new(ConfirmState::new(
+                Box::new(ConfirmState::new(
                     self,
                     &format!("Are you sure to delete {}?", id.to_string()),
                     index,
-                ));
+                ))
             }
         }
     }
@@ -268,8 +268,7 @@ impl State for EditTaskState {
             .map(|o| {
                 title = format!("Edit {}", o.as_ref().borrow().id.to_string());
                 o
-            })
-            ;
+            });
         let mut select = SelectView::new().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
         });

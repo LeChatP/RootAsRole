@@ -41,9 +41,9 @@ impl FromIterator<String> for Users {
     }
 }
 
-impl Into<Vec<String>> for Users {
-    fn into(self) -> Vec<String> {
-        self.name.as_ref().borrow().to_owned()
+impl From<Users> for Vec<String> {
+    fn from(val: Users) -> Self {
+        val.name.as_ref().borrow().to_owned()
     }
 }
 
@@ -58,12 +58,12 @@ impl From<String> for Users {
 }
 impl ToString for Users {
     fn to_string(&self) -> String {
-        self.name.borrow().join(",").clone()
+        self.name.borrow().join(",")
     }
 }
-impl Into<String> for Users {
-    fn into(self) -> String {
-        self.name.borrow().join(",")
+impl From<Users> for String {
+    fn from(val: Users) -> Self {
+        val.name.borrow().join(",")
     }
 }
 
@@ -145,7 +145,7 @@ fn get_groups() -> Vec<String> {
     let mut groups = Vec::new();
     unsafe { setgrent() };
     let mut group = unsafe { getgrent().as_mut() };
-    while !group.is_none() {
+    while group.is_some() {
         let gr = group.unwrap();
         groups.push(unsafe { CStr::from_ptr(gr.gr_name).to_str().unwrap().to_string() });
         group = unsafe { getgrent().as_mut() };
@@ -158,7 +158,7 @@ fn get_users() -> Vec<String> {
     let mut users = Vec::new();
     unsafe { setpwent() };
     let mut pwentry = unsafe { getpwent().as_mut() };
-    while !pwentry.is_none() {
+    while pwentry.is_some() {
         let user = pwentry.unwrap();
         users.push(unsafe { CStr::from_ptr(user.pw_name).to_str().unwrap().to_string() });
         pwentry = unsafe { getpwent().as_mut() };
@@ -265,7 +265,7 @@ where
         }
         if self.checklist {
             let mut select = CheckListView::<String>::new()
-                .on_submit(|s, b, i| {
+                .on_submit(|s, _b, i| {
                     let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
                     if let Some(selected) = manager.selected_actors.as_ref() {
                         selected.as_ref().borrow_mut().insert(i.to_owned());
@@ -276,14 +276,12 @@ where
             add_actors(
                 ActorType::User,
                 &mut select,
-                manager.selected_actors.clone().and_then(|e| {
-                    Some(
-                        e.as_ref()
-                            .borrow()
-                            .to_owned()
-                            .into_iter()
-                            .collect::<Vec<String>>(),
-                    )
+                manager.selected_actors.clone().map(|e| {
+                    e.as_ref()
+                        .borrow()
+                        .to_owned()
+                        .into_iter()
+                        .collect::<Vec<String>>()
                 }),
             );
             cursive.add_layer(
@@ -371,7 +369,7 @@ where
         Box::new(EditGroupState::<Self, Self>::new(
             *self.clone(),
             *self.clone(),
-            self.groups.get(index).and_then(|x| Some(x.to_owned())),
+            self.groups.get(index).map(|x| x.to_owned()),
         ))
     }
 
@@ -437,11 +435,7 @@ where
     }
 
     pub fn new(previous_state: T, next_state: V, selected: Option<Groups>) -> Self {
-        let a = Self::complete_list(selected.to_owned().and_then(|g| {
-            let r = Into::<Vec<String>>::into(g);
-            Some(r)
-        }))
-        .to_owned();
+        let a = Self::complete_list(selected.to_owned().map(|g| Into::<Vec<String>>::into(g)));
         EditGroupState {
             gid_list: a,
             previous_state,
@@ -573,7 +567,7 @@ where
 {
     fn push(&mut self, _manager: &mut RoleContext, item: Groups) {
         if !item.groups.is_empty() {
-            self.groups.push(item.to_owned());
+            self.groups.push(item);
         }
     }
 }

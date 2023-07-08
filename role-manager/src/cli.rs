@@ -145,7 +145,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                     .collect::<HashSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>();
-                role.as_ref().borrow_mut().users = user.to_owned();
+                role.as_ref().borrow_mut().users = user;
             }
             if let Some(group) = group.to_owned() {
                 let group = group
@@ -164,7 +164,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         }
         Some(CCommand::Grant { role, user, group }) => {
             let mut res = false;
-            if let Some(role) = manager.find_role(&role) {
+            if let Some(role) = manager.find_role(role) {
                 if let Some(user) = user.to_owned() {
                     for u in user {
                         if !role.as_ref().borrow().users.contains(&u) {
@@ -199,7 +199,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         }
         Some(CCommand::Revoke { role, user, group }) => {
             let mut res = false;
-            if let Some(role) = manager.find_role(&role) {
+            if let Some(role) = manager.find_role(role) {
                 if let Some(user) = user.to_owned() {
                     for u in user {
                         if !role.as_ref().borrow().users.contains(&u) {
@@ -227,7 +227,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             cmds,
             caps,
         }) => {
-            manager.select_role_by_name(&role)?;
+            manager.select_role_by_name(role)?;
             manager.create_new_task(withid.to_owned())?;
             let task = manager.get_task().unwrap();
             if let Some(cmds) = cmds.to_owned() {
@@ -240,14 +240,14 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             Ok(true)
         }
         Some(CCommand::DelTask { role, id }) => {
-            manager.select_role_by_name(&role)?;
+            manager.select_role_by_name(role)?;
             manager.select_task_by_id(&IdTask::Name(id.to_owned()))?;
             manager.delete_task()?;
             manager.save(None, None)?;
             Ok(true)
         }
         Some(CCommand::DelRole { role }) => {
-            manager.select_role_by_name(&role)?;
+            manager.select_role_by_name(role)?;
             manager.delete_role()?;
             manager.save(None, None)?;
             Ok(true)
@@ -262,7 +262,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             wildcard_denied,
         }) => {
             if let Some(role) = role {
-                manager.select_role_by_name(&role)?;
+                manager.select_role_by_name(role)?;
             }
             if let Some(task) = task {
                 let tid = match task.parse::<usize>() {
@@ -305,7 +305,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         }
         Some(CCommand::List { role, task }) => {
             if let Some(role) = role {
-                manager.select_role_by_name(&role)?;
+                manager.select_role_by_name(role)?;
                 if let Some(task) = task {
                     let tid = match task.parse::<usize>() {
                         Ok(id) => IdTask::Number(id),

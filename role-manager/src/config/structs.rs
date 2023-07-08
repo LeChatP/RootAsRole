@@ -10,17 +10,9 @@ use sxd_document::dom::{Document, Element};
 use crate::capabilities::Caps;
 use crate::options::Opt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Groups {
     pub groups: HashSet<String>,
-}
-
-impl Default for Groups {
-    fn default() -> Self {
-        Groups {
-            groups: HashSet::new(),
-        }
-    }
 }
 
 impl Iterator for Groups {
@@ -80,9 +72,9 @@ impl Groups {
     }
 }
 
-impl Into<Vec<String>> for Groups {
-    fn into(self) -> Vec<String> {
-        self.groups.into_iter().collect()
+impl From<Groups> for Vec<String> {
+    fn from(val: Groups) -> Self {
+        val.groups.into_iter().collect()
     }
 }
 
@@ -120,7 +112,7 @@ impl ToString for IdTask {
     fn to_string(&self) -> String {
         match self {
             IdTask::Name(s) => s.to_string(),
-            IdTask::Number(n) => format!("Task #{}", n.to_string()),
+            IdTask::Number(n) => format!("Task #{}", n),
         }
     }
 }
@@ -131,9 +123,9 @@ impl From<String> for IdTask {
     }
 }
 
-impl Into<String> for IdTask {
-    fn into(self) -> String {
-        match self {
+impl From<IdTask> for String {
+    fn from(val: IdTask) -> Self {
+        match val {
             IdTask::Name(s) => s,
             IdTask::Number(n) => n.to_string(),
         }
@@ -185,7 +177,7 @@ impl<'a> Roles<'a> {
             Roles {
                 roles: Vec::new(),
                 options: None,
-                version: version,
+                version,
             }
             .into(),
         )
@@ -236,7 +228,6 @@ impl<'a> Role<'a> {
             self.users
                 .to_owned()
                 .into_iter()
-                .map(|e| e.to_string())
                 .collect::<Vec<String>>()
                 .join(", ")
         ));
@@ -249,7 +240,7 @@ impl<'a> Role<'a> {
             self.groups
                 .to_owned()
                 .into_iter()
-                .map(|x| x.join(" & ").to_string())
+                .map(|x| x.join(" & "))
                 .collect::<Vec<String>>()
                 .join(")\n(")
         ));
@@ -345,7 +336,7 @@ impl<'a> Task<'a> {
                 .iter()
                 .map(|s| {
                     if s.len() < 64 {
-                        return s.to_owned();
+                        s.to_owned()
                     } else {
                         let mut s = s.to_owned().chars().take(64).collect::<String>();
                         s.push_str("...");

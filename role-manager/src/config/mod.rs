@@ -19,7 +19,7 @@ pub(super) fn read_file(file_path: &str, contents: &mut String) -> Result<(), Bo
     Ok(())
 }
 
-pub(super) fn read_xml_file<'a>(file_path: &'a str) -> Result<Package, Box<dyn Error>> {
+pub(super) fn read_xml_file(file_path: &str) -> Result<Package, Box<dyn Error>> {
     let mut contents = String::new();
     read_file(file_path, &mut contents)?;
     Ok(parser::parse(&contents)?)
@@ -30,7 +30,7 @@ where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {
     for child in element.children() {
-        if let Some(_) = child.element() {
+        if child.element().is_some() {
             f(child)?;
         }
     }

@@ -52,21 +52,21 @@ impl Clone for RoleContext {
         RoleContext {
             history: Rc::downgrade(&self.history.upgrade().unwrap()),
             roles: Rc::new(RefCell::new(self.roles.as_ref().borrow().clone())),
-            selected_role: self.selected_role.clone(),
+            selected_role: self.selected_role,
             new_role: Some(Rc::new(RefCell::new(
                 self.new_role.clone().unwrap().as_ref().borrow().clone(),
             ))),
-            selected_task: self.selected_task.clone(),
+            selected_task: self.selected_task,
             new_task: Some(Rc::new(RefCell::new(
                 self.new_task.clone().unwrap().as_ref().borrow().clone(),
             ))),
-            selected_command: self.selected_command.clone(),
+            selected_command: self.selected_command,
             new_command: self.new_command.clone(),
             new_groups: self.new_groups.clone(),
             new_options: self.new_options.clone(),
             selected_actors: self.selected_actors.clone(),
             error: None,
-            is_new: self.is_new.clone(),
+            is_new: self.is_new,
         }
     }
 }
@@ -118,10 +118,10 @@ impl RoleContext {
     pub fn select_role_by_index(&mut self, role_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.roles.as_ref().borrow().roles.len();
         if role_index > len - 1 {
-            return Err("role not exist".into());
+            Err("role not exist".into())
         } else {
             self.selected_role = Some(role_index);
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -135,9 +135,9 @@ impl RoleContext {
         }
         if let Some(index) = index {
             self.selected_role = Some(index);
-            return Ok(());
+            Ok(())
         } else {
-            return Err("role not exist".into());
+            Err("role not exist".into())
         }
     }
 
@@ -207,10 +207,10 @@ impl RoleContext {
     pub fn select_task_by_index(&mut self, task_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.get_role().unwrap().as_ref().borrow().tasks.len();
         if task_index > len - 1 {
-            return Err("command not exist".into());
+            Err("command not exist".into())
         } else {
             self.selected_task = Some(task_index);
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -232,9 +232,9 @@ impl RoleContext {
         }
         if let Some(index) = index {
             self.selected_task = Some(index);
-            return Ok(());
+            Ok(())
         } else {
-            return Err("task not exist".into());
+            Err("task not exist".into())
         }
     }
 
@@ -245,10 +245,10 @@ impl RoleContext {
     pub fn select_command(&mut self, command_index: usize) -> Result<(), Box<dyn Error>> {
         let len = self.get_task().unwrap().as_ref().borrow().commands.len();
         if command_index > len - 1 {
-            return Err("command not exist".into());
+            Err("command not exist".into())
         } else {
             self.selected_command = Some(command_index);
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -256,9 +256,9 @@ impl RoleContext {
         if let Some(i) = self.selected_role {
             self.roles.as_ref().borrow_mut().roles.remove(i);
             self.unselect_role();
-            return Ok(());
+            Ok(())
         } else {
-            return Err("no role selected".into());
+            Err("no role selected".into())
         }
     }
 
@@ -271,9 +271,9 @@ impl RoleContext {
                 .tasks
                 .remove(i);
             self.unselect_task();
-            return Ok(());
+            Ok(())
         } else {
-            return Err("no task selected".into());
+            Err("no task selected".into())
         }
     }
 
@@ -282,9 +282,7 @@ impl RoleContext {
             Some(i) => {
                 return Some(self.roles.as_ref().borrow().roles[i].to_owned());
             }
-            None => {
-                return None;
-            }
+            None => None,
         }
     }
 
@@ -294,7 +292,7 @@ impl RoleContext {
                 return Some(role.to_owned());
             }
         }
-        return None;
+        None
     }
 
     pub fn get_role(&self) -> Option<Rc<RefCell<Role<'static>>>> {
@@ -305,11 +303,9 @@ impl RoleContext {
         match self.selected_task {
             Some(i) => {
                 let id = self.get_role().unwrap().as_ref().borrow().tasks[i].to_owned();
-                return Some(id);
+                Some(id)
             }
-            None => {
-                return None;
-            }
+            None => None,
         }
     }
 
@@ -322,9 +318,7 @@ impl RoleContext {
             Some(i) => {
                 return Some(self.get_task().unwrap().as_ref().borrow().commands[i].to_owned());
             }
-            None => {
-                return None;
-            }
+            None => None,
         }
     }
 
@@ -332,11 +326,9 @@ impl RoleContext {
         match self.selected_command {
             Some(i) => {
                 self.get_task().unwrap().borrow_mut().commands[i] = command;
-                return Ok(());
+                Ok(())
             }
-            None => {
-                return Err("no command selected".into());
-            }
+            None => Err("no command selected".into()),
         }
     }
 
@@ -359,6 +351,6 @@ impl RoleContext {
     }
 
     pub fn take_error(&mut self) -> Option<Box<dyn Error>> {
-        return self.error.take();
+        self.error.take()
     }
 }

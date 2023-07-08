@@ -150,7 +150,7 @@ where
     T: State + Clone + 'static,
 {
     fn push(&mut self, manager: &mut RoleContext, value: String) {
-        if value == "" {
+        if value.is_empty() {
             manager
                 .get_options()
                 .set_value(OptType::from_index(self.selected.borrow().unwrap()), None)

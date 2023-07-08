@@ -40,7 +40,6 @@ fn get_options(level: Level, node: Element) -> Opt {
                             .text()
                             .to_string(),
                     )
-                    .into()
                 }
                 "env-keep" => {
                     options.env_whitelist = Some(
@@ -52,7 +51,6 @@ fn get_options(level: Level, node: Element) -> Opt {
                             .text()
                             .to_string(),
                     )
-                    .into()
                 }
                 "env-check" => {
                     options.env_checklist = Some(
@@ -64,10 +62,9 @@ fn get_options(level: Level, node: Element) -> Opt {
                             .text()
                             .to_string(),
                     )
-                    .into()
                 }
-                "allow-root" => options.no_root = Some(is_enforced(elem)).into(),
-                "allow-bounding" => options.bounding = Some(is_enforced(elem)).into(),
+                "allow-root" => options.no_root = Some(is_enforced(elem)),
+                "allow-bounding" => options.bounding = Some(is_enforced(elem)),
                 "wildcard-denied" => {
                     options.wildcard_denied = Some(
                         elem.children()
@@ -95,18 +92,12 @@ fn get_task<'a>(
     if let Some(id) = node.attribute_value("id") {
         task.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
     }
-    task.as_ref().borrow_mut().capabilities = match node.attribute_value("capabilities") {
-        Some(cap) => Some(cap.into()).into(),
-        None => None.into(),
-    };
-    task.as_ref().borrow_mut().setuid = match node.attribute_value("setuser") {
-        Some(setuid) => Some(setuid.into()).into(),
-        None => None.into(),
-    };
-    task.as_ref().borrow_mut().setgid = match node.attribute_value("setgroups") {
-        Some(setgid) => Some(setgid.split(',').map(|e| e.to_string()).collect()).into(),
-        None => None.into(),
-    };
+    task.as_ref().borrow_mut().capabilities =
+        node.attribute_value("capabilities").map(|cap| cap.into());
+    task.as_ref().borrow_mut().setuid = node.attribute_value("setuser").map(|setuid| setuid.into());
+    task.as_ref().borrow_mut().setgid = node
+        .attribute_value("setgroups")
+        .map(|setgid| setgid.split(',').map(|e| e.to_string()).collect());
     for child in node.children() {
         if let Some(elem) = child.element() {
             match elem.name().local_part() {
@@ -116,8 +107,7 @@ fn get_task<'a>(
                         .ok_or("Unable to get text from command")?
                         .text()
                         .map(|f| f.text().to_string())
-                        .ok_or("Unable to get text from command")?
-                        .into(),
+                        .ok_or("Unable to get text from command")?,
                 ),
                 "options" => {
                     task.as_ref().borrow_mut().options =
@@ -130,8 +120,7 @@ fn get_task<'a>(
                             .ok_or("Unable to get text from purpose")?
                             .text()
                             .map(|f| f.text().to_string())
-                            .ok_or("Unable to get text from purpose")?
-                            .into(),
+                            .ok_or("Unable to get text from purpose")?,
                     );
                 }
                 _ => warn!("Unknown element: {}", elem.name().local_part()),
@@ -148,8 +137,7 @@ fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
                 "user" => role.users.push(
                     elem.attribute_value("name")
                         .ok_or("Unable to retrieve user name")?
-                        .to_string()
-                        .into(),
+                        .to_string(),
                 ),
                 "group" => role.groups.push(get_groups(elem)),
                 _ => warn!("Unknown element: {}", elem.name().local_part()),
@@ -164,11 +152,8 @@ pub fn get_role<'a>(
     roles: Option<Rc<RefCell<Roles<'a>>>>,
 ) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
     let rc_role = Role::new(
-        element.attribute_value("name").unwrap().to_string().into(),
-        match roles {
-            Some(roles) => Some(Rc::downgrade(&roles)),
-            None => None,
-        },
+        element.attribute_value("name").unwrap().to_string(),
+        roles.map(|roles| Rc::downgrade(&roles)),
     );
 
     let mut i: usize = 0;
@@ -181,9 +166,7 @@ pub fn get_role<'a>(
                     i += 1;
                     role.tasks.push(get_task(&rc_role, element, i)?)
                 }
-                "options" => {
-                    role.options = Some(Rc::new(get_options(Level::Role, element).into())).into()
-                }
+                "options" => role.options = Some(Rc::new(get_options(Level::Role, element).into())),
                 _ => warn!(
                     "Unknown element: {}",
                     child
@@ -229,6 +212,6 @@ pub fn load_roles<'a>(filename: &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn 
             }
             Err("Unable to find rootasrole element".into())
         })?;
-        return Ok(rc_roles.to_owned());
+        Ok(rc_roles.to_owned())
     }
 }

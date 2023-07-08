@@ -242,12 +242,12 @@ impl Default for Opt {
     fn default() -> Opt {
         Opt {
             level: Level::Default,
-            path: Some("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin".to_string()).into(),
-            env_whitelist: Some("HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP".to_string()).into(),
-            env_checklist: Some("COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ".to_string()).into(),
-            no_root: Some(true).into(),
-            bounding: Some(true).into(),
-            wildcard_denied: Some(";&|".to_string()).into()
+            path: Some("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin".to_string()),
+            env_whitelist: Some("HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP".to_string()),
+            env_checklist: Some("COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ".to_string()),
+            no_root: Some(true),
+            bounding: Some(true),
+            wildcard_denied: Some(";&|".to_string())
         }
     }
 }
@@ -256,12 +256,12 @@ impl Opt {
     pub fn new(level: Level) -> Opt {
         Opt {
             level,
-            path: None.into(),
-            env_whitelist: None.into(),
-            env_checklist: None.into(),
-            no_root: None.into(),
-            bounding: None.into(),
-            wildcard_denied: None.into(),
+            path: None,
+            env_whitelist: None,
+            env_checklist: None,
+            no_root: None,
+            bounding: None,
+            wildcard_denied: None,
         }
     }
 
@@ -285,7 +285,7 @@ impl Opt {
         if let Some(wildcard_denied) = self.wildcard_denied.borrow().as_ref() {
             description.push_str(format!("Wildcard denied: {}\n", wildcard_denied).as_str());
         }
-        return description;
+        description
     }
 }
 
@@ -368,7 +368,7 @@ impl<'a> OptStack<'a> {
             .level
     }
     fn set_opt(&mut self, level: Level, opt: Option<Rc<RefCell<Opt>>>) {
-        if let Some(opt) = opt.to_owned() {
+        if let Some(opt) = opt {
             self.stack[level as usize] = Some(opt);
         } else {
             self.stack[level as usize] = Some(Rc::new(Opt::new(level).into()));
@@ -465,56 +465,56 @@ impl<'a> OptStack<'a> {
     pub fn get_path(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().path.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), "".to_string()))
+        .unwrap_or((Level::None, "".to_string()))
     }
     pub fn get_env_whitelist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().env_whitelist.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), "".to_string()))
+        .unwrap_or((Level::None, "".to_string()))
     }
     pub fn get_env_checklist(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().env_checklist.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), "".to_string()))
+        .unwrap_or((Level::None, "".to_string()))
     }
     pub fn get_no_root(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().no_root.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), true))
+        .unwrap_or((Level::None, true))
     }
     pub fn get_bounding(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().bounding.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), true))
+        .unwrap_or((Level::None, true))
     }
     pub fn get_wildcard(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().wildcard_denied.borrow().as_ref() {
-                return Some((opt.borrow().level, p.to_owned())).into();
+                return Some((opt.borrow().level, p.to_owned()));
             }
-            None.into()
+            None
         })
-        .unwrap_or((Level::None.into(), "".to_string()))
+        .unwrap_or((Level::None, "".to_string()))
     }
 
     fn set_at_level(&mut self, opttype: OptType, value: Option<OptValue>, level: Level) {

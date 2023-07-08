@@ -53,17 +53,17 @@ impl From<usize> for Caps {
     }
 }
 
-impl Into<usize> for Caps {
-    fn into(self) -> usize {
-        match self {
+impl From<Caps> for usize {
+    fn from(val: Caps) -> Self {
+        match val {
             Caps::V2(v) => v as usize,
         }
     }
 }
 
-impl Into<u64> for Caps {
-    fn into(self) -> u64 {
-        match self {
+impl From<Caps> for u64 {
+    fn from(val: Caps) -> Self {
+        match val {
             Caps::V2(v) => v,
         }
     }
@@ -174,8 +174,8 @@ impl ToString for Caps {
         }
         for (i, (name, _)) in POSITIONS.iter().enumerate() {
             if self.to_owned() & (1 << i) != Caps::MIN {
-                if caps.len() > 0 {
-                    caps.push_str(",");
+                if !caps.is_empty() {
+                    caps.push(',');
                 }
                 caps.push_str(&format!("CAP_{}", name));
             }
