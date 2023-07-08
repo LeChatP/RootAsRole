@@ -223,11 +223,7 @@ impl<'a> Role<'a> {
     }
     pub fn get_users_info(&self) -> String {
         let mut users_info = String::new();
-        users_info.push_str(&format!(
-            "Users:\n({})\n",
-            self.users.to_vec()
-                .join(", ")
-        ));
+        users_info.push_str(&format!("Users:\n({})\n", self.users.to_vec().join(", ")));
         users_info
     }
     pub fn get_groups_info(&self) -> String {
@@ -235,7 +231,8 @@ impl<'a> Role<'a> {
         groups_info.push_str(&format!(
             "Groups:\n({})\n",
             self.groups
-                .iter().cloned()
+                .iter()
+                .cloned()
                 .map(|x| x.join(" & "))
                 .collect::<Vec<String>>()
                 .join(")\n(")
@@ -247,7 +244,8 @@ impl<'a> Role<'a> {
         tasks_info.push_str(&format!(
             "Tasks:\n{}\n",
             self.tasks
-                .iter().cloned()
+                .iter()
+                .cloned()
                 .map(|x| x.as_ref().borrow().commands.join("\n"))
                 .collect::<Vec<String>>()
                 .join("\n")

@@ -125,7 +125,7 @@ impl InitState for SelectRoleState {
             .on_submit(|s, item| {
                 execute(s, ExecuteType::Submit(*item));
             });
-        for (pos,role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
+        for (pos, role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
             select.add_item(role.as_ref().borrow().name.to_owned(), pos);
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);

@@ -53,12 +53,8 @@ where
         let opttype = OptType::from_index(index);
         let title: &str = match opttype {
             OptType::Path => "Enter binary locations (PATH) separated by semicolon",
-            OptType::EnvChecklist => {
-                "Enter environment variables to check separated by commas"
-            }
-            OptType::EnvWhitelist => {
-                "Enter environment variables to whitelist separated by commas"
-            }
+            OptType::EnvChecklist => "Enter environment variables to check separated by commas",
+            OptType::EnvWhitelist => "Enter environment variables to whitelist separated by commas",
             OptType::Wildcard => "Enter wildcard chars",
             OptType::Bounding | OptType::NoRoot => {
                 let mut stack = manager.get_options();

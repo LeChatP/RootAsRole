@@ -185,15 +185,15 @@ fn add_actors(
     }
     let Some(already_in_list) = already_in_list else { return };
     for user in already_in_list
-         .iter()
-         .map(|x| x.to_owned())
-         .collect::<HashSet<String>>()
-         .difference(
-             &actors
-                 .iter()
-                 .map(|x| x.to_owned())
-                 .collect::<HashSet<String>>(),
-         )
+        .iter()
+        .map(|x| x.to_owned())
+        .collect::<HashSet<String>>()
+        .difference(
+            &actors
+                .iter()
+                .map(|x| x.to_owned())
+                .collect::<HashSet<String>>(),
+        )
     {
         view.add_item(user.to_owned(), true, user.to_owned());
     }
@@ -274,12 +274,10 @@ where
             add_actors(
                 ActorType::User,
                 &mut select,
-                manager.selected_actors.clone().map(|e| {
-                    e.as_ref()
-                        .borrow()
-                        .iter().cloned()
-                        .collect::<Vec<String>>()
-                }),
+                manager
+                    .selected_actors
+                    .clone()
+                    .map(|e| e.as_ref().borrow().iter().cloned().collect::<Vec<String>>()),
             );
             cursive.add_layer(
                 Dialog::around(select.with_name("users").scrollable())
@@ -502,13 +500,7 @@ where
             add_actors(
                 ActorType::Group,
                 &mut select,
-                Some(
-                    group_list
-                        .as_ref()
-                        .borrow()
-                        .iter().cloned()
-                        .collect(),
-                ),
+                Some(group_list.as_ref().borrow().iter().cloned().collect()),
             );
         } else {
             add_actors(ActorType::Group, &mut select, None);
