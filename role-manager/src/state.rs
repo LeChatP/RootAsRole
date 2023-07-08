@@ -55,7 +55,7 @@ impl Input {
     }
     pub fn as_vec(&self) -> Vec<String> {
         match self {
-            Input::String(str) => str.split(",").map(|s| s.to_string()).collect(),
+            Input::String(str) => str.split(',').map(|s| s.to_string()).collect(),
             Input::Vec(vec) => vec.to_vec(),
             Input::Caps(caps) => caps.to_owned().into(),
         }

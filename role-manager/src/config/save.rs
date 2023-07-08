@@ -162,7 +162,7 @@ impl<'a> Save for Role<'a> {
                                         let groupnames = actor_element
                                             .attribute_value("names")
                                             .unwrap()
-                                            .split(",")
+                                            .split(',')
                                             .map(|s| s.to_string())
                                             .collect::<Groups>();
                                         if !groups.contains(&groupnames) {

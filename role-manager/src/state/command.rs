@@ -45,7 +45,7 @@ impl State for EditCapabilitiesState {
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = CheckListView::<(&str, &str)>::new()
             .autojump()
-            .on_select(|s, item| {
+            .on_select(|s, _, item| {
                 let info = s.find_name::<TextView>("info");
                 if let Some(mut info) = info {
                     info.set_content(item.1);

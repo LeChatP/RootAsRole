@@ -123,7 +123,7 @@ impl State for SelectTaskState {
                     });
                 layout.add_child(select.with_name("select"));
                 let info;
-                if role.as_ref().borrow().tasks.len() > 0 {
+                if !role.as_ref().borrow().tasks.is_empty() {
                     info = TextView::new(
                         role.as_ref().borrow().tasks[0]
                             .as_ref()
@@ -261,14 +261,15 @@ impl State for EditTaskState {
         let mut title = "".to_owned();
         let task = manager
             .get_task()
-            .and_then(|o| {
-                title = format!("Edit {}", o.as_ref().borrow().id.to_string());
-                Some(o)
-            })
             .or_else(|| {
                 title = "Add new Task".to_owned();
                 manager.get_new_task()
-            });
+            })
+            .map(|o| {
+                title = format!("Edit {}", o.as_ref().borrow().id.to_string());
+                o
+            })
+            ;
         let mut select = SelectView::new().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
         });
@@ -370,9 +371,10 @@ impl PushableItemState<Users> for EditTaskState {
         manager
             .get_task()
             .unwrap()
+            .as_ref()
             .borrow_mut()
             .setuid
-            .replace(item.name[0].to_owned());
+            .replace(item.name.borrow()[0].to_owned());
     }
 }
 
@@ -389,7 +391,7 @@ impl PushableItemState<String> for EditTaskState {
 
 impl PushableItemState<IdTask> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: IdTask) {
-        if item.to_string().len() > 0 {
+        if item.to_string().is_empty() {
             manager.get_task().unwrap().borrow_mut().id = item;
         }
     }

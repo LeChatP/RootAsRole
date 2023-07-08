@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::error::Error;
 use std::rc::{Rc, Weak};
 
@@ -41,6 +42,7 @@ pub struct RoleContext {
     new_command: Option<String>,
     new_groups: Option<Groups>,
     new_options: Option<Opt>,
+    pub selected_actors: Option<Rc<RefCell<HashSet<String>>>>,
     error: Option<Box<dyn Error>>,
     is_new: bool,
 }
@@ -62,6 +64,7 @@ impl Clone for RoleContext {
             new_command: self.new_command.clone(),
             new_groups: self.new_groups.clone(),
             new_options: self.new_options.clone(),
+            selected_actors: self.selected_actors.clone(),
             error: None,
             is_new: self.is_new.clone(),
         }
@@ -76,6 +79,7 @@ impl RoleContext {
             selected_role: None,
             selected_task: None,
             selected_command: None,
+            selected_actors: None,
             new_role: None,
             new_task: None,
             new_command: None,
@@ -337,8 +341,8 @@ impl RoleContext {
     }
 
     /**
-    * Return a OptStack that contains Opt in function of selections
-    */
+     * Return a OptStack that contains Opt in function of selections
+     */
     pub fn get_options(&self) -> OptStack<'static> {
         if let Some(task) = self.get_task() {
             let role = task.as_ref().borrow().get_parent().unwrap();

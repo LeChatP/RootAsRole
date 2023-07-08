@@ -10,8 +10,7 @@ pub fn is_enforced(node: Element) -> bool {
 
 use std::{borrow::BorrowMut, cell::RefCell, error::Error, rc::Rc};
 
-use sxd_document::dom::{Document, Element};
-use sxd_xpath::{Context, Factory, Value};
+use sxd_document::dom::Element;
 use tracing::warn;
 
 use crate::{
@@ -23,28 +22,6 @@ use super::{
     do_in_main_element, get_groups, read_xml_file,
     structs::{IdTask, Role, Roles, Task},
 };
-
-pub fn find_role<'a>(
-    doc: &'a Document,
-    name: &'a str,
-) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
-    let factory = Factory::new();
-    let context = Context::new();
-    let xpath = factory.build(&format!("//role[@name='{}']", name))?;
-    let value = xpath.unwrap().evaluate(&context, doc.root())?;
-    if let Value::Nodeset(nodes) = value {
-        if nodes.size() != 0 {
-            let role_element = nodes
-                .iter()
-                .next()
-                .expect("Unable to retrieve element")
-                .element()
-                .expect("Unable to convert role node to element");
-            return get_role(role_element, None);
-        }
-    }
-    Err("Role not found".into())
-}
 
 fn get_options(level: Level, node: Element) -> Opt {
     let mut rc_options = Opt::new(level);
@@ -127,7 +104,7 @@ fn get_task<'a>(
         None => None.into(),
     };
     task.as_ref().borrow_mut().setgid = match node.attribute_value("setgroups") {
-        Some(setgid) => Some(setgid.split(",").map(|e| e.to_string()).collect()).into(),
+        Some(setgid) => Some(setgid.split(',').map(|e| e.to_string()).collect()).into(),
         None => None.into(),
     };
     for child in node.children() {

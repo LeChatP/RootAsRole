@@ -15,6 +15,14 @@ pub struct Groups {
     pub groups: HashSet<String>,
 }
 
+impl Default for Groups {
+    fn default() -> Self {
+        Groups {
+            groups: HashSet::new(),
+        }
+    }
+}
+
 impl Iterator for Groups {
     fn next(&mut self) -> Option<String> {
         self.groups.iter().next().map(|s| s.to_owned())
@@ -50,8 +58,8 @@ impl From<Vec<String>> for Groups {
     }
 }
 
-impl From<Split<'_, &str>> for Groups {
-    fn from(groups: Split<&str>) -> Self {
+impl From<Split<'_, char>> for Groups {
+    fn from(groups: Split<char>) -> Self {
         let mut set = HashSet::new();
         for group in groups {
             set.insert(group.to_owned());
@@ -74,7 +82,7 @@ impl Groups {
 
 impl Into<Vec<String>> for Groups {
     fn into(self) -> Vec<String> {
-        self.into_iter().collect()
+        self.groups.into_iter().collect()
     }
 }
 
@@ -91,8 +99,8 @@ pub enum IdTask {
 impl IdTask {
     pub fn is_name(&self) -> bool {
         match self {
-            IdTask::Name(s) => true,
-            IdTask::Number(n) => false,
+            IdTask::Name(_) => true,
+            IdTask::Number(_) => false,
         }
     }
 

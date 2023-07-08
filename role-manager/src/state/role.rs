@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState, Users};
@@ -192,7 +193,8 @@ impl State for EditRoleState {
                         .as_ref()
                         .borrow()
                         .users
-                        .to_owned(),
+                        .to_owned()
+                        .into(),
                 ),
             )),
             1 => Box::new(SelectGroupState::new(
@@ -335,13 +337,8 @@ impl PushableItemState<String> for EditRoleState {
 
 impl PushableItemState<Users> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Users) {
-        manager
-            .get_role()
-            .unwrap()
-            .as_ref()
-            .borrow_mut()
-            .users
-            .push(item.name[0].to_owned());
+        manager.get_role().unwrap().as_ref().borrow_mut().users =
+            item.name.as_ref().borrow().to_owned();
     }
 }
 

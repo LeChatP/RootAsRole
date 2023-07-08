@@ -155,7 +155,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                     .collect::<Vec<String>>();
                 role.as_ref().borrow_mut().groups = group
                     .iter()
-                    .map(|x| Into::<Groups>::into(x.split(",")))
+                    .map(|x| Into::<Groups>::into(x.split(',')))
                     .collect::<Vec<Groups>>();
             }
             manager.save_new_role();
@@ -177,7 +177,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                     role.as_ref().borrow_mut().groups.append(
                         &mut group
                             .iter()
-                            .map(|x| Into::<Groups>::into(x.split("&")))
+                            .map(|x| Into::<Groups>::into(x.split('&')))
                             .collect::<Vec<Groups>>(),
                     );
                     role.as_ref().borrow_mut().groups = role
@@ -211,7 +211,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 if let Some(group) = group.to_owned() {
                     role.as_ref().borrow_mut().groups = group
                         .iter()
-                        .map(|x| Into::<Groups>::into(x.split("&")))
+                        .map(|x| Into::<Groups>::into(x.split('&')))
                         .collect::<Vec<Groups>>();
                     res = true;
                 }
