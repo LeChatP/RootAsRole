@@ -1,16 +1,28 @@
-use std::{fs::File, error::Error, collections::HashSet, io::Write, borrow::{Borrow, BorrowMut}, os::fd::AsRawFd};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    collections::HashSet,
+    error::Error,
+    fs::File,
+    io::Write,
+    os::fd::AsRawFd,
+};
 
-use libc::{ioctl, c_ulong, c_int};
-use sxd_document::{dom::{Document, Element}, writer::Writer};
+use libc::{c_int, c_ulong, ioctl};
+use sxd_document::{
+    dom::{Document, Element},
+    writer::Writer,
+};
 
-use crate::{rolemanager::RoleContext, capabilities::Caps, options::Opt, version::DTD};
+use crate::{capabilities::Caps, options::Opt, rolemanager::RoleContext, version::DTD};
 
-use super::{structs::{ToXml, Task, Roles, Role, Groups, Save}, read_xml_file, foreach_element};
+use super::{
+    foreach_element, read_xml_file,
+    structs::{Groups, Role, Roles, Save, Task, ToXml},
+};
 
 const FS_IOC_GETFLAGS: c_ulong = 0x80086601;
 const FS_IOC_SETFLAGS: c_ulong = 0x40086602;
 const FS_IMMUTABLE_FL: c_int = 0x00000010;
-
 
 fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
     let file = match File::open(file) {
@@ -35,17 +47,19 @@ fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
 
 pub fn sxd_sanitize(element: &mut str) -> String {
     element
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&apos;")
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
-
-
 impl<'a> Save for Roles<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "rootasrole" {
@@ -61,7 +75,11 @@ impl<'a> Save for Roles<'a> {
                             if let Some(role_element) = role_element.element() {
                                 let rolename = role_element.attribute_value("name").unwrap();
                                 if let Some(role) = self.get_role(rolename) {
-                                    if role.as_ref().borrow().save(doc.into(), Some(&role_element))? {
+                                    if role
+                                        .as_ref()
+                                        .borrow()
+                                        .save(doc.into(), Some(&role_element))?
+                                    {
                                         edited = true;
                                     }
                                 } else {
@@ -71,17 +89,18 @@ impl<'a> Save for Roles<'a> {
                             }
                             Ok(())
                         })?;
-                        if rolesnames.len() > 0 {
+                        if !rolesnames.is_empty() {
                             edited = true;
                         }
                         for rolename in rolesnames {
                             let role = self.get_role(&rolename).unwrap();
                             let role_element = doc.create_element("role");
                             role_element.set_attribute_value("name", &rolename);
-                            role.as_ref().borrow().save(doc.into(), Some(&role_element))?;
+                            role.as_ref()
+                                .borrow()
+                                .save(doc.into(), Some(&role_element))?;
                             child.append_child(role_element);
                         }
-                        
                     }
                     "options" => {
                         if self
@@ -105,7 +124,11 @@ impl<'a> Save for Roles<'a> {
 }
 
 impl<'a> Save for Role<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "role" {
@@ -139,7 +162,7 @@ impl<'a> Save for Role<'a> {
                                         let groupnames = actor_element
                                             .attribute_value("names")
                                             .unwrap()
-                                            .split(",")
+                                            .split(',')
                                             .map(|s| s.to_string())
                                             .collect::<Groups>();
                                         if !groups.contains(&groupnames) {
@@ -154,7 +177,7 @@ impl<'a> Save for Role<'a> {
                             }
                             Ok(())
                         })?;
-                        if users.len() > 0 || groups.len() > 0 {
+                        if !users.is_empty() || !groups.is_empty() {
                             for user in users {
                                 let actor_element = doc.create_element("user");
                                 actor_element.set_attribute_value("name", &user);
@@ -197,7 +220,11 @@ impl<'a> Save for Role<'a> {
 }
 
 impl<'a> Save for Task<'a> {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "task" {
@@ -212,12 +239,12 @@ impl<'a> Save for Task<'a> {
             }
         }
         if let Some(setuid) = self.setuid.to_owned() {
-            element.set_attribute_value("setuser", setuid.to_string().as_str());
+            element.set_attribute_value("setuser", setuid.as_str());
         } else if element.attribute_value("setuser").is_some() {
             element.remove_attribute("setuser");
         }
         if let Some(setgid) = self.setgid.to_owned() {
-            element.set_attribute_value("setgroups", setgid.join(",").to_string().as_str());
+            element.set_attribute_value("setgroups", setgid.join(",").as_str());
         } else if element.attribute_value("setgroups").is_some() {
             element.remove_attribute("setgroups");
         }
@@ -260,7 +287,7 @@ impl<'a> Save for Task<'a> {
                         if self
                             .to_owned()
                             .options
-                            .and_then(|o| Some(o.as_ref().borrow().save(doc.into(), Some(&child_element))))
+                            .map(|o| o.as_ref().borrow().save(doc.into(), Some(&child_element)))
                             .unwrap()?
                         {
                             edited = true;
@@ -271,7 +298,7 @@ impl<'a> Save for Task<'a> {
             }
             Ok(())
         })?;
-        if commands.len() > 0 {
+        if !commands.is_empty() {
             for command in commands {
                 let command_element = doc.create_element("command");
                 command_element.set_text(&command);
@@ -284,7 +311,11 @@ impl<'a> Save for Task<'a> {
 }
 
 impl Save for Opt {
-    fn save(&self, _doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        _doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
         if element.name().local_part() != "options" {
             return Err("Unable to save options".into());
@@ -297,12 +328,16 @@ impl Save for Opt {
                         if self.path.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child_element.children().iter().fold(String::new(), |acc, c| {
-                            acc + match c.text() {
-                                Some(t) => t.text(),
-                                None => "",
-                            }
-                        }) != *self.path.as_ref().unwrap()
+                        } else if child_element
+                            .children()
+                            .iter()
+                            .fold(String::new(), |acc, c| {
+                                acc + match c.text() {
+                                    Some(t) => t.text(),
+                                    None => "",
+                                }
+                            })
+                            != *self.path.as_ref().unwrap()
                         {
                             child_element.set_text(self.path.as_ref().unwrap());
                             edited = true;
@@ -312,13 +347,12 @@ impl Save for Opt {
                         if self.env_whitelist.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child
+                        } else if *child
                             .text()
                             .ok_or::<Box<dyn Error>>(
                                 "Unable to retrieve env_whitelist Text".into(),
                             )?
                             .text()
-                            .to_string()
                             != self.to_owned().env_whitelist.unwrap()
                         {
                             child_element.set_text(self.to_owned().env_whitelist.unwrap().as_str());
@@ -329,13 +363,12 @@ impl Save for Opt {
                         if self.env_checklist.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child
+                        } else if *child
                             .text()
                             .ok_or::<Box<dyn Error>>(
                                 "Unable to retrieve env_checklist Text".into(),
                             )?
                             .text()
-                            .to_string()
                             != self.to_owned().env_checklist.unwrap()
                         {
                             child_element.set_text(self.to_owned().env_checklist.unwrap().as_str());
@@ -380,7 +413,7 @@ impl Save for Opt {
                         if self.wildcard_denied.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if child.text().unwrap().text().to_string()
+                        } else if *child.text().unwrap().text()
                             != self.to_owned().wildcard_denied.unwrap()
                         {
                             child_element
@@ -398,12 +431,21 @@ impl Save for Opt {
 }
 
 impl Save for RoleContext {
-    fn save(&self, _doc: Option<&Document>, _element: Option<&Element>) -> Result<bool, Box<dyn Error>> {
+    fn save(
+        &self,
+        _doc: Option<&Document>,
+        _element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>> {
         let path = "/etc/security/rootasrole.xml";
         let package = read_xml_file(path)?;
         let doc = package.as_document();
         let element = doc.root().children().first().unwrap().element().unwrap();
-        if self.roles.as_ref().borrow().save(Some(&doc), Some(&element))? {
+        if self
+            .roles
+            .as_ref()
+            .borrow()
+            .save(Some(&doc), Some(&element))?
+        {
             let mut content = Vec::new();
             let writer = Writer::new().set_single_quotes(false);
             writer
@@ -422,7 +464,7 @@ impl Save for RoleContext {
             toggle_lock_config(path, false).expect("Unable to set immuable");
         }
 
-        return Ok(true);
+        Ok(true)
     }
 }
 
@@ -442,7 +484,7 @@ impl<'a> ToXml for Task<'a> {
                     .to_lowercase()
             ));
         }
-        task.push_str(">");
+        task.push('>');
         if self.purpose.is_some() {
             task.push_str(&format!(
                 "<purpose>{}</purpose>",
@@ -452,8 +494,8 @@ impl<'a> ToXml for Task<'a> {
         task.push_str(
             &self
                 .commands
-                .to_owned()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|x| format!("<command>{}</command>", x))
                 .collect::<Vec<String>>()
                 .join(""),
@@ -467,14 +509,14 @@ impl<'a> ToXml for Role<'a> {
     fn to_xml_string(&self) -> String {
         let mut role = String::from("<role ");
         role.push_str(&format!("name=\"{}\" ", self.name));
-        role.push_str(">");
-        if self.users.len() > 0 || self.groups.len() > 0 {
+        role.push('>');
+        if !self.users.is_empty() || !self.groups.is_empty() {
             role.push_str("<actors>\n");
             role.push_str(
                 &self
                     .users
-                    .to_owned()
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(|x| format!("<user name=\"{}\"/>\n", x))
                     .collect::<Vec<String>>()
                     .join(""),
@@ -482,8 +524,8 @@ impl<'a> ToXml for Role<'a> {
             role.push_str(
                 &self
                     .groups
-                    .to_owned()
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(|x| format!("<groups names=\"{}\"/>\n", x.join(",")))
                     .collect::<Vec<String>>()
                     .join(""),
@@ -494,8 +536,8 @@ impl<'a> ToXml for Role<'a> {
         role.push_str(
             &self
                 .tasks
-                .to_owned()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|x| x.as_ref().borrow().to_xml_string())
                 .collect::<Vec<String>>()
                 .join(""),

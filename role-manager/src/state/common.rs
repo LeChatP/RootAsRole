@@ -1,17 +1,15 @@
-
 use cursive::{
+    event::{Event, Key},
     view::Nameable,
-    views::{Dialog, EditView}, event::{Event, Key},
+    views::{Dialog, EditView},
 };
 
 use crate::RoleContext;
 
 use super::{execute, DeletableItemState, ExecuteType, Input, PushableItemState, State};
 
-
-
 #[derive(Clone)]
-pub struct InputState<T,V,U>
+pub struct InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + PushableItemState<U> + Clone + 'static,
@@ -33,32 +31,42 @@ where
     index: usize,
 }
 
-impl<T,V,U> InputState<T,V,U>
+impl<T, V, U> InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + Clone + 'static + PushableItemState<U>,
     U: From<String> + ToString + Into<String> + Clone,
-    Box<T>: Into<Box<V>>,
+    T: Into<V>,
 {
-    pub fn new(previous_state: Box<T>, title: &str, content: Option<U>) -> Self{
-        InputState::new_with_next(previous_state.clone().into(), previous_state, title, content)
+    pub fn new(previous_state: T, title: &str, content: Option<U>) -> Self {
+        InputState::new_with_next(
+            previous_state.clone().into(),
+            previous_state,
+            title,
+            content,
+        )
     }
-    pub fn new_with_next(previous_state: Box<V>, next_state: Box<T>, title: &str, content: Option<U>) -> Self {
+    pub fn new_with_next(
+        previous_state: V,
+        next_state: T,
+        title: &str,
+        content: Option<U>,
+    ) -> Self {
         InputState {
-            previous_state: *previous_state,
-            next_state: *next_state,
+            previous_state,
+            next_state,
             title: title.to_owned(),
             content,
         }
     }
 }
 
-impl<T,V,U> State for InputState<T,V,U>
+impl<T, V, U> State for InputState<T, V, U>
 where
     V: State + Clone + 'static,
     T: State + PushableItemState<U> + Clone + 'static,
     U: From<String> + ToString + Into<String> + Clone + 'static,
-    Box<T>: Into<Box<V>>,
+    T: Into<V>,
 {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         self
@@ -89,10 +97,10 @@ where
         }
         cursive.add_global_callback(Event::Key(Key::Enter), |s| {
             let input = s.find_name::<EditView>("input").unwrap();
-                    execute(
-                        s,
-                        ExecuteType::Input(Input::String(input.get_content().as_str().into())),
-                    );
+            execute(
+                s,
+                ExecuteType::Input(Input::String(input.get_content().as_str().into())),
+            );
         });
         cursive.add_layer(
             Dialog::around(input.with_name("input"))
@@ -155,9 +163,9 @@ impl<T> ConfirmState<T>
 where
     T: State + DeletableItemState + Clone + 'static,
 {
-    pub fn new(previous_state: Box<T>, title: &str, index: usize) -> Self {
+    pub fn new(previous_state: T, title: &str, index: usize) -> Self {
         ConfirmState {
-            previous_state: *previous_state,
+            previous_state,
             title: title.to_owned(),
             index,
         }

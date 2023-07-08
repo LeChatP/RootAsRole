@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::cmp::{min, Ordering};
 use std::rc::Rc;
 
-type SelectCallback<T> = dyn Fn(&mut Cursive, &T);
+type SelectCallback<T> = dyn Fn(&mut Cursive, bool, &T);
 
 /// View to select an item among a list.
 ///
@@ -56,6 +56,9 @@ pub struct CheckListView<T = String> {
     // TODO: add the previous selection? Indices?
     on_select: Option<Rc<SelectCallback<T>>>,
 
+    // This callback is called when the user presses `Enter`.
+    on_submit: Option<Rc<SelectCallback<T>>>,
+
     // If `true`, when a character is pressed, jump to the next item starting
     // with this character.
     autojump: bool,
@@ -90,6 +93,7 @@ impl<T: 'static> CheckListView<T> {
             enabled: true,
             focus: Rc::new(Cell::new(0)),
             on_select: None,
+            on_submit: None,
             align: Align::top_left(),
             popup: false,
             autojump: false,
@@ -135,9 +139,16 @@ impl<T: 'static> CheckListView<T> {
     /// Sets a callback to be used when an item is selected.
     pub fn set_on_select<F>(&mut self, cb: F)
     where
-        F: Fn(&mut Cursive, &T) + 'static,
+        F: Fn(&mut Cursive, bool, &T) + 'static,
     {
         self.on_select = Some(Rc::new(cb));
+    }
+
+    pub fn set_on_submit<F>(&mut self, cb: F)
+    where
+        F: Fn(&mut Cursive, bool, &T) + 'static,
+    {
+        self.on_submit = Some(Rc::new(cb));
     }
 
     /// Sets a callback to be used when an item is selected.
@@ -172,9 +183,17 @@ impl<T: 'static> CheckListView<T> {
     #[must_use]
     pub fn on_select<F>(self, cb: F) -> Self
     where
-        F: Fn(&mut Cursive, &T) + 'static,
+        F: Fn(&mut Cursive, bool, &T) + 'static,
     {
         self.with(|s| s.set_on_select(cb))
+    }
+
+    #[must_use]
+    pub fn on_submit<F>(self, cb: F) -> Self
+    where
+        F: Fn(&mut Cursive, bool, &T) + 'static,
+    {
+        self.with(|s| s.set_on_submit(cb))
     }
 
     /// Sets the alignment for this view.
@@ -216,12 +235,13 @@ impl<T: 'static> CheckListView<T> {
     /// Returns the value of the currently selected item.
     ///
     /// Returns `None` if the list is empty.
-    pub fn selection(&self) -> Option<Rc<T>> {
+    pub fn selection(&self) -> Option<(bool, Rc<T>)> {
         let focus = self.focus();
         if self.len() <= focus {
             None
         } else {
-            Some(Rc::clone(&self.items[focus].value))
+            let item = &self.items[focus];
+            Some((item.checked, item.value.clone()))
         }
     }
 
@@ -647,26 +667,30 @@ impl<T: 'static> CheckListView<T> {
         if let Some(item) = item {
             *item.1 = !*item.1;
         }
-
-        EventResult::Consumed(None)
+        EventResult::Consumed(self.make_submit_cb())
     }
 
-    fn toggleall(&mut self) {
+    fn toggleall(&mut self) -> EventResult {
         for item in self.try_iter_mut() {
             *item.1 = !*item.1;
         }
+        EventResult::Consumed(self.make_submit_cb())
     }
 
-    fn uncheckall(&mut self) {
+    fn uncheckall(&mut self) -> EventResult {
         for item in self.try_iter_mut() {
             *item.1 = false;
         }
+        EventResult::Consumed(self.make_submit_cb())
     }
 
-    fn checkall(&mut self) {
+    fn checkall(&mut self) -> EventResult {
+        // make event for each items
+
         for item in self.try_iter_mut() {
             *item.1 = true;
         }
+        EventResult::Consumed(self.make_submit_cb())
     }
 
     fn on_char_event(&mut self, c: char) -> EventResult {
@@ -729,9 +753,9 @@ impl<T: 'static> CheckListView<T> {
                 return self.submit();
             }
             Event::Char(' ') | Event::Key(Key::Enter) => return self.submit(),
-            Event::CtrlChar('a') => self.checkall(),
-            Event::CtrlChar('u') => self.uncheckall(),
-            Event::CtrlChar('d') => self.toggleall(),
+            Event::CtrlChar('a') => return self.checkall(),
+            Event::CtrlChar('u') => return self.uncheckall(),
+            Event::CtrlChar('d') => return self.toggleall(),
             Event::Char(c) if self.autojump => return self.on_char_event(c),
             _ => return EventResult::Ignored,
         }
@@ -743,7 +767,15 @@ impl<T: 'static> CheckListView<T> {
     fn make_select_cb(&self) -> Option<Callback> {
         self.on_select.to_owned().and_then(|cb| {
             self.selection()
-                .map(|v| Callback::from_fn(move |s| cb(s, &v)))
+                .map(|(b, v)| Callback::from_fn(move |s| cb(s, b, &v)))
+        })
+    }
+
+    /// Returns a callback from submit change.
+    fn make_submit_cb(&self) -> Option<Callback> {
+        self.on_submit.to_owned().and_then(|cb| {
+            self.selection()
+                .map(|(b, v)| Callback::from_fn(move |s: &mut Cursive| cb(s, b, &v)))
         })
     }
 
@@ -1060,13 +1092,13 @@ mod tests {
 
         // ... should observe the items in sorted order.
         // And focus is NOT changed by the sorting, so the first item is "X".
-        assert_eq!(view.selection(), Some(Rc::new(String::from("X"))));
+        assert_eq!(view.selection(), Some((false, Rc::new(String::from("X")))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(String::from("Y"))));
+        assert_eq!(view.selection(), Some((false, Rc::new(String::from("Y")))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(String::from("Z"))));
+        assert_eq!(view.selection(), Some((false, Rc::new(String::from("Z")))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(String::from("Z"))));
+        assert_eq!(view.selection(), Some((false, Rc::new(String::from("Z")))));
     }
 
     #[test]
@@ -1082,13 +1114,13 @@ mod tests {
 
         // ... should observe the items in sorted order.
         // And focus is NOT changed by the sorting, so the first item is "X".
-        assert_eq!(view.selection(), Some(Rc::new(1)));
+        assert_eq!(view.selection(), Some((true, Rc::new(1))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(2)));
+        assert_eq!(view.selection(), Some((true, Rc::new(2))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(3)));
+        assert_eq!(view.selection(), Some((true, Rc::new(3))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(3)));
+        assert_eq!(view.selection(), Some((true, Rc::new(3))));
     }
 
     #[test]
@@ -1109,13 +1141,22 @@ mod tests {
 
         // ... should observe the items in sorted order.
         // And focus is NOT changed by the sorting, so the first item is "X".
-        assert_eq!(view.selection(), Some(Rc::new(MyStruct { key: 1 })));
+        assert_eq!(view.selection(), Some((true, Rc::new(MyStruct { key: 1 }))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(MyStruct { key: 2 })));
+        assert_eq!(
+            view.selection(),
+            Some((false, Rc::new(MyStruct { key: 2 })))
+        );
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(MyStruct { key: 3 })));
+        assert_eq!(
+            view.selection(),
+            Some((false, Rc::new(MyStruct { key: 3 })))
+        );
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(MyStruct { key: 3 })));
+        assert_eq!(
+            view.selection(),
+            Some((false, Rc::new(MyStruct { key: 3 })))
+        );
     }
 
     #[test]
@@ -1131,12 +1172,12 @@ mod tests {
 
         // ... should observe the items in sorted order.
         // And focus is NOT changed by the sorting, so the first item is "X".
-        assert_eq!(view.selection(), Some(Rc::new(1)));
+        assert_eq!(view.selection(), Some((false, Rc::new(1))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(2)));
+        assert_eq!(view.selection(), Some((false, Rc::new(2))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(3)));
+        assert_eq!(view.selection(), Some((false, Rc::new(3))));
         view.on_event(Event::Key(Key::Down));
-        assert_eq!(view.selection(), Some(Rc::new(3)));
+        assert_eq!(view.selection(), Some((false, Rc::new(3))));
     }
 }

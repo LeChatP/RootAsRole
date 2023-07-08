@@ -1,19 +1,15 @@
 use cursive::{
     direction::Orientation,
-    view::{Nameable, Scrollable, Margins, Resizable},
-    views::{Dialog, LinearLayout, TextView, TextArea},
+    view::{Margins, Nameable, Resizable, Scrollable},
+    views::{Dialog, LinearLayout, TextArea, TextView},
 };
 
-use super::{
-    execute,ExecuteType, Input, State, task::EditTaskState,
-};
+use super::{execute, task::EditTaskState, ExecuteType, Input, State};
 use crate::{
     capabilities::{self, Caps},
     checklist::CheckListView,
-    Cursive, RoleContext
+    Cursive, RoleContext,
 };
-
-
 
 pub struct EditCapabilitiesState;
 
@@ -41,16 +37,15 @@ impl State for EditCapabilitiesState {
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         let task = manager.get_task();
         if let Some(task) = task {
-            task.borrow_mut()
-                .capabilities = Some(input.as_caps());
+            task.borrow_mut().capabilities = Some(input.as_caps());
         }
-        
+
         Box::new(EditTaskState)
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut select = CheckListView::<(&str, &str)>::new()
             .autojump()
-            .on_select(|s, item| {
+            .on_select(|s, _, item| {
                 let info = s.find_name::<TextView>("info");
                 if let Some(mut info) = info {
                     info.set_content(item.1);
@@ -59,16 +54,10 @@ impl State for EditCapabilitiesState {
         let task = manager.get_task();
         let mut selected = Caps::V2(0);
         if let Some(task) = task {
-            selected = task
-                .borrow()
-                .capabilities
-                .to_owned()
-                .unwrap_or(Caps::V2(0));
+            selected = task.borrow().capabilities.to_owned().unwrap_or(Caps::V2(0));
         }
-        let mut pos = 0;
-        for capability in capabilities::POSITIONS {
-            select.add_item(capability.0, selected.capable(pos), capability);
-            pos += 1;
+        for (pos, capability) in capabilities::POSITIONS.iter().enumerate() {
+            select.add_item(capability.0, selected.capable(pos), *capability);
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("capabilities").scrollable());
@@ -129,7 +118,7 @@ impl State for EditCommandState {
         if manager.get_command().is_some() {
             edit.set_content(manager.get_command().unwrap());
         }
-        
+
         cursive.add_layer(
             Dialog::around(edit.with_name("edit").full_screen())
                 .title("Edit command")
@@ -142,10 +131,8 @@ impl State for EditCommandState {
                 })
                 .button("Cancel", move |s| {
                     execute(s, ExecuteType::Cancel);
-                }).padding(Margins::trbl(1,1,1,0))
-                
+                })
+                .padding(Margins::trbl(1, 1, 1, 0)),
         );
     }
 }
-
-

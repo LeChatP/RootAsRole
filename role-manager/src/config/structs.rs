@@ -2,17 +2,15 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use std::rc::{Rc, Weak};
 use std::str::Split;
-use std::rc::{Weak, Rc};
 
 use sxd_document::dom::{Document, Element};
 
 use crate::capabilities::Caps;
 use crate::options::Opt;
 
-
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Groups {
     pub groups: HashSet<String>,
 }
@@ -52,8 +50,8 @@ impl From<Vec<String>> for Groups {
     }
 }
 
-impl From<Split<'_,&str>> for Groups {
-    fn from(groups: Split<&str>) -> Self {
+impl From<Split<'_, char>> for Groups {
+    fn from(groups: Split<char>) -> Self {
         let mut set = HashSet::new();
         for group in groups {
             set.insert(group.to_owned());
@@ -74,9 +72,9 @@ impl Groups {
     }
 }
 
-impl Into<Vec<String>> for Groups {
-    fn into(self) -> Vec<String> {
-        self.into_iter().collect()
+impl From<Groups> for Vec<String> {
+    fn from(val: Groups) -> Self {
+        val.groups.into_iter().collect()
     }
 }
 
@@ -93,8 +91,8 @@ pub enum IdTask {
 impl IdTask {
     pub fn is_name(&self) -> bool {
         match self {
-            IdTask::Name(s) => true,
-            IdTask::Number(n) => false,
+            IdTask::Name(_) => true,
+            IdTask::Number(_) => false,
         }
     }
 
@@ -114,7 +112,7 @@ impl ToString for IdTask {
     fn to_string(&self) -> String {
         match self {
             IdTask::Name(s) => s.to_string(),
-            IdTask::Number(n) => format!("Task #{}", n.to_string()),
+            IdTask::Number(n) => format!("Task #{}", n),
         }
     }
 }
@@ -125,9 +123,9 @@ impl From<String> for IdTask {
     }
 }
 
-impl Into<String> for IdTask {
-    fn into(self) -> String {
-        match self {
+impl From<IdTask> for String {
+    fn from(val: IdTask) -> Self {
+        match val {
             IdTask::Name(s) => s,
             IdTask::Number(n) => n.to_string(),
         }
@@ -179,7 +177,7 @@ impl<'a> Roles<'a> {
             Roles {
                 roles: Vec::new(),
                 options: None,
-                version: version,
+                version,
             }
             .into(),
         )
@@ -225,15 +223,7 @@ impl<'a> Role<'a> {
     }
     pub fn get_users_info(&self) -> String {
         let mut users_info = String::new();
-        users_info.push_str(&format!(
-            "Users:\n({})\n",
-            self.users
-                .to_owned()
-                .into_iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<String>>()
-                .join(", ")
-        ));
+        users_info.push_str(&format!("Users:\n({})\n", self.users.to_vec().join(", ")));
         users_info
     }
     pub fn get_groups_info(&self) -> String {
@@ -241,9 +231,9 @@ impl<'a> Role<'a> {
         groups_info.push_str(&format!(
             "Groups:\n({})\n",
             self.groups
-                .to_owned()
-                .into_iter()
-                .map(|x| x.join(" & ").to_string())
+                .iter()
+                .cloned()
+                .map(|x| x.join(" & "))
                 .collect::<Vec<String>>()
                 .join(")\n(")
         ));
@@ -254,8 +244,8 @@ impl<'a> Role<'a> {
         tasks_info.push_str(&format!(
             "Tasks:\n{}\n",
             self.tasks
-                .to_owned()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|x| x.as_ref().borrow().commands.join("\n"))
                 .collect::<Vec<String>>()
                 .join("\n")
@@ -339,13 +329,12 @@ impl<'a> Task<'a> {
                 .iter()
                 .map(|s| {
                     if s.len() < 64 {
-                        return s.to_owned();
-                    }else {
-                        let mut  s = s.to_owned().chars().take(64).collect::<String>();
+                        s.to_owned()
+                    } else {
+                        let mut s = s.to_owned().chars().take(64).collect::<String>();
                         s.push_str("...");
                         s
                     }
-                    
                 })
                 .fold(String::new(), |acc, x| acc + &format!("{}\n", x))
         ));
@@ -354,5 +343,9 @@ impl<'a> Task<'a> {
 }
 
 pub trait Save {
-    fn save(&self, doc: Option<&Document>, element: Option<&Element>) -> Result<bool, Box<dyn Error>>;
+    fn save(
+        &self,
+        doc: Option<&Document>,
+        element: Option<&Element>,
+    ) -> Result<bool, Box<dyn Error>>;
 }

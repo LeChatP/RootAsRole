@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ffi::CStr};
+use std::{cell::RefCell, collections::HashSet, ffi::CStr, rc::Rc};
 
 use cursive::{
     view::{Nameable, Scrollable},
@@ -7,40 +7,70 @@ use cursive::{
 };
 use libc::{endgrent, endpwent, getgrent, getpwent, setgrent, setpwent};
 
-use crate::{checklist::CheckListView, ActorType, RoleContext, config::structs::Groups};
+use crate::{
+    checklist::CheckListView, config::structs::Groups, ActorType, RoleContext, RoleManagerApp,
+};
 
 use super::{
     common::{ConfirmState, InputState},
-    execute,
-    DeletableItemState, ExecuteType, Input, PushableItemState, State,
+    execute, DeletableItemState, ExecuteType, Input, PushableItemState, State,
 };
 
 #[derive(Clone)]
 pub struct Users {
-    pub name: Vec<String>,
+    pub name: Rc<RefCell<Vec<String>>>,
+}
+
+impl Default for Users {
+    fn default() -> Self {
+        Users {
+            name: RefCell::new(Vec::new()).into(),
+        }
+    }
+}
+
+impl FromIterator<String> for Users {
+    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Users {
+        let mut users = Vec::new();
+        for user in iter {
+            users.push(user);
+        }
+        Users {
+            name: RefCell::new(users.to_owned()).into(),
+        }
+    }
+}
+
+impl From<Users> for Vec<String> {
+    fn from(val: Users) -> Self {
+        val.name.as_ref().borrow().to_owned()
+    }
 }
 
 impl From<String> for Users {
     fn from(name: String) -> Self {
-        let mut vname = Vec::new();
-        vname.push(name);
-        Users { name: vname.to_owned() }
+        let vname = vec![name];
+        Users {
+            name: RefCell::new(vname).into(),
+        }
     }
 }
 impl ToString for Users {
     fn to_string(&self) -> String {
-        self.name.join(",").clone()
+        self.name.borrow().join(",")
     }
 }
-impl Into<String> for Users {
-    fn into(self) -> String {
-        self.name.join(",")
+impl From<Users> for String {
+    fn from(val: Users) -> Self {
+        val.name.borrow().join(",")
     }
 }
 
 impl From<Vec<String>> for Users {
     fn from(name: Vec<String>) -> Self {
-        Users { name }
+        Users {
+            name: RefCell::new(name).into(),
+        }
     }
 }
 
@@ -53,7 +83,7 @@ where
     previous_state: V,
     next_state: T,
     checklist: bool,
-    selected: Option<Vec<String>>,
+    selected: Users,
 }
 
 impl<T, V> SelectUserState<T, V>
@@ -76,15 +106,10 @@ where
         users
     }
 
-    pub fn new(
-        previous_state: V,
-        next_state: T,
-        checklist: bool,
-        selected: Option<Vec<String>>,
-    ) -> Self {
+    pub fn new(previous_state: V, next_state: T, checklist: bool, selected: Option<Users>) -> Self {
         SelectUserState {
             checklist,
-            selected,
+            selected: selected.unwrap_or_default(),
             previous_state,
             next_state,
         }
@@ -119,7 +144,7 @@ fn get_groups() -> Vec<String> {
     let mut groups = Vec::new();
     unsafe { setgrent() };
     let mut group = unsafe { getgrent().as_mut() };
-    while !group.is_none() {
+    while group.is_some() {
         let gr = group.unwrap();
         groups.push(unsafe { CStr::from_ptr(gr.gr_name).to_str().unwrap().to_string() });
         group = unsafe { getgrent().as_mut() };
@@ -132,7 +157,7 @@ fn get_users() -> Vec<String> {
     let mut users = Vec::new();
     unsafe { setpwent() };
     let mut pwentry = unsafe { getpwent().as_mut() };
-    while !pwentry.is_none() {
+    while pwentry.is_some() {
         let user = pwentry.unwrap();
         users.push(unsafe { CStr::from_ptr(user.pw_name).to_str().unwrap().to_string() });
         pwentry = unsafe { getpwent().as_mut() };
@@ -151,27 +176,26 @@ fn add_actors(
         ActorType::Group => get_groups(),
     };
     let some = already_in_list.is_some();
-    for user in actors.to_owned() {
+    for user in actors.iter().cloned() {
         view.add_item(
             user.to_owned(),
             some && already_in_list.as_ref().unwrap().contains(&user),
             user,
         );
     }
-    if let Some(already_in_list) = already_in_list {
-        for user in already_in_list
-            .iter()
-            .map(|x| x.to_owned())
-            .collect::<HashSet<String>>()
-            .difference(
-                &actors
-                    .iter()
-                    .map(|x| x.to_owned())
-                    .collect::<HashSet<String>>(),
-            )
-        {
-            view.add_item(user.to_owned(), true, user.to_owned());
-        }
+    let Some(already_in_list) = already_in_list else { return };
+    for user in already_in_list
+        .iter()
+        .map(|x| x.to_owned())
+        .collect::<HashSet<String>>()
+        .difference(
+            &actors
+                .iter()
+                .map(|x| x.to_owned())
+                .collect::<HashSet<String>>(),
+        )
+    {
+        view.add_item(user.to_owned(), true, user.to_owned());
     }
 }
 
@@ -195,7 +219,7 @@ where
             SelectUserState<T, V>,
             SelectUserState<T, V>,
             String,
-        >::new(self, "Enter username or uid", None))
+        >::new(*self, "Enter username or uid", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
@@ -206,7 +230,8 @@ where
         self
     }
 
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        manager.selected_actors = None;
         Box::new(self.previous_state)
     }
 
@@ -220,13 +245,40 @@ where
 
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         self.next_state.push(manager, input.as_vec().into());
+        manager.selected_actors = None;
         Box::new(self.next_state)
     }
 
-    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
+    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+        if manager.selected_actors.is_none() {
+            manager.selected_actors = Some(Rc::new(RefCell::new(
+                self.selected
+                    .name
+                    .as_ref()
+                    .borrow()
+                    .clone()
+                    .into_iter()
+                    .collect::<HashSet<String>>(),
+            )));
+        }
         if self.checklist {
-            let mut select = CheckListView::<String>::new().autojump();
-            add_actors(ActorType::User, &mut select, self.selected.to_owned());
+            let mut select = CheckListView::<String>::new()
+                .on_submit(|s, _b, i| {
+                    let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+                    if let Some(selected) = manager.selected_actors.as_ref() {
+                        selected.as_ref().borrow_mut().insert(i.to_owned());
+                    }
+                    s.set_user_data(RoleManagerApp { manager, state });
+                })
+                .autojump();
+            add_actors(
+                ActorType::User,
+                &mut select,
+                manager
+                    .selected_actors
+                    .clone()
+                    .map(|e| e.as_ref().borrow().iter().cloned().collect::<Vec<String>>()),
+            );
             cursive.add_layer(
                 Dialog::around(select.with_name("users").scrollable())
                     .title("Select User")
@@ -270,8 +322,10 @@ where
     T: State + Clone + PushableItemState<Users> + 'static,
     V: State + Clone + 'static,
 {
-    fn push(&mut self, _manager: &mut RoleContext, item: String) {
-        self.selected.to_owned().unwrap_or_default().push(item);
+    fn push(&mut self, manager: &mut RoleContext, item: String) {
+        if let Some(selected) = manager.selected_actors.as_ref() {
+            selected.as_ref().borrow_mut().insert(item);
+        }
     }
 }
 
@@ -310,7 +364,7 @@ where
         Box::new(EditGroupState::<Self, Self>::new(
             *self.clone(),
             *self.clone(),
-            self.groups.get(index).and_then(|x| Some(x.to_owned())),
+            self.groups.get(index).map(|x| x.to_owned()),
         ))
     }
 
@@ -320,10 +374,7 @@ where
     }
 
     fn confirm(mut self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        self.next_state.push(
-            manager,
-            self.groups,
-        );
+        self.next_state.push(manager, self.groups);
         Box::new(self.next_state)
     }
 
@@ -379,13 +430,9 @@ where
     }
 
     pub fn new(previous_state: T, next_state: V, selected: Option<Groups>) -> Self {
+        let a = Self::complete_list(selected.to_owned().map(Into::<Vec<String>>::into));
         EditGroupState {
-            gid_list: Self::complete_list(
-                selected
-                    .to_owned()
-                    .and_then(|g| Some(Into::<Vec<String>>::into(g))),
-            )
-            .to_owned(),
+            gid_list: a,
             previous_state,
             next_state,
             selected,
@@ -403,18 +450,19 @@ where
             EditGroupState<T, V>,
             EditGroupState<T, V>,
             String,
-        >::new(self, "Input new group", None))
+        >::new(*self, "Input new group", None))
     }
 
     fn delete(self: Box<Self>, _manager: &mut RoleContext, index: usize) -> Box<dyn State> {
-        Box::new(ConfirmState::new(self, "Confirm delete group", index))
+        Box::new(ConfirmState::new(*self, "Confirm delete group", index))
     }
 
     fn submit(self: Box<Self>, _manager: &mut RoleContext, _index: usize) -> Box<dyn State> {
         self
     }
 
-    fn cancel(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
+    fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        manager.selected_actors = None;
         Box::new(self.previous_state)
     }
 
@@ -428,19 +476,38 @@ where
 
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         self.next_state.push(manager, input.as_vec().into());
+        manager.selected_actors = None;
         Box::new(self.next_state)
     }
 
-    fn render(&self, _manager: &mut RoleContext, cursive: &mut Cursive) {
-        let mut select = CheckListView::<String>::new().autojump();
-        if let Some(group_list) = self.selected.to_owned() {
-            add_actors(ActorType::Group, &mut select, Some(group_list.into()));
+    fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
+        if manager.selected_actors.is_none() {
+            let selected = self.selected.to_owned().unwrap_or_default();
+            manager.selected_actors = Some(Rc::new(RefCell::new(selected.groups)));
+        }
+        let mut select = CheckListView::<String>::new()
+            .autojump()
+            .on_submit(|s, _, i| {
+                if !i.is_empty() {
+                    let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+                    if let Some(selected) = manager.selected_actors.as_ref() {
+                        selected.as_ref().borrow_mut().insert(i.to_owned());
+                    }
+                    s.set_user_data(RoleManagerApp { manager, state });
+                }
+            });
+        if let Some(group_list) = manager.selected_actors.to_owned() {
+            add_actors(
+                ActorType::Group,
+                &mut select,
+                Some(group_list.as_ref().borrow().iter().cloned().collect()),
+            );
         } else {
             add_actors(ActorType::Group, &mut select, None);
         }
 
         cursive.add_layer(
-            Dialog::around(select.with_name("select"))
+            Dialog::around(select.with_name("select").scrollable())
                 .title("Select Groups combination")
                 .button("Input new group", |s| {
                     execute(s, ExecuteType::Create);
@@ -474,9 +541,9 @@ where
     T: State + Clone + 'static,
     V: State + Clone + PushableItemState<Groups> + 'static,
 {
-    fn push(&mut self, _manager: &mut RoleContext, item: String) {
-        if !self.gid_list.contains(&item) {
-            self.gid_list.push(item);
+    fn push(&mut self, manager: &mut RoleContext, item: String) {
+        if let Some(selected) = manager.selected_actors.as_ref() {
+            selected.as_ref().borrow_mut().insert(item);
         }
     }
 }
@@ -487,7 +554,9 @@ where
     T: State + Clone + PushableItemState<Vec<Groups>> + 'static,
 {
     fn push(&mut self, _manager: &mut RoleContext, item: Groups) {
-        self.groups.push(item.to_owned());
+        if !item.groups.is_empty() {
+            self.groups.push(item);
+        }
     }
 }
 

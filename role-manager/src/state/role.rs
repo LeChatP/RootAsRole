@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+
 use std::rc::Rc;
 
 use super::actor::{SelectGroupState, SelectUserState, Users};
@@ -22,11 +23,12 @@ pub struct SelectRoleState;
 #[derive(Clone)]
 pub struct EditRoleState;
 
-fn delete_role( s : &mut Cursive ) {
-            s.find_name::<SelectView<usize>>("roles").and_then(|view| {
-                view.selection()
-                    .and_then(|i| Some(execute(s, ExecuteType::Delete(*i))))
-            });
+fn delete_role(s: &mut Cursive) {
+    s.find_name::<SelectView<usize>>("roles").and_then(|view| {
+        view.selection().map(|i| {
+            execute(s, ExecuteType::Delete(*i));
+        })
+    });
 }
 
 /**
@@ -36,8 +38,8 @@ impl State for SelectRoleState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
         Box::new(
             InputState::<EditRoleState, SelectRoleState, String>::new_with_next(
-                self,
-                Box::new(EditRoleState),
+                *self,
+                EditRoleState,
                 "Enter the new role name:",
                 None,
             ),
@@ -49,7 +51,7 @@ impl State for SelectRoleState {
             manager.set_error(err);
         }
         Box::new(ConfirmState::new(
-            self,
+            *self,
             format!("Delete Role {}?", manager.get_role().unwrap().borrow().name).as_str(),
             index,
         ))
@@ -85,21 +87,20 @@ impl State for SelectRoleState {
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         self.config_cursive(cursive);
         cursive.add_layer(self.init(manager));
-        
     }
 }
 
-impl Into<Box<SelectRoleState>> for Box<EditRoleState> {
-    fn into(self) -> Box<SelectRoleState> {
-        Box::new(SelectRoleState)
+impl From<EditRoleState> for SelectRoleState {
+    fn from(_val: EditRoleState) -> Self {
+        SelectRoleState
     }
 }
 
 impl DeletableItemState for SelectRoleState {
     fn remove_selected(&mut self, manager: &mut RoleContext, index: usize) {
-        if let Err(err) = manager.select_role_by_index(index){
+        if let Err(err) = manager.select_role_by_index(index) {
             manager.set_error(err);
-            return; 
+            return;
         }
         if let Err(err) = manager.delete_role() {
             manager.set_error(err);
@@ -124,10 +125,8 @@ impl InitState for SelectRoleState {
             .on_submit(|s, item| {
                 execute(s, ExecuteType::Submit(*item));
             });
-        let mut pos = 0;
-        for role in &manager.roles.as_ref().borrow().roles {
+        for (pos, role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
             select.add_item(role.as_ref().borrow().name.to_owned(), pos);
-            pos += 1;
         }
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("roles").scrollable());
@@ -193,7 +192,8 @@ impl State for EditRoleState {
                         .as_ref()
                         .borrow()
                         .users
-                        .to_owned(),
+                        .to_owned()
+                        .into(),
                 ),
             )),
             1 => Box::new(SelectGroupState::new(
@@ -301,7 +301,6 @@ impl State for EditRoleState {
         ]);
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("commands").scrollable());
-        let title;
         let role = manager.get_role();
         if role.is_none() {
             manager.set_error("No role selected".into());
@@ -310,10 +309,10 @@ impl State for EditRoleState {
         let role = role.unwrap();
         layout.add_child(TextView::new(role.as_ref().borrow().get_users_info()).with_name("info"));
 
-        match manager.is_new() {
-            true => title = format!("Edit role {}", role.as_ref().borrow().name),
-            false => title = format!("Create the role {}", role.as_ref().borrow().name),
-        }
+        let title = match manager.is_new() {
+            true => format!("Edit role {}", role.as_ref().borrow().name),
+            false => format!("Create the role {}", role.as_ref().borrow().name),
+        };
 
         cursive.add_layer(
             Dialog::around(layout)
@@ -336,23 +335,13 @@ impl PushableItemState<String> for EditRoleState {
 
 impl PushableItemState<Users> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Users) {
-        manager
-            .get_role()
-            .unwrap()
-            .as_ref()
-            .borrow_mut()
-            .users
-            .push(item.name[0].to_owned());
+        manager.get_role().unwrap().as_ref().borrow_mut().users =
+            item.name.as_ref().borrow().to_owned();
     }
 }
 
-impl<'a> PushableItemState<Vec<Groups>> for EditRoleState {
+impl PushableItemState<Vec<Groups>> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Vec<Groups>) {
-        manager
-            .get_role()
-            .unwrap()
-            .as_ref()
-            .borrow_mut()
-            .groups = item;
+        manager.get_role().unwrap().as_ref().borrow_mut().groups = item;
     }
 }

@@ -1,14 +1,20 @@
 use cursive::{
+    align::{HAlign, VAlign},
     event::Key,
     view::{Nameable, Scrollable},
-    views::{Dialog, SelectView, LinearLayout, TextView},
-    Cursive, align::{HAlign, VAlign},
+    views::{Dialog, LinearLayout, SelectView, TextView},
+    Cursive,
 };
 
-use crate::{rolemanager::RoleContext, state::State, RoleManagerApp, config::structs::{Groups, IdTask}};
+use crate::{
+    config::structs::{Groups, IdTask},
+    rolemanager::RoleContext,
+    state::State,
+    RoleManagerApp,
+};
 
 use super::{
-    actor::{SelectUserState, EditGroupState, Users},
+    actor::{EditGroupState, SelectUserState, Users},
     command::{EditCapabilitiesState, EditCommandState},
     common::{ConfirmState, InputState},
     execute,
@@ -35,16 +41,16 @@ impl State for SelectTaskState {
         match manager.select_task_by_index(index) {
             Err(err) => {
                 manager.set_error(err);
-                return self;
+                self
             }
             Ok(_) => {
                 let task = manager.get_task().unwrap();
                 let id = task.as_ref().borrow().id.clone();
-                return Box::new(ConfirmState::new(
-                    self,
+                Box::new(ConfirmState::new(
+                    *self,
                     &format!("Are you sure to delete {}?", id.to_string()),
                     index,
-                ));
+                ))
             }
         }
     }
@@ -68,28 +74,29 @@ impl State for SelectTaskState {
         self
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        
-        let mut select = SelectView::new().on_submit(|s, item| {
-            execute(s, ExecuteType::Submit(*item));
-        }).on_select(move |s, i | {
-            let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
-            let info = s.find_name::<TextView>("info");
-            if let Some(mut info) = info {
-                let role = manager.get_role();
-                if let Some(role) = role {
-                    let role = role.as_ref().borrow();
-                    let task = role.get_task_from_index(i).unwrap();
-                    let task = task.as_ref().borrow();
-                    info.set_content(task.get_description());
-                }else {
-                    info.set_content("No task selected");
+        let mut select = SelectView::new()
+            .on_submit(|s, item| {
+                execute(s, ExecuteType::Submit(*item));
+            })
+            .on_select(move |s, i| {
+                let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+                let info = s.find_name::<TextView>("info");
+                if let Some(mut info) = info {
+                    let role = manager.get_role();
+                    if let Some(role) = role {
+                        let role = role.as_ref().borrow();
+                        let task = role.get_task_from_index(i).unwrap();
+                        let task = task.as_ref().borrow();
+                        info.set_content(task.get_description());
+                    } else {
+                        info.set_content("No task selected");
+                    }
+                } else {
+                    panic!("No info view found");
                 }
-            } else {
-                panic!("No info view found");
-            }
-            s.set_user_data(RoleManagerApp { manager, state });
-        });
-        
+                s.set_user_data(RoleManagerApp { manager, state });
+            });
+
         cursive.set_global_callback(Key::Del, move |s| {
             let sel = s
                 .find_name::<SelectView<usize>>("select")
@@ -99,62 +106,65 @@ impl State for SelectTaskState {
             execute(s, ExecuteType::Delete(*sel));
         });
         let mut layout = LinearLayout::horizontal();
-        match manager
-            .get_role(){
+        match manager.get_role() {
             Some(role) => {
                 role.as_ref()
-            .borrow()
-            .tasks
-            .iter()
-            .enumerate()
-            .for_each(|(index, tasks)| {
-                if tasks.as_ref().borrow().id.is_name() {
-                    select.add_item(tasks.as_ref().borrow().id.to_owned().to_string(), index);
+                    .borrow()
+                    .tasks
+                    .iter()
+                    .enumerate()
+                    .for_each(|(index, tasks)| {
+                        if tasks.as_ref().borrow().id.is_name() {
+                            select
+                                .add_item(tasks.as_ref().borrow().id.to_owned().to_string(), index);
+                        } else {
+                            select.add_item(format!("Task #{}", index), index);
+                        }
+                    });
+                layout.add_child(select.with_name("select"));
+                let info = if !role.as_ref().borrow().tasks.is_empty() {
+                    TextView::new(
+                        role.as_ref().borrow().tasks[0]
+                            .as_ref()
+                            .borrow()
+                            .get_description(),
+                    )
+                    .with_name("info")
                 } else {
-                    select.add_item(format!("Task #{}", index), index);
-                }
-            });
-            layout.add_child(select.with_name("select"));
-            let info;
-            if role.as_ref().borrow().tasks.len() > 0 {
-                info = TextView::new(role.as_ref().borrow().tasks[0].as_ref().borrow().get_description()).with_name("info");
-            } else {
-                info = TextView::new("There is no tasks").with_name("info");
-            }
-            layout.add_child(info);
-            
-        cursive.add_layer(
-            Dialog::around(layout)
-                .button("Add", |s| {
-                    execute(s, ExecuteType::Create);
-                })
-                .button("Cancel", |s| {
-                    execute(s, ExecuteType::Cancel);
-                })
-                .button("Ok", |s| {
-                    execute(s, ExecuteType::Confirm);
-                }),
-        );
+                    TextView::new("There is no tasks").with_name("info")
+                };
+                layout.add_child(info);
+
+                cursive.add_layer(
+                    Dialog::around(layout)
+                        .button("Add", |s| {
+                            execute(s, ExecuteType::Create);
+                        })
+                        .button("Cancel", |s| {
+                            execute(s, ExecuteType::Cancel);
+                        })
+                        .button("Ok", |s| {
+                            execute(s, ExecuteType::Confirm);
+                        }),
+                );
             }
             None => {
                 manager.set_error("No role selected".into());
             }
         }
-            
     }
 }
 
 impl DeletableItemState for SelectTaskState {
     fn remove_selected(&mut self, manager: &mut RoleContext, _index: usize) {
-        let task = manager
-            .get_task()
-            .unwrap_or_else(|| {
-                let msg = "No task selected";
-                manager.set_error(msg.into());
-                panic!("{}", msg);
-            });
+        let task = manager.get_task().unwrap_or_else(|| {
+            let msg = "No task selected";
+            manager.set_error(msg.into());
+            panic!("{}", msg);
+        });
         let id = task.as_ref().borrow().id.clone();
-        task.as_ref().borrow()
+        task.as_ref()
+            .borrow()
             .get_parent()
             .unwrap()
             .borrow_mut()
@@ -180,7 +190,7 @@ impl State for EditTaskState {
             return self;
         }
         Box::new(ConfirmState::new(
-            self,
+            *self,
             &format!(
                 "Are you sure to delete Command #{}?\n\"{}\"",
                 index,
@@ -215,14 +225,34 @@ impl State for EditTaskState {
     }
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         match input.as_string().as_ref() {
-            "u" => Box::new(SelectUserState::new(*self.clone(),*self,false, None)),
+            "u" => Box::new(SelectUserState::new(*self.clone(), *self, false, None)),
             "g" => {
-                let setgid = manager.get_task().unwrap().as_ref().borrow().setgid.to_owned();
-                Box::new(EditGroupState::new(*self.clone(),*self,setgid))
-            },
+                let setgid = manager
+                    .get_task()
+                    .unwrap()
+                    .as_ref()
+                    .borrow()
+                    .setgid
+                    .to_owned();
+                Box::new(EditGroupState::new(*self.clone(), *self, setgid))
+            }
             "c" => Box::new(EditCapabilitiesState),
-            "p" => Box::new(InputState::<EditTaskState,EditTaskState,String>::new(self, "Set purpose", manager.get_task().unwrap().as_ref().borrow().purpose.to_owned())),
-            "i" => Box::new(InputState::<EditTaskState,EditTaskState,IdTask>::new(self, "Set task id", Some(manager.get_task().unwrap().as_ref().borrow().id.to_owned()))),
+            "p" => Box::new(InputState::<EditTaskState, EditTaskState, String>::new(
+                *self,
+                "Set purpose",
+                manager
+                    .get_task()
+                    .unwrap()
+                    .as_ref()
+                    .borrow()
+                    .purpose
+                    .to_owned(),
+            )),
+            "i" => Box::new(InputState::<EditTaskState, EditTaskState, IdTask>::new(
+                *self,
+                "Set task id",
+                Some(manager.get_task().unwrap().as_ref().borrow().id.to_owned()),
+            )),
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -230,13 +260,13 @@ impl State for EditTaskState {
         let mut title = "".to_owned();
         let task = manager
             .get_task()
-            .and_then(|o| {
-                title = format!("Edit {}", o.as_ref().borrow().id.to_string());
-                Some(o)
-            })
             .or_else(|| {
                 title = "Add new Task".to_owned();
                 manager.get_new_task()
+            })
+            .map(|o| {
+                title = format!("Edit {}", o.as_ref().borrow().id.to_string());
+                o
             });
         let mut select = SelectView::new().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
@@ -245,7 +275,8 @@ impl State for EditTaskState {
         let mut purpose = String::new();
 
         if let Some(task) = task {
-            task.as_ref().borrow()
+            task.as_ref()
+                .borrow()
                 .commands
                 .iter()
                 .enumerate()
@@ -273,13 +304,16 @@ impl State for EditTaskState {
             if let Some(caps) = &task.as_ref().borrow().capabilities {
                 purpose.push_str(format!("Capabilities : {}\n", caps.to_string()).as_str());
             }
-        }else {
+        } else {
             purpose = "".to_owned();
         }
 
         let layout = LinearLayout::vertical()
             .child(select.with_name("select").scrollable())
-            .child(TextView::new(purpose).align(cursive::align::Align { h: HAlign::Center , v: VAlign::Bottom }));
+            .child(TextView::new(purpose).align(cursive::align::Align {
+                h: HAlign::Center,
+                v: VAlign::Bottom,
+            }));
 
         cursive.add_layer(
             Dialog::around(layout)
@@ -332,20 +366,30 @@ impl DeletableItemState for EditTaskState {
 }
 impl PushableItemState<Users> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: Users) {
-        manager.get_task().unwrap().borrow_mut().setuid.replace(item.name[0].to_owned());
+        manager
+            .get_task()
+            .unwrap()
+            .as_ref()
+            .borrow_mut()
+            .setuid
+            .replace(item.name.borrow()[0].to_owned());
     }
-
 }
 
 impl PushableItemState<String> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
-        manager.get_task().unwrap().borrow_mut().purpose.replace(item);
+        manager
+            .get_task()
+            .unwrap()
+            .borrow_mut()
+            .purpose
+            .replace(item);
     }
 }
 
 impl PushableItemState<IdTask> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: IdTask) {
-        if item.to_string().len() > 0 {
+        if item.to_string().is_empty() {
             manager.get_task().unwrap().borrow_mut().id = item;
         }
     }
@@ -353,6 +397,11 @@ impl PushableItemState<IdTask> for EditTaskState {
 
 impl PushableItemState<Groups> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: Groups) {
-        manager.get_task().unwrap().borrow_mut().setgid.replace(item);
+        manager
+            .get_task()
+            .unwrap()
+            .borrow_mut()
+            .setgid
+            .replace(item);
     }
 }
