@@ -30,19 +30,19 @@ jobs:
       
     - name: Format code with Rustfmt
       run: cargo fmt --all -- --check
-      working-directory: path/to/subfolder
+      working-directory: role-manager
       continue-on-error: true
       id: rustfmt
 
     - name: Run Clippy
       run: cargo clippy --all -- -D warnings
-      working-directory: path/to/subfolder
+      working-directory: role-manager
       continue-on-error: true
       id: clippy
 
     - name: Build and run tests
       run: cargo test --all
-      working-directory: path/to/subfolder
+      working-directory: role-manager
       continue-on-error: true
       id: tests
 
