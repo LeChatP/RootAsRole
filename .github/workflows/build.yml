@@ -33,6 +33,10 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Install Dependencies
+      run: sudo ./configure.sh
+    - name: Install sr tool
+      run: sudo make -e install
     - name: Build Project
       run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
