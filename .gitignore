@@ -59,7 +59,7 @@ bin/
 
 # Hidden folders (for Linux IDE)
 /.idea/
-target/
+*target/
 version.rs
 
 # Rust crates
