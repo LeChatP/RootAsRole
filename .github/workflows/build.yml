@@ -21,3 +21,20 @@ jobs:
       run: sudo make -e install
     - name: Run Project
       run: sr -h
+  rust-build:
+    runs-on: ubuntu-latest
+    env:
+      working-directory: "role-manager"
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Build Project
+      run: cargo build --release
+      working-directory: ${{ env.working-directory }}
+    - name: Run Project
+      run: cargo run --release -- -h
+      working-directory: ${{ env.working-directory }}
