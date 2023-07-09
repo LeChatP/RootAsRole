@@ -50,7 +50,7 @@ jobs:
     - name: Install sr tool
       run: sudo -E make -e install
       env:
-        PATH: DEBUG=1
+        DEBUG: 1
     - name: Build Project
       run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
