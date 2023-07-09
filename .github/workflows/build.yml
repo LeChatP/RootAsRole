@@ -51,6 +51,10 @@ jobs:
       run: sudo -E make -e install
       env:
         DEBUG: 1
+    - name: print config
+      run: |
+        sudo cat /etc/security/rootasrole.xml
+        whoami
     - name: Build Project
       run: sr cargo build --release
       working-directory: ${{ env.working-directory }}

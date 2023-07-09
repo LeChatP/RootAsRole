@@ -245,17 +245,6 @@ void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 */
 void free_options(settings_t *options)
 {
-	if (options->env_keep != d_keep_vars && options->env_keep != NULL) {
-		xmlFree(*(options->env_keep));
-		free(options->env_keep);
-	}
-	if (options->env_check != d_check_vars && options->env_check != NULL) {
-		xmlFree(*(options->env_check));
-		free(options->env_check);
-	}
-	if (options->path != d_path && options->path != NULL) {
-		free(options->path);
-	}
 	free(options->role);
 }
 
