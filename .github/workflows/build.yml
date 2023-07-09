@@ -46,9 +46,11 @@ jobs:
         account required                    pam_permit.so
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
-        session required                    pam_permit.so" > /etc/pam.d/sr'
+        session required                    pam_permit.so" | tee /etc/pam.d/sr'
     - name: Install sr tool
-      run: sudo make -e install
+      run: sudo -E make -e install
+      env:
+        PATH: DEBUG=1
     - name: Build Project
       run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
