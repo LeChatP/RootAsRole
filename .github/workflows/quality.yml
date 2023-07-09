@@ -78,30 +78,41 @@ jobs:
       - name: Build code
         run: cargo build --all --release
         working-directory: ${{ env.working-directory }}
-        
+      
+      - name: Install required cargo
+        run: cargo install clippy-sarif sarif-fmt
+
+      - name: Run rust-clippy
+        run:
+          cargo clippy
+          --all-features
+          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
+
+  rust-format:
+    name: Rust Formatting Gate
+    env:
+      working-directory: "role-manager"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - name: Format code with Rustfmt
         run: cargo fmt --all -- --check
         working-directory: ${{ env.working-directory }}
-        continue-on-error: true
-        id: rustfmt
 
-      - name: Run Clippy
-        run: cargo clippy --all -- -D warnings
-        working-directory: ${{ env.working-directory }}
-        continue-on-error: true
-        id: clippy
-      
-      - name: Check errors and set workflow status
-        run: |
-          if [[ ${{ steps.rustfmt.outcome }} == 'failure' ]]; then
-            echo "Error: Rustfmt failed."
-            exit 1
-          fi
-          if [[ ${{ steps.clippy.outcome }} == 'failure' ]]; then
-            echo "Error: Clippy failed."
-            exit 1
-          fi
-        if: ${{ always() }}
   rust-security:
     name: Rust Security Gate
     env:

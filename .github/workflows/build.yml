@@ -32,9 +32,11 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Setup project
+      run: sudo ./configure.sh
     - name: Build Project
-      run: cargo build --release
+      run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
     - name: Run Project
-      run: cargo run --release -- -h
+      run: sr cargo run --release -- -h
       working-directory: ${{ env.working-directory }}
