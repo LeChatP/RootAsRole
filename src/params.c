@@ -198,23 +198,13 @@ void set_options_from_node(xmlNodePtr options_node, settings_t *options)
 				options->bounding = 0;
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"path")) {
-				if (options->path != d_path)
-					xmlFree(options->path);
 				options->path = (char *)xmlNodeGetContent(node);
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"env-keep")) {
-				if (options->env_keep != d_keep_vars) {
-					xmlFree(*(options->env_keep));
-					free(options->env_keep);
-				}
 				options->env_keep = split_string(
 					xmlNodeGetContent(node),",");
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"env-check")) {
-				if (options->env_check != d_check_vars) {
-					xmlFree(*(options->env_check));
-					free(options->env_check);
-				}
 				options->env_check = split_string(
 					xmlNodeGetContent(node),",");
 			}
