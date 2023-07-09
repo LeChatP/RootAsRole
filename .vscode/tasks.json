@@ -28,6 +28,7 @@
             "label": "make",
             "command": "sudo",
             "args": [
+                "-E",
                 "/usr/bin/make",
                 "install"
             ],
@@ -50,7 +51,7 @@
             "command": "sudo",
             "args": [
                 "/usr/bin/setcap",
-                "=i",
+                "=eip",
                 "${cwd}/bin/sr"
             ],
             "options": {

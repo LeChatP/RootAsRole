@@ -35,6 +35,22 @@ jobs:
         override: true
     - name: Install Dependencies
       run: sudo ./configure.sh
+    - name: Configure PAM
+      uses: "DamianReeves/write-file-action@master"
+      with:
+        path: /etc/pam.d/sr
+        write-mode: overwrite
+        contents: |
+          #%PAM-1.0
+          auth    [success=1 default=ignore]  pam_permit.so
+          auth    requisite                   pam_permit.so
+          auth    required                    pam_permit.so
+          account [success=1 default=ignore]  pam_permit.so
+          account requisite                   pam_permit.so
+          account required                    pam_permit.so
+          session [success=1 default=ignore]  pam_permit.so
+          session requisite                   pam_permit.so
+          session required                    pam_permit.so
     - name: Install sr tool
       run: sudo make -e install
     - name: Build Project

@@ -55,7 +55,7 @@ jobs:
       working-directory: ${{ env.working-directory }}
       run: rustup component add llvm-tools-preview
     
-    - name: Build project
+    - name: Build project for generating version.rs
       working-directory: ${{ env.working-directory }}
       run: cargo build
     
