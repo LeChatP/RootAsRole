@@ -103,14 +103,8 @@ void set_default_options(settings_t *settings){
 	if(settings->path == NULL){
 		settings->path = d_path;
 	}
-	if(settings->setuid != NULL){
-		free(settings->setuid);
-		settings->setuid = NULL;
-	}
-	if(settings->setgid != NULL){
-		free(settings->setgid);
-		settings->setgid = NULL;
-	}
+	settings->setuid = NULL;
+	settings->setgid = NULL;
 	if(settings->no_root == 0){
 		settings->no_root = 1;
 	}
@@ -250,7 +244,6 @@ void find_and_set_options_in_node(xmlNodePtr p_node, settings_t *options)
 */
 void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 {
-	set_default_options(options);
 	find_and_set_options_in_node(task_node, options);
 	find_and_set_options_in_node(task_node->parent, options);
 	find_and_set_options_in_node(task_node->doc->children->next, options);
