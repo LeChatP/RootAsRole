@@ -110,6 +110,9 @@ jobs:
         with:
           toolchain: stable
           override: true
+      - name: Build code
+        run: cargo build --all --release
+        working-directory: ${{ env.working-directory }}
       - name: Format code with Rustfmt
         run: cargo fmt --all -- --check
         working-directory: ${{ env.working-directory }}
