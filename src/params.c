@@ -246,6 +246,7 @@ void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 void free_options(settings_t *options)
 {
 	//free(options->role);
+	options->bounding = 0;
 }
 
 /* 
