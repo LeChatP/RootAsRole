@@ -80,6 +80,15 @@ int setgid_effective(int enable)
 	return caps_effective(enable, 1, &cap_value);
 }
 
+int dac_read_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("cap_dac_read_search", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
 
 /* 
 Activate the securebits for the no-root option.

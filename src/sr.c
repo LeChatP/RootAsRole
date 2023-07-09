@@ -96,7 +96,6 @@ void safe_memcpy(void* dest, size_t dest_size, const void* src, size_t count) {
 }
 
 
-
 void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 {
 	int i = execve(command, p_argv, p_envp);
@@ -277,6 +276,7 @@ int main(int argc, char *argv[])
 	openlog("sr", LOG_PID, LOG_AUTH);
 	cap_iab_t iab = NULL;
 	settings_t options;
+	set_default_options(&options);
 	user_t *user = user_posix_get();
 	if (!pam_authenticate_user(user->name)) {
 		error(0, 0, "Authentication failed");

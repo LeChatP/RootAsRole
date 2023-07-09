@@ -16,6 +16,7 @@
 #endif
 #include "xml_manager.h"
 #include "command.h"
+#include "capabilities.h"
 
 #include <libxml/xpath.h>
 #include <sys/types.h>
@@ -28,6 +29,7 @@
 #include <regex.h>
 #include <fnmatch.h>
 
+
 #ifndef ARG_MAX
 #define ARG_MAX 131072
 #endif
@@ -38,6 +40,10 @@
 
 #ifndef REGERROR_BUF_SIZE
 #define REGERROR_BUF_SIZE 1024
+#endif
+
+#ifndef USER_MAX
+#define USER_MAX 1024
 #endif
 
 static cap_iab_t iab = NULL;
@@ -727,16 +733,16 @@ int __expr_user_or_groups(xmlChar **expr, char *user, char **groups,
 			  int nb_groups)
 {
 	char *expr_format = "actors/user[@name='%s'] or actors/group[%s]";
-	int size = 26 + (int)strlen(user);
+	int size = 40 + (int)strnlen(user,USER_MAX);
 	xmlChar *groups_str =
-		(xmlChar *)xmlMalloc((nb_groups * 57) * sizeof(xmlChar));
+		(xmlChar *)xmlMalloc((nb_groups * (27+USER_MAX)) * sizeof(xmlChar));
 	if (!groups_str) {
 		fputs("Error malloc\n", stderr);
 		return -1;
 	}
 	xmlChar *str_ptr = groups_str;
 	for (int i = 0; i < nb_groups; i++) {
-		int contains_size = (int)strlen(groups[i]) + 21;
+		int contains_size = (int)strnlen(groups[i],USER_MAX) + 21;
 		int err = -1;
 		if (i == 0) {
 			err = xmlStrPrintf(str_ptr, contains_size,
@@ -789,7 +795,7 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 		free(sanitized_str);
 		return NULL;
 	}
-	size = 134 + (int)strlen(sanitized_str) + user_groups_size;
+	size = 136 + (int)strlen(sanitized_str) + user_groups_size;
 
 	expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
 	if (!expression) {
@@ -800,7 +806,7 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	// //role[(actors/user[@name='lechatp'] or actors/group[contains(@names,'lechatp') or contains(@names,'group1')]) and (task/command[text()='%s'] or task[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]
 	err = xmlStrPrintf(
 		expression, size,
-		"//role[(%s) and (task/command[text()=%s] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])])]",
+		"//role[(%s) and (task/command[text()=%s] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]",
 		user_groups_char, sanitized_str);
 	if (err == -1) {
 		fputs("Error xmlStrPrintf()\n", stderr);
@@ -909,7 +915,17 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 		while (task != NULL) {
 			if (!xmlStrcmp(task->name, (const xmlChar *)"task")) {
 				xmlNodePtr command_node = task->children;
-				if (!command_match(command, command_node)) {
+				score_t found = NO_MATCH;
+				while(command_node != NULL){
+					if (!xmlStrcmp(command_node->name,(const xmlChar *)"command")) {
+						found = command_match(command, command_node);
+						if (found != NO_MATCH) {
+							break;
+						}
+					}
+					command_node = command_node->next;
+				}
+				if (found == NO_MATCH) {
 					xmlUnlinkNode(node);
 					xmlFreeNode(node);
 					if (i < set->nodeNr - 1) {
@@ -1128,9 +1144,10 @@ xmlDocPtr load_xml(char *xml_file)
 		fputs("Failed to allocate parser context\n", stderr);
 		return NULL;
 	}
-
+	dac_read_effective(1);
 	doc = xmlCtxtReadFile(ctxt, xml_file, NULL,
 			      XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS);
+	dac_read_effective(0);
 	if (!doc) {
 		fprintf(stderr, "Failed to parse %s\n", XML_FILE);
 		goto ret_err;

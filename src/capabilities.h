@@ -26,6 +26,11 @@ Set setgid capabilities in the effective set of the process.
 */
 int setgid_effective(int enable);
 
+/*
+Set dac_read capabilities in the effective set of the process.
+*/
+int dac_read_effective(int enable);
+
 /* 
 Activate the securebits for the no-root option.
 Return 0 on success, -1 on failure.
