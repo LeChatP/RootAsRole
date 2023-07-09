@@ -72,7 +72,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="root" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
+			<task id="t_root" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
 				<command>**</command>
 				<purpose>access to every commands</purpose>
 			</task>
@@ -81,7 +81,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="root-as-role"> <!-- capabilities="" to define -->
+			<task id="t_root-as-role"> <!-- capabilities="" to define -->
 				<command>/usr/sbin/rar (.*)</command>
 				<purpose>Edit admin acess roles</purpose>
 			</task>
@@ -90,7 +90,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="account-management" setuser="root"> <!-- capabilities="" to define -->
+			<task id="t_account-management" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Manage user accounts</purpose>
 				<!--
 				<command>/usr/bin/useradd (.*)</command>
@@ -100,7 +100,7 @@
 				<command>/usr/bin/chage (.*)</command>
 				<command>/usr/bin/chfn (.*)</command> -->
 			</task>
-			<task id="group-management" setuser="root"> <!-- capabilities="" to define -->
+			<task id="t_group-management" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Manage user groups</purpose>
 				<!--
 				<command>/usr/bin/groupadd (.*)</command>
@@ -112,7 +112,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="backup" setuser="root"> <!-- capabilities="" to define -->
+			<task id="t_backup" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Backup files</purpose>
 				<!--
 				<command>/usr/bin/rsync (.*)</command>
@@ -125,7 +125,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="ssh" ><!-- capabilities="" to define -->
+			<task id="t_ssh" ><!-- capabilities="" to define -->
 				<purpose>Manage ssh</purpose>
 				<!-- 
 				<command>/usr/bin/ssh (.*)</command>
@@ -137,7 +137,7 @@
 				<command>/usr/bin/ssh-keysign (.*)</command>
 				-->
 			</task>
-			<task id="ip" > <!-- capabilities="CAP_NET_RAW,CAP_NET_ADMIN"> -->
+			<task id="t_ip" > <!-- capabilities="CAP_NET_RAW,CAP_NET_ADMIN"> -->
 				<purpose>Manage connectivity</purpose>
 				<!-- <command>/usr/bin/ip (.*)</command>
 				<command>/usr/bin/ifconfig (.*)</command>
@@ -155,7 +155,7 @@
 				<command>/usr/bin/nc.traditional (.*)</command>
 				<command>/usr/bin/ncat-traditional (.*)</command> -->
 			</task>
-			<task id="dns">
+			<task id="t_dns">
 				<purpose>Manage DNS</purpose>
 				<!--
 				<command>/usr/bin/dig (.*)</command>
@@ -167,7 +167,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="installator" setuser="root"> <!-- capabilities="" to define -->
+			<task id="t_installator" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Install software</purpose>
 				<!--
 				<command>/usr/bin/apt-get (.*)</command>
@@ -180,11 +180,11 @@
 				-->
 			</task>
 		</role>
-		<role name="monitoring" capabilities="CAP_AUDIT_READ,CAP_AUDIT_CONTROL">
+		<role name="monitoring">
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="audit">
+			<task id="t_audit">
 				<purpose>Manage audit</purpose>
 				<!--
 				<command>/usr/sbin/auditctl (.*)</command>
@@ -202,7 +202,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="troubleshooting" setuser="root"> <!-- capabilities="" to define -->
+			<task id="t_troubleshooting" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Manage troubleshooting</purpose>
 				<!--
 				<command>/usr/bin/strace (.*)</command>
@@ -216,7 +216,7 @@
 			<actors>
 				<user name="ADMINISTRATOR" />
 			</actors>
-			<task id="all" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
+			<task id="t_all" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
 				<purpose>Break the glass case, forensic mode enabled</purpose>
 				<!--<command>**</command>-->
 			</task>
