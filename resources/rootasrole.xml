@@ -69,6 +69,15 @@
 		<wildcard-denied>;&amp;|</wildcard-denied>
 	</options>
 	<roles>
+		<role name="superuser">
+			<actors>
+				<user name="ADMINISTRATOR" />
+			</actors>
+			<task id="root" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
+				<command>**</command>
+				<purpose>access to every commands</purpose>
+			</task>
+		</role>
 		<role name="AdminIAM">
 			<actors>
 				<user name="ADMINISTRATOR" />
