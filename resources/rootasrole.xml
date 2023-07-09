@@ -70,7 +70,7 @@
 	<roles>
 		<role name="superuser">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_root" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
 				<command>**</command>
@@ -79,7 +79,7 @@
 		</role>
 		<role name="AdminIAM">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_root-as-role"> <!-- capabilities="" to define -->
 				<command>/usr/sbin/rar (.*)</command>
@@ -88,7 +88,7 @@
 		</role>
 		<role name="IAM">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_account-management" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Manage user accounts</purpose>
@@ -110,7 +110,7 @@
 		</role>
 		<role name="backup">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_backup" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Backup files</purpose>
@@ -123,7 +123,7 @@
 		</role>
 		<role name="network"> <!-- Not exaustive -->
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_ssh" ><!-- capabilities="" to define -->
 				<purpose>Manage ssh</purpose>
@@ -165,7 +165,7 @@
 		</role>
 		<role name="installator">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_installator" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Install software</purpose>
@@ -182,7 +182,7 @@
 		</role>
 		<role name="monitoring">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_audit">
 				<purpose>Manage audit</purpose>
@@ -200,7 +200,7 @@
 		</role>
 		<role name="troubleshooting">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_troubleshooting" setuser="root"> <!-- capabilities="" to define -->
 				<purpose>Manage troubleshooting</purpose>
@@ -214,7 +214,7 @@
 		</role>
 		<role name="forensic">
 			<actors>
-				<user name="ADMINISTRATOR" />
+				<user name="ROOTADMINISTRATOR" />
 			</actors>
 			<task id="t_all" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
 				<purpose>Break the glass case, forensic mode enabled</purpose>
