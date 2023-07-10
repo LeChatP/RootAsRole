@@ -1088,6 +1088,12 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 		}
 		cap_free(eff);
 		xmlFree(capabilities);
+	} else {
+		cap_t eff = cap_init();
+		if (options->bounding) {
+			cap_iab_fill(options->iab, CAP_IAB_BOUND, eff,
+				     CAP_INHERITABLE);
+		}
 	}
 	if (!res)
 		fprintf(stderr,
