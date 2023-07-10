@@ -19,7 +19,7 @@ COVOPT := $(if $(COV),--coverage -fprofile-abs-path,)
 ALLOPT := $(STDOPT) $(WARNINGS) $(COVOPT)
 
 COMPOPTIONS = $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
-SR_LDOPTIONS := -lbsd $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
+SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
 LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(DEBUGLD)
 COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
 EXECUTABLES := sr
