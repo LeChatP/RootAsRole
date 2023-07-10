@@ -111,6 +111,8 @@ void set_default_options(settings_t *settings){
 	if(settings->bounding == 0){
 		settings->bounding = 1;
 	}
+	settings->role = NULL;
+	settings->iab = cap_iab_init();
 }
 
 void options_assign(settings_t *dst, settings_t *src) {
@@ -131,6 +133,12 @@ void options_assign(settings_t *dst, settings_t *src) {
 	}
 	dst->no_root = src->no_root;
 	dst->bounding = src->bounding;
+	if (src->role != NULL) {
+		dst->role = src->role;
+	}
+	if (src->iab != NULL) {
+		dst->iab = src->iab;
+	}
 }
 
 static char** split_string(xmlChar *str, char *delimiter){
@@ -188,14 +196,12 @@ void set_options_from_node(xmlNodePtr options_node, settings_t *options)
 	     node = node->next) {
 		if (node->type == XML_ELEMENT_NODE) {
 			if (!xmlStrcmp(node->name,
-				       (const xmlChar *)"allow-root") &&
-			    option_enforced(node)) {
-				options->no_root = 0;
+				       (const xmlChar *)"allow-root")) {
+						options->no_root = !option_enforced(node);
 			} else if (!xmlStrcmp(
 					   node->name,
-					   (const xmlChar *)"allow-bounding") &&
-				   option_enforced(node)) {
-				options->bounding = 0;
+					   (const xmlChar *)"allow-bounding")) {
+				options->bounding = !option_enforced(node);
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"path")) {
 				options->path = (char *)xmlNodeGetContent(node);
@@ -246,6 +252,7 @@ void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 void free_options(settings_t *options)
 {
 	//free(options->role);
+	//free(options->iab);
 	options->bounding = 0;
 }
 

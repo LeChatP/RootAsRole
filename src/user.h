@@ -7,6 +7,14 @@
  */
 #ifndef USER_H_INCLUDED
 #define USER_H_INCLUDED
+#ifndef LOGIN_NAME_MAX
+# ifdef _POSIX_LOGIN_NAME_MAX
+#  define LOGIN_NAME_MAX _POSIX_LOGIN_NAME_MAX
+# else
+#  define LOGIN_NAME_MAX 256
+# endif
+#endif
+
 #include <sys/types.h>
 #include "params.h"
 
@@ -47,7 +55,7 @@ gid_t get_group_id(uid_t uid);
 
 gid_t get_group_id_from_name(const char *group);
 
-int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t *groups);
+int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t **groups);
 
 /*
 Init and close a pam session to authenticate a given user.

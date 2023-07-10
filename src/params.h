@@ -2,6 +2,7 @@
 #define PARAMS_H
 
 #include <libxml/xpath.h>
+#include <sys/capability.h>
 
 struct s_cmd {
     char *command;
@@ -28,6 +29,7 @@ struct s_settings {
     char *setgid;
     int no_root;
     int bounding;
+    cap_iab_t iab;
 };
 
 typedef struct s_settings settings_t;

@@ -29,19 +29,20 @@ int find_absolute_path_from_env(char *file, char **pfull_path)
 	if (path == NULL) {
 		return res;
 	}
-	char *token = strtok(path, ":");
+    char *saveptr = NULL;
+	char *token = strtok_r(path, ":", &saveptr);
 	while (token != NULL) {
         char *full_path = malloc(sizeof(char) * (strnlen(token,PATH_MAX) + strnlen(file,PATH_MAX) + 2));
 		int len = snprintf(full_path, strnlen(token,PATH_MAX) + strnlen(file,PATH_MAX) + 2, "%s/%s",
 			 token, file);
 		if (access(full_path, X_OK) == 0) {
 			res = 1;
-            *pfull_path = malloc(sizeof(char) * (len + 1));
+            *pfull_path = malloc(sizeof(char) * (len+1));
             strncpy(*pfull_path, full_path, len);
             (*pfull_path)[len] = '\0';
 		}
 		free(full_path);
-		token = strtok(NULL, ":");
+		token = strtok_r(NULL, ":",&saveptr);
 	}
 	return res;
 }

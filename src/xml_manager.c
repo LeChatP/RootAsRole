@@ -29,7 +29,6 @@
 #include <regex.h>
 #include <fnmatch.h>
 
-
 #ifndef ARG_MAX
 #define ARG_MAX 131072
 #endif
@@ -45,8 +44,6 @@
 #ifndef USER_MAX
 #define USER_MAX 1024
 #endif
-
-static cap_iab_t iab = NULL;
 
 xmlXPathObjectPtr result = NULL;
 
@@ -172,7 +169,7 @@ int scorecmp(score_t score_A, score_t score_B)
 }
 
 int twoscorecmp(score_t user_min_A, score_t cmd_min_A, score_t user_min_B,
-		 score_t cmd_min_B)
+		score_t cmd_min_B)
 {
 	if (user_min_A > user_min_B)
 		return 1;
@@ -184,12 +181,11 @@ int twoscorecmp(score_t user_min_A, score_t cmd_min_A, score_t user_min_B,
 		return -1;
 	else
 		return 0;
-
 }
 
 int threescorecmp(score_t caps_min_A, score_t setuid_min_A,
-		      score_t security_min_A, score_t caps_min_B,
-		      score_t setuid_min_B, score_t security_min_B)
+		  score_t security_min_A, score_t caps_min_B,
+		  score_t setuid_min_B, score_t security_min_B)
 {
 	if (caps_min_A > caps_min_B)
 		return 1;
@@ -221,9 +217,9 @@ score_t actors_match(user_t *user, xmlNodePtr actors)
 			score = 1;
 		} else {
 			score_t max = -1;
-			score_t n = max - actors_match_max_group(actors,
-							     user->groups,
-							     user->nb_groups);
+			score_t n = max -
+				    actors_match_max_group(actors, user->groups,
+							   user->nb_groups);
 			if (n == 0) {
 				printf("Unkown error\n");
 				return 0;
@@ -279,7 +275,7 @@ int regex_matches(char *args, cmd_t *command, xmlNodePtr command_element,
 	args[args_len] = '$';
 	args_len++;
 	args[args_len] = '\0';
-	
+
 	//check regex on args
 	regex_t regex;
 	int reti = regcomp(&regex, args, REG_EXTENDED);
@@ -334,7 +330,7 @@ int check_path_matches(cmd_t *command, xmlNodePtr command_element,
 				      args + 1, ARG_MAX - 2)) {
 		return 0;
 	}
-	if (!strcmp(content,"**")){
+	if (!strcmp(content, "**")) {
 		*retval = PATH_ARG_FULL_WILDCARD;
 		return 1;
 	}
@@ -364,8 +360,8 @@ score_t command_match(cmd_t *command, xmlNodePtr command_element)
 		xmlChar *content = xmlNodeGetContent(command_element);
 		size_t content_len = xmlStrlen(content);
 		if (content != NULL && content_len > 0) {
-			if(!check_path_matches(command, command_element,
-						    (char *)content, &retval)){
+			if (!check_path_matches(command, command_element,
+						(char *)content, &retval)) {
 				retval = NO_MATCH;
 			}
 		}
@@ -496,9 +492,8 @@ score_t get_setuid_min(const xmlNodePtr task_element,
  * @param caps_min the capabilities level of the task
  * @return 1 if any match, or 0 if no match
 */
-int task_match(cmd_t *cmd, const xmlNodePtr task_element,
-	       settings_t *settings, score_t *cmd_min, score_t *caps_min,
-	       score_t *setuid_min)
+int task_match(cmd_t *cmd, const xmlNodePtr task_element, settings_t *settings,
+	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min)
 {
 	*setuid_min = *caps_min = *cmd_min = -1;
 	if (!xmlStrcmp(task_element->name, (const xmlChar *)"task")) {
@@ -510,7 +505,7 @@ int task_match(cmd_t *cmd, const xmlNodePtr task_element,
 			if (match) {
 				*cmd_min = match < *cmd_min ? match : *cmd_min;
 			}
-			
+
 			command_element = command_element->next;
 		}
 		if (*cmd_min > 0) {
@@ -534,8 +529,8 @@ int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 	score_t task_cmd = -1, task_caps = -1, task_setuid = -1;
 	if (task_match(cmd, role_sub_element, settings, &task_cmd, &task_caps,
 		       &task_setuid)) {
-		int cmp = threescorecmp(task_cmd, task_caps,
-							task_setuid, *cmd_min, *caps_min, *setuid_min);
+		int cmp = threescorecmp(task_cmd, task_caps, task_setuid,
+					*cmd_min, *caps_min, *setuid_min);
 		if (cmp < 0) {
 			*cmd_min = task_cmd;
 			*caps_min = task_caps;
@@ -562,10 +557,10 @@ int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 	return ret;
 }
 
-int role_match(const xmlNodePtr role_element, user_t *user,
-	       cmd_t *cmd, xmlNode *task_min, settings_t *settings,
-	       score_t *user_min, score_t *cmd_min, score_t *caps_min,
-	       score_t *setuid_min, score_t *security_min)
+int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
+	       xmlNodePtr *task_min, settings_t *settings, score_t *user_min,
+	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min,
+	       score_t *security_min)
 {
 	if (!xmlStrcmp(role_element->name, (const xmlChar *)"role")) {
 		xmlNode *role_sub_element = role_element->children;
@@ -578,7 +573,7 @@ int role_match(const xmlNodePtr role_element, user_t *user,
 			while (role_sub_element != NULL) {
 				int ret =
 					set_task_min(cmd, role_sub_element,
-						     &task_min, settings,
+						     task_min, settings,
 						     cmd_min, caps_min,
 						     setuid_min, security_min);
 				if (ret == 1)
@@ -601,17 +596,17 @@ void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 {
 	xmlNodePtr tmp_task_element = NULL;
 	settings_t tmp_settings;
+	set_default_options(&tmp_settings);
 	score_t tmp_user_min = -1, tmp_cmd_min = -1, tmp_caps_min = -1,
 		tmp_setuid_min = -1, tmp_security_min = -1;
-	if (role_match(role_element, user, cmd, tmp_task_element, &tmp_settings,
+	if (role_match(role_element, user, cmd, &tmp_task_element, &tmp_settings,
 		       &tmp_user_min, &tmp_cmd_min, &tmp_caps_min,
 		       &tmp_setuid_min, &tmp_security_min)) {
 		int precision = twoscorecmp(tmp_user_min, tmp_cmd_min,
 					    *user_min, *cmd_min);
-		int leastprivilege =
-			threescorecmp(tmp_caps_min, tmp_setuid_min,
-					  tmp_security_min, *caps_min,
-					  *setuid_min, *security_min);
+		int leastprivilege = threescorecmp(tmp_caps_min, tmp_setuid_min,
+						   tmp_security_min, *caps_min,
+						   *setuid_min, *security_min);
 		if (precision < 0 || (precision == 0 && leastprivilege < 0)) {
 			*user_min = tmp_user_min;
 			*cmd_min = tmp_cmd_min;
@@ -640,8 +635,8 @@ void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
  * 
 */
 int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
-			    cmd_t *cmd, xmlNode *matched_role,
-			    xmlNode *matched_task, settings_t *matched_settings)
+			    cmd_t *cmd, xmlNodePtr *matched_role,
+			    xmlNodePtr *matched_task, settings_t *matched_settings)
 {
 	score_t user_min = -1, cmd_min = -1, caps_min = -1, setuid_min = -1,
 		security_min = -1;
@@ -650,8 +645,8 @@ int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
 		xmlNodePtr role_element = roles_element->nodeTab[i];
 		min_partial_order_role(role_element, user, cmd, &user_min,
 				       &cmd_min, &caps_min, &setuid_min,
-				       &security_min, &matched_role,
-				       &matched_task, matched_settings,
+				       &security_min, matched_role,
+				       matched_task, matched_settings,
 				       &n_roles);
 	}
 	return n_roles;
@@ -666,30 +661,36 @@ int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
  * @param str the string to sanitize
  * @return the sanitized string, or NULL on error, to free at end of usage
 */
-char *sanitize_quotes_xpath(const char *str)
+char *sanitize_quotes_xpath(const char *p_str, size_t p_strlen)
 {
 	char *split = "',\"'\",'";
-	const char *format = strchr(str, '\'') ? "concat('%s')" : "'%s'";
-	char *tmp = malloc(strlen(str) * strlen(split) + strlen(format) + 1);
+	char *str = (char *)p_str;
+	size_t tot = p_strlen * 8 + 1;
+	char *tmp = malloc(tot);
 	if (tmp == NULL) {
 		return NULL;
 	}
 	tmp[0] = '\0';
-	char *tok = strtok((char *)str, "'");
-	tmp = strcat(tmp, tok);
-	tok = strtok(NULL, "'");
+	char *saveptr = NULL;
+	char *tok = strtok_r(str, "'", &saveptr);
+	size_t tok_len = tok - str;
+	tmp = strncat(tmp, tok, tok_len);
+	tok = strtok_r(NULL, "'", &saveptr);
 	while (tok != NULL) {
-		tmp = strcat(tmp, split);
-		tmp = strcat(tmp, tok);
-		tok = strtok(NULL, "'");
+		tok_len = tok - str - tok_len;
+		tmp = strncat(tmp, split, 8);
+		tmp = strncat(tmp, tok, tok_len);
+		tok = strtok_r(NULL, "'", &saveptr);
 	}
-	int len = strlen(tmp) + 11;
-	char *ret = malloc(len * sizeof(char));
+	char *ret = malloc(tot + 11);
 	if (ret == NULL) {
 		free(tmp);
 		return NULL;
 	}
-	snprintf(ret, len, format, tmp);
+	if (strchr(str, '\'') != NULL)
+		snprintf(ret, tot + 11, "concat('%s')", tmp);
+	else
+		snprintf(ret, tot + 2, "'%s'", tmp);
 	free(tmp);
 	return ret;
 }
@@ -733,16 +734,16 @@ int __expr_user_or_groups(xmlChar **expr, char *user, char **groups,
 			  int nb_groups)
 {
 	char *expr_format = "actors/user[@name='%s'] or actors/group[%s]";
-	int size = 40 + (int)strnlen(user,USER_MAX);
-	xmlChar *groups_str =
-		(xmlChar *)xmlMalloc((nb_groups * (27+USER_MAX)) * sizeof(xmlChar));
+	int size = 40 + (int)strnlen(user, USER_MAX);
+	xmlChar *groups_str = (xmlChar *)xmlMalloc(
+		(nb_groups * (27 + USER_MAX)) * sizeof(xmlChar));
 	if (!groups_str) {
 		fputs("Error malloc\n", stderr);
 		return -1;
 	}
 	xmlChar *str_ptr = groups_str;
 	for (int i = 0; i < nb_groups; i++) {
-		int contains_size = (int)strnlen(groups[i],USER_MAX) + 21;
+		int contains_size = (int)strnlen(groups[i], USER_MAX) + 21;
 		int err = -1;
 		if (i == 0) {
 			err = xmlStrPrintf(str_ptr, contains_size,
@@ -785,7 +786,8 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	*str_cmd = '\0';
 	int cmd_len = 0;
 	join_cmd(command, str_cmd, PATH_MAX + ARG_MAX + 1, &cmd_len);
-	char *sanitized_str = sanitize_quotes_xpath(str_cmd);
+	char *sanitized_str =
+		sanitize_quotes_xpath(str_cmd, PATH_MAX + ARG_MAX + 1);
 	if (sanitized_str == NULL) {
 		return NULL;
 	}
@@ -795,7 +797,7 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 		free(sanitized_str);
 		return NULL;
 	}
-	size = 136 + (int)strlen(sanitized_str) + user_groups_size;
+	size = 136 + PATH_MAX + ARG_MAX + 1 + user_groups_size;
 
 	expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
 	if (!expression) {
@@ -916,9 +918,12 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 			if (!xmlStrcmp(task->name, (const xmlChar *)"task")) {
 				xmlNodePtr command_node = task->children;
 				score_t found = NO_MATCH;
-				while(command_node != NULL){
-					if (!xmlStrcmp(command_node->name,(const xmlChar *)"command")) {
-						found = command_match(command, command_node);
+				while (command_node != NULL) {
+					if (!xmlStrcmp(command_node->name,
+						       (const xmlChar
+								*)"command")) {
+						found = command_match(
+							command, command_node);
 						if (found != NO_MATCH) {
 							break;
 						}
@@ -990,15 +995,15 @@ ret_err:
  * @param command command to search
  * @return expression like .//task[command/text() = 'thecommand')]
 */
-xmlChar *expr_search_command_block_from_role(char *command)
+xmlChar *expr_search_command_block_from_role(char *command, size_t command_len)
 {
 	xmlChar *expr = NULL;
-	char *sanitized_command = sanitize_quotes_xpath(command);
+	char *sanitized_command = sanitize_quotes_xpath(command, command_len);
 	if (sanitized_command == NULL) {
 		return NULL;
 	}
 	char *command_block = ".//task[command/text() = %s]";
-	int len = strlen((char *)command_block) + strlen(sanitized_command) + 1;
+	int len = 27 + command_len + 1;
 	expr = (xmlChar *)malloc(len);
 	if (expr == NULL) {
 		return NULL;
@@ -1031,20 +1036,28 @@ xmlNodeSetPtr find_wildcard_task_block_from_role(xmlNodePtr role_node)
 /**
  * @brief find the role node matching the parameters, filter 
 */
-int get_settings(xmlNodePtr role_node, xmlNodePtr task_node, settings_t *options)
+int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
+		 settings_t *options)
 {
 	int res = 1;
-	options->role = (char *)xmlGetProp(role_node, (const xmlChar *)"name");
+	options->role = (char *)xmlStrdup(
+		xmlGetProp(role_node, (const xmlChar *)"name"));
 	if (xmlHasProp(task_node, (const xmlChar *)"setuser")) {
-		options->setuid = (char *)xmlGetProp(
-			task_node, (const xmlChar *)"setuser");
+		xmlChar *prop =
+			xmlGetProp(task_node, (const xmlChar *)"setuser");
+		options->setuid = (char *)xmlStrdup(prop);
+		xmlFree(prop);
+	} else {
+		options->setuid = NULL;
 	}
-	if (xmlHasProp(role_node, (const xmlChar *)"setgroups")) {
-		options->setgid = (char *)xmlGetProp(
-			role_node, (const xmlChar *)"setgroups");
+	if (xmlHasProp(task_node, (const xmlChar *)"setgroups")) {
+		xmlChar *prop =
+			xmlGetProp(task_node, (const xmlChar *)"setgroups");
+		options->setgid = (char *)xmlStrdup(prop);
+		xmlFree(prop);
+	} else {
+		options->setgid = NULL;
 	}
-
-	iab = cap_iab_init();
 	if (xmlHasProp(task_node, (const xmlChar *)"capabilities")) {
 		xmlChar *capabilities =
 			xmlGetProp(task_node, (const xmlChar *)"capabilities");
@@ -1067,15 +1080,15 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node, settings_t *options
 			capabilities = s_capabilities;
 		}
 		cap_t eff = cap_from_text((char *)capabilities);
-		cap_iab_fill(iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
+		cap_iab_fill(options->iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
 		get_options_from_config(task_node, options);
 		if (options->bounding) {
-			cap_iab_fill(iab, CAP_IAB_BOUND, eff, CAP_INHERITABLE);
+			cap_iab_fill(options->iab, CAP_IAB_BOUND, eff,
+				     CAP_INHERITABLE);
 		}
 		cap_free(eff);
 		xmlFree(capabilities);
 	}
-
 	if (!res)
 		fprintf(stderr,
 			"There is a problem with the configuration file, contact administrator or read logs\n");
@@ -1187,8 +1200,8 @@ int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
 	xmlNodePtr role_node = NULL;
 	xmlNodePtr task_node = NULL;
 
-	int nb_colliding = find_partial_order_role(set, user, cmd, role_node,
-						   task_node, options);
+	int nb_colliding = find_partial_order_role(set, user, cmd, &role_node,
+						   &task_node, options);
 	if (nb_colliding == 0) {
 		return res;
 	} else if (nb_colliding == 1) {
@@ -1211,7 +1224,7 @@ int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
  * @return 1 on success, or 0 on error
  * @note the capabilities and options are stored in global variables
 */
-int get_settings_from_config(user_t *user, cmd_t *command, cap_iab_t *p_iab,
+int get_settings_from_config(user_t *user, cmd_t *command,
 			     settings_t *p_options)
 {
 	xmlDocPtr doc;
@@ -1220,13 +1233,12 @@ int get_settings_from_config(user_t *user, cmd_t *command, cap_iab_t *p_iab,
 		return 0;
 	int res = get_settings_from_doc_by_partial_order(doc, user, command,
 							 p_options);
-	*p_iab = iab;
+	
 	xmlFreeDoc(doc);
 	return res;
 }
 
-int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd,
-				  cap_iab_t *p_iab, settings_t *p_options)
+int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd, settings_t *p_options)
 {
 	xmlDocPtr doc;
 	doc = load_xml(XML_FILE);
@@ -1234,7 +1246,6 @@ int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd,
 		return 0;
 	int res =
 		get_settings_from_doc_by_role(role, doc, user, cmd, p_options);
-	*p_iab = iab;
 	xmlFreeDoc(doc);
 	return res;
 }
