@@ -72,7 +72,7 @@
 			<actors>
 				<user name="ROOTADMINISTRATOR" />
 			</actors>
-			<task id="t_root" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
+			<task id="t_root" setuser="root" setgroups="root" capabilities="ALL">
 				<command>**</command>
 				<purpose>access to every commands</purpose>
 			</task>
