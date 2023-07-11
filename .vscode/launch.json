@@ -72,7 +72,6 @@
                         }
                     },
                     "args": [],
-                    
                     "cwd": "${workspaceFolder}/role-manager/"
                 }
     ]

@@ -423,7 +423,7 @@ mod tests {
             "--allow-bounding",
             "true",
             "--wildcard-denied",
-            "false",
+            ";;",
         ])
         .command;
         let expected_command = Some(CCommand::Config {

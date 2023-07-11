@@ -384,6 +384,7 @@ impl<'a> OptStack<'a> {
             if let Some(opt) = opt.to_owned() {
                 let res = f(opt.as_ref().borrow().as_ref());
                 if res.is_some() {
+                    println!("res: {:?}", res.as_ref().unwrap().0);
                     return res;
                 }
             }
@@ -520,9 +521,10 @@ impl<'a> OptStack<'a> {
     fn set_at_level(&mut self, opttype: OptType, value: Option<OptValue>, level: Level) {
         let ulevel = level as usize;
         if self.stack[ulevel].is_none() {
-            self.stack[ulevel].replace(Rc::new(Opt::new(level).into()));
+            self.stack[ulevel] = Some(Rc::new(Opt::new(level).into()));
             return;
         }
+        println!("stack : {:?}", self.stack);
         let binding = self.stack[ulevel].as_ref().unwrap();
         let mut opt = binding.as_ref().borrow_mut();
         match opttype {
@@ -590,7 +592,10 @@ mod tests {
 
     #[test]
     fn test_find_in_options() {
-        let mut options = OptStack::new(Roles::new("3.0.0"));
+        let roles = Roles::new("3.0.0");
+        let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
+        roles.as_ref().borrow_mut().roles.push(role);
+        let mut options = OptStack::from_role(roles.clone(), roles.as_ref().borrow().roles[0].to_owned());
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
@@ -614,25 +619,27 @@ mod tests {
 
     #[test]
     fn test_get_description() {
-        let mut options = OptStack::new(Roles::new("3.0.0"));
+        let mut options = OptStack::from_roles(Roles::new("3.0.0"));
+        println!("{:?}", options);
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
             Level::Global,
         );
+        println!("{:?}", options);
         options.set_at_level(
             OptType::EnvWhitelist,
             Some(OptValue::String("tets".to_string())),
             Level::Role,
         );
-
+        println!("{:?}", options);
         let res = options.get_description(Level::Role, OptType::Path);
         assert_eq!(res, " (Inherited from Global)\npath1");
     }
 
     #[test]
     fn test_get_description_inherited() {
-        let mut options = OptStack::new(Roles::new("3.0.0"));
+        let mut options = OptStack::from_roles(Roles::new("3.0.0"));
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
