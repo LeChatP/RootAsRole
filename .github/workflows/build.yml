@@ -9,16 +9,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    env:
+      DOCKER: 1
     steps:
     - uses: actions/checkout@v2
 
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: sudo ./configure.sh
+      run: sudo ./configure.sh -yd
     - name: Build Project
-      run: sudo make -e install
+      run: sudo -E make -e install
     - name: Run Project
       run: sr -h
   rust-build:

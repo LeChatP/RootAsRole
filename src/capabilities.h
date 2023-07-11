@@ -43,6 +43,11 @@ Return 0 on success, -1 on failure.
 */
 int activates_no_new_privs();
 
+/**
+ * Drop all the capabilities from the parent process bounding set.
+*/
+int drop_iab_from_current_bounding(cap_iab_t *dest);
+
 
 #endif // CAPABILITIES_H_INCLUDED
 

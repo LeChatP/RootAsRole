@@ -21,7 +21,8 @@
         "string": "c",
         "sstream": "c",
         "command.h": "c",
-        "unistd.h": "c"
+        "unistd.h": "c",
+        "stdint.h": "c"
     },
     "rust-analyzer.linkedProjects": [
         "./role-manager/Cargo.toml",

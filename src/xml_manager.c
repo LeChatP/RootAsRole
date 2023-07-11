@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <regex.h>
 #include <fnmatch.h>
+#include <sys/capability.h>
 
 #ifndef ARG_MAX
 #define ARG_MAX 131072
@@ -1079,6 +1080,8 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 			xmlFree(capabilities);
 			capabilities = s_capabilities;
 		}
+		
+
 		cap_t eff = cap_from_text((char *)capabilities);
 		cap_iab_fill(options->iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
 		get_options_from_config(task_node, options);
@@ -1086,13 +1089,15 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 			cap_iab_fill(options->iab, CAP_IAB_BOUND, eff,
 				     CAP_INHERITABLE);
 		}
+		drop_iab_from_current_bounding(&options->iab);
 		cap_free(eff);
 		xmlFree(capabilities);
 	} else {
-		cap_t eff = cap_init();
+		cap_t eff = cap_get_proc();
 		if (options->bounding) {
 			cap_iab_fill(options->iab, CAP_IAB_BOUND, eff,
-				     CAP_INHERITABLE);
+				     CAP_PERMITTED);
+			drop_iab_from_current_bounding(&options->iab);
 		}
 	}
 	if (!res)

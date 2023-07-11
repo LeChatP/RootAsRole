@@ -125,6 +125,30 @@ int activates_no_new_privs()
 	}
 }
 
+/**
+ * Drop all the capabilities from the parent process bounding set.
+*/
+int drop_iab_from_current_bounding(cap_iab_t *dest)
+{
+	int ret = 1;
+	cap_iab_t proc = cap_iab_get_proc();
+	cap_flag_value_t values[CAP_LAST_CAP];
+	for (cap_value_t i = 0; i < CAP_LAST_CAP; i++) {
+		values[i] = cap_iab_get_vector(proc, CAP_IAB_BOUND, i);
+		if (values[i] == CAP_CLEAR) {
+			cap_flag_value_t value =
+				cap_iab_get_vector(proc, CAP_IAB_BOUND, i);
+			if (value == CAP_SET) {
+				ret = 0;
+			}
+			cap_iab_set_vector(*dest, CAP_IAB_BOUND, i, CAP_CLEAR);
+			cap_iab_set_vector(*dest, CAP_IAB_AMB, i, CAP_CLEAR);
+			cap_iab_set_vector(*dest, CAP_IAB_INH, i, CAP_CLEAR);
+		}
+	}
+	return ret;
+}
+
 /******************************************************************************
  *                      PRIVATE FUNCTIONS DEFINITION                          *
  ******************************************************************************/
