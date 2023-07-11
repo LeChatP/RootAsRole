@@ -151,14 +151,12 @@ int drop_iab_from_current_bounding(cap_iab_t *dest)
 				cap_iab_get_vector(*dest, CAP_IAB_BOUND, i);
 			if (value == CAP_SET) {
 				ret = 0;
-				printf("dropping %s \n", cap_to_name(i));
 			}
 			cap_iab_set_vector(*dest, CAP_IAB_BOUND, i, CAP_CLEAR);
 			cap_iab_set_vector(*dest, CAP_IAB_AMB, i, CAP_CLEAR);
 			cap_iab_set_vector(*dest, CAP_IAB_INH, i, CAP_CLEAR);
 		}
 	}
-	printf("%s\n",cap_iab_to_text(*dest));
 	return ret;
 }
 

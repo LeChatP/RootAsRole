@@ -22,6 +22,8 @@ jobs:
       run: sudo -E make -e install
     - name: Run Project
       run: sr -h
+    - name: Print capabilities with sr
+      run: sr cat /proc/self/status
   rust-build:
     runs-on: ubuntu-latest
     env:
