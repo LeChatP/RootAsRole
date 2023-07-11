@@ -68,7 +68,7 @@ jobs:
       env:
         DEBUG: 1
     - name: configure sr path
-      run: sr sed -Ei "s!<path>.*</path>!<path>`sudo env | grep -Po 'PATH=\K.*'`</path>!g"
+      run: sr sed -Ei "s;<path>.*</path>;<path>`sudo env | grep -Po 'PATH=\K.*'`</path>;g" /etc/security/rootasrole.xml
     - name: print config
       run: |
         sr cat /etc/security/rootasrole.xml
