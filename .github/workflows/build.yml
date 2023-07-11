@@ -63,6 +63,8 @@ jobs:
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
+    - name: configure sr path
+      run: sr sed -Ei "s|<path>.*</path>|<path>`sudo env | grep -Po 'PATH=\K.*'`</path>|g"
     - name: Install sr tool
       run: sudo -E make -e install
       env:
