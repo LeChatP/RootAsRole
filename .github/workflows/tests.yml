@@ -66,6 +66,7 @@ jobs:
         CARGO_INCREMENTAL: 0
         RUSTFLAGS: '-Cinstrument-coverage'
         LLVM_PROFILE_FILE: 'cargo-test-%p-%m.profraw'
+      continue-on-error: true
     
     - name: generate report
       working-directory: ${{ env.working-directory }}

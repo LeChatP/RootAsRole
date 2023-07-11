@@ -1,6 +1,12 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+#ifndef __STDC_LIB_EXT1__
 #define __STDC_LIB_EXT1__
+#endif
+#ifndef __STDC_WANT_LIB_EXT1__
 #define __STDC_WANT_LIB_EXT1__ 1
+#endif
 #include <criterion/criterion.h>
 
 #include "xml_manager.c"
@@ -326,21 +332,23 @@ Test(expr_user_or_groups, test4)
 }
 
 Test(expr_search_role_by_usergroup_command, test1) {
+    char *s_bin_ls = "/bin/ls";
+    char *s_opt_al[2] = {"ls","-al"};
+    cmd_t *bin_ls_opt_al = &(struct s_cmd) {
+        .command = s_bin_ls,
+        .argv = s_opt_al,
+        .argc = 2,
+    };
     // Test with valid user and group
-    char *user = "john";
-    char *groups[] = {"managers", "designers"};
-    int nb_groups = 2;
-    char *command = "/bin/ls -la";
     xmlChar *expr;
-    user_t *user_struct = malloc(sizeof(user_t));
-    user_struct->name = user;
-    user_struct->groups = groups;
-    user_struct->nb_groups = nb_groups;
-    cmd_t *cmd_struct = malloc(sizeof(cmd_t));
-    cmd_struct->command = command;
-    expr = expr_search_role_by_usergroup_command(user_struct, cmd_struct);
-    cr_assert_str_eq((char *)expr, "//role[(actors/user[@name='john'] or actors/group[contains(@names, 'managers') or contains(@names, 'designers')]) and (task/command[text()='/bin/ls -la'] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]", "Expression does not match expected value\n%s", expr);
+    user_t *user_struct = &(struct s_user) {
+        .name = "john",
+        .groups = malloc(sizeof(char *) * 2),
+        .nb_groups = 2,
+    };
+    user_struct->groups[0] = "managers";
+    user_struct->groups[1] = "designers";
+    expr = expr_search_role_by_usergroup_command(user_struct, bin_ls_opt_al);
+    cr_assert_str_eq((char *)expr, "//role[(actors/user[@name='john'] or actors/group[contains(@names, 'managers') or contains(@names, 'designers')]) and (task/command[text()='/bin/ls -al'] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]", "Expression does not match expected value\n%s", expr);
     xmlFree(expr);
-    free(user_struct);
-    free(cmd_struct);
 }

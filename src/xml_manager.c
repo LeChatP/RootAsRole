@@ -691,7 +691,8 @@ char *sanitize_quotes_xpath(const char *p_str, size_t p_strlen)
 	if (strchr(str, '\'') != NULL)
 		snprintf(ret, tot + 11, "concat('%s')", tmp);
 	else
-		snprintf(ret, tot + 2, "'%s'", tmp);
+		snprintf(ret, tot + 2, "'%s'", str);
+	printf("ret: %s\n", ret);
 	free(tmp);
 	return ret;
 }
@@ -786,12 +787,17 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	char str_cmd[PATH_MAX + ARG_MAX + 1];
 	*str_cmd = '\0';
 	int cmd_len = 0;
-	join_cmd(command, str_cmd, PATH_MAX + ARG_MAX + 1, &cmd_len);
+	int res = join_cmd(command, str_cmd, PATH_MAX + ARG_MAX + 1, &cmd_len);
+	if (res == -1) {
+		return NULL;
+	}
+	printf("str_cmd: %s\n", str_cmd);
 	char *sanitized_str =
 		sanitize_quotes_xpath(str_cmd, PATH_MAX + ARG_MAX + 1);
 	if (sanitized_str == NULL) {
 		return NULL;
 	}
+	printf("sanitized_str: %s\n", sanitized_str);
 	int user_groups_size = __expr_user_or_groups(
 		&user_groups_char, user->name, user->groups, user->nb_groups);
 	if (user_groups_size == -1) {
