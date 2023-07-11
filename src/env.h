@@ -8,7 +8,7 @@
  * @param checklist the checklist of environment variables to check separated by a comma
  * @param new_envp the new environment variables
 */
-int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***new_envp);
+int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_new_envp);
 
 /**
  * @brief replace the path by a secure path

@@ -1,6 +1,12 @@
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#endif
+#ifndef __STDC_LIB_EXT1__
 #define __STDC_LIB_EXT1__
+#endif
+#ifndef __STDC_WANT_LIB_EXT1__
 #define __STDC_WANT_LIB_EXT1__ 1
+#endif
 #include "env.h"
 #include <string.h>
 #include <ctype.h>
@@ -135,16 +141,14 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
     char **new_envp = (char**)malloc(sizeof(char*)*array_len(envp) + 1);
     *new_envp = NULL;
 
-    if (checklist == NULL || whitelist == NULL){
-        res++;
-        goto error;
+    if (checklist == NULL && whitelist == NULL){
+        *p_new_envp = envp;
     }
 
     for(int j = 0; envp[j] != NULL; j++){
         char *env_var = strdup(envp[j]);
         char *env_var_name = strtok(env_var, "=");
-        
-        if (env_var_name == NULL){
+        if (env_var_name == NULL || *env_var_name == '\0'){
             res++;
             goto error;
         }

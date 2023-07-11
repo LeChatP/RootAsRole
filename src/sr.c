@@ -96,8 +96,9 @@ void safe_memcpy(void* dest, size_t dest_size, const void* src, size_t count) {
 }
 
 
-void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
+int sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 {
+	int ret = 0;
 	int i = execve(command, p_argv, p_envp);
 	if (i == -1 || errno == ENOEXEC) {
 		const char **nargv;
@@ -108,10 +109,12 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 			nargv[1] = command;
 			safe_memcpy(nargv + 2, nargc, p_argv, p_argc * sizeof(char *)); 
 			nargv[p_argc] = NULL;
-			execve("/bin/sh", (char **)nargv, p_envp);
+			ret = execve("/bin/sh", (char **)nargv, p_envp);
+			printf("sr: %s : %s", p_argv[0], strerror(errno));
 			free(nargv);
 		}
 	}
+	return ret;
 }
 
 /**
@@ -345,13 +348,16 @@ int main(int argc, char *argv[])
 		syslog(LOG_ERR, "Unable to secure path");
 		goto free_error;
 	}
-	sr_execve(cmd->command, cmd->argc, cmd->argv, env);
+	free_options(&options);
+	if (user != NULL)
+		user_posix_free(user);
+	return sr_execve(cmd->command, cmd->argc, cmd->argv, env);
 
 free_error:
 	free_options(&options);
 	if (user != NULL)
 		user_posix_free(user);
-	return 0;
+	return -1;
 }
 /* 
  * 

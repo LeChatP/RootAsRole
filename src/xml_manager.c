@@ -1106,9 +1106,6 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 			drop_iab_from_current_bounding(&options->iab);
 		}
 	}
-	if (!res)
-		fprintf(stderr,
-			"There is a problem with the configuration file, contact administrator or read logs\n");
 
 	xmlXPathFreeObject(result);
 	return res;

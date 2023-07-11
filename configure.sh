@@ -19,23 +19,23 @@ done
 
 echo "Capabilities & PAM packages installation"
 if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	apt-get install $YES gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-`uname -r`
+	apt-get install "${YES}" gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-$(uname -r)
 	if [ -n "${TEST}" ]; then
-		apt-get install $YES build-essential procps curl file git libcriterion-dev
+		apt-get install "${YES}" build-essential procps curl file git libcriterion-dev
 	fi;
 	if [ -n "${DEBUG}" ]; then
-		apt-get install $YES gdb
+		apt-get install "${YES}" gdb
 	fi;
 	if [ -n "${COV}" ]; then
-		apt-get install $YES gcovr
+		apt-get install "${YES}" gcovr
 	fi;
 elif [ $(which yum >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
 	echo "yum"
 elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	pacman -S $YES gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
+	pacman -S "${YES}" gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
 	if [ -n "${TEST}" ]; then
 		if [ $(which yay >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-			yay -S $YES criterion
+			yay -S "${YES}" criterion
 		else
 			git clone https://aur.archlinux.org/criterion.git
 			cd criterion
@@ -45,10 +45,10 @@ elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then
 		fi;
 	fi;
 	if [ -n "${DEBUG}" ]; then
-		pacman -S $YES gdb
+		pacman -S "${YES}" gdb
 	fi;
 	if [ -n "${COV}" ]; then
-		pacman -S $YES gcovr
+		pacman -S "${YES}" gcovr
 	fi;
 else
 	echo "Unable to find a supported package manager, exiting..."
@@ -80,7 +80,7 @@ fi
 chmod 0644 /etc/pam.d/sr || exit
 cp resources/rootasrole.xml /etc/security || exit
 echo "Define root role for the user ${SUDO_USER}:"
-sed -i 's/ROOTADMINISTRATOR/'${SUDO_USER}'/g' /etc/security/rootasrole.xml
+sed -i "s/ROOTADMINISTRATOR/${SUDO_USER}/g" /etc/security/rootasrole.xml
 chmod 0640 /etc/security/rootasrole.xml || exit
 if [ $DOCKER -eq 0 ]; then
 	chattr +i /etc/security/rootasrole.xml || exit

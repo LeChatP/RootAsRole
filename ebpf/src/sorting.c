@@ -9,7 +9,6 @@ extern void append_pid(SortedPids *list, pid_t p_pid, pid_t p_ppid){
         SortedPids **plist = &list;
         SortedPids *last = NULL;
         while(*plist && (*plist)->pid < p_pid){
-            if((*plist)->pid == p_pid) return; // ignore entry with same pid
             last = *plist;
             plist = &(*plist)->next;
         }
@@ -19,8 +18,6 @@ extern void append_pid(SortedPids *list, pid_t p_pid, pid_t p_ppid){
         }else{ // else last NULL pointer become elem
             *plist = &elem;
         }
-    }else{
-        list = &elem;
     }
 }
 
