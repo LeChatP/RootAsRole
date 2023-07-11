@@ -37,16 +37,11 @@ jobs:
     - name: Print capabilities with sr
       run: sr cat /proc/self/status
   rust-build:
-    runs-on: ubuntu-latest
+    runs-on: rust:latest
     env:
       working-directory: "role-manager"
     steps:
     - uses: actions/checkout@v2
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
