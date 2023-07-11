@@ -71,6 +71,8 @@ jobs:
       run: |
         sudo cat /etc/security/rootasrole.xml
         whoami
+    - name: Print capabilities with sr
+      run: sr cat /proc/self/status
     - name: Build Project
       run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
