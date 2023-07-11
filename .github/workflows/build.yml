@@ -67,6 +67,8 @@ jobs:
       run: sudo -E make -e install
       env:
         DEBUG: 1
+    - name: Edit PATH on rootasrole
+      run: sudo -E sed -i "s;<path>.*</path>;<path>$PATH</path>;g" /etc/security/rootasrole.xml
     - name: print config
       run: |
         sr cat /etc/security/rootasrole.xml
