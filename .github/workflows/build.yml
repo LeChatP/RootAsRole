@@ -77,8 +77,8 @@ jobs:
     - name: Print capabilities with sr
       run: sr cat /proc/self/status
     - name: Build Project
-      run: sr ~/.cargo/bin/cargo build --release
+      run: sudo cargo build --release
       working-directory: ${{ env.working-directory }}
     - name: Run Project
-      run: sr ~/.cargo/bin/cargo run --release -- -h
+      run: sudo cargo run --release -- -h
       working-directory: ${{ env.working-directory }}
