@@ -103,20 +103,16 @@ void set_default_options(settings_t *settings){
 	if(settings->path == NULL){
 		settings->path = d_path;
 	}
-	if(settings->setuid != NULL){
-		free(settings->setuid);
-		settings->setuid = NULL;
-	}
-	if(settings->setgid != NULL){
-		free(settings->setgid);
-		settings->setgid = NULL;
-	}
+	settings->setuid = NULL;
+	settings->setgid = NULL;
 	if(settings->no_root == 0){
 		settings->no_root = 1;
 	}
 	if(settings->bounding == 0){
 		settings->bounding = 1;
 	}
+	settings->role = NULL;
+	settings->iab = cap_iab_init();
 }
 
 void options_assign(settings_t *dst, settings_t *src) {
@@ -137,6 +133,12 @@ void options_assign(settings_t *dst, settings_t *src) {
 	}
 	dst->no_root = src->no_root;
 	dst->bounding = src->bounding;
+	if (src->role != NULL) {
+		dst->role = src->role;
+	}
+	if (src->iab != NULL) {
+		dst->iab = src->iab;
+	}
 }
 
 static char** split_string(xmlChar *str, char *delimiter){
@@ -194,33 +196,21 @@ void set_options_from_node(xmlNodePtr options_node, settings_t *options)
 	     node = node->next) {
 		if (node->type == XML_ELEMENT_NODE) {
 			if (!xmlStrcmp(node->name,
-				       (const xmlChar *)"allow-root") &&
-			    option_enforced(node)) {
-				options->no_root = 0;
+				       (const xmlChar *)"allow-root")) {
+						options->no_root = !option_enforced(node);
 			} else if (!xmlStrcmp(
 					   node->name,
-					   (const xmlChar *)"allow-bounding") &&
-				   option_enforced(node)) {
-				options->bounding = 0;
+					   (const xmlChar *)"allow-bounding")) {
+				options->bounding = !option_enforced(node);
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"path")) {
-				if (options->path != d_path)
-					xmlFree(options->path);
 				options->path = (char *)xmlNodeGetContent(node);
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"env-keep")) {
-				if (options->env_keep != d_keep_vars) {
-					xmlFree(*(options->env_keep));
-					free(options->env_keep);
-				}
 				options->env_keep = split_string(
 					xmlNodeGetContent(node),",");
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"env-check")) {
-				if (options->env_check != d_check_vars) {
-					xmlFree(*(options->env_check));
-					free(options->env_check);
-				}
 				options->env_check = split_string(
 					xmlNodeGetContent(node),",");
 			}
@@ -250,7 +240,6 @@ void find_and_set_options_in_node(xmlNodePtr p_node, settings_t *options)
 */
 void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 {
-	set_default_options(options);
 	find_and_set_options_in_node(task_node, options);
 	find_and_set_options_in_node(task_node->parent, options);
 	find_and_set_options_in_node(task_node->doc->children->next, options);
@@ -262,18 +251,9 @@ void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 */
 void free_options(settings_t *options)
 {
-	if (options->env_keep != d_keep_vars && options->env_keep != NULL) {
-		xmlFree(*(options->env_keep));
-		free(options->env_keep);
-	}
-	if (options->env_check != d_check_vars && options->env_check != NULL) {
-		xmlFree(*(options->env_check));
-		free(options->env_check);
-	}
-	if (options->path != d_path && options->path != NULL) {
-		free(options->path);
-	}
-	free(options->role);
+	//free(options->role);
+	//free(options->iab);
+	options->bounding = 0;
 }
 
 /* 

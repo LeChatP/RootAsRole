@@ -2,22 +2,90 @@ name: Build Project
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - 'main'
   pull_request:
-    branches: [ main ]
-
+    branches:
+      - 'main'
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    env:
+      DOCKER: 1
     steps:
     - uses: actions/checkout@v2
 
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: sudo ./configure.sh
+      run: sudo ./configure.sh -yd
+    - name: Configure PAM
+      run: |
+        sudo bash -c 'echo "#%PAM-1.0
+        auth    [success=1 default=ignore]  pam_permit.so
+        auth    requisite                   pam_permit.so
+        auth    required                    pam_permit.so
+        account [success=1 default=ignore]  pam_permit.so
+        account requisite                   pam_permit.so
+        account required                    pam_permit.so
+        session [success=1 default=ignore]  pam_permit.so
+        session requisite                   pam_permit.so
+        session required                    pam_permit.so" | tee /etc/pam.d/sr'
     - name: Build Project
-      run: sudo make -e install
+      run: sudo -E make -e install
     - name: Run Project
       run: sr -h
+    - name: Print capabilities with sr
+      run: sr cat /proc/self/status
+  rust-build:
+    runs-on: ubuntu-latest
+    env:
+      working-directory: "role-manager"
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: rustup update
+      run: rustup update
+    - name: cargo version
+      run: cargo version
+    - name: Update version
+      run: sudo apt-get update
+    - name: Install Dependencies
+      run: sudo ./configure.sh -yd
+    - name: Configure PAM
+      run: |
+        sudo bash -c 'echo "#%PAM-1.0
+        auth    [success=1 default=ignore]  pam_permit.so
+        auth    requisite                   pam_permit.so
+        auth    required                    pam_permit.so
+        account [success=1 default=ignore]  pam_permit.so
+        account requisite                   pam_permit.so
+        account required                    pam_permit.so
+        session [success=1 default=ignore]  pam_permit.so
+        session requisite                   pam_permit.so
+        session required                    pam_permit.so" | tee /etc/pam.d/sr'
+    - name: Install sr tool
+      run: sudo -E make -e install
+      env:
+        DEBUG: 1
+    - name: Add read access on config on rootasrole... Because Github Actions...
+      run: sudo chmod a+r /etc/security/rootasrole.xml
+    - name: print config
+      run: |
+        sr cat /etc/security/rootasrole.xml
+    - name: getenv
+      run: env
+    - name: sr getenv
+      run: sr env
+    - name: Print capabilities with sr
+      run: sr cat /proc/self/status
+    - name: Build Project
+      run: cargo build --release
+      working-directory: ${{ env.working-directory }}
+    - name: Run Project
+      run: cargo run --release -- -h
+      working-directory: ${{ env.working-directory }}

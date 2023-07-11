@@ -80,6 +80,15 @@ int setgid_effective(int enable)
 	return caps_effective(enable, 1, &cap_value);
 }
 
+int dac_read_effective(int enable)
+{
+	cap_value_t cap_value;
+
+	//Compute the capvalue setfcap
+	if (cap_from_name("cap_dac_read_search", &cap_value))
+		return -1;
+	return caps_effective(enable, 1, &cap_value);
+}
 
 /* 
 Activate the securebits for the no-root option.
@@ -114,6 +123,41 @@ int activates_no_new_privs()
 	} else {
 		return 0;
 	}
+}
+
+int cap_get_bound(cap_value_t cap)
+{
+    int result;
+
+    result = prctl(PR_CAPBSET_READ, (unsigned long) cap);
+    if (result < 0) {
+	errno = -result;
+	return -1;
+    }
+    return result;
+}
+
+/**
+ * Drop all the capabilities from the parent process bounding set.
+*/
+int drop_iab_from_current_bounding(cap_iab_t *dest)
+{
+	int ret = 1;
+	cap_flag_value_t values[CAP_LAST_CAP+1];
+	for (cap_value_t i = 0; i < CAP_LAST_CAP+1; i++) {
+		values[i] = cap_get_bound(i);
+		if (values[i] == 0) {
+			cap_flag_value_t value =
+				cap_iab_get_vector(*dest, CAP_IAB_BOUND, i);
+			if (value == CAP_SET) {
+				ret = 0;
+			}
+			cap_iab_set_vector(*dest, CAP_IAB_BOUND, i, CAP_CLEAR);
+			cap_iab_set_vector(*dest, CAP_IAB_AMB, i, CAP_CLEAR);
+			cap_iab_set_vector(*dest, CAP_IAB_INH, i, CAP_CLEAR);
+		}
+	}
+	return ret;
 }
 
 /******************************************************************************

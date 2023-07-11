@@ -30,7 +30,7 @@ void free_options(settings_t *options);
  * @param p_options The options to set
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
-int get_settings_from_config(user_t *user, cmd_t *command, cap_iab_t *p_iab, settings_t *p_options);
+int get_settings_from_config(user_t *user, cmd_t *command, settings_t *p_options);
 
 /**
  * @brief Get every configuration settings from the xml file according to the role, the user, the groups and the command
@@ -43,7 +43,7 @@ int get_settings_from_config(user_t *user, cmd_t *command, cap_iab_t *p_iab, set
  * @param p_options The options to set
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
-int get_settings_from_config_role(char* role, user_t *user, cmd_t *command, cap_iab_t *p_iab, settings_t *p_options);
+int get_settings_from_config_role(char* role, user_t *user, cmd_t *command, settings_t *p_options);
 
 /**
  * @brief Print informations of a role

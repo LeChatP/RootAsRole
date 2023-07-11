@@ -1,4 +1,10 @@
 {
+    "options": {
+        "env": {
+            "GDB_DEBUG": "1",
+            "DEBUG": "1"
+        }
+    },
     "tasks": [
         {
             "type": "cppbuild",
@@ -28,6 +34,7 @@
             "label": "make",
             "command": "sudo",
             "args": [
+                "-E",
                 "/usr/bin/make",
                 "install"
             ],
@@ -50,7 +57,7 @@
             "command": "sudo",
             "args": [
                 "/usr/bin/setcap",
-                "=i",
+                "=eip",
                 "${cwd}/bin/sr"
             ],
             "options": {

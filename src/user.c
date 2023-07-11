@@ -13,14 +13,8 @@
 #include <grp.h>
 #include <syslog.h>
 #include <error.h>
+#include <string.h>
 
-#ifndef LOGIN_NAME_MAX
-# ifdef _POSIX_LOGIN_NAME_MAX
-#  define LOGIN_NAME_MAX _POSIX_LOGIN_NAME_MAX
-# else
-#  define LOGIN_NAME_MAX 256
-# endif
-#endif
 
 #ifndef MAX
 # define MAX(a,b) (((a)>(b))?(a):(b))
@@ -84,15 +78,14 @@ char *get_username(uid_t uid)
 		return NULL;
 	} else {
 		char *username;
-		int username_len;
 		//We do not have to deallocate info_user, as it points to a static
-		//memory adress
-		username_len = strnlen(info_user->pw_name, MAX(LOGIN_NAME_MAX-1,255)) + 1;
+		//memory adress8
 
-		if ((username = malloc(username_len * sizeof(char))) == NULL) {
+		if ((username = malloc(LOGIN_NAME_MAX * sizeof(char))) == NULL) {
 			return NULL;
 		}
-		strncpy(username, info_user->pw_name, username_len);
+		snprintf(username,LOGIN_NAME_MAX * sizeof(char), "%s", info_user->pw_name);
+
 		return username;
 	}
 }
@@ -151,7 +144,7 @@ gid_t get_group_id_from_name(const char *group)
  * @param groups array of group
  * @return 0 on success, -1 on failure
 */
-int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t *groups){
+int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t **groups){
 	char *groups_str_copy = strdup(groups_str);
 	*nb_groups = 1;
 	for (int i=0; groups_str_copy[i] != '\0'; i++) {
@@ -159,19 +152,20 @@ int get_group_ids_from_names(char *groups_str, int *nb_groups, gid_t *groups){
 			(*nb_groups)++;
 		}
 	}
-	groups = malloc(*nb_groups * sizeof(gid_t));
-	if (groups == NULL) {
+	*groups = malloc(*nb_groups * sizeof(gid_t));
+	if (*groups == NULL) {
 		syslog(LOG_ERR, "Unable to allocate memory for groups");
 		return -1;
 	}
-	char *group = strtok(groups_str_copy, ",");
+	char *saveptr = NULL;
+	char *group = strtok_r(groups_str_copy, ",", &saveptr);
 	for (int i=0; i<*nb_groups; i++){
-		groups[i] = get_group_id_from_name(group);
-		if(groups[i] == (gid_t)-1){
+		*groups[i] = get_group_id_from_name(group);
+		if(*groups[i] == (gid_t)-1){
 			syslog(LOG_ERR, "Unable to retrieve group id of group %s", group);
 			return -1;
 		}
-		group = strtok(NULL, ",");
+		group = strtok_r(NULL, ",",&saveptr);
 	}
 	return 0;
 }
@@ -288,19 +282,15 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 	if ((*groups = (char **)malloc((ng+1) * sizeof(char *))) == NULL)
 		return -1;
 	for (i = 0; i < ng; i++) {
-		int gpname_len;
 		char *gpname;
 		struct group *rec = getgrgid(gps[i]); //Retrieve group info
 		if (rec == NULL || rec->gr_name == NULL) {
 			perror("Cannot retrieve group info or group name");
 			goto on_error;
 		}
-		//Copy group name
-		gpname_len = strlen(rec->gr_name) + 1;
-		if ((gpname = malloc(gpname_len * sizeof(char))) == NULL)
+		if ((gpname = malloc(LOGIN_NAME_MAX * sizeof(char))) == NULL)
 			goto on_error;
-		strncpy(gpname, rec->gr_name, gpname_len);
-		gpname[gpname_len - 1] = '\0';
+		snprintf(gpname, LOGIN_NAME_MAX * sizeof(char), "%s", rec->gr_name);
 		(*groups)[i] = gpname;
 	}
 

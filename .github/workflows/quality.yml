@@ -11,17 +11,15 @@
 # For more information on Codacy Analysis CLI in general, see
 # https://github.com/codacy/codacy-analysis-cli.
 
-name: Codacy Security Scan
+name: Quality Gates
 
 on:
   push:
-    branches: 
-      - '**'
+    branches:
+      - 'main'
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "main" ]
-  schedule:
-    - cron: '43 0 * * 0'
+    branches:
+      - 'main'
 
 permissions:
   contents: read
@@ -60,3 +58,79 @@ jobs:
         uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: results.sarif
+  rust-quality-gate:
+    name: Rust Quality Gate
+    env:
+      working-directory: "role-manager"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Build code
+        run: cargo build --all --release
+        working-directory: ${{ env.working-directory }}
+      
+      - name: Install required cargo
+        run: cargo install clippy-sarif sarif-fmt
+
+      - name: Run rust-clippy
+        run:
+          cargo clippy
+          --all-features
+          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+        working-directory: ${{ env.working-directory }}
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: ${{ env.working-directory }}/rust-clippy-results.sarif
+          wait-for-processing: true
+
+  rust-format:
+    name: Rust Formatting Gate
+    env:
+      working-directory: "role-manager"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build code
+        run: cargo build --all --release
+        working-directory: ${{ env.working-directory }}
+      - name: Format code with Rustfmt
+        run: cargo fmt --all -- --check
+        working-directory: ${{ env.working-directory }}
+
+  rust-security:
+    name: Rust Security Gate
+    env:
+      working-directory: "role-manager"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Cargo audit
+        run: cargo audit --json | tee cargo-audit.json
+        working-directory: ${{ env.working-directory }}
+        id: cargo-audit

@@ -13,7 +13,7 @@ fn write_version(f: &mut File) -> Result<(), Box<dyn Error>> {
         .ok_or(Box::<dyn Error>::from("Version not found"))?;
     f.write_all(
         format!(
-            "pub const PACKAGE_VERSION:&'static str = \"{}\";\n",
+            "pub const PACKAGE_VERSION: &'static str = \"{}\";\n",
             package_version
         )
         .as_bytes(),

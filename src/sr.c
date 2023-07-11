@@ -96,7 +96,6 @@ void safe_memcpy(void* dest, size_t dest_size, const void* src, size_t count) {
 }
 
 
-
 void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 {
 	int i = execve(command, p_argv, p_envp);
@@ -108,7 +107,7 @@ void sr_execve(char *command, int p_argc, char *p_argv[], char *p_envp[])
 			nargv[0] = "sh";
 			nargv[1] = command;
 			safe_memcpy(nargv + 2, nargc, p_argv, p_argc * sizeof(char *)); 
-			nargv[p_argc + 1] = NULL;
+			nargv[p_argc] = NULL;
 			execve("/bin/sh", (char **)nargv, p_envp);
 			free(nargv);
 		}
@@ -164,7 +163,7 @@ int sr_setgid(settings_t *options)
 		int nb_groups = 0;
 		gid_t *groups = NULL;
 		int result = get_group_ids_from_names(options->setgid,
-						     &nb_groups, groups);
+						     &nb_groups, &groups);
 		if (result) {
 			error(0, 0,
 			      "Unable to retrieve the gids from the groupnames/numbers '%s'",
@@ -174,7 +173,7 @@ int sr_setgid(settings_t *options)
 			       options->setgid);
 			return -1;
 		}
-		if (nb_groups > 1 && groups != NULL && setgid(groups[0])) {
+		if (setgid(groups[0])) {
 			perror("setgid");
 			syslog(LOG_ERR, "Unable to setgid");
 			return -1;
@@ -196,15 +195,15 @@ int sr_setgid(settings_t *options)
 /**
  * Set capabilities on current process from options
 */
-int sr_setcaps(cap_iab_t iab)
+int sr_setcaps(settings_t *settings)
 {
 	if (setpcap_effective(1)) {
 		error(0, 0, "Unable to setpcap capability");
 		syslog(LOG_ERR, "Unable to setpcap capability");
 		return -1;
 	}
-	if (cap_iab_set_proc(iab)) {
-		error(0, 0, "Unable to set capabilities");
+	if (cap_iab_set_proc(settings->iab)) {
+		perror("Unable to set capabilities");
 		syslog(LOG_ERR, "Unable to set capabilities");
 		return -1;
 	}
@@ -231,16 +230,14 @@ int sr_noroot(settings_t *options)
 	return 0;
 }
 
-void escape_special_chars(char* input) {
+void escape_special_chars(char* input, size_t input_length) {
     char* special_chars = "%\\";
     char* escape_char = "\\";
-
-    size_t input_length = strnlen(input, PATH_MAX);
     size_t i, j;
 
-    for (i = 0, j = 0; i < input_length; i++, j++) {
+    for (i = 0, j = 0; i < input_length && input[i] != '\0'; i++, j++) {
         if (strchr(special_chars, input[i]) != NULL) {
-            memmove(&input[j + 1], &input[j], input_length - j);
+            strncpy(&input[j + 1], &input[j], input_length - j);
             input[j] = escape_char[0];
             j++;
             input_length++;
@@ -258,9 +255,14 @@ int main(int argc, char *argv[])
 {
 	arguments_t arguments = { NULL, 0, 0, 0 };
 	char callpath[PATH_MAX];
+	if (strnlen(argv[0], PATH_MAX) == PATH_MAX) {
+		error(0, 0, "Path of the executable is too long");
+		syslog(LOG_ERR, "Path of the executable is too long");
+		return -1;
+	}
 	strncpy(callpath, argv[0], PATH_MAX);
 	callpath[PATH_MAX - 1] = '\0';
-	escape_special_chars(callpath);
+	escape_special_chars(callpath, PATH_MAX);
 	if (!parse_arguments(&argc, &argv, &arguments) || arguments.help ||
 	    (argc == 0 && !arguments.info)) {
 		printf("Usage: %s [options] [command [args]]\n", callpath);
@@ -275,8 +277,8 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	openlog("sr", LOG_PID, LOG_AUTH);
-	cap_iab_t iab = NULL;
 	settings_t options;
+	set_default_options(&options);
 	user_t *user = user_posix_get();
 	if (!pam_authenticate_user(user->name)) {
 		error(0, 0, "Authentication failed");
@@ -298,7 +300,7 @@ int main(int argc, char *argv[])
 		goto free_error;
 	}
 	if (arguments.role){
-		int ret = get_settings_from_config_role(arguments.role, user, cmd, &iab,
+		int ret = get_settings_from_config_role(arguments.role, user, cmd,
 						 &options);
 		if (!ret) {
 			syslog(LOG_ERR,
@@ -308,7 +310,7 @@ int main(int argc, char *argv[])
 			goto free_error;
 		}		   	
 	} else {
-		int ret = get_settings_from_config(user, cmd, &iab, &options);
+		int ret = get_settings_from_config(user, cmd, &options);
 		if (!ret) {
 			syslog(LOG_ERR,
 			       "User '%s' tries to execute '%s', without permission",
@@ -321,10 +323,12 @@ int main(int argc, char *argv[])
 	syslog(LOG_INFO,
 			"User '%s' tries to execute '%s' with role '%s'", user->name,
 			cmd->command, options.role);
+#ifndef GDB_DEBUG
 	if (sr_noroot(&options) || sr_setuid(&options) ||
-		sr_setgid(&options) || sr_setcaps(iab)) {
+		sr_setgid(&options) || sr_setcaps(&options)) {
 		goto free_error;
 	}
+#endif
 
 	char **env = NULL;
 	int res = filter_env_vars(environ, options.env_keep,
@@ -344,8 +348,6 @@ int main(int argc, char *argv[])
 	sr_execve(cmd->command, cmd->argc, cmd->argv, env);
 
 free_error:
-	if (iab != NULL)
-		cap_free(iab);
 	free_options(&options);
 	if (user != NULL)
 		user_posix_free(user);

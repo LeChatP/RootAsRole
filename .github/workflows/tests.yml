@@ -1,0 +1,82 @@
+name: Project Tests
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+
+jobs:
+  criterion:
+    runs-on: ubuntu-latest
+
+    env:
+      TEST: 1
+      DEBUG: 1
+      COV: 1
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Update version
+      run: sudo apt-get update
+    - name: Install Dependencies
+      run: sudo -E ./configure.sh
+    - name: Build Unit Tests
+      run: make -e build_unit_test
+    - name: Run Unit Tests
+      run: ./bin/unit_test
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      env: 
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        gcov: true
+  rust-coverage:
+    runs-on: ubuntu-latest
+    env:
+      working-directory: role-manager
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install grcov
+      working-directory: ${{ env.working-directory }}
+      run: cargo install grcov
+    
+    - name: Install llvm-tools-preview
+      working-directory: ${{ env.working-directory }}
+      run: rustup component add llvm-tools-preview
+    
+    - name: Build project for generating version.rs
+      working-directory: ${{ env.working-directory }}
+      run: cargo build
+    
+    - name: run tests with coverage
+      working-directory: ${{ env.working-directory }}
+      run: cargo test
+      env: 
+        CARGO_INCREMENTAL: 0
+        RUSTFLAGS: '-Cinstrument-coverage'
+        LLVM_PROFILE_FILE: 'cargo-test-%p-%m.profraw'
+      continue-on-error: true
+    
+    - name: generate report
+      working-directory: ${{ env.working-directory }}
+      run: grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/debug/role-manager.lcov
+      
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      env: 
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        file: role-manager/target/debug/role-manager.lcov
+        flags: unittests

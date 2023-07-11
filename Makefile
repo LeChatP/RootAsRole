@@ -11,15 +11,17 @@ WARNINGS := -Wall -Wextra
 LIBCAP := -lcap -lcap-ng
 LIBPAM := -lpam -lpam_misc
 STDOPT=-std=c11
-DEBUGOPTIONS := $(if $(DEBUG),-g -fsanitize=address -O0,-pedantic -Werror)
-COVOPT := $(if $(COV),--coverage -fprofile-abs-path -O0,)
+GDB_D = $(if $(GDB_DEBUG), -DGDB_DEBUG,)
+DEBUGLD := $(if $(DEBUG),-g $(GDB_D),-pedantic -Werror)
+DEBUGCOMP := $(if $(DEBUG),$(DEBUGLD) -static-libasan,$(DEBUGLD))
+COVOPT := $(if $(COV),--coverage -fprofile-abs-path,)
 
-ALLOPT := $(STDOPT) $(WARNINGS) $(DEBUGOPTIONS) $(COVOPT)
+ALLOPT := $(STDOPT) $(WARNINGS) $(COVOPT)
 
-COMPOPTIONS = $(shell xml2-config --cflags) $(ALLOPT)
-SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(ALLOPT)
-LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(ALLOPT)
-COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(ALLOPT)
+COMPOPTIONS = $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
+SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
+LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
+COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
 EXECUTABLES := sr
 
 OBJS := $(addprefix $(SRC_DIR)/,capabilities.o user.o xml_manager.o env.o sr.o params.o command.o)
@@ -43,7 +45,7 @@ $(OBJ_DIR):
 $(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o xml_manager.o user.o env.o sr.o params.o command.o) | $(BIN_DIR)
 	$(COMP) -o $@ $^ $(SR_LDOPTIONS)
 
-$(BIN_DIR)/unit_test: $(addprefix $(OBJ_DIR)/test_,xml_manager.o command.o params.o) | $(BIN_DIR)
+$(BIN_DIR)/unit_test: $(addprefix $(OBJ_DIR)/test_,xml_manager.o command.o params.o capabilities.o) | $(BIN_DIR)
 	$(COMP) -o $@ $^ $(LDUNIT)
 
 $(BINS): | $(BIN_DIR)
