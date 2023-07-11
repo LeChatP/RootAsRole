@@ -148,7 +148,6 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
     for(int j = 0; envp[j] != NULL; j++){
         char *env_var = strdup(envp[j]);
         char *env_var_name = strtok(env_var, "=");
-        printf("%s\n", env_var_name);
         if (env_var_name == NULL || *env_var_name == '\0'){
             res++;
             goto error;
