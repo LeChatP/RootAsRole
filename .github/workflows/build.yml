@@ -69,8 +69,11 @@ jobs:
         DEBUG: 1
     - name: print config
       run: |
-        sudo cat /etc/security/rootasrole.xml
-        whoami
+        sr cat /etc/security/rootasrole.xml
+    - name: getenv
+      run: env
+    - name: sr getenv
+      run: sr env
     - name: Print capabilities with sr
       run: sr cat /proc/self/status
     - name: Build Project
