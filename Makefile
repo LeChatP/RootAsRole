@@ -45,7 +45,7 @@ $(OBJ_DIR):
 $(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o xml_manager.o user.o env.o sr.o params.o command.o) | $(BIN_DIR)
 	$(COMP) -o $@ $^ $(SR_LDOPTIONS)
 
-$(BIN_DIR)/unit_test: $(addprefix $(OBJ_DIR)/test_,xml_manager.o command.o params.o capabilities.o) | $(BIN_DIR)
+$(BIN_DIR)/unit_test: $(addprefix $(OBJ_DIR)/test_,xml_manager.o command.o params.o capabilities.o env.o) | $(BIN_DIR)
 	$(COMP) -o $@ $^ $(LDUNIT)
 
 $(BINS): | $(BIN_DIR)

@@ -22,7 +22,8 @@
         "sstream": "c",
         "command.h": "c",
         "unistd.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "criterion.h": "c"
     },
     "rust-analyzer.linkedProjects": [
         "./role-manager/Cargo.toml",
@@ -30,5 +31,8 @@
         "./role-manager/Cargo.toml",
         "./role-manager/Cargo.toml",
         "./role-manager/libs/sudoers_reader/Cargo.toml"
+    ],
+    "c-cpp-flylint.clang.includePaths": [
+        "${workspaceFolder}/src"
     ]
 }

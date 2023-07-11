@@ -4,7 +4,7 @@
 
 If there are any vulnerabilities in **RootAsRole**, don't hesitate to _report them_.
 
-1. Send mail at eddie.billoir@irit.fr.
+1. Send mail at <mailto:eddie.billoir@irit.fr>.
 2. Describe the vulnerability.
 
    If you have a fix, that is most welcome -- please attach or summarize it in your message!
