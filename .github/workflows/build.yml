@@ -71,8 +71,10 @@ jobs:
       run: sudo -E make -e install
       env:
         DEBUG: 1
-    - name: Edit PATH on rootasrole
-      run: sudo -E sed -i "s;<path>.*</path>;<path>$PATH</path>;g" /etc/security/rootasrole.xml
+    - name: Edit config on rootasrole
+      run: |
+        sudo -E sed -i "s;<path>.*</path>;<path>$PATH</path>;g" /etc/security/rootasrole.xml
+        sr sed -i "s;<env-keep>.*</env-keep>;<env-keep>*</env-keep>;g" /etc/security/rootasrole.xml
     - name: print config
       run: |
         sr cat /etc/security/rootasrole.xml
@@ -83,8 +85,8 @@ jobs:
     - name: Print capabilities with sr
       run: sr cat /proc/self/status
     - name: Build Project
-      run: sudo cargo build --release
+      run: sr cargo build --release
       working-directory: ${{ env.working-directory }}
     - name: Run Project
-      run: sudo cargo run --release -- -h
+      run: sr cargo run --release -- -h
       working-directory: ${{ env.working-directory }}
