@@ -11,17 +11,15 @@
 # For more information on Codacy Analysis CLI in general, see
 # https://github.com/codacy/codacy-analysis-cli.
 
-name: Codacy Security Scan
+name: Quality Gates
 
 on:
   push:
-    branches: 
-      - '**'
+    branches:
+      - 'main'
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "main" ]
-  schedule:
-    - cron: '43 0 * * 0'
+    branches:
+      - 'main'
 
 permissions:
   contents: read

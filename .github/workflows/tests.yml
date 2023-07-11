@@ -1,11 +1,12 @@
-name: Criterion Unit Tests
+name: Project Tests
 
 on:
   push:
     branches:
-      - '**'
+      - 'main'
   pull_request:
-    branches: [ main ]
+    branches:
+      - 'main'
 
 jobs:
   criterion:
