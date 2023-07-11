@@ -24,7 +24,6 @@ jobs:
       run: sr -h
   rust-build:
     runs-on: ubuntu-latest
-    needs: build
     env:
       working-directory: "role-manager"
     steps:

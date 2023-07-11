@@ -203,7 +203,7 @@ int sr_setcaps(settings_t *settings)
 		return -1;
 	}
 	if (cap_iab_set_proc(settings->iab)) {
-		error(0, 0, "Unable to set capabilities");
+		perror("Unable to set capabilities");
 		syslog(LOG_ERR, "Unable to set capabilities");
 		return -1;
 	}

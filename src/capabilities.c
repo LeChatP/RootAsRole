@@ -125,27 +125,40 @@ int activates_no_new_privs()
 	}
 }
 
+int cap_get_bound(cap_value_t cap)
+{
+    int result;
+
+    result = prctl(PR_CAPBSET_READ, (unsigned long) cap);
+    if (result < 0) {
+	errno = -result;
+	return -1;
+    }
+    return result;
+}
+
 /**
  * Drop all the capabilities from the parent process bounding set.
 */
 int drop_iab_from_current_bounding(cap_iab_t *dest)
 {
 	int ret = 1;
-	cap_iab_t proc = cap_iab_get_proc();
-	cap_flag_value_t values[CAP_LAST_CAP];
-	for (cap_value_t i = 0; i < CAP_LAST_CAP; i++) {
-		values[i] = cap_iab_get_vector(proc, CAP_IAB_BOUND, i);
-		if (values[i] == CAP_CLEAR) {
+	cap_flag_value_t values[CAP_LAST_CAP+1];
+	for (cap_value_t i = 0; i < CAP_LAST_CAP+1; i++) {
+		values[i] = cap_get_bound(i);
+		if (values[i] == 0) {
 			cap_flag_value_t value =
-				cap_iab_get_vector(proc, CAP_IAB_BOUND, i);
+				cap_iab_get_vector(*dest, CAP_IAB_BOUND, i);
 			if (value == CAP_SET) {
 				ret = 0;
+				printf("dropping %s \n", cap_to_name(i));
 			}
 			cap_iab_set_vector(*dest, CAP_IAB_BOUND, i, CAP_CLEAR);
 			cap_iab_set_vector(*dest, CAP_IAB_AMB, i, CAP_CLEAR);
 			cap_iab_set_vector(*dest, CAP_IAB_INH, i, CAP_CLEAR);
 		}
 	}
+	printf("%s\n",cap_iab_to_text(*dest));
 	return ret;
 }
 
