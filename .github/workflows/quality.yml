@@ -93,7 +93,7 @@ jobs:
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v1
         with:
-          sarif_file: rust-clippy-results.sarif
+          sarif_file: ${{ env.working-directory }}/rust-clippy-results.sarif
           wait-for-processing: true
 
   rust-format:

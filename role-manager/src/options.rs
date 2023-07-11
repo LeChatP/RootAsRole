@@ -595,7 +595,8 @@ mod tests {
         let roles = Roles::new("3.0.0");
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         roles.as_ref().borrow_mut().roles.push(role);
-        let mut options = OptStack::from_role(roles.clone(), roles.as_ref().borrow().roles[0].to_owned());
+        let mut options =
+            OptStack::from_role(roles.clone(), roles.as_ref().borrow().roles[0].to_owned());
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
