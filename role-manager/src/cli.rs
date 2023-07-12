@@ -318,6 +318,12 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                     let role = manager.get_role().unwrap();
                     println!("{}", role.as_ref().borrow().get_description());
                 }
+            } else {
+                let roles = manager.roles.as_ref().borrow();
+                for role in roles.roles.iter().cloned() {
+                    println!("=============\nRole {}", role.as_ref().borrow().name);
+                    println!("{}", role.as_ref().borrow().get_description());
+                }
             }
             Ok(true)
         }

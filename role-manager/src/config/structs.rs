@@ -246,7 +246,7 @@ impl<'a> Role<'a> {
             self.tasks
                 .iter()
                 .cloned()
-                .map(|x| x.as_ref().borrow().commands.join("\n"))
+                .map(|x| x.as_ref().borrow().id.to_string())
                 .collect::<Vec<String>>()
                 .join("\n")
         ));
@@ -348,4 +348,63 @@ pub trait Save {
         doc: Option<&Document>,
         element: Option<&Element>,
     ) -> Result<bool, Box<dyn Error>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::BorrowMut;
+
+    use crate::options::Level;
+
+    use super::*;
+
+    #[test]
+    fn test_get_empty_description() {
+        let role = Role::new("test_role".to_string(), None);
+        assert_eq!(
+            role.as_ref().borrow().get_description(),
+            "Users:\n()\nGroups:\n()\nTasks:\n\n"
+        );
+        let task = Task::new(IdTask::Number(0), Rc::downgrade(&role));
+        assert_eq!(task.as_ref().borrow().get_description(), "Commands:\n\n");
+    }
+
+    #[test]
+    fn test_get_description() {
+        let role = Role::new("test_role".to_string(), None);
+        let task = Task::new(IdTask::Number(0), Rc::downgrade(&role));
+        task.as_ref().borrow_mut().commands.push("ls".to_string());
+        task.as_ref()
+            .borrow_mut()
+            .commands
+            .push("another".to_string());
+        task.as_ref().borrow_mut().purpose = Some("thepurpose".to_string());
+        task.as_ref().borrow_mut().setuid = Some("thesetuid".to_string());
+        task.as_ref().borrow_mut().setgid =
+            Some(vec!["thesetgid".to_string(), "thesecondsetgid".to_string()].into());
+        task.as_ref().borrow_mut().capabilities = Some(Caps::V2(3));
+        let mut opt = Opt::new(Level::Task);
+        opt.path = Some("thepath".to_string());
+        opt.bounding = Some(false);
+        opt.no_root = Some(true);
+        opt.wildcard_denied = Some("thewildcard-denied".to_string());
+        opt.env_checklist = Some("thechecklist".to_string());
+        opt.env_whitelist = Some("thewhitelist".to_string());
+        task.as_ref().borrow_mut().options = Some(Rc::new(RefCell::new(opt)));
+        let desc = task.as_ref().borrow().get_description();
+        println!("{}", desc);
+        assert!(desc.contains("ls\nanother\n"));
+        assert!(desc.contains("thepurpose"));
+        assert!(desc.contains("thesetuid"));
+        assert!(desc.contains("thesetgid"));
+        assert!(desc.contains("thesecondsetgid"));
+        assert!(desc.contains(&Caps::V2(3).to_string()));
+        assert!(desc.contains("Options"));
+        assert!(desc.contains("thepath"));
+        assert!(desc.contains("thewildcard-denied"));
+        assert!(desc.contains("thechecklist"));
+        assert!(desc.contains("thewhitelist"));
+        assert!(desc.contains("No root: true"));
+        assert!(desc.contains("Bounding: false"));
+    }
 }

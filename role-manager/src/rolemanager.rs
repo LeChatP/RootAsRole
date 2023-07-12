@@ -45,6 +45,7 @@ pub struct RoleContext {
     pub selected_actors: Option<Rc<RefCell<HashSet<String>>>>,
     error: Option<Box<dyn Error>>,
     is_new: bool,
+    exiting: bool,
 }
 
 impl Clone for RoleContext {
@@ -67,6 +68,7 @@ impl Clone for RoleContext {
             selected_actors: self.selected_actors.clone(),
             error: None,
             is_new: self.is_new,
+            exiting: self.exiting,
         }
     }
 }
@@ -87,7 +89,16 @@ impl RoleContext {
             new_options: None,
             error: None,
             is_new: false,
+            exiting: false,
         }
+    }
+
+    pub fn exit(&mut self) {
+        self.exiting = true;
+    }
+
+    pub fn is_exiting(&self) -> bool {
+        self.exiting
     }
 
     pub fn save_state(&self) {

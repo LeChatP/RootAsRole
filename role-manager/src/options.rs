@@ -588,11 +588,13 @@ impl<'a> OptStack<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::version::PACKAGE_VERSION;
+
     use super::*;
 
     #[test]
     fn test_find_in_options() {
-        let roles = Roles::new("3.0.0");
+        let roles = Roles::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         roles.as_ref().borrow_mut().roles.push(role);
         let mut options =

@@ -85,8 +85,6 @@ pub trait InitState {
     fn config_cursive(&self, cursive: &mut Cursive);
 }
 
-static mut EXITING: bool = false;
-
 pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     let RoleManagerApp {
         mut manager,
@@ -102,9 +100,7 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         ExecuteType::Config => state.config(&mut manager),
         ExecuteType::Input(input) => state.input(&mut manager, input),
         ExecuteType::Exit => {
-            unsafe {
-                EXITING = true;
-            }
+            manager.exit();
             state.confirm(&mut manager)
         }
     };
@@ -113,6 +109,7 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
     s.clear_global_callbacks(Key::Enter);
 
     state.render(&mut manager, s);
+    let exiting = manager.is_exiting();
     if let Some(err) = manager.take_error() {
         let mut style = Style::from(ColorStyle::new(
             Color::Light(BaseColor::White),
@@ -120,16 +117,122 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         ));
         style.effects.insert(Effect::Bold);
         s.add_layer(
-            Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", |s| {
-                s.pop_layer();
-                if unsafe { EXITING } {
-                    s.quit();
-                }
-            }),
+            Dialog::around(TextView::new(err.to_string()).style(style)).button(
+                "Understood",
+                move |s| {
+                    s.pop_layer();
+                    if exiting {
+                        s.quit();
+                    }
+                },
+            ),
         );
-    } else if unsafe { EXITING } {
+    } else if exiting {
         s.quit();
     }
 
     s.set_user_data(RoleManagerApp { manager, state });
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::config::structs::Roles;
+    use crate::rolemanager::RoleContext;
+    use crate::version::PACKAGE_VERSION;
+
+    use super::*;
+
+    trait Downcast {
+        unsafe fn downcast<T>(&self) -> &T;
+    }
+
+    impl Downcast for dyn State {
+        unsafe fn downcast<T>(&self) -> &T {
+            &*(self as *const dyn State as *const T)
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestState {
+        pub i: usize,
+        pub j: char,
+    }
+
+    impl TestState {
+        pub fn new(i: usize, j: char) -> Self {
+            Self { i, j }
+        }
+    }
+
+    impl State for TestState {
+        fn create(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'c'))
+        }
+        fn delete(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'd'))
+        }
+        fn submit(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 's'))
+        }
+        fn cancel(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'l'))
+        }
+        fn confirm(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'm'))
+        }
+        fn config(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'g'))
+        }
+        fn input(self: Box<Self>, _: &mut RoleContext, _: Input) -> Box<dyn State> {
+            Box::new(Self::new(self.i + 1, 'i'))
+        }
+        fn render(&self, _: &mut RoleContext, _: &mut Cursive) {}
+    }
+
+    #[test]
+    fn test_exit_execute() {
+        let mut s = Cursive::new();
+        let manager = RoleContext::new(Roles::new(PACKAGE_VERSION));
+        let state = Box::new(TestState::new(0, 'a'));
+        s.set_user_data(RoleManagerApp { manager, state });
+        execute(&mut s, ExecuteType::Exit);
+        let app: RoleManagerApp = s.take_user_data().unwrap();
+        assert!(app.manager.is_exiting());
+    }
+
+    fn test_dyn_state(state: &Box<dyn State>, i: usize, j: char) {
+        unsafe {
+            let state = state.downcast::<TestState>();
+            assert_eq!(state.i, i);
+            assert_eq!(state.j, j);
+        }
+    }
+
+    fn execute_and_test(s: &mut Cursive, exec_type: ExecuteType, i: usize, j: char) {
+        execute(s, exec_type);
+        let RoleManagerApp { state, manager } = s.take_user_data().unwrap();
+        test_dyn_state(&state, i, j);
+        s.set_user_data(RoleManagerApp { manager, state });
+    }
+
+    #[test]
+    fn test_execute() {
+        let mut s = Cursive::new();
+        let manager = RoleContext::new(Roles::new(PACKAGE_VERSION));
+        let state = Box::new(TestState::new(0, 'a'));
+        s.set_user_data(RoleManagerApp { manager, state });
+        execute_and_test(&mut s, ExecuteType::Cancel, 1, 'l');
+        execute_and_test(&mut s, ExecuteType::Confirm, 2, 'm');
+        execute_and_test(&mut s, ExecuteType::Config, 3, 'g');
+        execute_and_test(&mut s, ExecuteType::Create, 4, 'c');
+        execute_and_test(&mut s, ExecuteType::Delete(0), 5, 'd');
+        execute_and_test(
+            &mut s,
+            ExecuteType::Input(Input::String("test".to_string())),
+            6,
+            'i',
+        );
+        execute_and_test(&mut s, ExecuteType::Submit(0), 7, 's');
+    }
 }
