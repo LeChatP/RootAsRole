@@ -117,12 +117,15 @@ pub fn execute(s: &mut Cursive, exec_type: ExecuteType) {
         ));
         style.effects.insert(Effect::Bold);
         s.add_layer(
-            Dialog::around(TextView::new(err.to_string()).style(style)).button("Understood", move |s| {
-                s.pop_layer();
-                if exiting {
-                    s.quit();
-                }
-            }),
+            Dialog::around(TextView::new(err.to_string()).style(style)).button(
+                "Understood",
+                move |s| {
+                    s.pop_layer();
+                    if exiting {
+                        s.quit();
+                    }
+                },
+            ),
         );
     } else if exiting {
         s.quit();
@@ -141,7 +144,7 @@ mod tests {
     use super::*;
 
     trait Downcast {
-        unsafe fn downcast<T>(&self) -> &T ;
+        unsafe fn downcast<T>(&self) -> &T;
     }
 
     impl Downcast for dyn State {
@@ -151,42 +154,40 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct TestState{
-        pub i : usize,
-        pub j : char,
+    struct TestState {
+        pub i: usize,
+        pub j: char,
     }
 
     impl TestState {
-        pub fn new(i : usize, j : char) -> Self {
+        pub fn new(i: usize, j: char) -> Self {
             Self { i, j }
         }
     }
 
     impl State for TestState {
-        fn create(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State>{
+        fn create(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'c'))
         }
-        fn delete(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State>{
+        fn delete(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'd'))
         }
-        fn submit(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State>{
+        fn submit(self: Box<Self>, _: &mut RoleContext, _: usize) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 's'))
         }
-        fn cancel(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State>{
+        fn cancel(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'l'))
         }
-        fn confirm(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State>{
+        fn confirm(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'm'))
         }
-        fn config(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State>{
+        fn config(self: Box<Self>, _: &mut RoleContext) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'g'))
         }
-        fn input(self: Box<Self>, _: &mut RoleContext, _: Input) -> Box<dyn State>{
+        fn input(self: Box<Self>, _: &mut RoleContext, _: Input) -> Box<dyn State> {
             Box::new(Self::new(self.i + 1, 'i'))
         }
-        fn render(&self, _: &mut RoleContext, _: &mut Cursive){
-            
-        }
+        fn render(&self, _: &mut RoleContext, _: &mut Cursive) {}
     }
 
     #[test]
@@ -196,11 +197,11 @@ mod tests {
         let state = Box::new(TestState::new(0, 'a'));
         s.set_user_data(RoleManagerApp { manager, state });
         execute(&mut s, ExecuteType::Exit);
-        let app : RoleManagerApp = s.take_user_data().unwrap();
+        let app: RoleManagerApp = s.take_user_data().unwrap();
         assert!(app.manager.is_exiting());
     }
 
-    fn test_dyn_state(state : &Box<dyn State>, i : usize, j : char) {
+    fn test_dyn_state(state: &Box<dyn State>, i: usize, j: char) {
         unsafe {
             let state = state.downcast::<TestState>();
             assert_eq!(state.i, i);
@@ -208,9 +209,9 @@ mod tests {
         }
     }
 
-    fn execute_and_test(s : &mut Cursive, exec_type : ExecuteType, i : usize, j : char) {
+    fn execute_and_test(s: &mut Cursive, exec_type: ExecuteType, i: usize, j: char) {
         execute(s, exec_type);
-        let RoleManagerApp{state, manager} = s.take_user_data().unwrap();
+        let RoleManagerApp { state, manager } = s.take_user_data().unwrap();
         test_dyn_state(&state, i, j);
         s.set_user_data(RoleManagerApp { manager, state });
     }
@@ -226,7 +227,12 @@ mod tests {
         execute_and_test(&mut s, ExecuteType::Config, 3, 'g');
         execute_and_test(&mut s, ExecuteType::Create, 4, 'c');
         execute_and_test(&mut s, ExecuteType::Delete(0), 5, 'd');
-        execute_and_test(&mut s, ExecuteType::Input(Input::String("test".to_string())), 6, 'i');
+        execute_and_test(
+            &mut s,
+            ExecuteType::Input(Input::String("test".to_string())),
+            6,
+            'i',
+        );
         execute_and_test(&mut s, ExecuteType::Submit(0), 7, 's');
     }
 }

@@ -258,12 +258,10 @@ impl State for EditTaskState {
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         let mut title = "".to_owned();
-        let task = manager
-            .get_task()
-            .map(|o| {
-                title = format!("Edit {}", o.as_ref().borrow().id.to_string());
-                o
-            });
+        let task = manager.get_task().map(|o| {
+            title = format!("Edit {}", o.as_ref().borrow().id.to_string());
+            o
+        });
         let mut select = SelectView::new().on_submit(|s, item| {
             execute(s, ExecuteType::Submit(*item));
         });

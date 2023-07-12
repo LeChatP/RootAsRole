@@ -29,9 +29,16 @@ pub struct RoleManagerApp {
 fn main() {
     let roles = config::load::load_roles(FILENAME).expect("Failed to load roles");
     let mut rc_role_manager = RoleContext::new(roles);
-    if let Err(err) = parse_args(&mut rc_role_manager) {
-        eprintln!("{}", err);
-        std::process::exit(1);
+    match parse_args(&mut rc_role_manager) {
+        Ok(value) => {
+            if value {
+                std::process::exit(0);
+            }
+        }
+        Err(err) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
     }
     // a builder for `FmtSubscriber`.
     let subscriber = FmtSubscriber::builder()
