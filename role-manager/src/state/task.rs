@@ -260,10 +260,6 @@ impl State for EditTaskState {
         let mut title = "".to_owned();
         let task = manager
             .get_task()
-            .or_else(|| {
-                title = "Add new Task".to_owned();
-                manager.get_new_task()
-            })
             .map(|o| {
                 title = format!("Edit {}", o.as_ref().borrow().id.to_string());
                 o
@@ -389,7 +385,7 @@ impl PushableItemState<String> for EditTaskState {
 
 impl PushableItemState<IdTask> for EditTaskState {
     fn push(&mut self, manager: &mut RoleContext, item: IdTask) {
-        if item.to_string().is_empty() {
+        if !item.to_string().is_empty() {
             manager.get_task().unwrap().borrow_mut().id = item;
         }
     }

@@ -11,7 +11,7 @@ on:
 jobs:
   criterion:
     runs-on: ubuntu-latest
-
+    
     env:
       TEST: 1
       DEBUG: 1
@@ -36,6 +36,7 @@ jobs:
         gcov: true
   rust-coverage:
     runs-on: ubuntu-latest
+    needs: criterion # cannot upload concurrenlty to codecov
     env:
       working-directory: role-manager
     steps:
