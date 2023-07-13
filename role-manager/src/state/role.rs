@@ -8,7 +8,6 @@ use super::options::SelectOptionState;
 use super::task::SelectTaskState;
 use super::{execute, DeletableItemState, ExecuteType, InitState, Input, PushableItemState, State};
 
-use cursive::align::Align;
 use cursive::direction::Orientation;
 use cursive::event::Key;
 use cursive::view::{Nameable, Scrollable};
