@@ -159,85 +159,6 @@ impl ToString for Opt {
     }
 }
 
-#[allow(dead_code)]
-fn attribute_str(key: &str, value: &str) -> String {
-    format!("{}=\"{}\"", key, value)
-}
-#[allow(dead_code)]
-fn enforce_item_str(item: &(bool, String)) -> String {
-    if item.0 {
-        String::new()
-    } else {
-        attribute_str("enforce", &item.0.to_string())
-    }
-}
-#[allow(dead_code)]
-fn user_item_str(item: &(bool, String)) -> String {
-    if item.1.is_empty() {
-        String::new()
-    } else {
-        attribute_str("user", &item.1)
-    }
-}
-#[allow(dead_code)]
-fn group_item_str(item: &(bool, String)) -> String {
-    if item.1.is_empty() {
-        String::new()
-    } else {
-        attribute_str("group", &item.1)
-    }
-}
-#[allow(dead_code)]
-fn setuser_str(item: &(bool, String)) -> String {
-    if item.0 {
-        String::new()
-    } else {
-        [enforce_item_str(item), user_item_str(item)].join(" ")
-    }
-}
-#[allow(dead_code)]
-fn setgroup_str(item: &(bool, String)) -> String {
-    if item.0 {
-        String::new()
-    } else {
-        [enforce_item_str(item), group_item_str(item)].join(" ")
-    }
-}
-#[allow(dead_code)]
-fn setuid_xml_str(setuser: Option<&(bool, String)>, setgroup: Option<&(bool, String)>) -> String {
-    let mut str_setuser = String::from("<setuid ");
-    if let (Some(setuser), Some(setgroup)) = (&setuser, &setgroup) {
-        if setuser.0 == setgroup.0 {
-            //<setuid enforce="false" user="root" group="root"/>
-            str_setuser.push_str(
-                [
-                    enforce_item_str(setuser),
-                    user_item_str(setuser),
-                    group_item_str(setgroup),
-                ]
-                .join(" ")
-                .as_str(),
-            );
-        } else {
-            //<setuid enforce="false" user="root"/><setuid enforce="true" group="root"/>
-            str_setuser.push_str(&format!(
-                "{}/>{}{}",
-                setuser_str(setuser),
-                str_setuser,
-                setgroup_str(setgroup)
-            ));
-        }
-    } else if let Some(setuser) = &setuser {
-        // <setuid enforce="false" user="root"/>
-        str_setuser.push_str(&setuser_str(setuser));
-    } else if let Some(setgroup) = &setgroup {
-        // <setuid enforce="true" group="root"/>
-        str_setuser.push_str(&setgroup_str(setgroup));
-    }
-    str_setuser.push_str("/>");
-    str_setuser
-}
-
 impl Default for Opt {
     fn default() -> Opt {
         Opt {
@@ -588,7 +509,7 @@ impl<'a> OptStack<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::version::PACKAGE_VERSION;
+    use crate::{config::structs::IdTask, version::PACKAGE_VERSION};
 
     use super::*;
 
@@ -656,5 +577,59 @@ mod tests {
 
         let res = options.get_description(Level::Global, OptType::Path);
         assert_eq!(res, " (setted at this level)\npath1");
+    }
+
+    #[test]
+    fn test_task_level() {
+        let roles = Roles::new(PACKAGE_VERSION);
+        let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
+        let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
+        let mut options = OptStack::from_task(roles, role, task);
+        options.set_at_level(
+            OptType::EnvChecklist,
+            Some(OptValue::String("checklist1".to_string())),
+            Level::Global,
+        );
+        options.set_at_level(
+            OptType::EnvChecklist,
+            Some(OptValue::String("checklist2".to_string())),
+            Level::Task,
+        );
+
+        let res = options.get_description(Level::Task, OptType::EnvChecklist);
+        assert_eq!(res, " (setted at this level)\nchecklist2");
+    }
+
+    #[test]
+    fn test_get_from_level() {
+        let roles = Roles::new(PACKAGE_VERSION);
+        let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
+        let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
+        let mut options = OptStack::from_task(roles, role, task);
+        options.set_at_level(
+            OptType::EnvChecklist,
+            Some(OptValue::String("checklist1".to_string())),
+            Level::Global,
+        );
+        options.set_at_level(
+            OptType::EnvChecklist,
+            Some(OptValue::String("checklist2".to_string())),
+            Level::Task,
+        );
+
+        let res = options.get_from_level(Level::Task, OptType::EnvChecklist);
+        assert_eq!(res.unwrap().to_string(), "checklist2");
+    }
+
+    #[test]
+    fn test_set_value() {
+        let roles = Roles::new(PACKAGE_VERSION);
+        let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
+        let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
+        let mut options = OptStack::from_task(roles, role, task);
+        options.set_value(OptType::NoRoot, Some(OptValue::Bool(true)));
+
+        let res = options.get_from_level(Level::Task, OptType::NoRoot);
+        assert_eq!(res.unwrap().to_string(), "true");
     }
 }

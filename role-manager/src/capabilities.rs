@@ -76,7 +76,7 @@ impl From<Caps> for Vec<String> {
             .enumerate()
             .filter_map(|(index, (name, _))| {
                 if value.capable(index) {
-                    Some(format!("CAP_{}", *name))
+                    Some(format!("cap_{}", *name))
                 } else {
                     None
                 }
@@ -108,16 +108,13 @@ impl From<&str> for Caps {
         let mut caps: Caps = Caps::MIN;
         let names: Vec<String> = POSITIONS
             .iter()
-            .map(|(name, _)| format!("CAP_{}", *name))
+            .map(|(name, _)| format!("cap_{}", *name))
             .collect();
         for cap in v.split(',') {
-            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
+            if cap.to_lowercase() == "all" {
                 return Caps::MAX;
             }
-            if let Some(index) = names
-                .iter()
-                .position(|x| x.cmp(&cap.to_string()) == Ordering::Equal)
-            {
+            if let Some(index) = names.iter().position(|x| x.to_owned() == cap.to_string()) {
                 caps |= 1 << index;
             }
         }
@@ -130,15 +127,12 @@ impl From<String> for Caps {
         let mut caps: Caps = Caps::MIN;
         let names: Vec<String> = POSITIONS
             .iter()
-            .map(|(name, _)| format!("CAP_{}", *name))
+            .map(|(name, _)| format!("cap_{}", *name))
             .collect();
         for cap in v.split(',') {
-            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
+            if cap.to_lowercase() == "all".to_lowercase() {
                 return Caps::MAX;
-            }
-            if let Some(index) = names
-                .iter()
-                .position(|x| x.cmp(&String::from(cap)) == Ordering::Equal)
+            } else if let Some(index) = names.iter().position(|x| x.to_owned() == String::from(cap))
             {
                 caps |= 1 << index;
             }
@@ -152,13 +146,16 @@ impl From<Vec<String>> for Caps {
         let mut caps: Caps = Caps::MIN;
         let names: Vec<String> = POSITIONS
             .iter()
-            .map(|(name, _)| format!("CAP_{}", *name))
+            .map(|(name, _)| format!("cap_{}", *name))
             .collect();
         for cap in value {
-            if cap.to_uppercase().cmp(&"ALL".to_string()) == Ordering::Equal {
+            if cap.to_lowercase() == "all" {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.cmp(&cap) == Ordering::Equal) {
+            if let Some(index) = names
+                .iter()
+                .position(|x| x.to_owned() == cap.to_lowercase())
+            {
                 caps |= 1 << index;
             }
         }
@@ -177,7 +174,7 @@ impl ToString for Caps {
                 if !caps.is_empty() {
                     caps.push(',');
                 }
-                caps.push_str(&format!("CAP_{}", name));
+                caps.push_str(&format!("cap_{}", name));
             }
         }
         caps.to_lowercase()
@@ -185,48 +182,48 @@ impl ToString for Caps {
 }
 
 pub const POSITIONS : [(&str, &str); 41]  = [
-("CHOWN","Overrides the restriction of changing file ownership and group ownership.
+("chown","Overrides the restriction of changing file ownership and group ownership.
 /!\\Be careful about this capability/!\\"),
-("DAC_OVERRIDE","Override all DAC access, excluding immuables files."),
-("DAC_READ_SEARCH","Allow to read and search on files and directories, excluding immuables files."),
-("FOWNER","Condering process is owner of any file, but apply DAC restriction of owner."),
-("FSETID","Overrides actions on SETUID or SETGID bit on files."),
-("KILL","Overrides restrictions on sending a signal on process."),
-("SETGID","Allows setgid setgroups manipulation, and forged gids on socket credentials passing."),
-("SETUID","Allows setuid manipulation (including fsuid) and forged pids on socket credentials passing."),
-("SETPCAP","Add any capabilities on current bounding to inheritable sets, drop any capability from bounding set."),
-("LINUX_IMMUTABLE","Allow modification of S_IMMUTABLE and S_APPEND file attributes."),
-("NET_BIND_SERVICE","Allows binding to TCP/UDP sockets below 1024, Allows binding to ATM VCIs below 32."),
-("NET_BROADCAST","Allow broadcasting, listen to multicast."),
-("NET_ADMIN","Allow manipulate and configure almost everything about networking in the entire system."),
-("NET_RAW","Allow use of RAW sockets, use of PACKET sockets, Allow binding to any address for transparent proxying."),
-("IPC_LOCK","Allow locking of shared memory segments, use mlock and mlockall."),
-("IPC_OWNER","Override IPC ownership checks."),
-("SYS_MODULE","Insert and remove kernel modules - modify kernel without limit."),
-("SYS_RAWIO","Allow ioperm/iopl access and sending USB messages to any device via /dev/bus/usb."),
-("SYS_CHROOT","Allow use of chroot(), even escape from namespaces."),
-("SYS_PTRACE","Allow ptrace() of any process."),
-("SYS_PACCT","Allow configuration of process accounting."),
-("SYS_ADMIN","is the new ROOT, allow to do almost everything including some others capabilities."),
-("SYS_BOOT","Allow use of reboot()."),
-("SYS_NICE","Change the scheduling algorithm, priority, cpu affinity, realtime ioprio class on any process."),
-("SYS_RESOURCE","Override resource, keymaps, quota limits. Override some filesystems limits and memory behaviour."),
-("SYS_TIME","Allow manipulation of system clock. Allow irix_stime on mips. Allow setting the real-time clock."),
-("SYS_TTY_CONFIG","Allow configuration of tty devices. Allow vhangup() of tty."),
-("MKNOD","Allow the privileged aspects of mknod()."),
-("LEASE","Allow taking of leases on files."),
-("AUDIT_WRITE","Allow writing the audit log via unicast netlink socket."),
-("AUDIT_CONTROL","Allow configuration of audit via unicast netlink socket."),
-("SETFCAP","Set or remove capabilities on files. Map uid=0 into a child user namespace."),
-("MAC_OVERRIDE","Override MAC access. Some MAC can ignore this capability."),
-("MAC_ADMIN","Allow MAC configuration or state changes. Some MAC configurations can ignore this capability."),
-("SYSLOG","Allow configuring the kernel's syslog (printk behaviour)."),
-("WAKE_ALARM","Allow triggering something that will wake the system."),
-("BLOCK_SUSPEND","Allow preventing system suspends."),
-("AUDIT_READ","Allow reading the audit log via multicast netlink socket."),
-("PERFMON","Allow system performance and observability privileged operation."),
-("BPF","CAP_BPF allows many BPF operations."),
-("CHECKPOINT_RESTORE","Allow checkpoint/restore related operations."),
+("dac_override","Override all DAC access, excluding immuables files."),
+("dac_read_search","Allow to read and search on files and directories, excluding immuables files."),
+("fowner","Condering process is owner of any file, but apply DAC restriction of owner."),
+("fsetid","Overrides actions on SETUID or SETGID bit on files."),
+("kill","Overrides restrictions on sending a signal on process."),
+("setgid","Allows setgid setgroups manipulation, and forged gids on socket credentials passing."),
+("setuid","Allows setuid manipulation (including fsuid) and forged pids on socket credentials passing."),
+("setpcap","Add any capabilities on current bounding to inheritable sets, drop any capability from bounding set."),
+("linux_immutable","Allow modification of S_IMMUTABLE and S_APPEND file attributes."),
+("net_bind_service","Allows binding to TCP/UDP sockets below 1024, Allows binding to ATM VCIs below 32."),
+("net_broadcast","Allow broadcasting, listen to multicast."),
+("net_admin","Allow manipulate and configure almost everything about networking in the entire system."),
+("net_raw","Allow use of RAW sockets, use of PACKET sockets, Allow binding to any address for transparent proxying."),
+("ipc_lock","Allow locking of shared memory segments, use mlock and mlockall."),
+("ipc_owner","Override IPC ownership checks."),
+("sys_module","Insert and remove kernel modules - modify kernel without limit."),
+("sys_rawio","Allow ioperm/iopl access and sending USB messages to any device via /dev/bus/usb."),
+("sys_chroot","Allow use of chroot(), even escape from namespaces."),
+("sys_ptrace","Allow ptrace() of any process."),
+("sys_pacct","Allow configuration of process accounting."),
+("sys_admin","is the new ROOT, allow to do almost everything including some others capabilities."),
+("sys_boot","Allow use of reboot()."),
+("sys_nice","Change the scheduling algorithm, priority, cpu affinity, realtime ioprio class on any process."),
+("sys_resource","Override resource, keymaps, quota limits. Override some filesystems limits and memory behaviour."),
+("sys_time","Allow manipulation of system clock. Allow irix_stime on mips. Allow setting the real-time clock."),
+("sys_tty_config","Allow configuration of tty devices. Allow vhangup() of tty."),
+("mknod","Allow the privileged aspects of mknod()."),
+("lease","Allow taking of leases on files."),
+("audit_write","Allow writing the audit log via unicast netlink socket."),
+("audit_control","Allow configuration of audit via unicast netlink socket."),
+("setfcap","Set or remove capabilities on files. Map uid=0 into a child user namespace."),
+("mac_override","Override MAC access. Some MAC can ignore this capability."),
+("mac_admin","Allow MAC configuration or state changes. Some MAC configurations can ignore this capability."),
+("syslog","Allow configuring the kernel's syslog (printk behaviour)."),
+("wake_alarm","Allow triggering something that will wake the system."),
+("block_suspend","Allow preventing system suspends."),
+("audit_read","Allow reading the audit log via multicast netlink socket."),
+("perfmon","Allow system performance and observability privileged operation."),
+("bpf","CAP_BPF allows many BPF operations."),
+("checkpoint_restore","Allow checkpoint/restore related operations."),
 ];
 
 #[cfg(test)]
@@ -250,8 +247,15 @@ mod tests {
     #[test]
     fn caps_v2_into_vec() {
         let caps = Caps::V2(10);
-        let expected = vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_FOWNER".to_string()];
+        let expected = vec!["cap_dac_override".to_string(), "cap_fowner".to_string()];
         let value: Vec<String> = caps.into();
         assert_eq!(value, expected);
+    }
+
+    #[test]
+    fn caps_v2_into_string() {
+        let caps = Caps::V2(10);
+        let value: String = caps.to_string();
+        assert_eq!(value, "cap_dac_override,cap_fowner");
     }
 }

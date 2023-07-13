@@ -406,4 +406,14 @@ mod tests {
         assert!(desc.contains("No root: true"));
         assert!(desc.contains("Bounding: false"));
     }
+
+    #[test]
+    fn test_idtask() {
+        let id = IdTask::Number(0);
+        assert_eq!(id.to_string(), "0");
+        let id = IdTask::Name("test".to_string());
+        assert_eq!(id.to_string(), "test");
+        let id: IdTask = "test".to_string().into();
+        assert_eq!(Into::<String>::into(id), "test");
+    }
 }

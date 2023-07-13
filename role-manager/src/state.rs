@@ -235,4 +235,56 @@ mod tests {
         );
         execute_and_test(&mut s, ExecuteType::Submit(0), 7, 's');
     }
+
+    #[test]
+    fn test_input_string() {
+        let input = Input::String("cap_dac_override,cap_sys_admin".to_string());
+        assert_eq!(
+            input.as_vec(),
+            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+        );
+        assert_eq!(input.as_caps(), Caps::V2(2097154));
+        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+    }
+
+    #[test]
+    fn test_input_vec() {
+        let input = Input::Vec(vec![
+            "cap_dac_override".to_string(),
+            "cap_sys_admin".to_string(),
+        ]);
+        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+        assert_eq!(
+            input.as_vec(),
+            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+        );
+        assert_eq!(input.as_caps(), Caps::V2(2097154));
+    }
+
+    #[test]
+    fn test_input_caps() {
+        let input = Input::Caps(Caps::V2(2097154));
+        assert_eq!(
+            input.as_vec(),
+            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+        );
+        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+        assert_eq!(input.as_caps(), Caps::V2(2097154));
+    }
+
+    #[test]
+    fn test_error() {
+        let mut s = Cursive::new();
+        let mut manager = RoleContext::new(Roles::new(PACKAGE_VERSION));
+        let state = Box::new(TestState::new(0, 'a'));
+        manager.set_error("err_test".into());
+        // asssert that error is set
+        assert!(manager.take_error().is_some());
+        manager.set_error("err_test".into());
+
+        s.set_user_data(RoleManagerApp { manager, state });
+        execute(&mut s, ExecuteType::Exit);
+        let mut app: RoleManagerApp = s.take_user_data().unwrap();
+        assert!(app.manager.take_error().is_none());
+    }
 }
