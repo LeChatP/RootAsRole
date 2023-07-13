@@ -8,6 +8,7 @@ use super::options::SelectOptionState;
 use super::task::SelectTaskState;
 use super::{execute, DeletableItemState, ExecuteType, InitState, Input, PushableItemState, State};
 
+use cursive::align::Align;
 use cursive::direction::Orientation;
 use cursive::event::Key;
 use cursive::view::{Nameable, Scrollable};
@@ -128,9 +129,9 @@ impl InitState for SelectRoleState {
         for (pos, role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
             select.add_item(role.as_ref().borrow().name.to_owned(), pos);
         }
-        let mut layout = LinearLayout::new(Orientation::Horizontal);
-        layout.add_child(select.with_name("roles").scrollable());
-        layout.add_child(
+        let mut hlayout = LinearLayout::new(Orientation::Horizontal);
+        hlayout.add_child(select.with_name("roles").scrollable());
+        hlayout.add_child(
             TextView::new(
                 manager
                     .roles
@@ -145,7 +146,12 @@ impl InitState for SelectRoleState {
             )
             .with_name("info"),
         );
-        Dialog::around(layout)
+        let mut vlayout = LinearLayout::new(Orientation::Vertical);
+        vlayout.add_child(hlayout);
+        vlayout.add_child(TextView::new(
+            "Note: You can find out cli command by specifying -h argument.",
+        ));
+        Dialog::around(vlayout)
             .title("Select a role")
             .button("New Role", move |s| {
                 execute(s, ExecuteType::Create);

@@ -352,7 +352,6 @@ pub trait Save {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::BorrowMut;
 
     use crate::options::Level;
 
