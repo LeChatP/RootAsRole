@@ -52,7 +52,7 @@ xmlXPathObjectPtr result = NULL;
  * PARTIAL ORDER COMPARISON FUNCTIONS *
  **************************************/
 
-typedef unsigned long long score_t;
+typedef u_int32_t score_t;
 
 /**
  * @brief find actors element of a role
@@ -106,11 +106,14 @@ int actors_match_user(xmlNodePtr actors, char *user)
  * @param all the number of group names in the names string
  * @return the number of group names that match, 0 if one does not match at all
  */
-int count_matching_groups(char *names, char **groups, int nb_groups, int *all)
+unsigned int count_matching_groups(char *names, char **groups, int nb_groups, unsigned int *all)
 {
+	if (names == NULL)
+		return 0;
 	char *names_str = strdup(names);
-	char *token = strtok(names_str, ",");
-	int found = 0;
+	char *saveptr = NULL;
+	char *token = strtok_r(names_str, ",", &saveptr);
+	unsigned int found = 0;
 	*all = 0;
 	while (token != NULL) {
 		for (int j = 0; j < nb_groups; j++) {
@@ -119,7 +122,7 @@ int count_matching_groups(char *names, char **groups, int nb_groups, int *all)
 				break;
 			}
 		}
-		token = strtok(NULL, ",");
+		token = strtok_r(NULL, ",", &saveptr);
 		*all += 1;
 	}
 	free(names_str);
@@ -130,14 +133,14 @@ int count_matching_groups(char *names, char **groups, int nb_groups, int *all)
  * @brief actor is matching the group criteria
  * @return n matching groups
 */
-int actor_match_group(xmlNodePtr actor, char **groups, int nb_groups)
+unsigned int actor_match_group(xmlNodePtr actor, char **groups, int nb_groups)
 {
 	if (!xmlStrcmp(actor->name, (const xmlChar *)"group") &&
 	    xmlHasProp(actor, (const xmlChar *)"names")) {
 		xmlChar *names = xmlGetProp(actor, (const xmlChar *)"names");
 		if (names != NULL) {
 			char *names_str = (char *)names;
-			int all = 0;
+			unsigned int all = 0;
 			return count_matching_groups(names_str, groups,
 						     nb_groups, &all);
 		}
@@ -145,12 +148,12 @@ int actor_match_group(xmlNodePtr actor, char **groups, int nb_groups)
 	return 0;
 }
 
-int actors_match_max_group(xmlNodePtr actors, char **groups, int nb_groups)
+unsigned int actors_match_max_group(xmlNodePtr actors, char **groups, int nb_groups)
 {
 	xmlNodePtr actor = actors->children;
-	int max = 0;
+	unsigned int max = 0;
 	while (actor != NULL) {
-		int n = actor_match_group(actor, groups, nb_groups);
+		unsigned int n = actor_match_group(actor, groups, nb_groups);
 		if (n > max) {
 			max = n;
 		}
@@ -172,36 +175,33 @@ int scorecmp(score_t score_A, score_t score_B)
 int twoscorecmp(score_t user_min_A, score_t cmd_min_A, score_t user_min_B,
 		score_t cmd_min_B)
 {
-	if (user_min_A > user_min_B)
-		return 1;
-	else if (user_min_A < user_min_B)
-		return -1;
-	else if (cmd_min_A > cmd_min_B)
-		return 1;
-	else if (cmd_min_A < cmd_min_B)
-		return -1;
+	score_t user_min = scorecmp(user_min_A, user_min_B);
+	if (user_min == 0)
+		return scorecmp(cmd_min_A, cmd_min_B);
 	else
-		return 0;
+		return user_min;
 }
 
 int threescorecmp(score_t caps_min_A, score_t setuid_min_A,
 		  score_t security_min_A, score_t caps_min_B,
 		  score_t setuid_min_B, score_t security_min_B)
 {
-	if (caps_min_A > caps_min_B)
-		return 1;
-	else if (caps_min_A < caps_min_B)
-		return -1;
-	else if (setuid_min_A > setuid_min_B)
-		return 1;
-	else if (setuid_min_A < setuid_min_B)
-		return -1;
-	else if (security_min_A > security_min_B)
-		return 1;
-	else if (security_min_A < security_min_B)
-		return -1;
+	score_t firstcmp =
+		twoscorecmp(caps_min_A, setuid_min_A, caps_min_B, setuid_min_B);
+	if (firstcmp == 0)
+		return scorecmp(security_min_A, security_min_B);
 	else
-		return 0;
+		return firstcmp;
+}
+
+int fourscorecmp(score_t A1, score_t A2, score_t A3, score_t A4, score_t B1,
+		 score_t B2, score_t B3, score_t B4)
+{
+	score_t firstcmp = twoscorecmp(A1, A2, B1, B2);
+	if (firstcmp == 0)
+		return twoscorecmp(A3, A4, B3, B4);
+	else
+		return firstcmp;
 }
 
 /**
@@ -218,13 +218,10 @@ score_t actors_match(user_t *user, xmlNodePtr actors)
 			score = 1;
 		} else {
 			score_t max = -1;
-			score_t n = max -
+			score_t n = max +
 				    actors_match_max_group(actors, user->groups,
 							   user->nb_groups);
-			if (n == 0) {
-				printf("Unkown error\n");
-				return 0;
-			} else if (n != max && n > score) {
+			if (n != max && n > score) {
 				score = n;
 			}
 		}
@@ -376,8 +373,8 @@ int contains_root(xmlChar *comma_string)
 {
 	char *dup = strdup((char *)comma_string);
 	char *element = strtok((char *)dup, ",");
-	while (element != NULL &&
-	       (!strcasecmp(element, "root") || !strcmp(element, "0"))) {
+	while (element != NULL && (strcasecmp(element, "root") != 0 &&
+				   strcmp(element, "0") != 0)) {
 		element = strtok(NULL, ",");
 	}
 	free(dup);
@@ -438,11 +435,12 @@ score_t setuser_min(const xmlNodePtr task_element, const settings_t *settings)
 }
 
 score_t setgid_min(const xmlNodePtr task_element, const settings_t *settings,
-		   score_t setuid_min)
+		   score_t setuid_min, score_t *nb_setgid)
 {
-	score_t setgid_min = NO_SETUID_NO_SETGID;
+	score_t setgid_min = setuid_min;
 	xmlChar *setgid =
 		xmlGetProp(task_element, (const xmlChar *)"setgroups");
+	count_matching_groups((char *)setgid, NULL, 0, (unsigned int*) nb_setgid);
 	if (setgid != NULL && xmlStrlen(setgid) > 0) {
 		switch (setuid_min) {
 		case SETUID_ROOT:
@@ -473,14 +471,15 @@ score_t setgid_min(const xmlNodePtr task_element, const settings_t *settings,
 }
 
 score_t get_setuid_min(const xmlNodePtr task_element,
-		       const settings_t *settings)
+		       const settings_t *settings, score_t *nb_setgid)
 {
 	score_t setuid_min = NO_SETUID_NO_SETGID;
 	if (xmlHasProp(task_element, (const xmlChar *)"setuser")) {
 		setuid_min = setuser_min(task_element, settings);
 	}
 	if (xmlHasProp(task_element, (const xmlChar *)"setgroups")) {
-		setuid_min = setgid_min(task_element, settings, setuid_min);
+		setuid_min = setgid_min(task_element, settings, setuid_min,
+					nb_setgid);
 	}
 	return setuid_min;
 }
@@ -494,7 +493,8 @@ score_t get_setuid_min(const xmlNodePtr task_element,
  * @return 1 if any match, or 0 if no match
 */
 int task_match(cmd_t *cmd, const xmlNodePtr task_element, settings_t *settings,
-	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min)
+	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min,
+	       score_t *nb_setgid)
 {
 	*setuid_min = *caps_min = *cmd_min = -1;
 	if (!xmlStrcmp(task_element->name, (const xmlChar *)"task")) {
@@ -511,7 +511,8 @@ int task_match(cmd_t *cmd, const xmlNodePtr task_element, settings_t *settings,
 		}
 		if (*cmd_min > 0) {
 			*caps_min = get_caps_min(task_element);
-			*setuid_min = get_setuid_min(task_element, settings);
+			*setuid_min = get_setuid_min(task_element, settings,
+						     nb_setgid);
 		}
 	}
 	return *cmd_min < (score_t)-1 ? 1 : 0;
@@ -524,18 +525,22 @@ int task_match(cmd_t *cmd, const xmlNodePtr task_element, settings_t *settings,
 
 int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 		 xmlNodePtr *task_min, settings_t *settings, score_t *cmd_min,
-		 score_t *caps_min, score_t *setuid_min, score_t *security_min)
+		 score_t *caps_min, score_t *setuid_min, score_t *setgid_min,
+		 score_t *security_min)
 {
 	int ret = -1;
-	score_t task_cmd = -1, task_caps = -1, task_setuid = -1;
+	score_t task_cmd = -1, task_caps = -1, task_setuid = -1,
+		task_setgid = -1;
 	if (task_match(cmd, role_sub_element, settings, &task_cmd, &task_caps,
-		       &task_setuid)) {
-		int cmp = threescorecmp(task_cmd, task_caps, task_setuid,
-					*cmd_min, *caps_min, *setuid_min);
+		       &task_setuid, &task_setgid)) {
+		int cmp = fourscorecmp(task_cmd, task_caps, task_setuid,
+				       task_setgid, *cmd_min, *caps_min,
+				       *setuid_min, *setgid_min);
 		if (cmp < 0) {
 			*cmd_min = task_cmd;
 			*caps_min = task_caps;
 			*setuid_min = task_setuid;
+			*setgid_min = task_setgid;
 			*task_min = role_sub_element;
 			if (!settings->no_root && !settings->bounding)
 				*security_min = ENABLE_ROOT_DISABLE_BOUNDING;
@@ -561,22 +566,22 @@ int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 	       xmlNodePtr *task_min, settings_t *settings, score_t *user_min,
 	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min,
-	       score_t *security_min)
+	       score_t *setgid_min, score_t *security_min)
 {
 	if (!xmlStrcmp(role_element->name, (const xmlChar *)"role")) {
 		xmlNode *role_sub_element = role_element->children;
 		*user_min = *cmd_min = *caps_min = *setuid_min = *security_min =
-			-1;
+			*setgid_min = -1;
 		xmlNodePtr actors_block = find_actors(role_element);
 		int matches = 0;
 		if (actors_block != NULL) {
 			*user_min = actors_match(user, actors_block);
 			while (role_sub_element != NULL) {
-				int ret =
-					set_task_min(cmd, role_sub_element,
-						     task_min, settings,
-						     cmd_min, caps_min,
-						     setuid_min, security_min);
+				int ret = set_task_min(cmd, role_sub_element,
+						       task_min, settings,
+						       cmd_min, caps_min,
+						       setuid_min, setgid_min,
+						       security_min);
 				if (ret == 1)
 					matches = 1;
 				role_sub_element = role_sub_element->next;
@@ -591,28 +596,32 @@ int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 			    score_t *user_min, score_t *cmd_min,
 			    score_t *caps_min, score_t *setuid_min,
-			    score_t *security_min, xmlNodePtr *matched_role,
-			    xmlNodePtr *matched_task,
+			    score_t *setgid_min, score_t *security_min,
+			    xmlNodePtr *matched_role, xmlNodePtr *matched_task,
 			    settings_t *matched_settings, int *n_roles)
 {
 	xmlNodePtr tmp_task_element = NULL;
 	settings_t tmp_settings;
 	set_default_options(&tmp_settings);
 	score_t tmp_user_min = -1, tmp_cmd_min = -1, tmp_caps_min = -1,
-		tmp_setuid_min = -1, tmp_security_min = -1;
-	if (role_match(role_element, user, cmd, &tmp_task_element, &tmp_settings,
-		       &tmp_user_min, &tmp_cmd_min, &tmp_caps_min,
-		       &tmp_setuid_min, &tmp_security_min)) {
+		tmp_setuid_min = -1, tmp_setgid_min = -1, tmp_security_min = -1;
+	if (role_match(role_element, user, cmd, &tmp_task_element,
+		       &tmp_settings, &tmp_user_min, &tmp_setgid_min,
+		       &tmp_cmd_min, &tmp_caps_min, &tmp_setuid_min,
+		       &tmp_security_min)) {
 		int precision = twoscorecmp(tmp_user_min, tmp_cmd_min,
 					    *user_min, *cmd_min);
-		int leastprivilege = threescorecmp(tmp_caps_min, tmp_setuid_min,
-						   tmp_security_min, *caps_min,
-						   *setuid_min, *security_min);
+		int leastprivilege =
+			fourscorecmp(tmp_caps_min, tmp_setuid_min,
+				     tmp_setgid_min, tmp_security_min,
+				     *caps_min, *setuid_min, *setgid_min,
+				     *security_min);
 		if (precision < 0 || (precision == 0 && leastprivilege < 0)) {
 			*user_min = tmp_user_min;
 			*cmd_min = tmp_cmd_min;
 			*caps_min = tmp_caps_min;
 			*setuid_min = tmp_setuid_min;
+			*setgid_min = tmp_setgid_min;
 			*security_min = tmp_security_min;
 			*matched_role = role_element;
 			*matched_task = tmp_task_element;
@@ -637,16 +646,17 @@ void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 */
 int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
 			    cmd_t *cmd, xmlNodePtr *matched_role,
-			    xmlNodePtr *matched_task, settings_t *matched_settings)
+			    xmlNodePtr *matched_task,
+			    settings_t *matched_settings)
 {
 	score_t user_min = -1, cmd_min = -1, caps_min = -1, setuid_min = -1,
-		security_min = -1;
+		setgid_min = -1, security_min = -1;
 	int n_roles = 0;
 	for (int i = 0; i < roles_element->nodeNr; i++) {
 		xmlNodePtr role_element = roles_element->nodeTab[i];
 		min_partial_order_role(role_element, user, cmd, &user_min,
 				       &cmd_min, &caps_min, &setuid_min,
-				       &security_min, matched_role,
+				       &setgid_min, &security_min, matched_role,
 				       matched_task, matched_settings,
 				       &n_roles);
 	}
@@ -891,8 +901,8 @@ xmlNodeSetPtr filter_wrong_groups_roles(xmlNodeSetPtr set, char **groups,
 				xmlChar *names = xmlGetProp(
 					group, (const xmlChar *)"names");
 				if (names != NULL) {
-					int all = 0;
-					int found = count_matching_groups(
+					unsigned int all = 0;
+					unsigned int found = count_matching_groups(
 						(char *)names, groups,
 						nb_groups, &all);
 					if (found == 0 || found != all) {
@@ -1086,7 +1096,6 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 			xmlFree(capabilities);
 			capabilities = s_capabilities;
 		}
-		
 
 		cap_t eff = cap_from_text((char *)capabilities);
 		cap_iab_fill(options->iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
@@ -1247,12 +1256,13 @@ int get_settings_from_config(user_t *user, cmd_t *command,
 		return 0;
 	int res = get_settings_from_doc_by_partial_order(doc, user, command,
 							 p_options);
-	
+
 	xmlFreeDoc(doc);
 	return res;
 }
 
-int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd, settings_t *p_options)
+int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd,
+				  settings_t *p_options)
 {
 	xmlDocPtr doc;
 	doc = load_xml(XML_FILE);
