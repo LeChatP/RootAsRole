@@ -64,7 +64,7 @@ xmlNodePtr find_actors(xmlNodePtr role)
 		if (xmlStrcmp(actors->name, (const xmlChar *)"actors") == 0) {
 			return actors;
 		}
-		actors = actors->next;
+		actors = xmlNextElementSibling(actors);
 	}
 	return NULL;
 }
@@ -93,7 +93,7 @@ int actors_match_user(xmlNodePtr actors, char *user)
 		if (actor_match_user(actor, user)) {
 			return 1;
 		}
-		actor = actor->next;
+		actor = xmlNextElementSibling(actor);
 	}
 	return 0;
 }
@@ -159,7 +159,7 @@ unsigned int actors_match_max_group(xmlNodePtr actors, char **groups,
 		if (n > max) {
 			max = n;
 		}
-		actor = actor->next;
+		actor = xmlNextElementSibling(actor);
 	}
 	return max;
 }
@@ -510,7 +510,7 @@ score_t task_match(cmd_t *cmd, const xmlNodePtr task_element,
 				*cmd_min = match < *cmd_min ? match : *cmd_min;
 			}
 
-			command_element = command_element->next;
+			command_element = xmlNextElementSibling(command_element);
 		}
 		if (*cmd_min > 0) {
 			*caps_min = get_caps_min(task_element);
@@ -587,7 +587,7 @@ int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 						       security_min);
 				if (ret == 1)
 					matches = 1;
-				role_sub_element = role_sub_element->next;
+				role_sub_element = xmlNextElementSibling(role_sub_element);
 			}
 		}
 		if (matches)
@@ -609,8 +609,8 @@ void min_partial_order_role(xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 	score_t tmp_user_min = -1, tmp_cmd_min = -1, tmp_caps_min = -1,
 		tmp_setuid_min = -1, tmp_setgid_min = -1, tmp_security_min = -1;
 	if (role_match(role_element, user, cmd, &tmp_task_element,
-		       &tmp_settings, &tmp_user_min, &tmp_setgid_min,
-		       &tmp_cmd_min, &tmp_caps_min, &tmp_setuid_min,
+		       &tmp_settings, &tmp_user_min, &tmp_setuid_min,
+		       &tmp_cmd_min, &tmp_caps_min, &tmp_setgid_min,
 		       &tmp_security_min)) {
 		int precision = twoscorecmp(tmp_user_min, tmp_cmd_min,
 					    *user_min, *cmd_min);
@@ -922,7 +922,7 @@ xmlNodeSetPtr filter_wrong_groups_roles(xmlNodeSetPtr set, char **groups,
 					}
 				}
 			}
-			group = group->next;
+			group = xmlNextElementSibling(group);
 		}
 	}
 	return set;
@@ -947,7 +947,7 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 							break;
 						}
 					}
-					command_node = command_node->next;
+					command_node = xmlNextElementSibling(command_node);
 				}
 				if (found == NO_MATCH) {
 					xmlUnlinkNode(node);
@@ -962,7 +962,7 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 					break;
 				}
 			}
-			task = task->next;
+			task = xmlNextElementSibling(task);
 		}
 	}
 	return set;
@@ -1531,7 +1531,7 @@ void print_task(xmlNodeSetPtr nodeset, int restricted)
 
 		if (node->children)
 			for (xmlNodePtr command = node->children; command;
-			     command = command->next) {
+			     command = xmlNextElementSibling(command)) {
 				printf("%s%s%s\n",
 				       restricted || i + 1 >= nodeset->nodeNr ?
 					       space :

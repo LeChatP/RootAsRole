@@ -894,3 +894,97 @@ Test(set_task_min, test1) {
 	cr_assert_eq(1, res, "Expected res to be %d, but got %d", 1, res);
 	
 }
+
+Test(min_partial_order_role, test1) {
+	xmlNodePtr role1 = xmlNewNode(NULL, (xmlChar *)"role");
+	xmlNewProp(role1, (xmlChar *)"name", (xmlChar *)"role1");
+	xmlNodePtr actors = xmlNewChild(role1, NULL, (xmlChar *)"actors", NULL);
+	xmlNodePtr rootuser = xmlNewChild(actors, NULL, (xmlChar *)"user", NULL);
+	xmlNewProp(rootuser, (xmlChar *)"name", (xmlChar *)"root");
+	xmlNodePtr task = xmlNewChild(role1, NULL, (xmlChar *)"task", NULL);
+	xmlAddNextSibling(task, NULL);
+	xmlNodePtr xmlcmd = xmlNewChild(task, NULL, (xmlChar *)"command", NULL);
+	xmlNodeSetContent(xmlcmd, (xmlChar *)"/bin/ls");
+	xmlNodePtr xmlsettings = xmlNewChild(task, NULL, (xmlChar *)"options", NULL);
+	xmlNodePtr xmlpath = xmlNewChild(xmlsettings, NULL, (xmlChar *)"path", NULL);
+	xmlChar *path = (xmlChar *)"somepath";
+	xmlNodeSetContent(xmlpath, path);
+	xmlNodePtr xmlcaps = xmlNewChild(xmlsettings, NULL, (xmlChar *)"allow-root", NULL);
+	xmlNewProp(xmlcaps, (xmlChar *)"enforced", (xmlChar *)"true");
+	xmlNodePtr xmlsetuid = xmlNewChild(xmlsettings, NULL, (xmlChar *)"allow-bounding", NULL);
+	xmlNewProp(xmlsetuid, (xmlChar *)"enforced", (xmlChar *)"true");
+	settings_t settings = {
+		.env_keep = NULL,
+		.env_check = NULL,
+		.path = NULL,
+		.role = NULL,
+		.setuid = NULL,
+		.setgid = NULL,
+		.no_root = 1,
+		.bounding = 1,
+		.iab = NULL,
+	};
+	cmd_t cmd = (struct s_cmd) {
+		.command = "/bin/ls",
+		.argv = NULL,
+		.argc = 0,
+	};
+	user_t user = {
+      .nb_groups = 0,
+      .groups = NULL,
+      .name = "root",
+	};
+	xmlNodePtr matched_role = NULL;
+	xmlNodePtr matched_task = NULL;
+	score_t user_min = -1, cmd_min = -1, caps_min = -1, setuid_min = -1, setgid_min = -1, security_min = -1;
+	int n_roles = 0;
+	min_partial_order_role(role1, &user,&cmd, &user_min, &cmd_min,
+			    &caps_min, &setuid_min,
+			    &setgid_min, &security_min,
+			    &matched_role, &matched_task,
+			    &settings, &n_roles);
+	cr_assert_eq(1, n_roles, "Expected n_roles to be %d, but got %d", 1, n_roles);
+	cr_assert_eq(user_min, 1, "Expected user_min to be %d, but got %d", 1, user_min);
+	cr_assert_eq(cmd_min, PATH_STRICT, "Expected cmd_min to be %d, but got %d", PATH_STRICT, cmd_min);
+	cr_assert_eq(caps_min, NO_CAPS, "Expected caps_min to be %d, but got %d", NO_CAPS, caps_min);
+	cr_assert_eq(setuid_min, NO_SETUID_NO_SETGID, "Expected setuid_min to be %d, but got %d", NO_SETUID_NO_SETGID, setuid_min);
+	cr_assert_eq(setgid_min, -1, "Expected setgid_min to be %d, but got %d", -1, setgid_min);
+	cr_assert_eq(security_min, ENABLE_ROOT_DISABLE_BOUNDING, "Expected security_min to be %d, but got %d", DISABLE_BOUNDING, security_min);
+	cr_assert_eq(matched_role, role1);
+	cr_assert_eq(matched_task, task);
+	cr_assert_eq(strncmp(settings.path, (char *)path,9), 0, "Expected settings.path to be %s, but got %s", path, settings.path);
+
+	xmlNodePtr role2 = xmlNewNode(NULL, (xmlChar *)"role");
+	xmlNewProp(role2, (xmlChar *)"name", (xmlChar *)"role2");
+	xmlNodePtr actors2 = xmlNewChild(role2, NULL, (xmlChar *)"actors", NULL);
+	xmlNodePtr rootuser2 = xmlNewChild(actors2, NULL, (xmlChar *)"user", NULL);
+	xmlNewProp(rootuser2, (xmlChar *)"name", (xmlChar *)"root");
+	xmlNodePtr task2 = xmlNewChild(role2, NULL, (xmlChar *)"task", NULL);
+	xmlNodePtr xmlcmd2 = xmlNewChild(task2, NULL, (xmlChar *)"command", NULL);
+	xmlNodeSetContent(xmlcmd2, (xmlChar *)"/bin/ls");
+	xmlNodePtr xmlsettings2 = xmlNewChild(task2, NULL, (xmlChar *)"options", NULL);
+	xmlNodePtr xmlpath2 = xmlNewChild(xmlsettings2, NULL, (xmlChar *)"path", NULL);
+	xmlChar *path2 = (xmlChar *)"somepath2";
+	xmlNodeSetContent(xmlpath2, path2);
+	xmlNewChild(role2, NULL, NULL, NULL);
+
+	min_partial_order_role(role2, &user,&cmd, &user_min, &cmd_min,
+			    &caps_min, &setuid_min,
+			    &setgid_min, &security_min,
+			    &matched_role, &matched_task,
+			    &settings, &n_roles);
+
+	cr_assert_eq(1, n_roles, "Expected n_roles to be %d, but got %d", 1, n_roles);
+	cr_assert_eq(user_min, 1, "Expected user_min to be %d, but got %d", 1, user_min);
+	cr_assert_eq(cmd_min, PATH_STRICT, "Expected cmd_min to be %d, but got %d", PATH_STRICT, cmd_min);
+	cr_assert_eq(caps_min, NO_CAPS, "Expected caps_min to be %d, but got %d", NO_CAPS, caps_min);
+	cr_assert_eq(setuid_min, NO_SETUID_NO_SETGID, "Expected setuid_min to be %d, but got %d", NO_SETUID_NO_SETGID, setuid_min);
+	cr_assert_eq(setgid_min, -1, "Expected setgid_min to be %d, but got %d", -1, setgid_min);
+	cr_assert_eq(security_min, NO_ROOT_WITH_BOUNDING, "Expected security_min to be %d, but got %d", NO_ROOT_WITH_BOUNDING, security_min);
+	cr_assert_eq(matched_role, role2);
+	cr_assert_eq(matched_task, task2);
+	cr_assert_eq(strncmp(settings.path, (char *)path2,10), 0, "Expected settings.path to be %s, but got %s", path2, settings.path);
+
+
+
+}

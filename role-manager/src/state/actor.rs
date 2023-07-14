@@ -569,3 +569,25 @@ where
         self.gid_list.remove(index);
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::state::tests::TestState;
+
+    use super::*;
+
+    #[test]
+    fn test_to_string() {
+        let users = Users {
+            name: RefCell::new(vec!["Alice".to_string(), "Bob".to_string()]).into(),
+        };
+        assert_eq!(users.to_string(), "Alice,Bob");
+    }
+
+    #[test]
+    fn test_from() {
+        let users = Users::from(vec!["Alice".to_string(), "Bob".to_string()]);
+        assert_eq!(users.to_string(), "Alice,Bob");
+        let string = String::from(users.clone());
+        assert_eq!(string, "Alice,Bob");
+    }
+}

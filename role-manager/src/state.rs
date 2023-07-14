@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct TestState {
+    pub struct TestState {
         pub i: usize,
         pub j: char,
     }
