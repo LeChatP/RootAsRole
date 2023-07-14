@@ -23,7 +23,8 @@
         "command.h": "c",
         "unistd.h": "c",
         "stdint.h": "c",
-        "criterion.h": "c"
+        "criterion.h": "c",
+        "typeinfo": "c"
     },
     "rust-analyzer.linkedProjects": [
         "./role-manager/Cargo.toml",

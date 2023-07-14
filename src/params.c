@@ -241,7 +241,11 @@ void find_and_set_options_in_node(xmlNodePtr p_node, settings_t *options)
 void get_options_from_config(xmlNodePtr task_node, settings_t *options)
 {
 	find_and_set_options_in_node(task_node, options);
+	if (task_node->parent == NULL)
+		return;
 	find_and_set_options_in_node(task_node->parent, options);
+	if (task_node->doc == NULL || task_node->doc->children == NULL || task_node->doc->children->next == NULL)
+		return;
 	find_and_set_options_in_node(task_node->doc->children->next, options);
 }
 
