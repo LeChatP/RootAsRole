@@ -106,7 +106,8 @@ int actors_match_user(xmlNodePtr actors, char *user)
  * @param all the number of group names in the names string
  * @return the number of group names that match, 0 if one does not match at all
  */
-unsigned int count_matching_groups(char *names, char **groups, int nb_groups, unsigned int *all)
+unsigned int count_matching_groups(char *names, char **groups, int nb_groups,
+				   unsigned int *all)
 {
 	if (names == NULL)
 		return 0;
@@ -148,7 +149,8 @@ unsigned int actor_match_group(xmlNodePtr actor, char **groups, int nb_groups)
 	return 0;
 }
 
-unsigned int actors_match_max_group(xmlNodePtr actors, char **groups, int nb_groups)
+unsigned int actors_match_max_group(xmlNodePtr actors, char **groups,
+				    int nb_groups)
 {
 	xmlNodePtr actor = actors->children;
 	unsigned int max = 0;
@@ -197,9 +199,9 @@ int threescorecmp(score_t caps_min_A, score_t setuid_min_A,
 int fourscorecmp(score_t A1, score_t A2, score_t A3, score_t A4, score_t B1,
 		 score_t B2, score_t B3, score_t B4)
 {
-	score_t firstcmp = twoscorecmp(A1, A2, B1, B2);
+	score_t firstcmp = threescorecmp(A1, A2, A3, B1, B2, B3);
 	if (firstcmp == 0)
-		return twoscorecmp(A3, A4, B3, B4);
+		return scorecmp(A4, B4);
 	else
 		return firstcmp;
 }
@@ -440,7 +442,8 @@ score_t setgid_min(const xmlNodePtr task_element, const settings_t *settings,
 	score_t setgid_min = setuid_min;
 	xmlChar *setgid =
 		xmlGetProp(task_element, (const xmlChar *)"setgroups");
-	count_matching_groups((char *)setgid, NULL, 0, (unsigned int*) nb_setgid);
+	count_matching_groups((char *)setgid, NULL, 0,
+			      (unsigned int *)nb_setgid);
 	if (setgid != NULL && xmlStrlen(setgid) > 0) {
 		switch (setuid_min) {
 		case SETUID_ROOT:
@@ -492,9 +495,9 @@ score_t get_setuid_min(const xmlNodePtr task_element,
  * @param caps_min the capabilities level of the task
  * @return 1 if any match, or 0 if no match
 */
-int task_match(cmd_t *cmd, const xmlNodePtr task_element, settings_t *settings,
-	       score_t *cmd_min, score_t *caps_min, score_t *setuid_min,
-	       score_t *nb_setgid)
+score_t task_match(cmd_t *cmd, const xmlNodePtr task_element,
+		   settings_t *settings, score_t *cmd_min, score_t *caps_min,
+		   score_t *setuid_min, score_t *nb_setgid)
 {
 	*setuid_min = *caps_min = *cmd_min = -1;
 	if (!xmlStrcmp(task_element->name, (const xmlChar *)"task")) {
@@ -801,13 +804,11 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	if (res == -1) {
 		return NULL;
 	}
-	printf("str_cmd: %s\n", str_cmd);
 	char *sanitized_str =
 		sanitize_quotes_xpath(str_cmd, PATH_MAX + ARG_MAX + 1);
 	if (sanitized_str == NULL) {
 		return NULL;
 	}
-	printf("sanitized_str: %s\n", sanitized_str);
 	int user_groups_size = __expr_user_or_groups(
 		&user_groups_char, user->name, user->groups, user->nb_groups);
 	if (user_groups_size == -1) {
@@ -902,9 +903,10 @@ xmlNodeSetPtr filter_wrong_groups_roles(xmlNodeSetPtr set, char **groups,
 					group, (const xmlChar *)"names");
 				if (names != NULL) {
 					unsigned int all = 0;
-					unsigned int found = count_matching_groups(
-						(char *)names, groups,
-						nb_groups, &all);
+					unsigned int found =
+						count_matching_groups(
+							(char *)names, groups,
+							nb_groups, &all);
 					if (found == 0 || found != all) {
 						xmlUnlinkNode(node);
 						xmlFreeNode(node);

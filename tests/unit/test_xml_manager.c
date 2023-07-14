@@ -598,6 +598,11 @@ Test(setuser_min, test3)
 	cr_assert_eq(NO_SETUID_NO_SETGID, score,
 		     "Expected score to be %d, but got %d", NO_SETUID_NO_SETGID,
 		     score);
+    xmlNewProp(task, (xmlChar *)"setuser", (xmlChar *)"");
+    score =  setuser_min(task, &settings);
+	cr_assert_eq(NO_SETUID_NO_SETGID, score,
+		     "Expected score to be %d, but got %d", NO_SETUID_NO_SETGID,
+		     score);
 }
 
 Test(setuser_min, test4)
@@ -731,6 +736,10 @@ Test(setgid_min, test_setgid_root)
 	cr_assert_eq(SETGID_ROOT, score, "Expected score to be %d, but got %d",
 		     SETGID_ROOT, score);
     cr_assert_eq(1, nb_setgid, "Expected nb_setgid to be %d, but got %d", 1, nb_setgid);
+    settings.no_root = 1;
+    score = setgid_min(task, &settings, NO_SETUID_NO_SETGID, &nb_setgid);
+    cr_assert_eq(SETGID, score, "Expected score to be %d, but got %d",
+             SETGID, score);
 }
 
 Test(setgid_min, test_notroot_setuid_setgid_root)
@@ -754,6 +763,10 @@ Test(setgid_min, test_notroot_setuid_setgid_root)
 		     "Expected score to be %d, but got %d",
 		     SETUID_NOTROOT_SETGID_ROOT, score);
     cr_assert_eq(3, nb_setgid, "Expected nb_setgid to be %d, but got %d", 3, nb_setgid);
+    settings.no_root = 1;
+    score = setgid_min(task, &settings, SETUID, &nb_setgid);
+    cr_assert_eq(SETUID_SETGID, score, "Expected score to be %d, but got %d",
+             SETUID_SETGID, score);
 }
 
 Test(setgid_min, test_setuid_root_setgid)
@@ -800,6 +813,84 @@ Test(setgid_min, test_setuid_setgid_root)
 		     "Expected score to be %d, but got %d", SETUID_SETGID_ROOT,
 		     score);
     cr_assert_eq((score_t) 1, nb_setgid, "Expected nb_setgid to be %lu, but got %lu", (score_t)1, nb_setgid);
+    settings.no_root = 1;
+    score = setgid_min(task, &settings, SETUID_ROOT, &nb_setgid);
+    cr_assert_eq(SETUID_ROOT_SETGID, score, "Expected score to be %d, but got %d",
+             SETUID_ROOT_SETGID, score);
 }
 
 
+Test(get_setuid_min, test1) {
+    xmlNodePtr task = xmlNewNode(NULL, (xmlChar *)"task");
+    xmlNewProp(task, (xmlChar *)"setuser", (xmlChar *)"root");
+    xmlNewProp(task, (xmlChar *)"setgroups", (xmlChar *)"root,group1,group2");
+    settings_t settings = {
+        .env_keep = NULL,
+        .env_check = NULL,
+        .path = NULL,
+        .role = NULL,
+        .setuid = NULL,
+        .setgid = NULL,
+        .no_root = 0,
+        .bounding = 0,
+        .iab = NULL,
+    };
+    score_t nb_setgid = -1;
+    score_t score = get_setuid_min(task, &settings, &nb_setgid);
+    cr_assert_eq(SETUID_SETGID_ROOT, score, "Expected score to be %d, but got %d",
+             SETUID_SETGID_ROOT, score);
+    cr_assert_eq(3, nb_setgid, "Expected nb_setgid to be %d, but got %d", 3, nb_setgid);
+}
+
+Test(set_task_min, test1) {
+    xmlNodePtr task = xmlNewNode(NULL, (xmlChar *)"task");
+    xmlNewProp(task, (xmlChar *)"setuser", (xmlChar *)"root");
+    xmlNewProp(task, (xmlChar *)"setgroups", (xmlChar *)"root,group1,group2");
+	xmlNewProp(task, (xmlChar *)"capabilities", (xmlChar *)"aLl");
+    xmlNodePtr node = xmlNewChild(task, NULL, (xmlChar *)"command", NULL);
+	xmlNodeSetContent(node, (xmlChar *)"/bin/ls");
+    settings_t settings = {
+        .env_keep = NULL,
+        .env_check = NULL,
+        .path = NULL,
+        .role = NULL,
+        .setuid = NULL,
+        .setgid = NULL,
+        .no_root = 0,
+        .bounding = 0,
+        .iab = NULL,
+    };
+    cmd_t cmd = (struct s_cmd) {
+        .command = "/bin/ls",
+        .argv = NULL,
+        .argc = 0,
+    };
+    score_t nb_setgid = -1, cmd_min = -1, caps_min = -1, setuid_min = -1;
+    score_t ret = task_match(&cmd, task, &settings,
+	       &cmd_min, &caps_min, &setuid_min,
+	       &nb_setgid);
+    cr_assert_eq(1, ret, "Expected ret to be %d, but got %d", 1, ret);
+	cr_assert_eq(SETUID_SETGID_ROOT, setuid_min, "Expected setuid_min to be %d, but got %d", SETUID_SETGID_ROOT, setuid_min);
+	cr_assert_eq(3, nb_setgid, "Expected nb_setgid to be %d, but got %d", 3, nb_setgid);
+	cr_assert_eq(PATH_STRICT, cmd_min, "Expected cmd_min to be %d, but got %d", PATH_STRICT, cmd_min);
+	cr_assert_eq(CAPS_ALL, caps_min, "Expected caps_min to be %d, but got %d", CAPS_ALL, caps_min);
+
+	xmlNodePtr task2 = xmlNewNode(NULL, (xmlChar *)"task");
+	xmlNewProp(task2, (xmlChar *)"setuser", (xmlChar *)"root");
+	xmlNewProp(task2, (xmlChar *)"setgroups", (xmlChar *)"root,group1,group2");
+	xmlNewProp(task2, (xmlChar *)"capabilities", (xmlChar *)"cap_sys_admin,cap_dac_override");
+	xmlNodePtr xmlnewcmd = xmlNewChild(task2, NULL, (xmlChar *)"command", NULL);
+	xmlNodeSetContent(xmlnewcmd, (xmlChar *)"/bin/ls");
+	xmlNodePtr min_task = NULL;
+	score_t security_min = -1;
+	int res = set_task_min(&cmd, task2, &min_task, &settings, &cmd_min, &caps_min, &setuid_min, &nb_setgid, &security_min);
+	
+	cr_assert_eq(SETUID_SETGID_ROOT, setuid_min, "Expected setuid_min to be %d, but got %d", SETUID_SETGID_ROOT, setuid_min);
+	cr_assert_eq(3, nb_setgid, "Expected nb_setgid to be %d, but got %d", 3, nb_setgid);
+	cr_assert_eq(PATH_STRICT, cmd_min, "Expected cmd_min to be %d, but got %d", PATH_STRICT, cmd_min);
+	cr_assert_eq(CAPS_ADMIN, caps_min, "Expected caps_min to be %d, but got %d", CAPS_ADMIN, caps_min);
+	cr_assert_eq(ENABLE_ROOT_DISABLE_BOUNDING, security_min, "Expected security_min to be %d, but got %d", ENABLE_ROOT_DISABLE_BOUNDING, security_min);
+	cr_assert_eq(min_task, task2);
+	cr_assert_eq(1, res, "Expected res to be %d, but got %d", 1, res);
+	
+}
