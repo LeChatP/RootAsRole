@@ -27,8 +27,8 @@ struct s_settings {
     char *role;
     char *setuid;
     char *setgid;
-    int no_root;
-    int bounding;
+    int disable_root;
+    int apply_bounding;
     cap_iab_t iab;
 };
 
