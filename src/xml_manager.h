@@ -30,7 +30,7 @@ void free_options(settings_t *options);
  * @param p_options The options to set
  * @return 1 if the user is allowed to execute the command, 0 otherwise
 */
-int get_settings_from_config(user_t *user, cmd_t *command, settings_t *p_options);
+int get_settings_from_config(char *filename, user_t *user, cmd_t *command, settings_t *p_options);
 
 /**
  * @brief Get every configuration settings from the xml file according to the role, the user, the groups and the command
@@ -60,9 +60,8 @@ void print_full_roles();
  * @param user The user to check
  * @param nb_groups The number of groups of the user
  * @param groups The groups of the user
- * @param restricted 1 to display limited information, 0 to display all information
 */
-void print_rights(user_t *user, int restricted);
+void print_rights(user_t *user);
 
 /**
  * @brief Print the rights of a role if user is in the role
@@ -70,9 +69,8 @@ void print_rights(user_t *user, int restricted);
  * @param user The user to check
  * @param nb_groups The number of groups of the user
  * @param groups The groups of the user
- * @param restricted 1 to display limited information, 0 to display all information
 */
-void print_rights_role(char *role, user_t *user, int restricted);
+void print_rights_role(char *role, user_t *user);
 
 #endif
 /* 

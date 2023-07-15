@@ -223,7 +223,7 @@ int sr_setcaps(settings_t *settings)
 */
 int sr_noroot(settings_t *options)
 {
-	if (options->no_root) {
+	if (options->disable_root) {
 		if (activates_securebits()) {
 			error(0, 0, "Unable to activate securebits");
 			syslog(LOG_ERR, "Unable to activate securebits");
@@ -290,9 +290,9 @@ int main(int argc, char *argv[])
 
 	if (arguments.info) {
 		if (arguments.role == NULL)
-			print_rights(user, RESTRICTED);
+			print_rights(user);
 		else {
-			print_rights_role(arguments.role, user, RESTRICTED);
+			print_rights_role(arguments.role, user);
 		}
 		goto free_error;
 	}
@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
 			goto free_error;
 		}		   	
 	} else {
-		int ret = get_settings_from_config(user, cmd, &options);
+		int ret = get_settings_from_config(XML_FILE, user, cmd, &options);
 		if (!ret) {
 			syslog(LOG_ERR,
 			       "User '%s' tries to execute '%s', without permission",

@@ -36,8 +36,8 @@ static settings_t options = { .env_keep = d_keep_vars,
 			      .path = d_path,
 			      .setuid = NULL,
 			      .setgid = NULL,
-			      .no_root = 1,
-			      .bounding = 1 };
+			      .disable_root = 1,
+			      .apply_bounding = 1 };
 
 /**
  * @brief Set the POSIX user variables
@@ -94,28 +94,24 @@ settings_t *default_options_get(){
 }
 
 void set_default_options(settings_t *settings){
-	if(settings->env_keep == NULL){
-		settings->env_keep = d_keep_vars;
+	if (settings == NULL){
+		return;
 	}
-	if(settings->env_check == NULL){
-		settings->env_check = d_check_vars;
-	}
-	if(settings->path == NULL){
-		settings->path = d_path;
-	}
+	settings->env_keep = d_keep_vars;
+	settings->env_check = d_check_vars;
+	settings->path = d_path;
 	settings->setuid = NULL;
 	settings->setgid = NULL;
-	if(settings->no_root == 0){
-		settings->no_root = 1;
-	}
-	if(settings->bounding == 0){
-		settings->bounding = 1;
-	}
+	settings->disable_root = 1;
+	settings->apply_bounding = 1;
 	settings->role = NULL;
 	settings->iab = cap_iab_init();
 }
 
 void options_assign(settings_t *dst, settings_t *src) {
+	if (src == NULL || dst == NULL) {
+		return;
+	}
 	if (src->env_keep != NULL) {
 		dst->env_keep = src->env_keep;
 	}
@@ -131,8 +127,8 @@ void options_assign(settings_t *dst, settings_t *src) {
 	if (src->setgid != NULL) {
 		dst->setgid = src->setgid;
 	}
-	dst->no_root = src->no_root;
-	dst->bounding = src->bounding;
+	dst->disable_root = src->disable_root;
+	dst->apply_bounding = src->apply_bounding;
 	if (src->role != NULL) {
 		dst->role = src->role;
 	}
@@ -197,11 +193,11 @@ void set_options_from_node(xmlNodePtr options_node, settings_t *options)
 		if (node->type == XML_ELEMENT_NODE) {
 			if (!xmlStrcmp(node->name,
 				       (const xmlChar *)"allow-root")) {
-						options->no_root = !option_enforced(node);
+						options->disable_root = !option_enforced(node);
 			} else if (!xmlStrcmp(
 					   node->name,
 					   (const xmlChar *)"allow-bounding")) {
-				options->bounding = !option_enforced(node);
+				options->apply_bounding = !option_enforced(node);
 			} else if (!xmlStrcmp(node->name,
 					      (const xmlChar *)"path")) {
 				options->path = (char *)xmlNodeGetContent(node);
@@ -257,7 +253,7 @@ void free_options(settings_t *options)
 {
 	//free(options->role);
 	//free(options->iab);
-	options->bounding = 0;
+	options->apply_bounding = 0;
 }
 
 /* 
