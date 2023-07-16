@@ -384,8 +384,8 @@ mod tests {
         task.as_ref().borrow_mut().capabilities = Some(Caps::V2(3));
         let mut opt = Opt::new(Level::Task);
         opt.path = Some("thepath".to_string());
-        opt.bounding = Some(false);
-        opt.no_root = Some(true);
+        opt.disable_bounding = Some(false);
+        opt.allow_root = Some(true);
         opt.wildcard_denied = Some("thewildcard-denied".to_string());
         opt.env_checklist = Some("thechecklist".to_string());
         opt.env_whitelist = Some("thewhitelist".to_string());
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn test_idtask() {
         let id = IdTask::Number(0);
-        assert_eq!(id.to_string(), "0");
+        assert_eq!(id.to_string(), "Task #0");
         let id = IdTask::Name("test".to_string());
         assert_eq!(id.to_string(), "test");
         let id: IdTask = "test".to_string().into();

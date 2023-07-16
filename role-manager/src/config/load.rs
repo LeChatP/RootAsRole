@@ -63,8 +63,8 @@ fn get_options(level: Level, node: Element) -> Opt {
                             .to_string(),
                     )
                 }
-                "allow-root" => options.no_root = Some(is_enforced(elem)),
-                "allow-bounding" => options.bounding = Some(is_enforced(elem)),
+                "allow-root" => options.allow_root = Some(is_enforced(elem)),
+                "allow-bounding" => options.disable_bounding = Some(is_enforced(elem)),
                 "wildcard-denied" => {
                     options.wildcard_denied = Some(
                         elem.children()
@@ -182,7 +182,7 @@ pub fn get_role<'a>(
 }
 
 pub fn load_roles<'a>(filename: &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn Error>> {
-    let package = read_xml_file(filename).expect("Failed to read xml file");
+    let package = read_xml_file(filename)?;
     let doc = package.as_document();
     let rc_roles = Roles::new(PACKAGE_VERSION);
     {
@@ -213,5 +213,106 @@ pub fn load_roles<'a>(filename: &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn 
             Err("Unable to find rootasrole element".into())
         })?;
         Ok(rc_roles.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_load_roles() {
+        let roles = load_roles(
+            format!(
+                "{}/../tests/resources/test_xml_manager_case1.xml",
+                env!("PWD")
+            )
+            .as_str(),
+        );
+        if let Err(e) = roles {
+            panic!("Unable to load roles: {}", e);
+        }
+        let binding = roles.unwrap();
+        let roles = binding.as_ref().borrow();
+        assert_eq!(roles.roles.len(), 2);
+        let role = roles.roles.first().unwrap();
+        let role = role.as_ref().borrow();
+        assert_eq!(role.name, "test1");
+        assert_eq!(role.users.len(), 1);
+        assert_eq!(role.users.first().unwrap(), "test1");
+        assert_eq!(role.groups.len(), 0);
+        assert_eq!(role.tasks.len(), 2);
+        let task = role.tasks.first().unwrap();
+        let task = task.as_ref().borrow();
+        assert_eq!(task.id, IdTask::Name("t1_test1".to_string()));
+        assert_eq!(task.commands.len(), 1);
+        assert_eq!(task.commands.first().unwrap(), "/bin/ls");
+        let option = task.options.as_ref();
+        assert!(option.is_some());
+        let path = task
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .to_owned()
+            .path;
+        assert!(path.is_some());
+        assert_eq!(path.unwrap(), "t1_test1");
+        assert!(task.capabilities.is_some());
+        let capabilities = task.capabilities.to_owned().unwrap();
+        assert_eq!(capabilities, "cap_dac_override".into());
+        let task = role.tasks.last().unwrap();
+        let task = task.as_ref().borrow();
+        assert_eq!(task.id, IdTask::Name("t1_test2".to_string()));
+        assert_eq!(task.commands.len(), 1);
+        assert_eq!(task.commands.first().unwrap(), "/bin/ls");
+        let option = task.options.as_ref();
+        assert!(option.is_some());
+        let path = task
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .to_owned()
+            .path;
+        assert!(path.is_some());
+        assert_eq!(path.unwrap(), "t1_test2");
+        assert!(task.capabilities.is_none());
+        let role = roles.roles.last().unwrap();
+        let role = role.as_ref().borrow();
+        assert_eq!(role.name, "test2");
+        assert_eq!(role.users.len(), 1);
+        assert_eq!(role.users.first().unwrap(), "test1");
+        assert_eq!(role.groups.len(), 0);
+        assert_eq!(role.tasks.len(), 1);
+        let task = role.tasks.first().unwrap();
+        let task = task.as_ref().borrow();
+        assert_eq!(task.id, IdTask::Name("t2_test1".to_string()));
+        assert_eq!(task.commands.len(), 1);
+        assert_eq!(task.commands.first().unwrap(), "/bin/ls");
+        let option = task.options.as_ref();
+        assert!(option.is_some());
+        let path = task
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .to_owned()
+            .path;
+        assert!(path.is_some());
+        assert_eq!(path.unwrap(), "t2_test1");
+        let allowroot = task
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .to_owned()
+            .allow_root;
+        assert!(allowroot.is_some());
+        assert_eq!(allowroot.unwrap(), true);
+        assert!(task.capabilities.is_none());
     }
 }

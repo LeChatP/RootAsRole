@@ -27,7 +27,12 @@ pub struct RoleManagerApp {
 }
 
 fn main() {
-    let roles = config::load::load_roles(FILENAME).expect("Failed to load roles");
+    let roles = config::load::load_roles(FILENAME);
+    if let Err(err) = roles {
+        eprintln!("{}", err.to_string());
+        std::process::exit(1);
+    }
+    let roles = roles.unwrap();
     let mut rc_role_manager = RoleContext::new(roles);
     match parse_args(&mut rc_role_manager) {
         Ok(value) => {

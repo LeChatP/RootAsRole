@@ -381,11 +381,11 @@ impl Save for Opt {
                             .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
                             .text()
                             == "true";
-                        if self.no_root.is_none() {
+                        if self.allow_root.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if noroot != self.no_root.unwrap() {
-                            child_element.set_text(match self.no_root.unwrap() {
+                        } else if noroot != self.allow_root.unwrap() {
+                            child_element.set_text(match self.allow_root.unwrap() {
                                 true => "true",
                                 false => "false",
                             });
@@ -398,11 +398,11 @@ impl Save for Opt {
                             .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
                             .text()
                             == "true";
-                        if self.bounding.is_none() {
+                        if self.disable_bounding.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if bounding != self.bounding.unwrap() {
-                            child_element.set_text(match self.bounding.unwrap() {
+                        } else if bounding != self.disable_bounding.unwrap() {
+                            child_element.set_text(match self.disable_bounding.unwrap() {
                                 true => "true",
                                 false => "false",
                             });
@@ -592,12 +592,12 @@ impl ToXml for Opt {
                 sxd_sanitize(env_checklist.to_owned().borrow_mut())
             ));
         }
-        if let Some(no_root) = self.no_root.borrow().as_ref() {
+        if let Some(no_root) = self.allow_root.borrow().as_ref() {
             if no_root == &false {
                 content.push_str(&format!("<allow-root enforce=\"{}\"/>", !no_root));
             }
         }
-        if let Some(bounding) = self.bounding.borrow().as_ref() {
+        if let Some(bounding) = self.disable_bounding.borrow().as_ref() {
             if bounding == &false {
                 content.push_str(&format!("<allow-bounding enforce=\"{}\"/>", !bounding));
             }

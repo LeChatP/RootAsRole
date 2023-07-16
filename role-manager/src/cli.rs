@@ -10,20 +10,20 @@ use crate::{
     version::PACKAGE_VERSION,
 };
 
-//rar newrole "role1" --user "user1" --group "group1" "group2"
-//rar addtask "role1" --cmds "command1" --caps "cap_dac_override,cap_dac_read_search"
-//rar addtask "role1" --with-id "myid" --cmds "command2" --caps "cap_dac_override"
+//chsr newrole "role1" --user "user1" --group "group1" "group2"
+//chsr addtask "role1" --cmds "command1" --caps "cap_dac_override,cap_dac_read_search"
+//chsr addtask "role1" --with-id "myid" --cmds "command2" --caps "cap_dac_override"
 
-//rar deltask "role1" "myid"
+//chsr deltask "role1" "myid"
 
-//rar grant "role1" --user "user1" --group "group1,group2"
-//rar revoke "role1" --user "user1"
+//chsr grant "role1" --user "user1" --group "group1,group2"
+//chsr revoke "role1" --user "user1"
 
-//rar delrole "role1"
+//chsr delrole "role1"
 
-//rar config --role "role1" --task "myid" --path "/usr/bin:/bin"
-//rar config --role "role1" --env "MYVAR=1"
-//rar config --allow-bounding false
+//chsr config --role "role1" --task "myid" --path "/usr/bin:/bin"
+//chsr config --role "role1" --env "MYVAR=1"
+//chsr config --allow-bounding false
 
 #[derive(Parser, Debug)]
 #[command(name = "RootAsRole")]
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_parse_args_new_role() {
         let args = Cli::parse_from(&[
-            "rar", "newrole", "admin", "--user", "user1", "--group", "group1",
+            "chsr", "newrole", "admin", "--user", "user1", "--group", "group1",
         ])
         .command;
         let expected_command = Some(CCommand::NewRole {
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_parse_args_grant() {
         let args = Cli::parse_from(&[
-            "rar", "grant", "admin", "--user", "user1", "--group", "group1",
+            "chsr", "grant", "admin", "--user", "user1", "--group", "group1",
         ])
         .command;
         let expected_command = Some(CCommand::Grant {
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_parse_args_revoke() {
         let args = Cli::parse_from(&[
-            "rar", "revoke", "admin", "--user", "user1", "--group", "group1",
+            "chsr", "revoke", "admin", "--user", "user1", "--group", "group1",
         ])
         .command;
         let expected_command = Some(CCommand::Revoke {
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn test_parse_args_add_task() {
         let args = Cli::parse_from(&[
-            "rar", "addtask", "admin", "--withid", "task1", "--cmds", "cmd1", "--caps", "cap1",
+            "chsr", "addtask", "admin", "--withid", "task1", "--cmds", "cmd1", "--caps", "cap1",
         ])
         .command;
         let expected_command = Some(CCommand::AddTask {
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_del_task() {
-        let args = Cli::parse_from(&["rar", "deltask", "admin", "task1"]).command;
+        let args = Cli::parse_from(&["chsr", "deltask", "admin", "task1"]).command;
         let expected_command = Some(CCommand::DelTask {
             role: "admin".to_string(),
             id: "task1".to_string(),
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_del_role() {
-        let args = Cli::parse_from(&["rar", "delrole", "admin"]).command;
+        let args = Cli::parse_from(&["chsr", "delrole", "admin"]).command;
         let expected_command = Some(CCommand::DelRole {
             role: "admin".to_string(),
         });
@@ -414,7 +414,7 @@ mod tests {
     #[test]
     fn test_parse_args_config() {
         let args = Cli::parse_from(&[
-            "rar",
+            "chsr",
             "config",
             "--role",
             "admin",
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_list() {
-        let args = Cli::parse_from(&["rar", "list", "--role", "admin", "--task", "task1"]).command;
+        let args = Cli::parse_from(&["chsr", "list", "--role", "admin", "--task", "task1"]).command;
         let expected_command = Some(CCommand::List {
             role: Some("admin".to_string()),
             task: Some("task1".to_string()),
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_import() {
-        let args = Cli::parse_from(&["rar", "import", "/path/to/file"]).command;
+        let args = Cli::parse_from(&["chsr", "import", "/path/to/file"]).command;
         let expected_command = Some(CCommand::Import {
             file: "/path/to/file".to_string(),
         });
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_parse_args_no_command() {
-        let args = Cli::parse_from(&["rar"]).command;
+        let args = Cli::parse_from(&["chsr"]).command;
         let expected_command = None;
         assert_eq!(args, expected_command);
     }
