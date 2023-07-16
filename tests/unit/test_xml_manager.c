@@ -1087,7 +1087,7 @@ Test(get_settings_from_config, test1)
 	set_default_options(&sdefault);
 	char filepath[PATH_MAX] = { 0 };
 	getcwd(filepath, PATH_MAX);
-	strncat(filepath, "/tests/resources/test_xml_manager_case1.xml", 60);
+	strncat(filepath, "/tests/resources/test_xml_manager_case1.xml", 44);
 	int res = get_settings_from_config(filepath, &user, &cmd, &settings);
 	cr_assert_eq(
 		res, 1,
