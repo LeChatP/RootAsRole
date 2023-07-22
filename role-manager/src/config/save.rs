@@ -79,7 +79,6 @@ impl<'a> Save for Roles<'a> {
                             if let Some(role_element) = role_element.element() {
                                 let rolename = role_element.attribute_value("name").unwrap();
                                 if let Some(role) = self.get_role(rolename) {
-                                    eprintln!("role 82 .{:?}", role_element.name().local_part());
                                     if role
                                         .as_ref()
                                         .borrow()
@@ -101,7 +100,7 @@ impl<'a> Save for Roles<'a> {
                             let role = self.get_role(&rolename).unwrap();
                             let role_element = doc.create_element("role");
                             role_element.set_attribute_value("name", &rolename);
-                            eprintln!("role 104 .{:?}", role_element.name().local_part());
+
                             role.as_ref()
                                 .borrow()
                                 .save(doc.into(), Some(&role_element))?;
@@ -141,7 +140,7 @@ impl<'a> Save for Roles<'a> {
                 let role = self.get_role(&rolename).unwrap();
                 let role_element = doc.create_element("role");
                 role_element.set_attribute_value("name", &rolename);
-                eprintln!("role 144 .{:?}", role_element.name().local_part());
+
                 role.as_ref()
                     .borrow()
                     .save(doc.into(), Some(&role_element))?;
@@ -251,7 +250,6 @@ impl<'a> Save for Role<'a> {
                                     ret
                                 }
                             }) {
-                                eprintln!("tash 260 .{:?}", child.name().local_part());
                                 if task.as_ref().borrow().save(doc.into(), Some(&child))? {
                                     edited = true;
                                 }
@@ -291,7 +289,6 @@ impl<'a> Save for Role<'a> {
             if !hastasks && !self.tasks.is_empty() {
                 for task in self.tasks.clone() {
                     let element = doc.create_element("task");
-                    eprintln!("task 300 .{:?}", element.name().local_part());
                     task.as_ref().borrow().save(doc.into(), Some(&element))?;
                 }
                 edited = true;
@@ -880,10 +877,90 @@ mod tests {
         doc.root().append_child(root);
         let childs = root.children();
         assert_eq!(childs.len(), 2);
-        let roles_options = childs[0].element().unwrap().children();
-        assert_eq!(roles_options.len(), 6);
-        let role_list = childs[1].element().unwrap().children();
-        assert_eq!(role_list.len(), 1);
-        let role_options = role_list[0].element().unwrap().children();
+        let roles_options = childs[0].element().unwrap();
+        assert_eq!(roles_options.name().local_part(), "options");
+        assert_eq!(roles_options.children().len(), 6);
+        let role_list = childs[1].element().unwrap();
+        assert_eq!(role_list.name().local_part(), "roles");
+        assert_eq!(role_list.children().len(), 1);
+        let role = role_list.children()[0].element().unwrap();
+        assert_eq!(role.name().local_part(), "role");
+        assert_eq!(role.children().len(), 2);
+        let task = role.children()[0].element().unwrap();
+        assert_eq!(task.name().local_part(), "task");
+        assert_eq!(task.children().len(), 4);
+        let task_purpose = task.children()[0].element().unwrap();
+        assert_eq!(task_purpose.name().local_part(), "purpose");
+        assert_eq!(task_purpose.children().len(), 1);
+        assert_eq!(
+            task_purpose.children()[0].text().unwrap().text(),
+            "test_purpose"
+        );
+        let task_command1 = task.children()[1].element().unwrap();
+        assert_eq!(task_command1.name().local_part(), "command");
+        assert_eq!(task_command1.children().len(), 1);
+        assert!(task_command1.children()[0]
+            .text()
+            .unwrap()
+            .text()
+            .starts_with("test_command"));
+        let task_command2 = task.children()[2].element().unwrap();
+        assert_eq!(task_command2.name().local_part(), "command");
+        assert_eq!(task_command2.children().len(), 1);
+        assert!(task_command2.children()[0]
+            .text()
+            .unwrap()
+            .text()
+            .starts_with("test_command"));
+        let package = read_xml_file(
+            format!(
+                "{}/../tests/resources/test_xml_manager_case1.xml",
+                env!("PWD")
+            )
+            .as_str(),
+        )
+        .unwrap();
+        let doc = package.as_document();
+        let element = doc.root().children();
+        assert_eq!(element.len(), 3);
+        let element = element[1].element().unwrap();
+        roles_mut.save(Some(&doc), Some(&element)).unwrap();
+        let childs = root.children();
+        assert_eq!(childs.len(), 2);
+        let roles_options = childs[0].element().unwrap();
+        assert_eq!(roles_options.name().local_part(), "options");
+        assert_eq!(roles_options.children().len(), 6);
+        let role_list = childs[1].element().unwrap();
+        assert_eq!(role_list.name().local_part(), "roles");
+        assert_eq!(role_list.children().len(), 1);
+        let role = role_list.children()[0].element().unwrap();
+        assert_eq!(role.name().local_part(), "role");
+        assert_eq!(role.children().len(), 2);
+        let task = role.children()[0].element().unwrap();
+        assert_eq!(task.name().local_part(), "task");
+        assert_eq!(task.children().len(), 4);
+        let task_purpose = task.children()[0].element().unwrap();
+        assert_eq!(task_purpose.name().local_part(), "purpose");
+        assert_eq!(task_purpose.children().len(), 1);
+        assert_eq!(
+            task_purpose.children()[0].text().unwrap().text(),
+            "test_purpose"
+        );
+        let task_command1 = task.children()[1].element().unwrap();
+        assert_eq!(task_command1.name().local_part(), "command");
+        assert_eq!(task_command1.children().len(), 1);
+        assert!(task_command1.children()[0]
+            .text()
+            .unwrap()
+            .text()
+            .starts_with("test_command"));
+        let task_command2 = task.children()[2].element().unwrap();
+        assert_eq!(task_command2.name().local_part(), "command");
+        assert_eq!(task_command2.children().len(), 1);
+        assert!(task_command2.children()[0]
+            .text()
+            .unwrap()
+            .text()
+            .starts_with("test_command"));
     }
 }
