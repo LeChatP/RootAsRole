@@ -6,9 +6,9 @@
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
 	<!ELEMENT allow-root EMPTY>
-	<!ATTLIST allow-root enforce (true|false) "false">
+	<!ATTLIST allow-root enforce (true|false) "true">
 	<!ELEMENT allow-bounding EMPTY>
-	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ATTLIST allow-bounding enforce (true|false) "true">
 	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
 	<!ELEMENT path (#PCDATA|EMPTY)*>
 	<!ELEMENT roles (role*)>

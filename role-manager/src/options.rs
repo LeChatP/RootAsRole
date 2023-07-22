@@ -124,8 +124,8 @@ pub struct Opt {
     pub env_whitelist: Option<String>,
     pub env_checklist: Option<String>,
     pub wildcard_denied: Option<String>,
-    pub no_root: Option<bool>,
-    pub bounding: Option<bool>,
+    pub allow_root: Option<bool>,
+    pub disable_bounding: Option<bool>,
 }
 
 impl AsRef<Opt> for Opt {
@@ -149,10 +149,10 @@ impl ToString for Opt {
         if let Some(wildcard_denied) = &self.wildcard_denied {
             str.push_str(format!("wildcard_denied={}\n", wildcard_denied).as_str());
         }
-        if let Some(no_root) = &self.no_root {
+        if let Some(no_root) = &self.allow_root {
             str.push_str(format!("no_root={}\n", no_root).as_str());
         }
-        if let Some(bounding) = &self.bounding {
+        if let Some(bounding) = &self.disable_bounding {
             str.push_str(format!("bounding={}\n", bounding).as_str());
         }
         str
@@ -166,8 +166,8 @@ impl Default for Opt {
             path: Some("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin".to_string()),
             env_whitelist: Some("HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP".to_string()),
             env_checklist: Some("COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ".to_string()),
-            no_root: Some(true),
-            bounding: Some(true),
+            allow_root: Some(true),
+            disable_bounding: Some(true),
             wildcard_denied: Some(";&|".to_string())
         }
     }
@@ -180,8 +180,8 @@ impl Opt {
             path: None,
             env_whitelist: None,
             env_checklist: None,
-            no_root: None,
-            bounding: None,
+            allow_root: None,
+            disable_bounding: None,
             wildcard_denied: None,
         }
     }
@@ -197,10 +197,10 @@ impl Opt {
         if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
             description.push_str(format!("Env checklist: {}\n", env_checklist).as_str());
         }
-        if let Some(no_root) = self.no_root.borrow().as_ref() {
+        if let Some(no_root) = self.allow_root.borrow().as_ref() {
             description.push_str(format!("No root: {}\n", no_root).as_str());
         }
-        if let Some(bounding) = self.bounding.borrow().as_ref() {
+        if let Some(bounding) = self.disable_bounding.borrow().as_ref() {
             description.push_str(format!("Bounding: {}\n", bounding).as_str());
         }
         if let Some(wildcard_denied) = self.wildcard_denied.borrow().as_ref() {
@@ -364,12 +364,12 @@ impl<'a> OptStack<'a> {
                         }
                     }
                     OptType::NoRoot => {
-                        if let Some(value) = opt.no_root.borrow().as_ref() {
+                        if let Some(value) = opt.allow_root.borrow().as_ref() {
                             return Some(OptValue::Bool(value.to_owned()));
                         }
                     }
                     OptType::Bounding => {
-                        if let Some(value) = opt.bounding.borrow().as_ref() {
+                        if let Some(value) = opt.disable_bounding.borrow().as_ref() {
                             return Some(OptValue::Bool(value.to_owned()));
                         }
                     }
@@ -413,7 +413,7 @@ impl<'a> OptStack<'a> {
     }
     pub fn get_no_root(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.borrow().no_root.borrow().as_ref() {
+            if let Some(p) = opt.borrow().allow_root.borrow().as_ref() {
                 return Some((opt.borrow().level, p.to_owned()));
             }
             None
@@ -422,7 +422,7 @@ impl<'a> OptStack<'a> {
     }
     pub fn get_bounding(&self) -> (Level, bool) {
         self.find_in_options(|opt| {
-            if let Some(p) = opt.borrow().bounding.borrow().as_ref() {
+            if let Some(p) = opt.borrow().disable_bounding.borrow().as_ref() {
                 return Some((opt.borrow().level, p.to_owned()));
             }
             None
@@ -466,12 +466,12 @@ impl<'a> OptStack<'a> {
             }
             OptType::NoRoot => {
                 if let Some(OptValue::Bool(value)) = value.borrow() {
-                    opt.no_root.replace(*value);
+                    opt.allow_root.replace(*value);
                 }
             }
             OptType::Bounding => {
                 if let Some(OptValue::Bool(value)) = value.borrow() {
-                    opt.bounding.replace(*value);
+                    opt.disable_bounding.replace(*value);
                 }
             }
             OptType::Wildcard => {
