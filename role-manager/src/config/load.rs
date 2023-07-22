@@ -64,7 +64,7 @@ fn get_options(level: Level, node: Element) -> Opt {
                     )
                 }
                 "allow-root" => options.allow_root = Some(is_enforced(elem)),
-                "allow-bounding" => options.disable_bounding = Some(is_enforced(elem)),
+                "disable-bounding" => options.disable_bounding = Some(is_enforced(elem)),
                 "wildcard-denied" => {
                     options.wildcard_denied = Some(
                         elem.children()

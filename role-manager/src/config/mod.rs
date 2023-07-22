@@ -29,8 +29,8 @@ pub(super) fn foreach_element<F>(element: Element, mut f: F) -> Result<(), Box<d
 where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {
-    for child in element.children() {
-        if child.element().is_some() {
+    if element.children().len() > 0 {
+        for child in element.children() {
             f(child)?;
         }
     }

@@ -5,10 +5,10 @@
 	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?)*>
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
-	<!ELEMENT allow-root EMPTY>
-	<!ATTLIST allow-root enforce (true|false) "false">
-	<!ELEMENT allow-bounding EMPTY>
-	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ELEMENT disable-root EMPTY>
+	<!ATTLIST disable-root enforce (true|false) "true">
+	<!ELEMENT apply-bounding EMPTY>
+	<!ATTLIST apply-bounding enforce (true|false) "true">
 	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
 	<!ELEMENT path (#PCDATA|EMPTY)*>
 	<!ELEMENT roles (role*)>
