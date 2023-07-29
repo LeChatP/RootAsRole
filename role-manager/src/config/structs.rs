@@ -17,7 +17,7 @@ pub struct Groups {
 
 impl Iterator for Groups {
     fn next(&mut self) -> Option<String> {
-        self.groups.iter().next().map(|s| s.to_owned())
+        self.groups.iter().next().map(|s| s.to_string())
     }
     type Item = String;
 }
@@ -54,7 +54,7 @@ impl From<Split<'_, char>> for Groups {
     fn from(groups: Split<char>) -> Self {
         let mut set = HashSet::new();
         for group in groups {
-            set.insert(group.to_owned());
+            set.insert(group.to_string());
         }
         Groups { groups: set }
     }
@@ -64,7 +64,7 @@ impl Groups {
     pub fn join(&self, sep: &str) -> String {
         self.groups.iter().fold(String::new(), |acc, s| {
             if acc.is_empty() {
-                s.to_owned()
+                s.to_string()
             } else {
                 format!("{}{}{}", acc, sep, s)
             }
@@ -102,7 +102,7 @@ impl IdTask {
 
     pub fn unwrap(&self) -> String {
         match self {
-            IdTask::Name(s) => s.to_owned(),
+            IdTask::Name(s) => s.to_string(),
             IdTask::Number(s) => s.to_string(),
         }
     }
@@ -186,7 +186,7 @@ impl<'a> Roles<'a> {
     pub fn get_role(&self, name: &str) -> Option<Rc<RefCell<Role<'a>>>> {
         for r in self.roles.iter() {
             if r.as_ref().borrow().name == name {
-                return Some(r.to_owned());
+                return Some(r.clone());
             }
         }
         None
@@ -215,9 +215,18 @@ impl<'a> Role<'a> {
             .into(),
         )
     }
+    pub fn has_parent(&self) -> bool {
+        self.roles.is_some()
+    }
+    pub fn get_parent(&self) -> Option<Rc<RefCell<Roles<'a>>>> {
+        if let Some(roles) = &self.roles {
+            return roles.upgrade();
+        }
+        None
+    }
     pub fn get_task_from_index(&self, index: &usize) -> Option<Rc<RefCell<Task<'a>>>> {
         if self.tasks.len() > *index {
-            return Some(self.tasks[*index].to_owned());
+            return Some(self.tasks[*index].clone());
         }
         None
     }
@@ -273,9 +282,7 @@ impl<'a> Role<'a> {
     }
 
     pub fn remove_task(&mut self, id: IdTask) {
-        let mut tasks = self.tasks.to_owned();
-        tasks.retain(|x| x.as_ref().borrow().id != id);
-        self.tasks = tasks;
+        self.tasks.retain(|x| x.as_ref().borrow().id != id);
     }
 }
 
@@ -306,17 +313,17 @@ impl<'a> Task<'a> {
             description.push_str(&format!("Purpose :\n{}\n", p));
         }
 
-        if let Some(caps) = self.capabilities.to_owned() {
+        if let Some(caps) = &self.capabilities {
             description.push_str(&format!("Capabilities:\n({})\n", caps.to_string()));
         }
-        if let Some(setuid) = self.setuid.to_owned() {
+        if let Some(setuid) = &self.setuid {
             description.push_str(&format!("Setuid:\n({})\n", setuid));
         }
-        if let Some(setgid) = self.setgid.to_owned() {
+        if let Some(setgid) = &self.setgid {
             description.push_str(&format!("Setgid:\n({})\n", setgid.join(" & ")));
         }
 
-        if let Some(options) = self.options.to_owned() {
+        if let Some(options) = &self.options {
             description.push_str(&format!(
                 "Options:\n({})\n",
                 options.as_ref().borrow().get_description()
@@ -329,9 +336,9 @@ impl<'a> Task<'a> {
                 .iter()
                 .map(|s| {
                     if s.len() < 64 {
-                        s.to_owned()
+                        s.to_string()
                     } else {
-                        let mut s = s.to_owned().chars().take(64).collect::<String>();
+                        let mut s = s.to_string().chars().take(64).collect::<String>();
                         s.push_str("...");
                         s
                     }
@@ -359,7 +366,8 @@ mod tests {
 
     #[test]
     fn test_get_empty_description() {
-        let role = Role::new("test_role".to_string(), None);
+        let binding = "test_role".to_string();
+        let role = Role::new(binding, None);
         assert_eq!(
             role.as_ref().borrow().get_description(),
             "Users:\n()\nGroups:\n()\nTasks:\n\n"
@@ -370,7 +378,8 @@ mod tests {
 
     #[test]
     fn test_get_description() {
-        let role = Role::new("test_role".to_string(), None);
+        let binding = "test_role".to_string();
+        let role = Role::new(binding, None);
         let task = Task::new(IdTask::Number(0), Rc::downgrade(&role));
         task.as_ref().borrow_mut().commands.push("ls".to_string());
         task.as_ref()

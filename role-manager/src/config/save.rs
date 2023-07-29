@@ -1,12 +1,10 @@
 use std::{
     borrow::{Borrow, BorrowMut},
-    cell::RefCell,
     collections::HashSet,
     error::Error,
     fs::File,
     io::Write,
     os::fd::AsRawFd,
-    rc::Rc,
 };
 
 use libc::{c_int, c_ulong, ioctl};
@@ -69,13 +67,13 @@ impl<'a> Save for Roles<'a> {
         }
         let mut edited = false;
         let mut hasroles = false;
-        foreach_element(element.to_owned(), |child| {
+        foreach_element(element, |child| {
             if let Some(child) = child.element() {
                 match child.name().local_part() {
                     "roles" => {
                         hasroles = true;
                         let mut rolesnames = self.get_roles_names();
-                        foreach_element(child, |role_element| {
+                        foreach_element(&child, |role_element| {
                             if let Some(role_element) = role_element.element() {
                                 let rolename = role_element.attribute_value("name").unwrap();
                                 if let Some(role) = self.get_role(rolename) {
@@ -109,8 +107,8 @@ impl<'a> Save for Roles<'a> {
                     }
                     "options" => {
                         if self
-                            .to_owned()
                             .options
+                            .as_ref()
                             .unwrap()
                             .as_ref()
                             .borrow()
@@ -126,12 +124,9 @@ impl<'a> Save for Roles<'a> {
         })?;
         if !hasroles {
             if let Some(options) = &self.options {
-                let options = options.to_owned();
+                let options = options.as_ref();
                 let options_element = doc.create_element("options");
-                options
-                    .as_ref()
-                    .borrow()
-                    .save(doc.into(), Some(&options_element))?;
+                options.borrow().save(doc.into(), Some(&options_element))?;
                 element.append_child(options_element);
             }
             let roles_element = doc.create_element("roles");
@@ -194,7 +189,7 @@ impl<'a> Save for Role<'a> {
             let mut hastasks = false;
             let mut taskid = 0;
 
-            foreach_element(element.to_owned(), |child| {
+            foreach_element(&element, |child| {
                 if let Some(child) = child.element() {
                     match child.name().local_part() {
                         "actors" => {
@@ -203,7 +198,7 @@ impl<'a> Save for Role<'a> {
                             users.extend(self.users.clone());
                             let mut groups = HashSet::new();
                             groups.extend(self.groups.clone());
-                            foreach_element(child, |actor_element| {
+                            foreach_element(&child, |actor_element| {
                                 if let Some(actor_element) = actor_element.element() {
                                     match actor_element.name().local_part() {
                                         "user" => {
@@ -261,8 +256,8 @@ impl<'a> Save for Role<'a> {
                         "options" => {
                             hasoptions = true;
                             if self
-                                .to_owned()
                                 .options
+                                .clone()
                                 .unwrap()
                                 .as_ref()
                                 .borrow()
@@ -296,7 +291,7 @@ impl<'a> Save for Role<'a> {
             if !hasoptions && self.options.is_some() {
                 let element = doc.create_element("options");
                 self.options
-                    .to_owned()
+                    .as_ref()
                     .unwrap()
                     .as_ref()
                     .borrow()
@@ -315,7 +310,7 @@ impl<'a> Save for Role<'a> {
                 task.as_ref().borrow().save(doc.into(), Some(&child))?;
                 element.append_child(child);
             }
-            if let Some(options) = self.options.to_owned() {
+            if let Some(options) = &self.options {
                 let options_element = doc.create_element("options");
                 options
                     .as_ref()
@@ -341,7 +336,7 @@ impl<'a> Save for Task<'a> {
             return Err("Unable to save task".into());
         }
         let mut edited = false;
-        if let IdTask::Name(id) = self.id.to_owned() {
+        if let IdTask::Name(id) = &self.id {
             if let Some(att) = element.attribute_value("id") {
                 if att != id.as_str() {
                     element.set_attribute_value("id", id.as_str());
@@ -352,19 +347,19 @@ impl<'a> Save for Task<'a> {
                 edited = true;
             }
         }
-        if let Some(capabilities) = self.capabilities.to_owned() {
-            if <Caps as Into<u64>>::into(capabilities.to_owned()) > 0 {
+        if let Some(capabilities) = &self.capabilities {
+            if <Caps as Into<u64>>::into(capabilities.clone()) > 0 {
                 element.set_attribute_value("capabilities", capabilities.to_string().as_str());
             } else if element.attribute_value("capabilities").is_some() {
                 element.remove_attribute("capabilities");
             }
         }
-        if let Some(setuid) = self.setuid.to_owned() {
+        if let Some(setuid) = &self.setuid {
             element.set_attribute_value("setuser", setuid.as_str());
         } else if element.attribute_value("setuser").is_some() {
             element.remove_attribute("setuser");
         }
-        if let Some(setgid) = self.setgid.to_owned() {
+        if let Some(setgid) = &self.setgid {
             element.set_attribute_value("setgroups", setgid.join(",").as_str());
         } else if element.attribute_value("setgroups").is_some() {
             element.remove_attribute("setgroups");
@@ -374,7 +369,7 @@ impl<'a> Save for Task<'a> {
         commands.extend(self.commands.clone());
         let mut hasoptions = false;
         let mut haspurpose = false;
-        foreach_element(element.to_owned(), |child| {
+        foreach_element(&element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "command" => {
@@ -392,7 +387,7 @@ impl<'a> Save for Task<'a> {
                     }
                     "purpose" => {
                         haspurpose = true;
-                        if let Some(purpose) = self.purpose.to_owned() {
+                        if let Some(purpose) = &self.purpose {
                             if child
                                 .text()
                                 .ok_or::<Box<dyn Error>>("Unable to retrieve command Text".into())?
@@ -410,8 +405,8 @@ impl<'a> Save for Task<'a> {
                     "options" => {
                         hasoptions = true;
                         if self
-                            .to_owned()
                             .options
+                            .as_ref()
                             .map(|o| o.as_ref().borrow().save(doc.into(), Some(&child_element)))
                             .unwrap()?
                         {
@@ -426,7 +421,7 @@ impl<'a> Save for Task<'a> {
 
         if !haspurpose && self.purpose.is_some() {
             let purpose_element = doc.create_element("purpose");
-            purpose_element.set_text(self.purpose.to_owned().unwrap().as_str());
+            purpose_element.set_text(self.purpose.as_ref().unwrap().as_str());
             element.append_child(purpose_element);
             edited = true;
         }
@@ -443,7 +438,7 @@ impl<'a> Save for Task<'a> {
         if !hasoptions && self.options.is_some() {
             let options_element = doc.create_element("options");
             self.options
-                .to_owned()
+                .as_ref()
                 .unwrap()
                 .as_ref()
                 .borrow()
@@ -472,7 +467,7 @@ impl Save for Opt {
         let mut hasallow_root = false;
         let mut hasdisable_bounding = false;
         let mut haswildcard_denied = false;
-        foreach_element(element.to_owned(), |child| {
+        foreach_element(&element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "path" => {
@@ -506,9 +501,9 @@ impl Save for Opt {
                                 "Unable to retrieve env_whitelist Text".into(),
                             )?
                             .text()
-                            != self.to_owned().env_whitelist.unwrap()
+                            != self.env_whitelist.as_ref().unwrap().to_string()
                         {
-                            child_element.set_text(self.to_owned().env_whitelist.unwrap().as_str());
+                            child_element.set_text(self.env_whitelist.as_ref().unwrap().as_str());
                             edited = true;
                         }
                     }
@@ -523,45 +518,47 @@ impl Save for Opt {
                                 "Unable to retrieve env_checklist Text".into(),
                             )?
                             .text()
-                            != self.to_owned().env_checklist.unwrap()
+                            != self.env_checklist.as_ref().unwrap().to_string()
                         {
-                            child_element.set_text(self.to_owned().env_checklist.unwrap().as_str());
+                            child_element.set_text(self.env_checklist.as_ref().unwrap().as_str());
                             edited = true;
                         }
                     }
                     "allow-root" => {
                         hasallow_root = true;
-                        let noroot = child
-                            .text()
-                            .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
-                            .text()
-                            == "true";
+                        let noroot = child_element
+                            .attribute("allow-root")
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve allow-root".into())?;
                         if self.allow_root.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if noroot != self.allow_root.unwrap() {
-                            child_element.set_text(match self.allow_root.unwrap() {
-                                true => "true",
-                                false => "false",
-                            });
+                        } else if (noroot.value() == "true") != self.allow_root.unwrap() {
+                            child_element.set_attribute_value(
+                                "enforce",
+                                match self.allow_root.unwrap() {
+                                    true => "true",
+                                    false => "false",
+                                },
+                            );
                             edited = true;
                         }
                     }
-                    "disable-bounding" => {
+                    "allow-bounding" => {
                         hasdisable_bounding = true;
-                        let bounding = child
-                            .text()
-                            .ok_or::<Box<dyn Error>>("Unable to retrieve no_root Text".into())?
-                            .text()
-                            == "true";
-                        if self.disable_bounding.is_none() {
+                        let noroot = child_element
+                            .attribute("allow-bounding")
+                            .ok_or::<Box<dyn Error>>("Unable to retrieve allow_bounding".into())?;
+                        if self.allow_root.is_none() {
                             child_element.remove_from_parent();
                             edited = true;
-                        } else if bounding != self.disable_bounding.unwrap() {
-                            child_element.set_text(match self.disable_bounding.unwrap() {
-                                true => "true",
-                                false => "false",
-                            });
+                        } else if (noroot.value() == "true") != self.allow_root.unwrap() {
+                            child_element.set_attribute_value(
+                                "enforce",
+                                match self.allow_root.unwrap() {
+                                    true => "true",
+                                    false => "false",
+                                },
+                            );
                             edited = true;
                         }
                     }
@@ -571,10 +568,9 @@ impl Save for Opt {
                             child_element.remove_from_parent();
                             edited = true;
                         } else if *child.text().unwrap().text()
-                            != self.to_owned().wildcard_denied.unwrap()
+                            != self.wildcard_denied.as_ref().unwrap().to_string()
                         {
-                            child_element
-                                .set_text(self.to_owned().wildcard_denied.unwrap().as_str());
+                            child_element.set_text(self.wildcard_denied.as_ref().unwrap().as_str());
                             edited = true;
                         }
                     }
@@ -603,19 +599,25 @@ impl Save for Opt {
         }
         if !hasallow_root && self.allow_root.is_some() {
             let allow_root_element = _doc.unwrap().create_element("allow-root");
-            allow_root_element.set_text(match self.allow_root.unwrap() {
-                true => "true",
-                false => "false",
-            });
+            allow_root_element.set_attribute_value(
+                "enforce",
+                match self.allow_root.unwrap() {
+                    true => "true",
+                    false => "false",
+                },
+            );
             element.append_child(allow_root_element);
             edited = true;
         }
         if !hasdisable_bounding && self.disable_bounding.is_some() {
             let disable_bounding_element = _doc.unwrap().create_element("disable-bounding");
-            disable_bounding_element.set_text(match self.disable_bounding.unwrap() {
-                true => "true",
-                false => "false",
-            });
+            disable_bounding_element.set_attribute_value(
+                "enforce",
+                match self.disable_bounding.unwrap() {
+                    true => "true",
+                    false => "false",
+                },
+            );
             element.append_child(disable_bounding_element);
             edited = true;
         }
@@ -674,11 +676,11 @@ impl<'a> ToXml for Task<'a> {
         if self.id.is_name() {
             task.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
         }
-        if self.capabilities.is_some() && self.capabilities.to_owned().unwrap().is_not_empty() {
+        if self.capabilities.is_some() && self.capabilities.as_ref().unwrap().is_not_empty() {
             task.push_str(&format!(
                 "capabilities=\"{}\" ",
                 self.capabilities
-                    .to_owned()
+                    .as_ref()
                     .unwrap()
                     .to_string()
                     .to_lowercase()
@@ -751,7 +753,7 @@ impl<'a> ToXml for Roles<'a> {
     fn to_xml_string(&self) -> String {
         let mut roles = String::from("<rootasrole ");
         roles.push_str(&format!("version=\"{}\">", self.version));
-        if let Some(options) = self.options.to_owned() {
+        if let Some(options) = self.options.as_ref() {
             roles.push_str(&format!(
                 "<options>{}</options>",
                 options.as_ref().borrow().to_string()
@@ -777,19 +779,19 @@ impl ToXml for Opt {
         if let Some(path) = self.path.borrow().as_ref() {
             content.push_str(&format!(
                 "<path>{}</path>",
-                sxd_sanitize(path.to_owned().borrow_mut())
+                sxd_sanitize(path.to_string().borrow_mut())
             ));
         }
         if let Some(env_whitelist) = self.env_whitelist.borrow().as_ref() {
             content.push_str(&format!(
                 "<env-keep>{}</env-keep>",
-                sxd_sanitize(env_whitelist.to_owned().borrow_mut())
+                sxd_sanitize(env_whitelist.to_string().borrow_mut())
             ));
         }
         if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
             content.push_str(&format!(
                 "<env-check>{}</env-check>",
-                sxd_sanitize(env_checklist.to_owned().borrow_mut())
+                sxd_sanitize(env_checklist.to_string().borrow_mut())
             ));
         }
         if let Some(no_root) = self.allow_root.borrow().as_ref() {
@@ -810,8 +812,6 @@ impl ToXml for Opt {
 mod tests {
     use std::rc::Rc;
 
-    use sxd_document::QName;
-
     use crate::{config::structs::IdTask, options::Level};
 
     use super::*;
@@ -819,7 +819,8 @@ mod tests {
     #[test]
     fn test_save() {
         let roles = Roles::new("vtest");
-        let role = Role::new("role_test".to_string(), Some(Rc::downgrade(&roles)));
+        let binding = "role_test".to_string();
+        let role = Role::new(binding, Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Name("task_test".to_string()), Rc::downgrade(&role));
         {
             let mut task_mut = task.as_ref().borrow_mut();
@@ -880,6 +881,48 @@ mod tests {
         let roles_options = childs[0].element().unwrap();
         assert_eq!(roles_options.name().local_part(), "options");
         assert_eq!(roles_options.children().len(), 6);
+        for option_element in roles_options.children() {
+            let option_element = option_element.element().unwrap();
+            match option_element.name().local_part() {
+                "path" => {
+                    assert_eq!(
+                        option_element.children()[0].text().unwrap().text(),
+                        "global_test_path"
+                    );
+                }
+                "env_whitelist" => {
+                    assert_eq!(
+                        option_element.children()[0].text().unwrap().text(),
+                        "global_test_env_whitelist"
+                    );
+                }
+                "env_checklist" => {
+                    assert_eq!(
+                        option_element.children()[0].text().unwrap().text(),
+                        "global_test_env_checklist"
+                    );
+                }
+                "allow-root" => {
+                    assert_eq!(
+                        option_element.attribute("enforce").unwrap().value(),
+                        "false"
+                    );
+                }
+                "allow-bounding" => {
+                    assert_eq!(
+                        option_element.attribute("enforce").unwrap().value(),
+                        "false"
+                    );
+                }
+                "wildcard_denied" => {
+                    assert_eq!(
+                        option_element.children()[0].text().unwrap().text(),
+                        "global_test_wildcard_denied"
+                    );
+                }
+                _ => {}
+            }
+        }
         let role_list = childs[1].element().unwrap();
         assert_eq!(role_list.name().local_part(), "roles");
         assert_eq!(role_list.children().len(), 1);

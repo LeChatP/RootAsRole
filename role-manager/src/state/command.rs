@@ -54,7 +54,12 @@ impl State for EditCapabilitiesState {
         let task = manager.get_task();
         let mut selected = Caps::V2(0);
         if let Some(task) = task {
-            selected = task.borrow().capabilities.to_owned().unwrap_or(Caps::V2(0));
+            selected = task
+                .borrow()
+                .capabilities
+                .as_ref()
+                .unwrap_or(&Caps::V2(0))
+                .to_owned();
         }
         for (pos, capability) in capabilities::POSITIONS.iter().enumerate() {
             select.add_item(capability.0, selected.capable(pos), *capability);

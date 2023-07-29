@@ -69,8 +69,8 @@ impl From<Caps> for u64 {
     }
 }
 
-impl From<Caps> for Vec<String> {
-    fn from(value: Caps) -> Self {
+impl From<&Caps> for Vec<String> {
+    fn from(value: &Caps) -> Self {
         POSITIONS
             .iter()
             .enumerate()
@@ -93,7 +93,7 @@ impl BitOrAssign<usize> for Caps {
     }
 }
 
-impl BitAnd<usize> for Caps {
+impl<'a> BitAnd<usize> for Caps {
     type Output = Self;
 
     fn bitand(self, rhs: usize) -> Self::Output {
@@ -105,7 +105,7 @@ impl BitAnd<usize> for Caps {
 
 impl From<&str> for Caps {
     fn from(v: &str) -> Self {
-        let mut caps: Caps = Caps::MIN;
+        let mut caps = Caps::MIN;
         let names: Vec<String> = POSITIONS
             .iter()
             .map(|(name, _)| format!("cap_{}", *name))
@@ -114,7 +114,7 @@ impl From<&str> for Caps {
             if cap.to_lowercase() == "all" {
                 return Caps::MAX;
             }
-            if let Some(index) = names.iter().position(|x| x.to_owned() == cap.to_string()) {
+            if let Some(index) = names.iter().position(|x| cap == x) {
                 caps |= 1 << index;
             }
         }
@@ -132,8 +132,7 @@ impl From<String> for Caps {
         for cap in v.split(',') {
             if cap.to_lowercase() == "all".to_lowercase() {
                 return Caps::MAX;
-            } else if let Some(index) = names.iter().position(|x| x.to_owned() == String::from(cap))
-            {
+            } else if let Some(index) = names.iter().position(|x| x == cap) {
                 caps |= 1 << index;
             }
         }
@@ -152,10 +151,7 @@ impl From<Vec<String>> for Caps {
             if cap.to_lowercase() == "all" {
                 return Caps::MAX;
             }
-            if let Some(index) = names
-                .iter()
-                .position(|x| x.to_owned() == cap.to_lowercase())
-            {
+            if let Some(index) = names.iter().position(|x| cap.to_lowercase().eq(x)) {
                 caps |= 1 << index;
             }
         }
@@ -166,11 +162,11 @@ impl From<Vec<String>> for Caps {
 impl ToString for Caps {
     fn to_string(&self) -> String {
         let mut caps = String::new();
-        if *self == Caps::MAX {
+        if self.eq(&Caps::MAX) {
             return "ALL".to_string();
         }
         for (i, (name, _)) in POSITIONS.iter().enumerate() {
-            if self.to_owned() & (1 << i) != Caps::MIN {
+            if self.clone().bitand(1 << i).ne(&Caps::MIN) {
                 if !caps.is_empty() {
                     caps.push(',');
                 }
@@ -248,7 +244,7 @@ mod tests {
     fn caps_v2_into_vec() {
         let caps = Caps::V2(10);
         let expected = vec!["cap_dac_override".to_string(), "cap_fowner".to_string()];
-        let value: Vec<String> = caps.into();
+        let value: Vec<String> = (&caps).into();
         assert_eq!(value, expected);
     }
 

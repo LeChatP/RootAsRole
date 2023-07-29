@@ -7,6 +7,11 @@ edition = "2021"
 name = "chsr"
 path = "src/main.rs"
 
+[profile.release]
+debug = 1
+
+[rust]
+debuginfo-level = 1
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -57,14 +57,14 @@ impl Input {
         match self {
             Input::String(str) => str.split(',').map(|s| s.to_string()).collect(),
             Input::Vec(vec) => vec.to_vec(),
-            Input::Caps(caps) => caps.to_owned().into(),
+            Input::Caps(caps) => caps.into(),
         }
     }
     pub fn as_caps(&self) -> Caps {
         match self {
-            Input::String(str) => Caps::from(str.to_owned()),
+            Input::String(str) => Caps::from(str.to_string()),
             Input::Vec(vec) => Caps::from(vec.to_vec()),
-            Input::Caps(caps) => caps.to_owned(),
+            Input::Caps(caps) => caps.clone(),
         }
     }
 }

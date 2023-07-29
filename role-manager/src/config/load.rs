@@ -23,6 +23,10 @@ use super::{
     structs::{IdTask, Role, Roles, Task},
 };
 
+trait Load {
+    fn load(&self, node: Element) -> Result<(), Box<dyn Error>>;
+}
+
 fn get_options(level: Level, node: Element) -> Opt {
     let mut rc_options = Opt::new(level);
 
@@ -83,51 +87,49 @@ fn get_options(level: Level, node: Element) -> Opt {
     rc_options
 }
 
-fn get_task<'a>(
-    role: &Rc<RefCell<Role<'a>>>,
-    node: Element,
-    i: usize,
-) -> Result<Rc<RefCell<Task<'a>>>, Box<dyn Error>> {
-    let task = Task::new(IdTask::Number(i), Rc::downgrade(role));
-    if let Some(id) = node.attribute_value("id") {
-        task.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
-    }
-    task.as_ref().borrow_mut().capabilities =
-        node.attribute_value("capabilities").map(|cap| cap.into());
-    task.as_ref().borrow_mut().setuid = node.attribute_value("setuser").map(|setuid| setuid.into());
-    task.as_ref().borrow_mut().setgid = node
-        .attribute_value("setgroups")
-        .map(|setgid| setgid.split(',').map(|e| e.to_string()).collect());
-    for child in node.children() {
-        if let Some(elem) = child.element() {
-            match elem.name().local_part() {
-                "command" => task.as_ref().borrow_mut().commands.push(
-                    elem.children()
-                        .first()
-                        .ok_or("Unable to get text from command")?
-                        .text()
-                        .map(|f| f.text().to_string())
-                        .ok_or("Unable to get text from command")?,
-                ),
-                "options" => {
-                    task.as_ref().borrow_mut().options =
-                        Some(Rc::new(get_options(Level::Task, elem).into()));
-                }
-                "purpose" => {
-                    task.as_ref().borrow_mut().purpose = Some(
+impl Load for Rc<RefCell<Task<'_>>> {
+    fn load(&self, node: Element) -> Result<(), Box<dyn Error>> {
+        if let Some(id) = node.attribute_value("id") {
+            self.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
+        }
+        self.as_ref().borrow_mut().capabilities =
+            node.attribute_value("capabilities").map(|cap| cap.into());
+        self.as_ref().borrow_mut().setuid =
+            node.attribute_value("setuser").map(|setuid| setuid.into());
+        self.as_ref().borrow_mut().setgid = node
+            .attribute_value("setgroups")
+            .map(|setgid| setgid.split(',').map(|e| e.to_string()).collect());
+        for child in node.children() {
+            if let Some(elem) = child.element() {
+                match elem.name().local_part() {
+                    "command" => self.as_ref().borrow_mut().commands.push(
                         elem.children()
                             .first()
-                            .ok_or("Unable to get text from purpose")?
+                            .ok_or("Unable to get text from command")?
                             .text()
                             .map(|f| f.text().to_string())
-                            .ok_or("Unable to get text from purpose")?,
-                    );
+                            .ok_or("Unable to get text from command")?,
+                    ),
+                    "options" => {
+                        self.as_ref().borrow_mut().options =
+                            Some(Rc::new(get_options(Level::Task, elem).into()));
+                    }
+                    "purpose" => {
+                        self.as_ref().borrow_mut().purpose = Some(
+                            elem.children()
+                                .first()
+                                .ok_or("Unable to get text from purpose")?
+                                .text()
+                                .map(|f| f.text().to_string())
+                                .ok_or("Unable to get text from purpose")?,
+                        );
+                    }
+                    _ => warn!("Unknown element: {}", elem.name().local_part()),
                 }
-                _ => warn!("Unknown element: {}", elem.name().local_part()),
             }
         }
+        Ok(())
     }
-    Ok(task)
 }
 
 fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
@@ -147,73 +149,77 @@ fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn get_role<'a>(
-    element: Element,
-    roles: Option<Rc<RefCell<Roles<'a>>>>,
-) -> Result<Rc<RefCell<Role<'a>>>, Box<dyn Error>> {
-    let rc_role = Role::new(
-        element.attribute_value("name").unwrap().to_string(),
-        roles.map(|roles| Rc::downgrade(&roles)),
-    );
-
-    let mut i: usize = 0;
-    for child in element.children() {
-        let mut role = rc_role.as_ref().borrow_mut();
-        if let Some(element) = child.element() {
-            match element.name().local_part() {
-                "actors" => add_actors(&mut role, element)?,
-                "task" => {
-                    i += 1;
-                    role.tasks.push(get_task(&rc_role, element, i)?)
+impl Load for Rc<RefCell<Role<'_>>> {
+    fn load(&self, element: Element) -> Result<(), Box<dyn Error>> {
+        let mut i: usize = 0;
+        for child in element.children() {
+            if let Some(element) = child.element() {
+                match element.name().local_part() {
+                    "actors" => add_actors(&mut self.as_ref().borrow_mut(), element)?,
+                    "task" => {
+                        i += 1;
+                        let task = Task::new(IdTask::Number(i), Rc::downgrade(&self));
+                        task.load(element)?;
+                        self.as_ref().borrow_mut().tasks.push(task);
+                    }
+                    "options" => {
+                        self.as_ref().borrow_mut().options =
+                            Some(Rc::new(get_options(Level::Role, element).into()))
+                    }
+                    _ => warn!(
+                        "Unknown element: {}",
+                        child
+                            .element()
+                            .expect("Unable to convert unknown to element")
+                            .name()
+                            .local_part()
+                    ),
                 }
-                "options" => role.options = Some(Rc::new(get_options(Level::Role, element).into())),
-                _ => warn!(
-                    "Unknown element: {}",
-                    child
-                        .element()
-                        .expect("Unable to convert unknown to element")
-                        .name()
-                        .local_part()
-                ),
             }
         }
+        Ok(())
     }
-    Ok(rc_role)
+}
+
+impl Load for Rc<RefCell<Roles<'_>>> {
+    fn load(&self, element: Element) -> Result<(), Box<dyn Error>> {
+        for role in element.children() {
+            if let Some(element) = role.element() {
+                if element.name().local_part() == "roles" {
+                    for role in element.children() {
+                        if let Some(element) = role.element() {
+                            if element.name().local_part() == "role" {
+                                let role = Role::new(
+                                    element.attribute_value("name").unwrap().to_string(),
+                                    Some(Rc::downgrade(&self)),
+                                );
+                                role.load(element)?;
+                                self.as_ref().borrow_mut().roles.push(role);
+                            }
+                        }
+                    }
+                }
+                if element.name().local_part() == "options" {
+                    self.as_ref().borrow_mut().options =
+                        Some(Rc::new(get_options(Level::Global, element).into()));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn load_roles<'a>(filename: &str) -> Result<Rc<RefCell<Roles<'a>>>, Box<dyn Error>> {
     let package = read_xml_file(filename)?;
     let doc = package.as_document();
     let rc_roles = Roles::new(PACKAGE_VERSION);
-    {
-        let mut roles = rc_roles.as_ref().borrow_mut();
-        do_in_main_element(doc, "rootasrole", |element| {
-            if let Some(element) = element.element() {
-                for role in element.children() {
-                    if let Some(element) = role.element() {
-                        if element.name().local_part() == "roles" {
-                            for role in element.children() {
-                                if let Some(element) = role.element() {
-                                    if element.name().local_part() == "role" {
-                                        roles
-                                            .roles
-                                            .push(get_role(element, Some(rc_roles.to_owned()))?);
-                                    }
-                                }
-                            }
-                        }
-                        if element.name().local_part() == "options" {
-                            roles.options =
-                                Some(Rc::new(get_options(Level::Global, element).into()));
-                        }
-                    }
-                }
-                return Ok(());
-            }
-            Err("Unable to find rootasrole element".into())
-        })?;
-        Ok(rc_roles.to_owned())
-    }
+    do_in_main_element(doc, "rootasrole", |element| {
+        if let Some(element) = element.element() {
+            rc_roles.load(element)?;
+        }
+        Ok(())
+    })?;
+    Ok(rc_roles)
 }
 
 #[cfg(test)]

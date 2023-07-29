@@ -219,18 +219,14 @@ pub struct OptStack<'a> {
 }
 
 impl<'a> OptStack<'a> {
-    pub fn from_task(
-        roles: Rc<RefCell<Roles<'a>>>,
-        role: Rc<RefCell<Role<'a>>>,
-        task: Rc<RefCell<Task<'a>>>,
-    ) -> Self {
-        let mut stack = OptStack::from_role(roles, role);
+    pub fn from_task(task: Rc<RefCell<Task<'a>>>) -> Self {
+        let mut stack = OptStack::from_role(task.as_ref().borrow().get_parent().unwrap());
         stack.task = Some(task.to_owned());
         stack.set_opt(Level::Task, task.as_ref().borrow().options.to_owned());
         stack
     }
-    pub fn from_role(roles: Rc<RefCell<Roles<'a>>>, role: Rc<RefCell<Role<'a>>>) -> Self {
-        let mut stack = OptStack::from_roles(roles);
+    pub fn from_role(role: Rc<RefCell<Role<'a>>>) -> Self {
+        let mut stack = OptStack::from_roles(role.as_ref().borrow().get_parent().unwrap());
         stack.role = Some(role.to_owned());
         stack.set_opt(Level::Role, role.as_ref().borrow().options.to_owned());
         stack
@@ -518,8 +514,7 @@ mod tests {
         let roles = Roles::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         roles.as_ref().borrow_mut().roles.push(role);
-        let mut options =
-            OptStack::from_role(roles.clone(), roles.as_ref().borrow().roles[0].to_owned());
+        let mut options = OptStack::from_role(roles.as_ref().borrow().roles[0].to_owned());
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
@@ -584,7 +579,7 @@ mod tests {
         let roles = Roles::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
-        let mut options = OptStack::from_task(roles, role, task);
+        let mut options = OptStack::from_task(task);
         options.set_at_level(
             OptType::EnvChecklist,
             Some(OptValue::String("checklist1".to_string())),
@@ -605,7 +600,7 @@ mod tests {
         let roles = Roles::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
-        let mut options = OptStack::from_task(roles, role, task);
+        let mut options = OptStack::from_task(task);
         options.set_at_level(
             OptType::EnvChecklist,
             Some(OptValue::String("checklist1".to_string())),
@@ -626,7 +621,7 @@ mod tests {
         let roles = Roles::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
-        let mut options = OptStack::from_task(roles, role, task);
+        let mut options = OptStack::from_task(task);
         options.set_value(OptType::NoRoot, Some(OptValue::Bool(true)));
 
         let res = options.get_from_level(Level::Task, OptType::NoRoot);

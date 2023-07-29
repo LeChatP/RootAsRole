@@ -36,14 +36,14 @@ impl FromIterator<String> for Users {
             users.push(user);
         }
         Users {
-            name: RefCell::new(users.to_owned()).into(),
+            name: RefCell::new(users.to_vec()).into(),
         }
     }
 }
 
 impl From<Users> for Vec<String> {
     fn from(val: Users) -> Self {
-        val.name.as_ref().borrow().to_owned()
+        val.name.as_ref().borrow().to_vec()
     }
 }
 
@@ -178,7 +178,7 @@ fn add_actors(
     let some = already_in_list.is_some();
     for user in actors.iter().cloned() {
         view.add_item(
-            user.to_owned(),
+            user.to_string(),
             some && already_in_list.as_ref().unwrap().contains(&user),
             user,
         );
@@ -186,16 +186,16 @@ fn add_actors(
     let Some(already_in_list) = already_in_list else { return };
     for user in already_in_list
         .iter()
-        .map(|x| x.to_owned())
+        .map(|x| x.to_string())
         .collect::<HashSet<String>>()
         .difference(
             &actors
                 .iter()
-                .map(|x| x.to_owned())
+                .map(|x| x.to_string())
                 .collect::<HashSet<String>>(),
         )
     {
-        view.add_item(user.to_owned(), true, user.to_owned());
+        view.add_item(user.to_string(), true, user.to_string());
     }
 }
 
@@ -205,7 +205,7 @@ fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
         ActorType::Group => get_groups(),
     };
     for user in actors {
-        view.add_item(&user, user.to_owned());
+        view.add_item(&user, user.to_string());
     }
 }
 
@@ -266,7 +266,7 @@ where
                 .on_submit(|s, _b, i| {
                     let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
                     if let Some(selected) = manager.selected_actors.as_ref() {
-                        selected.as_ref().borrow_mut().insert(i.to_owned());
+                        selected.as_ref().borrow_mut().insert(i.to_string());
                     }
                     s.set_user_data(RoleManagerApp { manager, state });
                 })
@@ -482,8 +482,11 @@ where
 
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         if manager.selected_actors.is_none() {
-            let selected = self.selected.to_owned().unwrap_or_default();
-            manager.selected_actors = Some(Rc::new(RefCell::new(selected.groups)));
+            if let Some(selected) = &self.selected {
+                manager.selected_actors = Some(Rc::new(RefCell::new(selected.groups.to_owned())));
+            } else {
+                manager.selected_actors = Some(Rc::new(RefCell::new(HashSet::new())));
+            }
         }
         let mut select = CheckListView::<String>::new()
             .autojump()
@@ -496,7 +499,7 @@ where
                     s.set_user_data(RoleManagerApp { manager, state });
                 }
             });
-        if let Some(group_list) = manager.selected_actors.to_owned() {
+        if let Some(group_list) = &manager.selected_actors {
             add_actors(
                 ActorType::Group,
                 &mut select,

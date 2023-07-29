@@ -139,20 +139,21 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         Some(CCommand::NewRole { role, user, group }) => {
             manager.create_new_role(role.to_owned());
             let role = manager.get_role().unwrap();
-            if let Some(user) = user.to_owned() {
+            if let Some(user) = &user {
                 let user = user
                     .into_iter()
                     .collect::<HashSet<_>>()
                     .into_iter()
-                    .collect::<Vec<_>>();
+                    .map(|x| x.to_owned())
+                    .collect::<Vec<String>>();
                 role.as_ref().borrow_mut().users = user;
             }
-            if let Some(group) = group.to_owned() {
+            if let Some(group) = &group {
                 let group = group
                     .into_iter()
                     .collect::<HashSet<_>>()
                     .into_iter()
-                    .collect::<Vec<String>>();
+                    .collect::<Vec<&String>>();
                 role.as_ref().borrow_mut().groups = group
                     .iter()
                     .map(|x| Into::<Groups>::into(x.split(',')))
@@ -165,29 +166,27 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         Some(CCommand::Grant { role, user, group }) => {
             let mut res = false;
             if let Some(role) = manager.find_role(role.as_str()) {
-                if let Some(user) = user.to_owned() {
+                if let Some(user) = &user {
                     for u in user {
-                        if !role.as_ref().borrow().users.contains(&u) {
-                            role.as_ref().borrow_mut().users.push(u);
+                        if !role.as_ref().borrow().users.contains(u) {
+                            role.as_ref().borrow_mut().users.push(u.to_owned());
                         }
                     }
                     res = true;
                 }
-                if let Some(group) = group.to_owned() {
+                if let Some(group) = &group {
                     role.as_ref().borrow_mut().groups.append(
                         &mut group
                             .iter()
                             .map(|x| Into::<Groups>::into(x.split('&')))
                             .collect::<Vec<Groups>>(),
                     );
-                    role.as_ref().borrow_mut().groups = role
-                        .as_ref()
-                        .borrow_mut()
-                        .groups
-                        .clone()
+                    let groups = &role.as_ref().borrow_mut().groups;
+                    role.as_ref().borrow_mut().groups = groups
                         .into_iter()
                         .collect::<HashSet<_>>()
                         .into_iter()
+                        .map(|x| x.to_owned())
                         .collect::<Vec<_>>();
                     res = true;
                 }
@@ -200,15 +199,15 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
         Some(CCommand::Revoke { role, user, group }) => {
             let mut res = false;
             if let Some(role) = manager.find_role(role.as_str()) {
-                if let Some(user) = user.to_owned() {
+                if let Some(user) = &user {
                     for u in user {
                         if !role.as_ref().borrow().users.contains(&u) {
-                            role.as_ref().borrow_mut().users.retain(|x| x != &u);
+                            role.as_ref().borrow_mut().users.retain(|x| x != u);
                         }
                     }
                     res = true;
                 }
-                if let Some(group) = group.to_owned() {
+                if let Some(group) = &group {
                     role.as_ref().borrow_mut().groups = group
                         .iter()
                         .map(|x| Into::<Groups>::into(x.split('&')))
@@ -228,20 +227,20 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             caps,
         }) => {
             manager.select_role_by_name(role.as_str())?;
-            manager.create_new_task(withid.to_owned())?;
+            manager.create_new_task(withid.as_ref())?;
             let task = manager.get_task().unwrap();
-            if let Some(cmds) = cmds.to_owned() {
-                task.as_ref().borrow_mut().commands = cmds;
+            if let Some(cmds) = &cmds {
+                task.as_ref().borrow_mut().commands = cmds.to_owned();
             }
-            if let Some(caps) = caps.to_owned() {
-                task.as_ref().borrow_mut().capabilities = Some(Caps::from(caps));
+            if let Some(caps) = &caps {
+                task.as_ref().borrow_mut().capabilities = Some(Caps::from(caps.to_string()));
             }
             manager.save(None, None)?;
             Ok(true)
         }
         Some(CCommand::DelTask { role, id }) => {
             manager.select_role_by_name(role.as_str())?;
-            manager.select_task_by_id(&IdTask::Name(id.to_owned()))?;
+            manager.select_task_by_id(&IdTask::Name(id.to_string()))?;
             manager.delete_task()?;
             manager.save(None, None)?;
             Ok(true)
@@ -267,37 +266,37 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             if let Some(task) = task {
                 let tid = match task.parse::<usize>() {
                     Ok(id) => IdTask::Number(id),
-                    Err(_) => IdTask::Name(task.to_owned()),
+                    Err(_) => IdTask::Name(task.to_string()),
                 };
                 manager.select_task_by_id(&tid)?;
             }
             if let Some(path) = path {
                 manager
                     .get_options()
-                    .set_value(OptType::Path, Some(OptValue::String(path.to_owned())));
+                    .set_value(OptType::Path, Some(OptValue::String(path.to_string())));
             }
             if let Some(env_keep) = env_keep {
                 manager.get_options().set_value(
                     OptType::EnvWhitelist,
-                    Some(OptValue::String(env_keep.to_owned())),
+                    Some(OptValue::String(env_keep.to_string())),
                 );
             }
             if let Some(env_check) = env_check {
                 manager.get_options().set_value(
                     OptType::EnvChecklist,
-                    Some(OptValue::String(env_check.to_owned())),
+                    Some(OptValue::String(env_check.to_string())),
                 );
             }
             if let Some(allow_bounding) = allow_bounding {
                 manager.get_options().set_value(
                     OptType::Bounding,
-                    Some(OptValue::Bool(allow_bounding.to_owned())),
+                    Some(OptValue::Bool(allow_bounding.clone())),
                 );
             }
             if let Some(wildcard_denied) = wildcard_denied {
                 manager.get_options().set_value(
                     OptType::Wildcard,
-                    Some(OptValue::String(wildcard_denied.to_owned())),
+                    Some(OptValue::String(wildcard_denied.to_string())),
                 );
             }
             manager.save(None, None)?;
@@ -309,7 +308,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 if let Some(task) = task {
                     let tid = match task.parse::<usize>() {
                         Ok(id) => IdTask::Number(id),
-                        Err(_) => IdTask::Name(task.to_owned()),
+                        Err(_) => IdTask::Name(task.to_string()),
                     };
                     manager.select_task_by_id(&tid)?;
                     let task = manager.get_task().unwrap();

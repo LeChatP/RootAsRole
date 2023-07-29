@@ -126,7 +126,7 @@ impl InitState for SelectRoleState {
                 execute(s, ExecuteType::Submit(*item));
             });
         for (pos, role) in manager.roles.as_ref().borrow().roles.iter().enumerate() {
-            select.add_item(role.as_ref().borrow().name.to_owned(), pos);
+            select.add_item(role.as_ref().borrow().name.to_string(), pos);
         }
         let mut hlayout = LinearLayout::new(Orientation::Horizontal);
         hlayout.add_child(select.with_name("roles").scrollable());
@@ -197,7 +197,7 @@ impl State for EditRoleState {
                         .as_ref()
                         .borrow()
                         .users
-                        .to_owned()
+                        .to_vec()
                         .into(),
                 ),
             )),
@@ -210,7 +210,7 @@ impl State for EditRoleState {
                     .as_ref()
                     .borrow()
                     .groups
-                    .to_owned(),
+                    .to_vec(),
             )),
             2 => Box::new(SelectTaskState),
             3 => Box::new(SelectOptionState::new(*self)),
@@ -341,7 +341,7 @@ impl PushableItemState<String> for EditRoleState {
 impl PushableItemState<Users> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Users) {
         manager.get_role().unwrap().as_ref().borrow_mut().users =
-            item.name.as_ref().borrow().to_owned();
+            item.name.as_ref().borrow().to_vec();
     }
 }
 

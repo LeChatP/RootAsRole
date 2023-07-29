@@ -115,8 +115,7 @@ impl State for SelectTaskState {
                     .enumerate()
                     .for_each(|(index, tasks)| {
                         if tasks.as_ref().borrow().id.is_name() {
-                            select
-                                .add_item(tasks.as_ref().borrow().id.to_owned().to_string(), index);
+                            select.add_item(tasks.as_ref().borrow().id.to_string(), index);
                         } else {
                             select.add_item(format!("Task #{}", index), index);
                         }
@@ -194,7 +193,7 @@ impl State for EditTaskState {
             &format!(
                 "Are you sure to delete Command #{}?\n\"{}\"",
                 index,
-                manager.get_command().unwrap()
+                manager.get_task().unwrap().borrow().commands[index]
             ),
             index,
         ))
@@ -257,7 +256,7 @@ impl State for EditTaskState {
         }
     }
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
-        let mut title = "".to_owned();
+        let mut title = "".to_string();
         let task = manager.get_task().map(|o| {
             title = format!("Edit {}", o.as_ref().borrow().id.to_string());
             o
@@ -299,7 +298,7 @@ impl State for EditTaskState {
                 purpose.push_str(format!("Capabilities : {}\n", caps.to_string()).as_str());
             }
         } else {
-            purpose = "".to_owned();
+            purpose = "".to_string();
         }
 
         let layout = LinearLayout::vertical()
@@ -316,22 +315,22 @@ impl State for EditTaskState {
                     execute(s, ExecuteType::Create);
                 })
                 .button("Set Purpose", |s| {
-                    execute(s, ExecuteType::Input(Input::String("p".to_owned())));
+                    execute(s, ExecuteType::Input(Input::String("p".to_string())));
                 })
                 .button("Options", |s| {
                     execute(s, ExecuteType::Config);
                 })
                 .button("Caps", |s| {
-                    execute(s, ExecuteType::Input(Input::String("c".to_owned())));
+                    execute(s, ExecuteType::Input(Input::String("c".to_string())));
                 })
                 .button("UID", |s| {
-                    execute(s, ExecuteType::Input(Input::String("u".to_owned())));
+                    execute(s, ExecuteType::Input(Input::String("u".to_string())));
                 })
                 .button("GID", |s| {
-                    execute(s, ExecuteType::Input(Input::String("g".to_owned())));
+                    execute(s, ExecuteType::Input(Input::String("g".to_string())));
                 })
                 .button("Task Id", |s| {
-                    execute(s, ExecuteType::Input(Input::String("i".to_owned())));
+                    execute(s, ExecuteType::Input(Input::String("i".to_string())));
                 })
                 .button("Cancel", |s| {
                     execute(s, ExecuteType::Cancel);
@@ -366,7 +365,7 @@ impl PushableItemState<Users> for EditTaskState {
             .as_ref()
             .borrow_mut()
             .setuid
-            .replace(item.name.borrow()[0].to_owned());
+            .replace(item.name.borrow()[0].to_string());
     }
 }
 

@@ -25,7 +25,7 @@ pub(super) fn read_xml_file(file_path: &str) -> Result<Package, Box<dyn Error>> 
     Ok(parser::parse(&contents)?)
 }
 
-pub(super) fn foreach_element<F>(element: Element, mut f: F) -> Result<(), Box<dyn Error>>
+pub(super) fn foreach_element<F>(element: &Element, mut f: F) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {

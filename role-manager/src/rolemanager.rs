@@ -139,7 +139,7 @@ impl RoleContext {
     pub fn select_role_by_name(&mut self, role_name: &str) -> Result<(), Box<dyn Error>> {
         let mut index = None;
         for (i, r) in self.roles.as_ref().borrow().roles.iter().enumerate() {
-            if r.as_ref().borrow().name == *role_name {
+            if r.as_ref().borrow().name == role_name {
                 index = Some(i);
                 break;
             }
@@ -168,7 +168,7 @@ impl RoleContext {
         self.new_role = None;
     }
 
-    pub fn create_new_task(&mut self, pid: Option<String>) -> Result<(), Box<dyn Error>> {
+    pub fn create_new_task(&mut self, pid: Option<&String>) -> Result<(), Box<dyn Error>> {
         let parent;
         let mut id;
         self.unselect_task();
@@ -179,7 +179,7 @@ impl RoleContext {
             return Err("role not selected".into());
         }
         if let Some(pid) = pid {
-            id = IdTask::Name(pid);
+            id = IdTask::Name(pid.to_owned());
         }
         self.new_task = Some(Task::new(id, parent));
         Ok(())
@@ -327,7 +327,7 @@ impl RoleContext {
     pub fn get_command(&self) -> Option<String> {
         match self.selected_command {
             Some(i) => {
-                return Some(self.get_task().unwrap().as_ref().borrow().commands[i].to_owned());
+                return Some(self.get_task().unwrap().as_ref().borrow().commands[i].to_string());
             }
             None => None,
         }
@@ -348,10 +348,9 @@ impl RoleContext {
      */
     pub fn get_options(&self) -> OptStack<'static> {
         if let Some(task) = self.get_task() {
-            let role = task.as_ref().borrow().get_parent().unwrap();
-            OptStack::from_task(self.roles.to_owned(), role, task)
+            OptStack::from_task(task)
         } else if let Some(role) = self.get_role() {
-            OptStack::from_role(self.roles.to_owned(), role)
+            OptStack::from_role(role)
         } else {
             OptStack::from_roles(self.roles.to_owned())
         }
