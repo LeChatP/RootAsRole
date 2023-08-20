@@ -1,0 +1,46 @@
+use capctl::{Cap, CapSet, ParseCapError};
+
+pub fn capset_to_string(set: &CapSet) -> String {
+    set.iter().fold(String::new(), |mut acc, cap| {
+        acc.push_str(&format!("{:?} ", cap));
+        acc
+    })
+}
+
+pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
+    if s.is_empty() || s.eq_ignore_ascii_case("all") {
+        return Ok(!CapSet::empty());
+    }
+
+    let mut res = CapSet::empty();
+
+    for part in s.split(',') {
+        match part.parse() {
+            Ok(cap) => res.add(cap),
+            Err(error) => {
+                return Err(error);
+            }
+        }
+    }
+
+    Ok(res)
+}
+
+/// Reference every capabilities that lead to almost a direct privilege escalation
+pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
+    caps.has(Cap::SYS_ADMIN)
+        || caps.has(Cap::SYS_PTRACE)
+        || caps.has(Cap::SYS_MODULE)
+        || caps.has(Cap::DAC_READ_SEARCH)
+        || caps.has(Cap::DAC_OVERRIDE)
+        || caps.has(Cap::FOWNER)
+        || caps.has(Cap::CHOWN)
+        || caps.has(Cap::SETUID)
+        || caps.has(Cap::SETGID)
+        || caps.has(Cap::SETFCAP)
+        || caps.has(Cap::SYS_RAWIO)
+        || caps.has(Cap::LINUX_IMMUTABLE)
+        || caps.has(Cap::SYS_CHROOT)
+        || caps.has(Cap::SYS_BOOT)
+        || caps.has(Cap::MKNOD)
+}

@@ -138,7 +138,7 @@ int filter_env_vars(char **envp, char **whitelist, char **checklist, char ***p_n
     }
     int res = 0;
     int i = 0;
-    char **new_envp = (char**)malloc(sizeof(char*)*array_len(envp) + 1);
+    char **new_envp = (char**)malloc(sizeof(char*)*array_len(envp) +1);
     *new_envp = NULL;
 
     if (checklist == NULL && whitelist == NULL){

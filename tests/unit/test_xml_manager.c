@@ -365,7 +365,7 @@ Test(count_matching_groups, test_matching_groups)
 	int nb_groups = 3;
 	unsigned int all;
 	unsigned int result =
-		count_matching_groups(names, groups, nb_groups, &all);
+		count_matching_groups(names, groups, nb_groups, &all, GROUP_SEPARATOR);
 	cr_assert_eq(result, 3, "Expected 3 matching groups, but got %d",
 		     result);
 	cr_assert_eq(all, 3, "Expected 3 total groups, but got %d", all);
@@ -378,7 +378,7 @@ Test(count_matching_groups, test_non_matching_groups)
 	int nb_groups = 3;
 	unsigned int all;
 	unsigned int result =
-		count_matching_groups(names, groups, nb_groups, &all);
+		count_matching_groups(names, groups, nb_groups, &all, GROUP_SEPARATOR);
 	cr_assert_eq(result, 0, "Expected 0 matching groups, but got %d",
 		     result);
 	cr_assert_eq(all, 3, "Expected 3 total groups, but got %d", all);
@@ -392,7 +392,7 @@ Test(count_matching_groups, test_partial_matching_groups)
 	int nb_groups = 6;
 	unsigned int all;
 	unsigned int result =
-		count_matching_groups(names, groups, nb_groups, &all);
+		count_matching_groups(names, groups, nb_groups, &all, GROUP_SEPARATOR);
 	cr_assert_eq(result, 3, "Expected 3 matching group, but got %d",
 		     result);
 	cr_assert_eq(all, 3, "Expected 3 total groups, but got %d", all);
@@ -465,13 +465,6 @@ Test(expr_user_or_groups, test4)
 
 Test(expr_search_role_by_usergroup_command, test1)
 {
-	char *s_bin_ls = "/bin/ls";
-	char *s_opt_al[2] = { "ls", "-al" };
-	cmd_t *bin_ls_opt_al = &(struct s_cmd){
-		.command = s_bin_ls,
-		.argv = s_opt_al,
-		.argc = 2,
-	};
 	// Test with valid user and group
 	xmlChar *expr;
 	user_t *user_struct = &(struct s_user){
@@ -481,11 +474,10 @@ Test(expr_search_role_by_usergroup_command, test1)
 	};
 	user_struct->groups[0] = "managers";
 	user_struct->groups[1] = "designers";
-	expr = expr_search_role_by_usergroup_command(user_struct,
-						     bin_ls_opt_al);
+	expr = expr_search_role_by_usergroup(user_struct);
 	cr_assert_str_eq(
 		(char *)expr,
-		"//role[(actors/user[@name='john'] or actors/group[contains(@names, 'managers') or contains(@names, 'designers')]) and (task/command[text()='/bin/ls -al'] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]",
+		"//role[actors/user[@name='john'] or actors/group[contains(@names, 'managers') or contains(@names, 'designers')]]",
 		"Expression does not match expected value\n%s", expr);
 	xmlFree(expr);
 }
@@ -515,7 +507,7 @@ Test(actors_match, match_group)
 	xmlNodePtr xgroup = xmlNewChild(actors, NULL, (xmlChar *)"group", NULL);
 	xmlNewProp(xgroup, (xmlChar *)"names", (xmlChar *)"users,guests");
 	score_t score = actors_match(&user, actors);
-	cr_assert_eq(score, 1, "Expected score to be 1, but got %d", score);
+	cr_assert_eq(score, (score_t)-4, "Expected score to be -4, but got %d", score);
 	xmlFreeNode(actors);
 	free(groups);
 }
@@ -1088,7 +1080,8 @@ Test(get_settings_from_config, test1)
 	char filepath[PATH_MAX] = { 0 };
 	getcwd(filepath, PATH_MAX);
 	strncat(filepath, "/tests/resources/test_xml_manager_case1.xml", 44);
-	int res = get_settings_from_config(filepath, &user, &cmd, &settings);
+	xmlDocPtr doc = load_xml(filepath);
+	int res = get_settings_from_doc_by_partial_order(doc, &user, &cmd, &settings);
 	cr_assert_eq(
 		res, 1,
 		"Expected get_settings_from_config to return %d, but got %d", 1,
@@ -1133,4 +1126,22 @@ Test(get_settings_from_config, test1)
 	cr_assert_eq(strncmp(settings.role, "test1", 5), 0,
 		     "Expected settings->role to be test1, but got %s",
 		     settings.role);
+}
+
+Test(include_parents_from_set, test_with_xml)
+{
+	char filepath[PATH_MAX] = { 0 };
+	getcwd(filepath, PATH_MAX);
+	strncat(filepath, "/tests/resources/test_xml_manager_hierarchy.xml", 48);
+	xmlDocPtr doc = load_xml(filepath);
+	user_t user = {
+		.nb_groups = 0,
+		.groups = NULL,
+		.name = "test1",
+	};
+	xmlNodeSetPtr set = find_role_by_usergroup(doc, &user);
+	cr_assert_not_null(set, "Expected list to be not null");
+	cr_assert_eq(set->nodeNr, 1, "Expected list to have 1 element");
+	include_parents_from_set(doc,&set);
+
 }

@@ -14,6 +14,9 @@
 #include <syslog.h>
 #include <error.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <time.h>
 
 
 #ifndef MAX
@@ -315,6 +318,75 @@ void free_group_names(int nb_groups, char **groups){
 		free(groups[i]);
 	}
 	free(groups);
+}
+
+/**
+ * @brief Check if the user should enter his password again within the timeout
+ * @param user The user name
+ * @param timeout The timeout in seconds
+ * @return 1 if the user should enter his password again, 0 otherwise
+*/
+int check_timestamp_timeout(const char *user, const unsigned long timeout){
+
+	char *path = "/var/run/rar/ts/%s";
+	char fullpath[PATH_MAX];
+	snprintf(fullpath, PATH_MAX, path, user);
+
+	
+	if (access(fullpath, F_OK) == 0) {
+		FILE *timestamp_file = fopen(fullpath, "rb");
+		if (timestamp_file == NULL) {
+			perror("Cannot open timestamp file");
+			return 1;
+		}
+		unsigned long timestamp = 0;
+		if (fread(&timestamp, sizeof(unsigned long), 1, timestamp_file) != 1) {
+			perror("Cannot read timestamp file");
+			fclose(timestamp_file);
+			return 1;
+		}
+		unsigned long current_time = difftime(time(NULL),0);
+		fclose(timestamp_file);
+		if (timestamp > current_time - timeout) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/**
+ * @brief Set the timestamp for the user
+ * @param user The user name
+ * @return 1 if the timestamp was set, 0 otherwise
+*/
+int set_timestamp_user(const char *user){
+	char *path = "/var/run/rar/ts/%s";
+	char fullpath[PATH_MAX];
+	snprintf(fullpath, PATH_MAX, path, user);
+
+	struct stat sb;
+
+	//if fullpath exists, check timestamp
+	if (stat("/var/run/rar",&sb) != 0 || !S_ISDIR(sb.st_mode)) {
+		mkdir("/var/run/rar", 0700);
+	}
+	if (stat("/var/run/rar/ts",&sb) != 0 || !S_ISDIR(sb.st_mode)){
+		mkdir("/var/run/rar/ts", 0700);
+	}
+
+	FILE *timestamp_file = fopen(fullpath, "wb");
+	if (timestamp_file == NULL) {
+		perror("Cannot open timestamp file");
+		return 0;
+	}
+	time_t timestamp = time(NULL);
+	if (fwrite(&timestamp, sizeof(time_t), 1, timestamp_file) != 1) {
+		perror("Cannot write timestamp file");
+		fclose(timestamp_file);
+		return 0;
+	}
+	fclose(timestamp_file);
+	return 1;
 }
 
 /* 

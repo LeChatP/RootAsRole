@@ -2,6 +2,7 @@
 #Author: Rémi Venant, Eddie BILLOIR
 COMP = gcc
 
+SR_VERSION = $(shell xmllint --xpath "string(/rootasrole/@version)" resources/rootasrole.xml)
 SRC_DIR := src
 MANAGER_DIR := new_role_manager
 OBJ_DIR := obj
@@ -10,18 +11,18 @@ TEST_DIR := tests/unit
 WARNINGS := -Wall -Wextra
 LIBCAP := -lcap -lcap-ng
 LIBPAM := -lpam -lpam_misc
-STDOPT=-std=c11
+STDOPT = -std=c11
 GDB_D = $(if $(GDB_DEBUG), -DGDB_DEBUG,)
-DEBUGLD := $(if $(DEBUG),-g $(GDB_D),-pedantic -Werror)
-DEBUGCOMP := $(if $(DEBUG),$(DEBUGLD) -static-libasan,$(DEBUGLD))
+OASAN = $(if $(ASAN),-fsanitize=address,)
+ODEBUG = $(if $(DEBUG),-g $(GDB_D),-pedantic -Werror)
 COVOPT := $(if $(COV),--coverage -fprofile-abs-path,)
 
-ALLOPT := $(STDOPT) $(WARNINGS) $(COVOPT)
+ALLOPT := $(ODEBUG) $(OASAN) $(STDOPT) $(WARNINGS) $(COVOPT) -DSR_VERSION=\"$(SR_VERSION)\"
 
-COMPOPTIONS = $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
-SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
-LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
-COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
+COMPOPTIONS = $(shell xml2-config --cflags) $(ALLOPT)
+SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(ALLOPT)
+LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(ALLOPT)
+COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(ALLOPT)
 EXECUTABLES := sr
 
 OBJS := $(addprefix $(SRC_DIR)/,capabilities.o user.o xml_manager.o env.o sr.o params.o command.o)
@@ -71,4 +72,5 @@ uninstall:
 
 clean:
 	@rm -rf $(BIN_DIR) $(OBJ_DIR) ebpf/$(BIN_DIR) ebpf/$(OBJ_DIR)
+
 	

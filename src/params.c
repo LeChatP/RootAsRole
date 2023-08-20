@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <linux/limits.h>
 #include <string.h>
+#include <syslog.h>
 
 
 static user_t *user = &(user_t){.name=NULL, .nb_groups = 0, .groups = NULL};
@@ -37,7 +38,8 @@ static settings_t options = { .env_keep = d_keep_vars,
 			      .setuid = NULL,
 			      .setgid = NULL,
 			      .disable_root = 1,
-			      .apply_bounding = 1 };
+			      .apply_bounding = 1,
+				  .iab = NULL };
 
 /**
  * @brief Set the POSIX user variables

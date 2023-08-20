@@ -60,7 +60,7 @@ bin/
 # Hidden folders (for Linux IDE)
 /.idea/
 *target/
-version.rs
+*/src/version.rs
 
 # Rust crates
 Cargo.lock

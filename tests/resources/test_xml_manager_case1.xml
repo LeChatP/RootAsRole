@@ -2,19 +2,21 @@
 <!DOCTYPE rootasrole [
 	<!ELEMENT rootasrole (roles|options?)*>
 	<!ATTLIST rootasrole version CDATA #REQUIRED>
-	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?)*>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?|timestamp-timeout?)*>
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
 	<!ELEMENT allow-root EMPTY>
-	<!ATTLIST allow-root enforce (true|false) "false">
+	<!ATTLIST allow-root enforce (true|false) "true">
 	<!ELEMENT allow-bounding EMPTY>
-	<!ATTLIST allow-bounding enforce (true|false) "false">
+	<!ATTLIST allow-bounding enforce (true|false) "true">
 	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
+	<!ELEMENT timestamp-timeout (#PCDATA|EMPTY)*>
 	<!ELEMENT path (#PCDATA|EMPTY)*>
 	<!ELEMENT roles (role*)>
 	<!ELEMENT role (actors?|task*|options?)*>
 	<!ATTLIST role
-		name ID #REQUIRED>
+		name ID #REQUIRED
+		parents IDREFS #IMPLIED>
 	<!ELEMENT actors (user*|group*)>
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>

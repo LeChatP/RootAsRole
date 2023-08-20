@@ -78,6 +78,21 @@ int get_group_names(const char *user, gid_t group, int *nb_groups,
 */
 void free_group_names(int nb_groups, char **groups);
 
+/**
+ * @brief Check if the user should enter his password again within the timeout
+ * @param user The user name
+ * @param timeout The timeout in seconds
+ * @return 1 if the user should enter his password again, 0 otherwise
+*/
+int check_timestamp_timeout(const char *user, const unsigned long timeout);
+
+/**
+ * @brief Set the timestamp for the user
+ * @param user The user name
+ * @return 1 if the timestamp was set, 0 otherwise
+*/
+int set_timestamp_user(const char *user);
+
 #endif // USER_H_INCLUDED
 
 /* 

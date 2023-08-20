@@ -46,6 +46,10 @@
 #define USER_MAX 1024
 #endif
 
+#ifndef GROUP_SEPARATOR
+#define GROUP_SEPARATOR ","
+#endif
+
 xmlXPathObjectPtr result = NULL;
 
 /**************************************
@@ -107,15 +111,15 @@ int actors_match_user(xmlNodePtr actors, char *user)
  * @return the number of group names that match, 0 if one does not match at all
  */
 unsigned int count_matching_groups(char *names, char **groups, int nb_groups,
-				   unsigned int *all)
+				   unsigned int *all, char *separator)
 {
 	if (names == NULL)
 		return 0;
 	char *names_str = strdup(names);
 	char *saveptr = NULL;
-	char *token = strtok_r(names_str, ",", &saveptr);
+	char *token = strtok_r(names_str, separator, &saveptr);
 	unsigned int found = 0;
-	*all = 0;
+	unsigned int lall = 0;
 	while (token != NULL) {
 		for (int j = 0; j < nb_groups; j++) {
 			if (!strcmp(token, groups[j])) {
@@ -123,11 +127,14 @@ unsigned int count_matching_groups(char *names, char **groups, int nb_groups,
 				break;
 			}
 		}
-		token = strtok_r(NULL, ",", &saveptr);
-		*all += 1;
+		token = strtok_r(NULL, separator, &saveptr);
+		lall += 1;
 	}
 	free(names_str);
-	return found == *all ? found : 0;
+	if (all != NULL){
+		*all = lall;
+	}
+	return found == lall ? found : 0;
 }
 
 /**
@@ -143,7 +150,7 @@ unsigned int actor_match_group(xmlNodePtr actor, char **groups, int nb_groups)
 			char *names_str = (char *)names;
 			unsigned int all = 0;
 			return count_matching_groups(names_str, groups,
-						     nb_groups, &all);
+						     nb_groups, &all, ",");
 		}
 	}
 	return 0;
@@ -219,8 +226,8 @@ score_t actors_match(user_t *user, xmlNodePtr actors)
 		if (actors_match_user(actors, user->name)) {
 			score = 1;
 		} else {
-			score_t max = -1;
-			score_t n = max +
+			score_t max = 4294967294;
+			score_t n = max -
 				    actors_match_max_group(actors, user->groups,
 							   user->nb_groups);
 			if (n != max && n > score) {
@@ -278,6 +285,7 @@ int regex_matches(char *args, cmd_t *command, xmlNodePtr command_element,
 
 	//check regex on args
 	regex_t regex;
+	regex = (regex_t){ 0 };
 	int reti = regcomp(&regex, args, REG_EXTENDED);
 	if (reti) {
 		error(0, 0,
@@ -443,7 +451,7 @@ score_t setgid_min(const xmlNodePtr task_element, const settings_t *settings,
 	xmlChar *setgid =
 		xmlGetProp(task_element, (const xmlChar *)"setgroups");
 	count_matching_groups((char *)setgid, NULL, 0,
-			      (unsigned int *)nb_setgid);
+			      (unsigned int *)nb_setgid, GROUP_SEPARATOR);
 	if (setgid != NULL && xmlStrlen(setgid) > 0) {
 		switch (setuid_min) {
 		case SETUID_ROOT:
@@ -510,7 +518,8 @@ score_t task_match(cmd_t *cmd, const xmlNodePtr task_element,
 				*cmd_min = match < *cmd_min ? match : *cmd_min;
 			}
 
-			command_element = xmlNextElementSibling(command_element);
+			command_element =
+				xmlNextElementSibling(command_element);
 		}
 		if (*cmd_min > 0) {
 			*caps_min = get_caps_min(task_element);
@@ -545,7 +554,8 @@ int set_task_min(cmd_t *cmd, const xmlNodePtr role_sub_element,
 			*setuid_min = task_setuid;
 			*setgid_min = task_setgid;
 			*task_min = role_sub_element;
-			if (!settings->disable_root && !settings->apply_bounding)
+			if (!settings->disable_root &&
+			    !settings->apply_bounding)
 				*security_min = ENABLE_ROOT_DISABLE_BOUNDING;
 			else if (!settings->disable_root)
 				*security_min = ENABLE_ROOT;
@@ -575,7 +585,8 @@ int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 		xmlNode *role_sub_element = role_element->children;
 		*user_min = *cmd_min = *caps_min = *setuid_min = *security_min =
 			*setgid_min = -1;
-		xmlNodePtr actors_block = find_first_element_by_name(role_element, (xmlChar *)"actors");
+		xmlNodePtr actors_block = find_first_element_by_name(
+			role_element, (xmlChar *)"actors");
 		int matches = 0;
 		if (actors_block != NULL) {
 			*user_min = actors_match(user, actors_block);
@@ -587,8 +598,18 @@ int role_match(const xmlNodePtr role_element, user_t *user, cmd_t *cmd,
 						       security_min);
 				if (ret == 1)
 					matches = 1;
-				role_sub_element = xmlNextElementSibling(role_sub_element);
+				role_sub_element =
+					xmlNextElementSibling(role_sub_element);
 			}
+		} else {
+			*user_min = -1;
+			int ret = set_task_min(cmd, role_sub_element,
+						       task_min, settings,
+						       cmd_min, caps_min,
+						       setuid_min, setgid_min,
+						       security_min);
+			if (ret == 1)
+				matches = 1;
 		}
 		if (matches)
 			return 1;
@@ -671,6 +692,70 @@ int find_partial_order_role(xmlNodeSetPtr roles_element, user_t *user,
 ********************************************/
 
 /**
+ * @brief duplicate a node set
+ * @param cur the node set
+ * @return the duplicated node set, or NULL on error, to be freed with xmlFreeNodeSet()
+*/
+xmlNodeSetPtr xmlNodeSetDup(xmlNodeSetPtr cur)
+{
+	xmlNodeSetPtr ret = malloc(sizeof(xmlNodeSet));
+	int i;
+	ret->nodeNr = cur->nodeNr;
+	ret->nodeMax = cur->nodeMax;
+	ret->nodeTab = malloc(sizeof(xmlNodePtr) * cur->nodeNr);
+	for (i = 0; i < cur->nodeNr; i++) {
+		ret->nodeTab[i] = cur->nodeTab[i];
+	}
+	return ret;
+}
+
+/**
+ * @brief return the xpath result of a expression
+ * @param expression the xpath expression
+ * @param doc the xml document
+ * @param node the xml node where to start the search
+ * @return the xpath result, or NULL on error, free "result" global variable at end of usage
+*/
+xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc,
+			      xmlNodePtr node)
+{
+	xmlXPathContextPtr context = NULL;
+	xmlNodeSetPtr nodeset = NULL;
+
+	context = xmlXPathNewContext(doc);
+	if (node != NULL) {
+		context->node = node;
+	}
+	if (context == NULL) {
+		fputs("Error in xmlXPathNewContext\n", stderr);
+		goto ret_err;
+	}
+	if (result != NULL) {
+		xmlXPathFreeObject(result);
+	}
+	result = xmlXPathEvalExpression(expression, context);
+	if (result == NULL) {
+		fputs("Error in xmlXPathEvalExpression\n", stderr);
+		printf("expression: %s\n", expression);
+		goto ret_err;
+	}
+
+	if (xmlXPathNodeSetIsEmpty(result->nodesetval)) {
+		xmlXPathFreeObject(result);
+		result = NULL;
+		goto ret_err;
+	}
+
+	nodeset = result->nodesetval;
+
+ret_err:
+	if (context != NULL) {
+		xmlXPathFreeContext(context);
+	}
+	return nodeset;
+}
+
+/**
  * @brief sanitize string with concat xpath function
  * @param str the string to sanitize
  * @return the sanitized string, or NULL on error, to free at end of usage
@@ -740,6 +825,28 @@ ret_err:
 }
 
 /**
+ * @brief retrieve the role node from the document matching the role name
+ * @param doc the document
+ * @param role the role name
+ * @return the role node, or NULL on error or if no role found
+*/
+xmlNodePtr get_role_node(xmlDocPtr doc, char *role)
+{
+	xmlNodePtr node = xmlDocGetRootElement(doc);
+	xmlChar *expression = expr_search_role_by_name(role);
+	if (!expression) {
+		fputs("Error expr_search_role()\n", stderr);
+		return NULL;
+	}
+	xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, node);
+	if (nodeset == NULL || nodeset->nodeNr == 0) {
+		return NULL;
+	}
+	xmlFree(expression);
+	return nodeset->nodeTab[0];
+}
+
+/**
  * @brief return the xpath expression to find a role by command
  * @param command the command name
  * @return the xpath expression, or NULL on error, to free at end of usage
@@ -750,8 +857,8 @@ int __expr_user_or_groups(xmlChar **expr, char *user, char **groups,
 	char expr_format[44] = "actors/user[@name='%s']";
 	int size = 45 + (int)strnlen(user, USER_MAX);
 	int ret = -1;
-	if (nb_groups > 0 ){
-		snprintf(expr_format+23,21,"%s"," or actors/group[%s]");
+	if (nb_groups > 0) {
+		snprintf(expr_format + 23, 21, "%s", " or actors/group[%s]");
 		xmlChar *groups_str = (xmlChar *)xmlMalloc(
 			(nb_groups * (27 + USER_MAX)) * sizeof(xmlChar));
 		if (!groups_str) {
@@ -760,16 +867,18 @@ int __expr_user_or_groups(xmlChar **expr, char *user, char **groups,
 		}
 		xmlChar *str_ptr = groups_str;
 		for (int i = 0; i < nb_groups; i++) {
-			int contains_size = (int)strnlen(groups[i], USER_MAX) + 21;
+			int contains_size =
+				(int)strnlen(groups[i], USER_MAX) + 21;
 			int err = -1;
 			if (i == 0) {
 				err = xmlStrPrintf(str_ptr, contains_size,
-						"contains(@names, '%s')", groups[i]);
+						   "contains(@names, '%s')",
+						   groups[i]);
 			} else {
 				contains_size = contains_size + 4;
 				err = xmlStrPrintf(str_ptr, contains_size,
-						" or contains(@names, '%s')",
-						groups[i]);
+						   " or contains(@names, '%s')",
+						   groups[i]);
 			}
 			if (err == -1) {
 				fputs("Error xmlStrPrintf()\n", stderr);
@@ -797,31 +906,18 @@ int __expr_user_or_groups(xmlChar **expr, char *user, char **groups,
  * @param command the command name
  * @return the xpath expression, or NULL on error, to free at end of usage
 */
-xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
+xmlChar *expr_search_role_by_usergroup(user_t *user)
 {
 	int err;
 	int size = 0;
 	xmlChar *expression = NULL;
 	xmlChar *user_groups_char = NULL;
-	char str_cmd[PATH_MAX + ARG_MAX + 1];
-	*str_cmd = '\0';
-	int cmd_len = 0;
-	int res = join_cmd(command, str_cmd, PATH_MAX + ARG_MAX + 1, &cmd_len);
-	if (res == -1) {
-		return NULL;
-	}
-	char *sanitized_str =
-		sanitize_quotes_xpath(str_cmd, PATH_MAX + ARG_MAX + 1);
-	if (sanitized_str == NULL) {
-		return NULL;
-	}
 	int user_groups_size = __expr_user_or_groups(
 		&user_groups_char, user->name, user->groups, user->nb_groups);
 	if (user_groups_size == -1) {
-		free(sanitized_str);
 		return NULL;
 	}
-	size = 136 + PATH_MAX + ARG_MAX + 1 + user_groups_size;
+	size = 7 + PATH_MAX + ARG_MAX + 1 + user_groups_size;
 
 	expression = (xmlChar *)xmlMalloc(size * sizeof(xmlChar));
 	if (!expression) {
@@ -832,62 +928,19 @@ xmlChar *expr_search_role_by_usergroup_command(user_t *user, cmd_t *command)
 	// //role[(actors/user[@name='lechatp'] or actors/group[contains(@names,'lechatp') or contains(@names,'group1')]) and (task/command[text()='%s'] or task[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]
 	err = xmlStrPrintf(
 		expression, size,
-		"//role[(%s) and (task/command[text()=%s] or task/command[string-length(translate(text(),'.+*?^$()[]{}|\\\\','')) < string-length(text())])]",
-		user_groups_char, sanitized_str);
+		"//role[%s]",
+		user_groups_char);
 	if (err == -1) {
 		fputs("Error xmlStrPrintf()\n", stderr);
 		xmlFree(expression);
 	}
 
 ret_err:
-	free(sanitized_str);
 	xmlFree(user_groups_char);
 	return expression;
 }
 
-/**
- * @brief return the xpath result of a expression
- * @param expression the xpath expression
- * @param doc the xml document
- * @param node the xml node where to start the search
- * @return the xpath result, or NULL on error, free "result" global variable at end of usage
-*/
-xmlNodeSetPtr find_with_xpath(xmlChar *expression, xmlDocPtr doc,
-			      xmlNodePtr node)
-{
-	xmlXPathContextPtr context = NULL;
-	xmlNodeSetPtr nodeset = NULL;
 
-	context = xmlXPathNewContext(doc);
-	if (node != NULL) {
-		context->node = node;
-	}
-	if (context == NULL) {
-		fputs("Error in xmlXPathNewContext\n", stderr);
-		goto ret_err;
-	}
-	if (result != NULL) {
-		xmlXPathFreeObject(result);
-	}
-	result = xmlXPathEvalExpression(expression, context);
-	if (result == NULL) {
-		fputs("Error in xmlXPathEvalExpression\n", stderr);
-		printf("expression: %s\n", expression);
-		goto ret_err;
-	}
-
-	if (xmlXPathNodeSetIsEmpty(result->nodesetval)) {
-		goto ret_err;
-	}
-
-	nodeset = result->nodesetval;
-
-ret_err:
-	if (context != NULL) {
-		xmlXPathFreeContext(context);
-	}
-	return nodeset;
-}
 
 /**
  * @brief remove roles if group combination is not matching the executor
@@ -901,7 +954,8 @@ xmlNodeSetPtr filter_wrong_groups_roles(xmlNodeSetPtr set, char **groups,
 {
 	for (int i = 0; i < set->nodeNr; i++) {
 		xmlNodePtr node = set->nodeTab[i];
-		xmlNodePtr group = find_first_element_by_name(node, (xmlChar *)"actors");
+		xmlNodePtr group =
+			find_first_element_by_name(node, (xmlChar *)"actors");
 		while (group != NULL) {
 			if (xmlStrcmp(group->name, (const xmlChar *)"group") ==
 			    0) {
@@ -912,7 +966,7 @@ xmlNodeSetPtr filter_wrong_groups_roles(xmlNodeSetPtr set, char **groups,
 					unsigned int found =
 						count_matching_groups(
 							(char *)names, groups,
-							nb_groups, &all);
+							nb_groups, &all, GROUP_SEPARATOR);
 					if (found == 0 || found != all) {
 						xmlUnlinkNode(node);
 						xmlFreeNode(node);
@@ -939,8 +993,10 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 	for (int i = 0; i < set->nodeNr; i++) {
 		xmlNodePtr node = set->nodeTab[i];
 		xmlNodePtr task = node->children;
+		int task_found = 0;
 		while (task != NULL) {
 			if (!xmlStrcmp(task->name, (const xmlChar *)"task")) {
+				task_found = 1;
 				xmlNodePtr command_node = task->children;
 				score_t found = NO_MATCH;
 				while (command_node != NULL) {
@@ -953,7 +1009,8 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 							break;
 						}
 					}
-					command_node = xmlNextElementSibling(command_node);
+					command_node = xmlNextElementSibling(
+						command_node);
 				}
 				if (found == NO_MATCH) {
 					xmlUnlinkNode(node);
@@ -970,8 +1027,90 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
 			}
 			task = xmlNextElementSibling(task);
 		}
+		if (!task_found) {
+			xmlUnlinkNode(node);
+			xmlFreeNode(node);
+			if (i < set->nodeNr - 1) {
+				set->nodeTab[i] = set->nodeTab[i + 1];
+			} else {
+				set->nodeTab[i] = NULL;
+			}
+			set->nodeNr--;
+		}
 	}
 	return set;
+}
+
+int add_direct_parents(xmlChar **rolenames, int *nb_rolenames, char *parents, xmlDocPtr doc, xmlNodeSetPtr set)
+{
+	int ret = 0;
+	char *save_ptr = NULL;
+	char *parent = strtok_r((char *)parents, " ", &save_ptr);
+	while (parent != NULL) {
+		xmlNodePtr role = get_role_node(doc, parent);
+		if (role != NULL &&
+		    count_matching_groups(parent, (char**)rolenames, *nb_rolenames, //this is to avoid duplicates
+					   NULL," ")==0) {
+			int len = xmlStrlen((xmlChar *)parent);
+			rolenames[*nb_rolenames] = xmlMalloc(len+1);
+			rolenames[*nb_rolenames] = '\0';
+			xmlStrcat(rolenames[*nb_rolenames], (xmlChar *)parent);
+			rolenames[*nb_rolenames][len] = '\0';
+			*nb_rolenames = *nb_rolenames + 1;
+			set->nodeTab[set->nodeNr] = role;
+			set->nodeNr++;
+			ret++;
+		}
+		parent = strtok_r(NULL, " ", &save_ptr);
+	}
+	return ret;
+}
+
+/**
+ * @brief this will find all roles matching the attribute "parents" of the role and adding them to the set
+*/
+void include_parents_from_set(xmlDocPtr doc, xmlNodeSetPtr *set)
+{
+	xmlNodeSetPtr tmp_set = xmlNodeSetDup(*set);
+	int nb_rolenames = 0, size_rolenames = tmp_set->nodeNr;
+	xmlChar **rolenames = NULL;
+	rolenames = malloc(size_rolenames * sizeof(xmlChar *));
+
+	for (int i = 0; i < tmp_set->nodeNr; i++) {
+		xmlNodePtr node = tmp_set->nodeTab[i];
+		rolenames[nb_rolenames] = xmlGetProp(node, (const xmlChar *)"name");
+		nb_rolenames++;
+		if (xmlHasProp(node, (const xmlChar *)"parents")) {
+			unsigned int amount = 0;
+			char * parents = (char *)xmlGetProp(node, (const xmlChar *)"parents");
+			unsigned int matching = count_matching_groups(parents, (char**) rolenames, nb_rolenames, &amount, " ");
+			if (amount > 0 && !matching) {
+				size_rolenames += (amount);
+				if (tmp_set->nodeMax < size_rolenames) 
+				{
+					printf("reallocating_1\n");
+					xmlNodePtr *tmp_nodeTab = realloc(tmp_set->nodeTab, size_rolenames *
+					     sizeof(xmlNodePtr));
+					if (tmp_nodeTab == NULL) {
+						fprintf(stderr, "reallocarray failed\n");
+						exit(EXIT_FAILURE);
+					}
+					tmp_set->nodeTab = tmp_nodeTab;
+					tmp_set->nodeMax = size_rolenames;
+				}
+				printf("reallocating_2 size : %d\n", size_rolenames);
+				xmlChar **tmp_rolenames = xmlRealloc(rolenames, size_rolenames * sizeof(xmlChar *));
+				if (tmp_rolenames == NULL) {
+					fprintf(stderr, "reallocarray failed\n");
+					exit(EXIT_FAILURE);
+				}
+				add_direct_parents(tmp_rolenames, &nb_rolenames, parents, doc, tmp_set);
+				rolenames = tmp_rolenames;
+			}
+			free(parents);
+		}
+	}
+	*set = tmp_set;
 }
 
 /**
@@ -983,37 +1122,42 @@ xmlNodeSetPtr filter_wrong_commands_roles(xmlNodeSetPtr set, cmd_t *command)
  * @param command the command name
  * @return every roles that match the user or groups and command (regex or not)
 */
-xmlNodeSetPtr find_role_by_usergroup_command(xmlDocPtr doc, user_t *user,
-					     cmd_t *cmd)
+xmlNodeSetPtr find_role_by_usergroup(xmlDocPtr doc, user_t *user)
 {
 	xmlChar *expression = NULL;
 	xmlNodeSetPtr nodeset = NULL;
-	expression = expr_search_role_by_usergroup_command(user, cmd);
+	expression = expr_search_role_by_usergroup(user);
 	if (!expression) {
-		fputs("Error expr_search_role_by_usergroup_command()\n",
+		fputs("Error expr_search_role_by_usergroup()\n",
 		      stderr);
 		goto ret_err;
 	}
 	nodeset = find_with_xpath(expression, doc, NULL);
+ret_err:
+	xmlFree(expression);
+	return nodeset;
+}
+
+xmlNodeSetPtr find_matching_roles(xmlDocPtr doc, user_t *user, cmd_t *cmd){
+	xmlNodeSetPtr nodeset = find_role_by_usergroup(doc, user);
 	if (!nodeset) {
-		fputs("Error find_with_xpath()\n", stderr);
-		goto ret_err;
+		return NULL;
 	}
 	nodeset = filter_wrong_groups_roles(nodeset, user->groups,
 					    user->nb_groups);
 	if (!nodeset) {
 		fputs("Error filter_wrong_groups_roles()\n", stderr);
-		goto ret_err;
+		return NULL;
 	}
+	include_parents_from_set(doc, &nodeset);
+	
 	nodeset = filter_wrong_commands_roles(nodeset, cmd);
 	if (!nodeset) {
 		fputs("Error filter_wrong_commands_roles()\n", stderr);
-		goto ret_err;
+		return NULL;
 	}
-ret_err:
-	xmlFree(expression);
 	return nodeset;
-}
+} 
 
 /**
  * @brief create expression to find all task containing the given command in a role
@@ -1106,8 +1250,7 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 		}
 
 		cap_t eff = cap_from_text((char *)capabilities);
-		cap_iab_fill(options->iab, CAP_IAB_INH, eff,
-				     CAP_INHERITABLE);
+		cap_iab_fill(options->iab, CAP_IAB_INH, eff, CAP_INHERITABLE);
 		cap_iab_fill(options->iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
 		get_options_from_config(task_node, options);
 		if (options->apply_bounding) {
@@ -1124,10 +1267,8 @@ int get_settings(xmlNodePtr role_node, xmlNodePtr task_node,
 			cap_iab_fill(options->iab, CAP_IAB_BOUND, eff,
 				     CAP_INHERITABLE);
 		}
-		cap_iab_fill(options->iab, CAP_IAB_INH, eff,
-				     CAP_INHERITABLE);
-		cap_iab_fill(options->iab, CAP_IAB_AMB, eff,
-				     CAP_INHERITABLE);
+		cap_iab_fill(options->iab, CAP_IAB_INH, eff, CAP_INHERITABLE);
+		cap_iab_fill(options->iab, CAP_IAB_AMB, eff, CAP_INHERITABLE);
 	}
 
 	xmlXPathFreeObject(result);
@@ -1158,13 +1299,14 @@ int find_role_by_name(xmlNodeSetPtr set, char *role_name, xmlNodePtr *role_node)
  * @param nb_groups the number of groups
  * @param groups the groups
  * @param command the command
- * @return execution setting in global variables, 1 on success, or 0 on error
+ * @param settings the output settings
+ * @return 1 on success, or 0 on error
 */
 int get_settings_from_doc_by_role(char *role, xmlDocPtr doc, user_t *user,
 				  cmd_t *cmd, settings_t *settings)
 {
 	int res = 0;
-	xmlNodeSetPtr set = find_role_by_usergroup_command(doc, user, cmd);
+	xmlNodeSetPtr set = find_matching_roles(doc, user, cmd);
 	if (set == NULL) {
 		return res;
 	}
@@ -1224,13 +1366,13 @@ ret_err:
  * @param nb_groups the number of groups
  * @param groups the groups
  * @param command the command
- * @return execution setting in global variables, 1 on success, or 0 on error
+ * @return 1 on success, or 0 on error
 */
 int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
 					   cmd_t *cmd, settings_t *options)
 {
 	int res = 0;
-	xmlNodeSetPtr set = find_role_by_usergroup_command(doc, user, cmd);
+	xmlNodeSetPtr set = find_matching_roles(doc, user, cmd);
 	if (set == NULL) {
 		return res;
 	}
@@ -1247,66 +1389,6 @@ int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user,
 		      "Multiple roles matchs this command, please specify a role.");
 		return res;
 	}
-}
-
-/**
- * @brief load the xml file and retrieve capabilities matching the criterions
- * @param user the user
- * @param nb_groups the number of groups
- * @param groups the groups
- * @param command the command
- * @param p_iab the capabilities
- * @param p_options the options
- * @return 1 on success, or 0 on error
- * @note the capabilities and options are stored in global variables
-*/
-int get_settings_from_config(char *filename, user_t *user, cmd_t *command,
-			     settings_t *p_options)
-{
-	xmlDocPtr doc;
-	doc = load_xml(filename);
-	if (!doc)
-		return 0;
-	int res = get_settings_from_doc_by_partial_order(doc, user, command,
-							 p_options);
-
-	xmlFreeDoc(doc);
-	return res;
-}
-
-int get_settings_from_config_role(char *role, user_t *user, cmd_t *cmd,
-				  settings_t *p_options)
-{
-	xmlDocPtr doc;
-	doc = load_xml(XML_FILE);
-	if (!doc)
-		return 0;
-	int res =
-		get_settings_from_doc_by_role(role, doc, user, cmd, p_options);
-	xmlFreeDoc(doc);
-	return res;
-}
-
-/**
- * @brief retrieve the role node from the document matching the role name
- * @param doc the document
- * @param role the role name
- * @return the role node, or NULL on error or if no role found
-*/
-xmlNodePtr get_role_node(xmlDocPtr doc, char *role)
-{
-	xmlNodePtr node = xmlDocGetRootElement(doc);
-	xmlChar *expression = expr_search_role_by_name(role);
-	if (!expression) {
-		fputs("Error expr_search_role()\n", stderr);
-		return NULL;
-	}
-	xmlNodeSetPtr nodeset = find_with_xpath(expression, doc, node);
-	if (nodeset == NULL || nodeset->nodeNr == 0) {
-		return NULL;
-	}
-	xmlFree(expression);
-	return nodeset->nodeTab[0];
 }
 
 /**
@@ -1373,23 +1455,6 @@ xmlNodePtr get_role_if_access(xmlDocPtr doc, char *role, char *user,
  ***                        PRINT FUNCTIONS                           ***
 *************************************************************************/
 
-/**
- * @brief duplicate a node set
- * @param cur the node set
- * @return the duplicated node set, or NULL on error, to be freed with xmlFreeNodeSet()
-*/
-xmlNodeSetPtr xmlNodeSetDup(xmlNodeSetPtr cur)
-{
-	xmlNodeSetPtr ret = malloc(sizeof(xmlNodeSet));
-	int i;
-	ret->nodeNr = cur->nodeNr;
-	ret->nodeMax = cur->nodeMax;
-	ret->nodeTab = malloc(sizeof(xmlNodePtr) * cur->nodeNr);
-	for (i = 0; i < cur->nodeNr; i++) {
-		ret->nodeTab[i] = cur->nodeTab[i];
-	}
-	return ret;
-}
 
 /**
  * @brief expression to search all roles matching the user
@@ -1525,24 +1590,21 @@ void print_task(xmlNodeSetPtr nodeset)
 
 	for (int i = 0; i < nodeset->nodeNr; i++) {
 		xmlNodePtr node = nodeset->nodeTab[i];
-		
-			printf("%stask:\n", end);
+
+		printf("%stask:\n", end);
 
 		if (node->children)
 			for (xmlNodePtr command = node->children; command;
 			     command = xmlNextElementSibling(command)) {
 				printf("%s%s%s\n",
-				       i + 1 >= nodeset->nodeNr ?
-					       space :
-					       vertical,
+				       i + 1 >= nodeset->nodeNr ? space :
+								  vertical,
 				       i + 1 < nodeset->nodeNr ? element : end,
 				       command->children->content);
 			}
 		else {
 			printf("%s%sAny command\n",
-			       i + 1 >= nodeset->nodeNr ?
-				       space :
-				       vertical,
+			       i + 1 >= nodeset->nodeNr ? space : vertical,
 			       i + 1 < nodeset->nodeNr ? element : end);
 		}
 	}
@@ -1561,7 +1623,8 @@ void print_xml_role(xmlNodePtr role)
 	xmlChar *name = xmlGetProp(role, (const xmlChar *)"name");
 	printf("Role \"%s\"\n", name);
 	xmlFree(name);
-	xmlNodePtr actors = find_first_element_by_name(role, (xmlChar *)"actors");
+	xmlNodePtr actors =
+		find_first_element_by_name(role, (xmlChar *)"actors");
 	xmlNodeSetPtr users =
 		xmlNodeSetDup(search_element_in_role(actors, "user"));
 	xmlNodeSetPtr groups =
@@ -1657,8 +1720,7 @@ void print_rights(user_t *posix_user)
 			for (int i = 0; i < tmp->nodeNr; i++) {
 				xmlNodePtr role = tmp->nodeTab[i];
 				xmlNodeSetPtr task =
-					search_element_in_role(role,
-									"task");
+					search_element_in_role(role, "task");
 				xmlChar *rolename = xmlGetProp(
 					role, (const xmlChar *)"name");
 				printf("Role \"%s\"\n", rolename);
@@ -1737,10 +1799,10 @@ void print_rights_role(char *role, user_t *user)
 	if (doc) {
 		xmlNodePtr role_node = get_role_node(doc, role);
 		if (role_node && check_rights(role_node, user)) {
-			xmlNodeSetPtr task = search_element_in_role(
-				role_node, "task");
-			xmlChar *rolename = xmlGetProp(
-				role_node, (const xmlChar *)"name");
+			xmlNodeSetPtr task =
+				search_element_in_role(role_node, "task");
+			xmlChar *rolename =
+				xmlGetProp(role_node, (const xmlChar *)"name");
 			printf("Role \"%s\"\n", rolename);
 			xmlFree(rolename);
 			print_task(task);
@@ -1752,6 +1814,34 @@ void print_rights_role(char *role, user_t *user)
 		printf("Error loading XML file\n");
 	}
 	xmlFreeDoc(doc);
+}
+
+/**
+ * @brief Get document version
+ * @param doc The document to check
+ * @return The version of the document, to be freed
+*/
+xmlChar *get_doc_version(xmlDocPtr doc) {
+	xmlChar *version = NULL;
+	xmlNodePtr root = xmlDocGetRootElement(doc);
+	if (root) {
+		version = xmlGetProp(root, (const xmlChar *)"version");
+	}
+	return version;
+}
+
+/**
+ * @brief Get document timestamp timeout value
+ * @param doc The document to check
+ * @return The timeout value of the document
+*/
+unsigned long get_doc_timestamp_timeout(xmlDocPtr doc){
+	xmlChar *timeout = NULL;
+	xmlNodePtr root = xmlDocGetRootElement(doc);
+	if (root) {
+		timeout = xmlGetProp(root, (const xmlChar *)"timestamp-timeout");
+	}
+	return timeout ? strtoul((char *)timeout, NULL, 10) : 0;
 }
 
 /* 

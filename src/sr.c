@@ -250,6 +250,9 @@ void escape_special_chars(char* input, size_t input_length) {
     input[j] = '\0';
 }
 
+void display_version_warning(xmlChar *docversion){
+	printf("WARNING: The version of the configuration file is %s, but the version of SR is %s\n", docversion, SR_VERSION);
+}
 
 /**
  * @brief main function of the SR module
@@ -266,6 +269,11 @@ int main(int argc, char *argv[])
 	strncpy(callpath, argv[0], PATH_MAX);
 	callpath[PATH_MAX - 1] = '\0';
 	escape_special_chars(callpath, PATH_MAX);
+	xmlDocPtr doc = load_xml(XML_FILE);
+	if (!doc)
+		return 0;
+	xmlChar *version = get_doc_version(doc);
+	unsigned long timestamp_timeout = get_doc_timestamp_timeout(doc);
 	if (!parse_arguments(&argc, &argv, &arguments) || arguments.help ||
 	    (argc == 0 && !arguments.info)) {
 		printf("Usage: %s [options] [command [args]]\n", callpath);
@@ -274,20 +282,47 @@ int main(int argc, char *argv[])
 		printf("  -i, --info             Display rights of executor\n");
 		printf("  -v, --version          Display version\n");
 		printf("  -h, --help             Display this help\n");
+		if (strcmp((char*)version, SR_VERSION)) {
+			display_version_warning(version);
+		}
 		return 0;
 	} else if (arguments.version) {
-		printf("SR version %s\n", SR_VERSION);
+		if (strcmp((char*)version, SR_VERSION)) {
+			display_version_warning(version);
+		} else {
+			printf("SR version %s\n", SR_VERSION);
+		}
 		return 0;
 	}
+	if (strcmp((char*)version, SR_VERSION)) {
+		display_version_warning(version);
+	}
+	
 	openlog("sr", LOG_PID, LOG_AUTH);
 	settings_t options;
 	set_default_options(&options);
 	user_t *user = user_posix_get();
-	if (!pam_authenticate_user(user->name)) {
-		error(0, 0, "Authentication failed");
-		goto free_error;
+	if (timestamp_timeout == 0 || check_timestamp_timeout(user->name, timestamp_timeout) == 1){
+		if (!pam_authenticate_user(user->name)){
+			error(0, 0, "Authentication failed");
+			goto free_error;
+		}
+		if (timestamp_timeout != 0){
+			if(dac_override_effective(1)) {
+				error(0, 0, "Unable to set DAC override");
+				goto free_error;
+			}
+			if (set_timestamp_user(user->name) == -1){
+				error(0, 0, "Unable to set timestamp timeout");
+				goto free_error;
+			}
+			if(dac_override_effective(0)) {
+				error(0, 0, "Unable to set DAC override");
+				goto free_error;
+			}
+		}
 	}
-
+	
 	if (arguments.info) {
 		if (arguments.role == NULL)
 			print_rights(user);
@@ -303,7 +338,7 @@ int main(int argc, char *argv[])
 		goto free_error;
 	}
 	if (arguments.role){
-		int ret = get_settings_from_config_role(arguments.role, user, cmd,
+		int ret = get_settings_from_doc_by_role(arguments.role, doc, user, cmd,
 						 &options);
 		if (!ret) {
 			syslog(LOG_ERR,
@@ -313,7 +348,7 @@ int main(int argc, char *argv[])
 			goto free_error;
 		}		   	
 	} else {
-		int ret = get_settings_from_config(XML_FILE, user, cmd, &options);
+		int ret = get_settings_from_doc_by_partial_order(doc, user, cmd, &options);
 		if (!ret) {
 			syslog(LOG_ERR,
 			       "User '%s' tries to execute '%s', without permission",
@@ -326,12 +361,10 @@ int main(int argc, char *argv[])
 	syslog(LOG_INFO,
 			"User '%s' tries to execute '%s' with role '%s'", user->name,
 			cmd->command, options.role);
-#ifndef GDB_DEBUG
 	if (sr_noroot(&options) || sr_setuid(&options) ||
 		sr_setgid(&options) || sr_setcaps(&options)) {
 		goto free_error;
 	}
-#endif
 
 	char **env = NULL;
 	int res = filter_env_vars(environ, options.env_keep,

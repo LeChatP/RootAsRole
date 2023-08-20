@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
-use crate::config::structs::{Role, Roles, Task};
+use crate::config::structs::{Task, Config, Role};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -210,28 +210,28 @@ impl Opt {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OptStack<'a> {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
-    roles: Rc<RefCell<Roles<'a>>>,
+    roles: Rc<RefCell<Config<'a>>>,
     role: Option<Rc<RefCell<Role<'a>>>>,
     task: Option<Rc<RefCell<Task<'a>>>>,
 }
 
 impl<'a> OptStack<'a> {
     pub fn from_task(task: Rc<RefCell<Task<'a>>>) -> Self {
-        let mut stack = OptStack::from_role(task.as_ref().borrow().get_parent().unwrap());
+        let mut stack = OptStack::from_role(task.as_ref().borrow().get_role().unwrap());
         stack.task = Some(task.to_owned());
         stack.set_opt(Level::Task, task.as_ref().borrow().options.to_owned());
         stack
     }
     pub fn from_role(role: Rc<RefCell<Role<'a>>>) -> Self {
-        let mut stack = OptStack::from_roles(role.as_ref().borrow().get_roles().unwrap());
+        let mut stack = OptStack::from_roles(role.as_ref().borrow().get_config().unwrap());
         stack.role = Some(role.to_owned());
         stack.set_opt(Level::Role, role.as_ref().borrow().options.to_owned());
         stack
     }
-    pub fn from_roles(roles: Rc<RefCell<Roles<'a>>>) -> Self {
+    pub fn from_roles(roles: Rc<RefCell<Config<'a>>>) -> Self {
         let mut stack = OptStack::new(roles);
         stack.set_opt(
             Level::Global,
@@ -240,7 +240,7 @@ impl<'a> OptStack<'a> {
         stack
     }
 
-    fn new(roles: Rc<RefCell<Roles<'a>>>) -> OptStack<'a> {
+    fn new(roles: Rc<RefCell<Config<'a>>>) -> OptStack<'a> {
         OptStack {
             stack: [None, Some(Rc::new(Opt::default().into())), None, None, None],
             roles,
@@ -249,7 +249,7 @@ impl<'a> OptStack<'a> {
         }
     }
 
-    fn get_roles(&self) -> Rc<RefCell<Roles<'a>>> {
+    fn get_roles(&self) -> Rc<RefCell<Config<'a>>> {
         self.roles.to_owned()
     }
 
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_find_in_options() {
-        let roles = Roles::new(PACKAGE_VERSION);
+        let roles = Config::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         roles.as_ref().borrow_mut().roles.push(role);
         let mut options = OptStack::from_role(roles.as_ref().borrow().roles[0].to_owned());
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_get_description() {
-        let mut options = OptStack::from_roles(Roles::new("3.0.0"));
+        let mut options = OptStack::from_roles(Config::new("3.0.0"));
         println!("{:?}", options);
         options.set_at_level(
             OptType::Path,
@@ -558,7 +558,7 @@ mod tests {
 
     #[test]
     fn test_get_description_inherited() {
-        let mut options = OptStack::from_roles(Roles::new("3.0.0"));
+        let mut options = OptStack::from_roles(Config::new("3.0.0"));
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn test_task_level() {
-        let roles = Roles::new(PACKAGE_VERSION);
+        let roles = Config::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
         let mut options = OptStack::from_task(task);
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_get_from_level() {
-        let roles = Roles::new(PACKAGE_VERSION);
+        let roles = Config::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
         let mut options = OptStack::from_task(task);
@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn test_set_value() {
-        let roles = Roles::new(PACKAGE_VERSION);
+        let roles = Config::new(PACKAGE_VERSION);
         let role = Role::new("test".to_string(), Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Number(1), Rc::downgrade(&role));
         let mut options = OptStack::from_task(task);

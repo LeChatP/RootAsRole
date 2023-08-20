@@ -13,7 +13,12 @@
 #define RESTRICTED 1
 #define UNRESTRICTED 0
 
-
+/**
+ * @brief load xml file and validate it
+ * @param xml_file the xml file
+ * @return the document, or NULL on error
+*/
+xmlDocPtr load_xml(char *xml_file);
 
 /**
  * @brief free the options
@@ -21,29 +26,29 @@
 void free_options(settings_t *options);
 
 /**
- * @brief Get every configuration settings from the xml file according to the user, the groups and the command
- * @param user The user of query
- * @param nb_groups The number of groups of the user
- * @param groups The groups of the user
- * @param command The command asked by the user
- * @param p_iab The capabilities to set
- * @param p_options The options to set
- * @return 1 if the user is allowed to execute the command, 0 otherwise
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @param options the output settings
+ * @return 1 on success, or 0 on error
 */
-int get_settings_from_config(char *filename, user_t *user, cmd_t *command, settings_t *p_options);
+int get_settings_from_doc_by_partial_order(xmlDocPtr doc, user_t *user, cmd_t *command, settings_t *p_options);
 
 /**
- * @brief Get every configuration settings from the xml file according to the role, the user, the groups and the command
- * @param role The role of query
- * @param user The user of query
- * @param nb_groups The number of groups of the user
- * @param groups The groups of the user
- * @param command The command asked by the user
- * @param p_iab The capabilities to set
- * @param p_options The options to set
- * @return 1 if the user is allowed to execute the command, 0 otherwise
+ * @brief retrieve all execution settings from xml document matching user, groups and command 
+ * @param doc the document
+ * @param user the user
+ * @param nb_groups the number of groups
+ * @param groups the groups
+ * @param command the command
+ * @param settings the output settings
+ * @return 1 on success, or 0 on error
 */
-int get_settings_from_config_role(char* role, user_t *user, cmd_t *command, settings_t *p_options);
+int get_settings_from_doc_by_role(char *role, xmlDocPtr doc, user_t *user,
+				  cmd_t *cmd, settings_t *settings);
 
 /**
  * @brief Print informations of a role
@@ -71,6 +76,20 @@ void print_rights(user_t *user);
  * @param groups The groups of the user
 */
 void print_rights_role(char *role, user_t *user);
+
+/**
+ * @brief Get document version
+ * @param doc The document to check
+ * @return The version of the document, to be freed
+*/
+xmlChar *get_doc_version(xmlDocPtr doc);
+
+/**
+ * @brief Get document timestamp timeout value
+ * @param doc The document to check
+ * @return The timeout value of the document
+*/
+u_int64_t get_doc_timestamp_timeout(xmlDocPtr doc);
 
 #endif
 /* 
