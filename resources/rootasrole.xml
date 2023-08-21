@@ -34,7 +34,7 @@
 	<!ATTLIST command
 		regex (true|false) "false">
 	<!ELEMENT purpose (#PCDATA)>
-]>
+]> 
 <rootasrole version="3.0.0-alpha.3" timestamp-timeout="300">
 	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific task in a
 	role
