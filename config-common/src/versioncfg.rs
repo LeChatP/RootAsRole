@@ -35,7 +35,7 @@ impl Migration {
 /// If the version is already the current version, nothing is done.
 /// If the version is older, the database is upgraded.
 /// If the version is newer, the database is downgraded.
-pub fn migrate(version : &str ,doc : Document) -> Result<bool, Box<dyn Error>> {
+pub(crate) fn migrate(version : &str ,doc : Document) -> Result<bool, Box<dyn Error>> {
     let from = Version::parse(version).unwrap();
     let to = Version::parse(PACKAGE_VERSION).unwrap();
     if from != to {

@@ -1,0 +1,19 @@
+[package]
+name = "config-common"
+version.workspace = true
+authors.workspace = true
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sxd-document = "0.3.2"
+sxd-xpath = "0.4.2"
+tracing =  { workspace = true }
+tracing-subscriber = { workspace = true }
+semver = { workspace = true }
+capctl = "0.2.3"
+pcre2 = "0.2.4"
+chrono = "0.4.26"
+
+serde = "1.0.185"

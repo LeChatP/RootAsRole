@@ -8,6 +8,31 @@ use tracing_subscriber::field::debug;
 
 use crate::{finder::Cred, config::structs::{CookieConstraint, TimestampType}};
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TimestampType {
+    Global,
+    TTY,
+    PPID,
+}
+
+impl Default for TimestampType {
+    fn default() -> Self {
+        TimestampType::PPID
+    }
+}
+
+impl FromStr for TimestampType {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "global" => Ok(TimestampType::Global),
+            "tty" => Ok(TimestampType::TTY),
+            "ppid" => Ok(TimestampType::PPID),
+            _ => Err(()),
+        }
+    }
+}
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time

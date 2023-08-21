@@ -2,17 +2,19 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use std::ops::Index;
 use std::rc::{Rc, Weak};
 use std::str::Split;
 
+use capctl::CapSet;
+use chrono::Duration;
 use sxd_document::dom::{Document, Element};
 
-use crate::capabilities::Caps;
 use crate::options::Opt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Groups {
-    pub groups: HashSet<String>,
+    pub groups: Vec<String>,
 }
 
 impl Iterator for Groups {
@@ -30,11 +32,18 @@ impl Hash for Groups {
     }
 }
 
+impl Index<usize> for Groups {
+    type Output = String;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.groups[index]
+    }
+}
+
 impl FromIterator<String> for Groups {
     fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Groups {
-        let mut groups = HashSet::new();
+        let mut groups = Vec::new();
         for group in iter {
-            groups.insert(group);
+            groups.push(group);
         }
         Groups { groups }
     }
@@ -42,9 +51,9 @@ impl FromIterator<String> for Groups {
 
 impl From<Vec<String>> for Groups {
     fn from(groups: Vec<std::string::String>) -> Self {
-        let mut set = HashSet::new();
+        let mut set = Vec::new();
         for group in groups {
-            set.insert(group);
+            set.push(group);
         }
         Groups { groups: set }
     }
@@ -52,9 +61,9 @@ impl From<Vec<String>> for Groups {
 
 impl From<Split<'_, char>> for Groups {
     fn from(groups: Split<char>) -> Self {
-        let mut set = HashSet::new();
+        let mut set = Vec::new();
         for group in groups {
-            set.insert(group.to_string());
+            set.push(group.to_string());
         }
         Groups { groups: set }
     }
@@ -69,6 +78,18 @@ impl Groups {
                 format!("{}{}{}", acc, sep, s)
             }
         })
+    }
+    fn to_hashset(&self) -> HashSet<String> {
+        self.groups.clone().into_iter().collect()
+    }
+    pub fn is_subset(&self, other: &Groups) -> bool {
+        self.to_hashset().is_subset(&other.to_hashset())
+    }
+    pub fn len(&self) -> usize {
+        self.groups.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.groups.is_empty()
     }
 }
 
@@ -148,16 +169,18 @@ pub struct Task<'a> {
     pub id: IdTask,
     pub options: Option<Rc<RefCell<Opt>>>,
     pub commands: Vec<String>,
-    pub capabilities: Option<Caps>,
+    pub capabilities: Option<CapSet>,
     pub setuid: Option<String>,
     pub setgid: Option<Groups>,
+    pub setgroups: Option<Groups>,
     pub purpose: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Role<'a> {
-    roles: Option<Weak<RefCell<Roles<'a>>>>,
-    pub parent: Option<Rc<RefCell<Role<'a>>>>,
+    roles: Option<Weak<RefCell<Config<'a>>>>,
+    ssd : Option<Vec<Weak<Role<'a>>>>,
+    pub parents: Option<Vec<Weak<RefCell<Role<'a>>>>>,
     pub name: String,
     pub users: Vec<String>,
     pub groups: Vec<Groups>,
@@ -165,20 +188,45 @@ pub struct Role<'a> {
     pub options: Option<Rc<RefCell<Opt>>>,
 }
 
+
+
 #[derive(Debug, Clone)]
-pub struct Roles<'a> {
+pub struct CookieConstraint {
+    pub offset: Duration,
+    pub timestamptype: String,
+    pub max_usage: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config<'a> {
+    pub config: Option<Weak<RefCell<Config<'a>>>>,
     pub roles: Vec<Rc<RefCell<Role<'a>>>>,
     pub options: Option<Rc<RefCell<Opt>>>,
     pub version: &'a str,
+    pub timestamp: CookieConstraint,
+    pub migrated : bool,
 }
 
-impl<'a> Roles<'a> {
-    pub fn new(version: &str) -> Rc<RefCell<Roles>> {
+impl Default for CookieConstraint {
+    fn default() -> Self {
+        CookieConstraint {
+            offset: Duration::seconds(0),
+            timestamptype: "".to_string(),
+            max_usage: None,
+        }
+    }
+}
+
+impl<'a> Config<'a> {
+    pub fn new(version: &'a str) -> Rc<RefCell<Config<'a>>> {
         Rc::new(
-            Roles {
+            Config {
+                config: None,
                 roles: Vec::new(),
                 options: None,
                 version,
+                timestamp: CookieConstraint::default(),
+                migrated : false,
             }
             .into(),
         )
@@ -203,21 +251,25 @@ impl<'a> Roles<'a> {
 }
 
 impl<'a> Role<'a> {
-    pub fn new(name: String, roles: Option<Weak<RefCell<Roles<'a>>>>) -> Rc<RefCell<Role<'a>>> {
+    pub fn new(name: String, roles: Option<Weak<RefCell<Config<'a>>>>) -> Rc<RefCell<Role<'a>>> {
         Rc::new(
             Role {
                 roles,
                 name,
-                parent: None,
                 users: Vec::new(),
                 groups: Vec::new(),
                 tasks: Vec::new(),
                 options: None,
+                parents: None,
+                ssd : None,
             }
             .into(),
         )
     }
-    pub fn get_roles(&self) -> Option<Rc<RefCell<Roles<'a>>>> {
+    pub fn in_config(&self) -> bool {
+        self.roles.is_some()
+    }
+    pub fn get_config(&self) -> Option<Rc<RefCell<Config<'a>>>> {
         if let Some(roles) = &self.roles {
             return roles.upgrade();
         }
@@ -296,12 +348,13 @@ impl<'a> Task<'a> {
                 capabilities: None,
                 setuid: None,
                 setgid: None,
+                setgroups: None,
                 purpose: None,
             }
             .into(),
         )
     }
-    pub fn get_parent(&self) -> Option<Rc<RefCell<Role<'a>>>> {
+    pub fn get_role(&self) -> Option<Rc<RefCell<Role<'a>>>> {
         self.role.upgrade()
     }
 
@@ -313,7 +366,7 @@ impl<'a> Task<'a> {
         }
 
         if let Some(caps) = &self.capabilities {
-            description.push_str(&format!("Capabilities:\n({})\n", caps.to_string()));
+            description.push_str(&format!("Capabilities:\n({})\n", caps.iter().fold(String::new(), |acc, f| acc + " " + &format!("{:?}", f))));
         }
         if let Some(setuid) = &self.setuid {
             description.push_str(&format!("Setuid:\n({})\n", setuid));
@@ -359,7 +412,9 @@ pub trait Save {
 #[cfg(test)]
 mod tests {
 
-    use crate::options::Level;
+    use capctl::Cap;
+
+    use crate::{options::Level, capset_to_string};
 
     use super::*;
 
@@ -389,7 +444,9 @@ mod tests {
         task.as_ref().borrow_mut().setuid = Some("thesetuid".to_string());
         task.as_ref().borrow_mut().setgid =
             Some(vec!["thesetgid".to_string(), "thesecondsetgid".to_string()].into());
-        task.as_ref().borrow_mut().capabilities = Some(Caps::V2(3));
+        let mut caps = CapSet::empty();
+        caps.add(Cap::DAC_READ_SEARCH);
+        task.as_ref().borrow_mut().capabilities = Some(caps.clone());
         let mut opt = Opt::new(Level::Task);
         opt.path = Some("thepath".to_string());
         opt.disable_bounding = Some(false);
@@ -405,7 +462,7 @@ mod tests {
         assert!(desc.contains("thesetuid"));
         assert!(desc.contains("thesetgid"));
         assert!(desc.contains("thesecondsetgid"));
-        assert!(desc.contains(&Caps::V2(3).to_string()));
+        assert!(desc.contains(&capset_to_string(&caps)));
         assert!(desc.contains("Options"));
         assert!(desc.contains("thepath"));
         assert!(desc.contains("thewildcard-denied"));

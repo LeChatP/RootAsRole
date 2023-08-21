@@ -1,0 +1,15 @@
+
+[workspace]
+members = [
+    "sr",
+    "role-manager",
+    "config-common",
+    "sudoers-reader"
+]
+
+[dependencies]
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+libc = "0.2.139"
+semver = "1.0.18"
+nix = { version = "0.26.2", default-features = false, features = ["user"] }

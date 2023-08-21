@@ -8,6 +8,7 @@ mod options;
 mod rolemanager;
 mod state;
 mod version;
+mod util;
 
 use crate::config::FILENAME;
 use cli::parse_args;

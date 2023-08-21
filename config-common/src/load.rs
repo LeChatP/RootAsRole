@@ -6,14 +6,10 @@ use tracing::warn;
 
 use crate::{
     options::{Level, Opt},
-    util,
     version::PACKAGE_VERSION,
-};
-
-use super::{
     do_in_main_element, get_groups, read_xml_file,
-    structs::{Config, IdTask, Role, Task, TimestampType},
-    version::migrate, libxml2,
+    structs::{Config, IdTask, Role, Task},
+    versioncfg::migrate, libxml2,
 };
 
 trait Load {
@@ -96,7 +92,7 @@ impl Load for Rc<RefCell<Task<'_>>> {
             self.as_ref().borrow_mut().id = IdTask::Name(id.to_string());
         }
         if let Some(capabilities) = node.attribute_value("capabilities") {
-            self.as_ref().borrow_mut().capabilities = Some(util::parse_capset(capabilities)?);
+            self.as_ref().borrow_mut().capabilities = Some(crate::parse_capset(capabilities)?);
         }
         self.as_ref().borrow_mut().setuid =
             node.attribute_value("setuser").map(|setuid| setuid.into());
@@ -223,11 +219,7 @@ impl Load for Rc<RefCell<Config<'_>>> {
         }
 
         if let Some(timestamp_type) = element.attribute_value("timestamp-type") {
-            if let Ok(timestamptype) = timestamp_type.parse::<TimestampType>() {
-                self.as_ref().borrow_mut().timestamp.timestamptype = timestamptype;
-            } else {
-                return Err(format!("Unknown timestamp type: {}", timestamp_type).into());
-            }
+            self.as_ref().borrow_mut().timestamp.timestamptype = timestamp_type.to_string();
         }
 
         if let Some(timestamp) = element.attribute_value("timestamp-timeout") {
@@ -337,7 +329,7 @@ mod tests {
         let capabilities = task.capabilities.to_owned().unwrap();
         assert_eq!(
             capabilities,
-            util::parse_capset("cap_dac_override").unwrap()
+            crate::parse_capset("cap_dac_override").unwrap()
         );
         let task = role.tasks.last().unwrap();
         let task = task.as_ref().borrow();
@@ -393,4 +385,22 @@ mod tests {
         assert_eq!(allowroot.unwrap(), true);
         assert!(task.capabilities.is_none());
     }
+
+    #[test]
+    fn test_load_roles_with_hierarchy() {
+        let roles = load_config(
+            format!(
+                "{}/../tests/resources/test_xml_manager_hierarchy.xml",
+                env!("PWD")
+            )
+            .as_str(),
+        );
+        if let Err(e) = roles {
+            panic!("Unable to load roles: {}", e);
+        }
+        let binding = roles.unwrap();
+        let roles = binding.as_ref().borrow();
+        assert_eq!(roles.roles.len(), 6);
+    }
+        
 }

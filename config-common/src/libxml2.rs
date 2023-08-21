@@ -1,21 +1,12 @@
+
 use std::{ffi::{c_char, c_void, CString, c_int, c_uint, c_ushort, c_ulong, c_long}, ptr};
 
-use pcre2::bytes::{Regex, Captures};
-use va_list::VaList;
-
-
 enum XmlDtd {}
-
 enum XmlNode {}
-
 enum XmlNs {}
-
 enum XmlValidState {}
-
 enum XmlAutomata {}
-
 enum XmlAutomataState {}
-
 enum XmlSAXHandler {}
 enum XmlParserInput {}
 enum XmlParserNodeInfo {}
@@ -28,52 +19,53 @@ enum XmlAttr {}
 enum XmlError {}
 enum XmlParserMode {}
 
+#[repr(C)]
 struct XmlParserCtxt {
     sax: *mut XmlSAXHandler,
-    userData: *mut c_void,
-    myDoc: *mut XmlDoc,
-    wellFormed: c_int,
-    replaceEntities: c_int,
+    user_data: *mut c_void,
+    my_doc: *mut XmlDoc,
+    well_formed: c_int,
+    replace_entities: c_int,
     version: *const c_char,
     encoding: *const c_char,
     standalone: c_int,
     html: c_int,
     input: *mut XmlParserInput,
-    inputNr: c_int,
-    inputMax: c_int,
-    inputTab: *mut *mut XmlParserInput,
+    input_nr: c_int,
+    input_max: c_int,
+    input_tab: *mut *mut XmlParserInput,
     node: *mut XmlNode,
-    nodeNr: c_int,
-    nodeMax: c_int,
-    nodeTab: *mut *mut XmlNode,
+    node_nr: c_int,
+    node_max: c_int,
+    node_tab: *mut *mut XmlNode,
     record_info: c_int,
     node_seq: XmlParserNodeInfoSeq,
-    errNo: c_int,
-    hasExternalSubset: c_int,
-    hasPErefs: c_int,
+    err_no: c_int,
+    has_external_subset: c_int,
+    has_pe_refs: c_int,
     external: c_int,
     valid: c_int,
     validate: c_int,
     vctxt: XmlValidCtxt,
     instate: XmlParserInputState,
     token: c_int,
-    directory: *mut char,
+    directory: *mut c_char,
     name: *const c_char,
-    nameNr: c_int,
-    nameMax: c_int,
-    nameTab: *const *mut c_char,
-    nbChars: c_long,
-    checkIndex: c_long,
-    keepBlanks: c_int,
-    disableSAX: c_int,
-    inSubset: c_int,
-    intSubName: *const c_char,
-    extSubURI: *mut c_char,
-    extSubSystem: *mut c_char,
+    name_nr: c_int,
+    name_max: c_int,
+    name_tab: *const *mut c_char,
+    nb_chars: c_long,
+    check_index: c_long,
+    keep_blanks: c_int,
+    disable_sax: c_int,
+    in_subset: c_int,
+    int_sub_name: *const c_char,
+    ext_sub_uri: *mut c_char,
+    ext_sub_system: *mut c_char,
     space: *mut c_int,
-    spaceNr: c_int,
-    spaceMax: c_int,
-    spaceTab: *mut c_int,
+    space_nr: c_int,
+    space_max: c_int,
+    space_tab: *mut c_int,
     depth: c_int,
     entity: *mut XmlParserInput,
     charset: c_int,
@@ -90,37 +82,37 @@ struct XmlParserCtxt {
     atts: *const *mut c_char,
     maxatts: c_int,
     docdict: c_int,
-    str_Xml: *const c_char,
-    str_Xmlns: *const c_char,
-    str_Xml_ns: *const c_char,
+    str_xml: *const c_char,
+    str_xmlns: *const c_char,
+    str_xml_ns: *const c_char,
     sax2: c_int,
-    nsNr: c_int,
-    nsMax: c_int,
-    nsTab: *const *mut c_char,
+    ns_nr: c_int,
+    ns_max: c_int,
+    ns_tab: *const *mut c_char,
     attallocs: *mut c_int,
-    pushTab: *mut XmlStartTag,
-    attsDefault: *mut XmlHashTable,
-    attsSpecial: *mut XmlHashTable,
-    nsWellFormed: c_int,
+    push_tab: *mut XmlStartTag,
+    atts_default: *mut XmlHashTable,
+    atts_special: *mut XmlHashTable,
+    ns_well_formed: c_int,
     options: c_int,
-    dictNames: c_int,
-    freeElemsNr: c_int,
-    freeElems: *mut XmlNode,
-    freeAttrsNr: c_int,
-    freeAttrs: *mut XmlAttr,
-    lastError: XmlError,
-    parseMode: XmlParserMode,
+    dict_names: c_int,
+    free_elems_nr: c_int,
+    free_elems: *mut XmlNode,
+    free_attrs_nr: c_int,
+    free_attrs: *mut XmlAttr,
+    last_error: XmlError,
+    parse_mode: XmlParserMode,
     nbentities: c_ulong,
     sizeentities: c_ulong,
-    nodeInfo: *mut XmlParserNodeInfo,
-    nodeInfoNr: c_int,
-    nodeInfoMax: c_int,
-    nodeInfoTab: *mut XmlParserNodeInfo,
+    node_info: *mut XmlParserNodeInfo,
+    node_info_nr: c_int,
+    node_info_max: c_int,
+    node_info_tab: *mut XmlParserNodeInfo,
     input_id: c_int,
     sizeentcopy: c_ulong,
-    endCheckState: c_int,
-    nbErrors: c_ushort,
-    nbWarnings: c_ushort,
+    end_check_state: c_int,
+    nb_errors: c_ushort,
+    nb_warnings: c_ushort,
 }
 
 enum XmlElementType {}
@@ -129,20 +121,20 @@ enum _XmlDict {}
 
 #[repr(C)]
 struct XmlValidCtxt {
-    userData: *mut c_void,
+    user_data: *mut c_void,
     error: *mut extern "C" fn (*mut c_void, *const c_char, ...),
     warning: *mut extern "C" fn (*mut c_void, *const c_char, ...),
     node: *mut XmlNode,
-    nodeNr: c_int,
-    nodeMax: c_int,
-    nodeTab: *mut *mut XmlNode,
+    node_nr: c_int,
+    node_max: c_int,
+    node_tab: *mut *mut XmlNode,
     flags: c_uint,
     doc: *mut XmlDoc,
     valid: c_int,
     vstate: *mut XmlValidState,
-    vstateNr: c_int,
-    vstateMax: c_int,
-    vstateTab: *mut XmlValidState,
+    vstate_nr: c_int,
+    vstate_max: c_int,
+    vstate_tab: *mut XmlValidState,
     am: *mut XmlAutomata,
     state: *mut XmlAutomataState,
 }
@@ -160,18 +152,18 @@ struct XmlDoc {
     doc: *mut XmlDoc,
     compression: c_int,
     standalone: c_int,
-    intSubset: *mut XmlDtd,
-    extSubset: *mut XmlDtd,
+    int_subset: *mut XmlDtd,
+    ext_subset: *mut XmlDtd,
     oldns: *mut XmlNs,
     version: *const c_char,
     encoding: *const c_char,
     ids: *mut c_void,
     refs: *mut c_void,
-    URL: *const c_char,
+    url: *const c_char,
     charset: c_int,
     dict: *mut _XmlDict,
     psvi: *mut c_void,
-    parseFlags: c_int,
+    parse_flags: c_int,
     properties: c_int,
 }
 
@@ -221,8 +213,6 @@ extern "C" {
     
 }
 
-const REGEX : &str = r#"(%(?:(?:[-+0 #]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|l|ll|w|I|I32|I64)?[cCdiouxXeEfgGaAnpsSZ])|%%)"#;
-
 /*
 pub(crate) fn validate_Xml_file(filename: &str) -> bool {
     let filename = CString::new(filename).unwrap();
@@ -266,7 +256,7 @@ pub(crate) unsafe fn validate_xml_file(filename: &str, silent : bool) -> bool {
     let options : c_int = if silent {
         XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING
     } else {
-        XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS | XML_PARSE_NONET
+        XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_PEDANTIC
     };
     let doc = xmlCtxtReadFile(ctxt, filename.as_ptr(), ptr::null(), options);
     if doc.is_null() {

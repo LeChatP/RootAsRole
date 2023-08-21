@@ -6,7 +6,7 @@ mod util;
 mod version;
 mod timeout;
 
-use std::{collections::HashMap, env::Vars, ops::Not, io::{stdin, stdout}, os::fd::{AsFd, RawFd, AsRawFd}};
+use std::{collections::HashMap, env::Vars, ops::Not, io::stdout, os::fd::AsRawFd};
 
 use crate::version::PACKAGE_VERSION;
 use capctl::{prctl, Cap, CapState};

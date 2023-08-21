@@ -8,7 +8,7 @@ use sxd_document::dom::{Document, Element};
 
 
 
-use crate::{options::Opt, util::capset_to_string};
+use crate::{options::Opt, capset_to_string};
 
 use super::{
     foreach_element,
@@ -55,7 +55,9 @@ pub fn sxd_sanitize(element: &mut str) -> String {
 pub fn save_config(filename: &str, config: &Config) -> Result<(), Box<dyn Error>> {
     let package = read_xml_file(filename)?;
     let doc = package.as_document();
+    toggle_lock_config(filename, false)?;
     config.save(Some(&doc), None)?;
+    toggle_lock_config(filename, true)?;
     Ok(())
 }
 
@@ -818,7 +820,7 @@ mod tests {
 
     use capctl::{CapSet, Cap};
 
-    use crate::{config::{structs::IdTask, read_xml_file}, options::Level};
+    use crate::{structs::IdTask, read_xml_file, options::Level};
 
     use super::*;
 
