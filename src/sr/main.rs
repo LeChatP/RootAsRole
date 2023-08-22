@@ -157,9 +157,31 @@ fn subsribe() {
         .init();
 }
 
+fn add_dashes() -> Vec<String> {
+    //get current argv
+    let mut args = std::env::args().collect::<Vec<_>>();
+    debug!("args : {:?}", args);
+    let mut i = -1;
+    //iter through args until we find no dash
+    for (pos,arg) in args.iter().enumerate() {
+        if arg.starts_with('-') {
+            continue;
+        } else {
+            // add argument at this position
+            i = pos as i32;
+        }
+    }
+    if i > -1 {
+        args.insert(i as usize, String::from("--"));
+    }
+    debug!("final args : {:?}", args);
+    args
+}
+
 fn main() {
     subsribe();
-    let args = Cli::parse();
+    let args = add_dashes();
+    let args = Cli::parse_from(args.iter());
     read_effective(true).expect("Failed to read_effective");
     let config = load_config(FILENAME).expect("Failed to load config file");
     read_effective(false).expect("Failed to read_effective");
