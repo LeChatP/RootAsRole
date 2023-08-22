@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashSet, ffi::CStr, rc::Rc};
 
 use cursive::{
     view::{Nameable, Scrollable},
-    views::{Dialog, SelectView},
+    views::{Dialog, LinearLayout, SelectView},
     Cursive,
 };
 use libc::{endgrent, endpwent, getgrent, getpwent, setgrent, setpwent};
@@ -260,10 +260,18 @@ where
         }
         if self.checklist {
             let mut select = CheckListView::<String>::new()
-                .on_submit(|s, _b, i| {
-                    let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+                .on_submit(|s, b, i| {
+                    let RoleManagerApp { mut manager, state } = s.take_user_data().unwrap();
+                    if b && manager.get_role().unwrap().as_ref().borrow().user_is_forbidden(i.as_str()) {
+                        manager.set_error("By the static separation of duties rules, this user cannot be granted to this role".into());
+                        return;
+                    }
+
                     if let Some(selected) = manager.selected_actors.as_ref() {
-                        selected.as_ref().borrow_mut().insert(i.to_string());
+                        match b {
+                            true => selected.as_ref().borrow_mut().insert(i.to_string()),
+                            false => selected.as_ref().borrow_mut().remove(i),
+                        };
                     }
                     s.set_user_data(RoleManagerApp { manager, state });
                 })
@@ -320,6 +328,16 @@ where
     V: State + Clone + 'static,
 {
     fn push(&mut self, manager: &mut RoleContext, item: String) {
+        if manager
+            .get_role()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .user_is_forbidden(item.as_str())
+        {
+            manager.set_error("By the static separation of duties rules, this user should not be granted to this role".into());
+            return;
+        }
         if let Some(selected) = manager.selected_actors.as_ref() {
             selected.as_ref().borrow_mut().insert(item);
         }
@@ -472,6 +490,25 @@ where
     }
 
     fn input(mut self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
+        let tmpselected = manager
+            .selected_actors
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if manager
+            .get_role()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .groups_are_forbidden(&tmpselected)
+        {
+            manager.set_error("By the static separation of duties rules, this group combination cannot be granted to this role".into());
+            return self;
+        }
         self.next_state.push(manager, input.as_vec().into());
         manager.selected_actors = None;
         Box::new(self.next_state)
@@ -493,9 +530,10 @@ where
         }
         let mut select = CheckListView::<String>::new()
             .autojump()
-            .on_submit(|s, _, i| {
+            .on_submit(|s, b, i| {
                 if !i.is_empty() {
-                    let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
+                    let RoleManagerApp { mut manager, state } = s.take_user_data().unwrap();
+
                     if let Some(selected) = manager.selected_actors.as_ref() {
                         selected.as_ref().borrow_mut().insert(i.to_owned());
                     }
@@ -512,8 +550,44 @@ where
             add_actors(ActorType::Group, &mut select, None);
         }
 
+        let mut view = LinearLayout::horizontal().child(select.with_name("select").scrollable());
+
+        let tmpselected = manager
+            .selected_actors
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if manager
+            .get_role()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .groups_are_forbidden(&tmpselected)
+        {
+            // set theme in orange
+            let mut theme = cursive.current_theme().clone();
+            theme.palette.set_color(
+                "Background",
+                cursive::theme::Color::Dark(cursive::theme::BaseColor::Yellow),
+            );
+            cursive.set_theme(theme);
+            view.add_child(Dialog::text("By the static separation of duties rules, this group combination cannot be granted to this role"));
+        } else {
+            // set theme in default
+            let mut theme = cursive.current_theme().clone();
+            theme.palette.set_color(
+                "Background",
+                cursive::theme::Color::Dark(cursive::theme::BaseColor::Blue),
+            );
+            cursive.set_theme(theme);
+        }
+
         cursive.add_layer(
-            Dialog::around(select.with_name("select").scrollable())
+            Dialog::around(view)
                 .title("Select Groups combination")
                 .button("Input new group", |s| {
                     execute(s, ExecuteType::Create);

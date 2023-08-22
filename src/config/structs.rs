@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
+use std::ffi::{CStr, CString};
 use std::hash::{Hash, Hasher};
 use std::ops::Index;
 use std::rc::{Rc, Weak};
@@ -8,6 +9,7 @@ use std::str::Split;
 
 use capctl::CapSet;
 use chrono::Duration;
+use nix::unistd::{getgrouplist, Group};
 use sxd_document::dom::{Document, Element};
 
 use crate::util::capset_to_string;
@@ -86,6 +88,21 @@ impl Groups {
     }
     pub fn is_subset(&self, other: &Groups) -> bool {
         self.to_hashset().is_subset(&other.to_hashset())
+    }
+    pub fn is_unix_subset(&self, other: &Vec<Group>) -> bool {
+        let mut remaining = self.groups.clone();
+        for group in other {
+            if remaining.is_empty() {
+                return true;
+            }
+            if let Some(index) = remaining
+                .iter()
+                .position(|x| x == &group.name || x == &group.gid.to_string())
+            {
+                remaining.remove(index);
+            }
+        }
+        remaining.is_empty()
     }
     pub fn len(&self) -> usize {
         self.groups.len()
@@ -334,6 +351,87 @@ impl<'a> Role<'a> {
 
     pub fn remove_task(&mut self, id: IdTask) {
         self.tasks.retain(|x| x.as_ref().borrow().id != id);
+    }
+
+    pub fn groups_are_forbidden(&self, groups: &Vec<String>) -> bool {
+        return match self.ssd.as_ref() {
+            Some(roles) => {
+                let mut vgroups = Vec::new();
+                for group in groups {
+                    match nix::unistd::Group::from_name(&group) {
+                        Ok(Some(nixgroup)) => {
+                            vgroups.push(nixgroup);
+                        }
+                        _ => (),
+                    };
+                }
+                for role in roles.iter() {
+                    if let Some(role) = role.upgrade() {
+                        if role
+                            .groups
+                            .iter()
+                            .any(|group| group.is_unix_subset(&vgroups))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            None => false,
+        };
+    }
+
+    pub fn user_is_forbidden(&self, user: &str) -> bool {
+        return match self.ssd.as_ref() {
+            Some(roles) => match nix::unistd::User::from_name(user) {
+                Ok(Some(nixuser)) => {
+                    let mut groups_to_check = Vec::new();
+                    if let Ok(groups) = getgrouplist(
+                        &CStr::from_bytes_until_nul(nixuser.name.as_bytes())
+                            .expect("Internal Error"),
+                        nixuser.gid,
+                    ) {
+                        for group in groups.iter() {
+                            let group = nix::unistd::Group::from_gid(group.to_owned());
+                            if let Ok(Some(group)) = group {
+                                groups_to_check.push(group);
+                            }
+                        }
+                    }
+                    for role in roles.iter() {
+                        if let Some(role) = role.upgrade() {
+                            if role.users.contains(&nixuser.name)
+                                || role.users.contains(&nixuser.uid.to_string())
+                                || role
+                                    .groups
+                                    .iter()
+                                    .any(|group| group.is_unix_subset(&groups_to_check))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                }
+                Ok(None) => false,
+                Err(_) => false,
+            },
+            None => false,
+        };
+        /*
+        let groups = getgrouplist(CString::from(user) as CStr, group)
+        if let Some(roles) = self.ssd.as_ref() {
+            for role in roles.iter() {
+                if let Some(role) = role.upgrade() {
+                    if role.users.contains(&user.to_string()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+        */
     }
 }
 

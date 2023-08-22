@@ -4,6 +4,7 @@ use cursive::{
     views::{Dialog, LinearLayout, TextArea, TextView},
 };
 
+#[rustfmt::skip]
 #[path = "../../descriptions.rs"]
 mod descriptions;
 

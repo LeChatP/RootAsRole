@@ -1,6 +1,7 @@
 use std::{collections::HashSet, error::Error};
 
 use clap::{Parser, Subcommand};
+use nix::unistd::Group;
 
 use crate::{
     config::{
@@ -169,20 +170,59 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             let mut res = false;
             if let Some(role) = manager.find_role(role.as_str()) {
                 if let Some(user) = &user {
+                    let mut forbidden = Vec::new();
                     for u in user {
+                        if role.as_ref().borrow().user_is_forbidden(u) {
+                            forbidden.push(u.to_owned());
+                            continue;
+                        }
                         if !role.as_ref().borrow().users.contains(u) {
                             role.as_ref().borrow_mut().users.push(u.to_owned());
                         }
                     }
-                    res = true;
+                    if forbidden.is_empty() {
+                        res = true;
+                    } else {
+                        println!("Forbidden users: {:?}", forbidden);
+                        println!("By the static separation of duty, you can't grant these users to this role");
+                    }
                 }
                 if let Some(group) = &group {
-                    role.as_ref().borrow_mut().groups.append(
-                        &mut group
-                            .iter()
-                            .map(|x| Into::<Groups>::into(x.split('&')))
-                            .collect::<Vec<Groups>>(),
-                    );
+                    let mut already = Vec::new();
+                    let mut forbidden = Vec::new();
+                    let mut to_add = group
+                        .iter()
+                        .filter(|x| {
+                            let xgroups = x
+                                .split('&')
+                                .map(|x| match Group::from_name(x) {
+                                    Ok(Some(g)) => Some(g),
+                                    _ => None,
+                                })
+                                .filter(|x| x.is_some())
+                                .map(|x| x.unwrap())
+                                .collect::<Vec<_>>();
+                            for group in role.as_ref().borrow_mut().groups.iter() {
+                                if group.is_unix_subset(&xgroups) {
+                                    already.push(group.to_owned());
+                                    return false;
+                                }
+                            }
+                            true
+                        })
+                        .filter(|x| {
+                            let xgroups =
+                                x.split('&').map(|x| x.to_string()).collect::<Vec<String>>();
+                            if role.as_ref().borrow().groups_are_forbidden(&xgroups) {
+                                forbidden.push(xgroups.to_owned());
+                                false
+                            } else {
+                                true
+                            }
+                        })
+                        .map(|x| Into::<Groups>::into(x.split('&')))
+                        .collect::<Vec<Groups>>();
+                    role.as_ref().borrow_mut().groups.append(&mut to_add);
                     let groups = &role.as_ref().borrow_mut().groups;
                     role.as_ref().borrow_mut().groups = groups
                         .into_iter()
@@ -190,7 +230,19 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                         .into_iter()
                         .map(|x| x.to_owned())
                         .collect::<Vec<_>>();
-                    res = true;
+
+                    if !forbidden.is_empty() {
+                        println!("Forbidden groups: {:?}", forbidden);
+                        println!("By the static separation of duty, you can't grant these groups to this role");
+                    }
+                    if !already.is_empty() {
+                        println!("Groups already granted by their numberical id or name combinaison: {:?}", already);
+                    }
+                    if forbidden.is_empty() && already.is_empty() {
+                        res = true;
+                    } else {
+                        println!("Others groups are successfully granted");
+                    }
                 }
                 if res {
                     manager.save(None, None)?;

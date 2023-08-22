@@ -8,11 +8,10 @@ use std::{
 };
 
 use chrono::{TimeZone, Utc};
-use ciborium::de;
 use nix::{
     libc::dev_t,
     libc::{pid_t, uid_t},
-    sys::signal::{kill, Signal},
+    sys::signal::kill,
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -129,7 +128,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
                 return Ok(());
             }
             pid_contents = i32::from_be_bytes(be);
-            if let Err(err) = kill(nix::unistd::Pid::from_raw(pid_contents), None) {
+            if kill(nix::unistd::Pid::from_raw(pid_contents), None).is_err() {
                 debug!("Lockfile located at {:?} was owned by process {:?}, but not released, remove it, and continuing...", lockfile_path, pid_contents.to_string());
                 fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
                 return Ok(());

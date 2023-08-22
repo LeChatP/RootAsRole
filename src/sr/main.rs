@@ -20,6 +20,7 @@ use nix::{
     unistd::{getgroups, getuid, isatty, setegid, seteuid, setgroups, Group, User},
 };
 use pam_client::{conv_cli::Conversation, Context, Flag};
+#[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
