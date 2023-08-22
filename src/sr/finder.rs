@@ -514,8 +514,13 @@ fn match_groups(groups: &[Group], role_groups: &Vec<Groups>) -> bool {
 
 impl CredMatcher for Rc<RefCell<crate::config::structs::Role<'_>>> {
     fn user_matches(&self, user: &Cred) -> UserMin {
+        
         let borrow = self.as_ref().borrow();
-        if borrow.users.contains(&user.user.name) {
+        if borrow.user_is_forbidden(user.user.name.as_str()) 
+        || borrow.groups_are_forbidden(&user.groups.iter().map(|g| g.name.to_string()).collect()){
+            warn!("You are forbidden to use a role by a conflict of interest, please contact your administrator");
+            UserMin::NoMatch
+        }else if borrow.users.contains(&user.user.name) {
             UserMin::UserMatch
         } else if match_groups(&user.groups, &borrow.groups) {
             UserMin::GroupMatch(user.groups.len())
