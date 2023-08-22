@@ -605,44 +605,69 @@ impl<'a> RoleMatcher<'a> for Rc<RefCell<crate::config::structs::Role<'a>>> {
 impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<'a>>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch<'a>, MatchError> {
         let borrow = self.as_ref().borrow();
-        let user_min = self.user_matches(user);
-        if user_min == UserMin::NoMatch {
+        let mut min_role = TaskMatch {
+            score: Score {
+                user_min: self.user_matches(user),
+                cmd_min: CmdMin::empty(),
+                caps_min: CapsMin::Undefined,
+                setuid_min: SetuidMin::Undefined,
+                security_min: SecurityMin::empty(),
+            },
+            settings: ExecSettings::new(),
+        };
+        let mut nmatch;
+        min_role.score.user_min = self.user_matches(user);
+        if min_role.score.user_min == UserMin::NoMatch {
             return Err(MatchError::NoMatch);
         }
         match self.command_matches(user, command) {
             Ok(mut command_match) => {
-                command_match.score.user_min = user_min;
-                Ok(command_match)
+                command_match.score.user_min = min_role.score.user_min;
+                min_role = command_match;
+                nmatch = 1;
             }
             Err(err) => {
-                if err == MatchError::NoMatch {
-                    debug!("Search in parents");
-                    if let Some(ref parent) = borrow.parents {
-                        for parent in parent.iter() {
-                            let parent = parent.upgrade().expect("Internal Error");
-                            debug!("Search in parent {}", parent.as_ref().borrow().name);
-                            match parent.command_matches(user, command) {
-                                Ok(mut command_match) => {
-                                    command_match.score.user_min = user_min;
-                                    return Ok(command_match);
-                                }
-                                Err(err) => {
-                                    if err == MatchError::NoMatch {
-                                        continue;
-                                    } else {
-                                        return Err(err);
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        debug!("No parent");
-                    }
-                    return Err(MatchError::NoMatch);
+                if err == MatchError::NoMatch && borrow.parents.is_none() {
+                    debug!("No parent");
+                    return Err(err);
                 } else {
                     return Err(err);
+                }   
+            }
+        };
+        debug!("search a better role in parents");
+        if let Some(ref parent) = borrow.parents {
+            for parent in parent.iter() {
+                let parent = parent.upgrade().expect("Internal Error");
+                debug!("Search in parent {}", parent.as_ref().borrow().name);
+                match parent.command_matches(user, command) {
+                    Ok(mut command_match) => {
+                        command_match.score.user_min = min_role.score.user_min;
+                        if min_role.score.cmd_min.is_empty()
+                            || command_match.score < min_role.score
+                        {
+                            min_role = command_match;
+                            nmatch = 1;
+                        } else if command_match.score == min_role.score {
+                            nmatch += 1;
+                        }
+                    }
+                    Err(err) => {
+                        if err == MatchError::NoMatch {
+                            continue;
+                        } else {
+                            return Err(err);
+                        }
+                    }
                 }
             }
+        }
+        if nmatch == 0 {
+            Err(MatchError::NoMatch)
+        } else if nmatch == 1 {
+            Ok(min_role)
+        } else {
+            Err(MatchError::Conflict)
         }
     }
 }
