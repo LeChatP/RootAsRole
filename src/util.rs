@@ -2,9 +2,9 @@ use capctl::{Cap, CapSet, ParseCapError};
 
 pub fn capset_to_string(set: &CapSet) -> String {
     set.iter().fold(String::new(), |mut acc, cap| {
-        acc.push_str(&format!("{:?} ", cap));
+        acc.push_str(&format!("CAP_{:?} ", cap));
         acc
-    })
+    }).trim_end().to_string()
 }
 
 pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
@@ -36,7 +36,7 @@ pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
     }
 
 
-    Ok(parse_capset_iter(s.split(','))?)
+    Ok(parse_capset_iter(s.split(' '))?)
 }
 
 /// Reference every capabilities that lead to almost a direct privilege escalation

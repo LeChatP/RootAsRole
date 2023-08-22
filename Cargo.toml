@@ -3,6 +3,7 @@ name = "RootAsRole"
 version = "3.0.0-alpha.3"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
+default-run = "sr"
 
 #[features]
 #cursive_lib = [ "cursive" ]
@@ -42,4 +43,3 @@ glob = "0.3.1"
 pam-client = { version = "0.5.0" }
 bitflags = { version = "2.4.0" }
 shell-words = "1.1.0"
-

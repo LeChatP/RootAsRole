@@ -1,7 +1,8 @@
 use std::{io::{BufReader, Read, Write}, fs::{File, self}, path::Path, error::Error, time, thread::sleep};
 
 use chrono::{Utc, TimeZone};
-use nix::{libc::dev_t, libc::{pid_t, uid_t}, sys::signal::kill};
+use ciborium::de;
+use nix::{libc::dev_t, libc::{pid_t, uid_t}, sys::signal::{kill, Signal}};
 use serde::{Serialize, Deserialize};
 use tracing::debug;
 use std::str::FromStr;
@@ -29,10 +30,15 @@ impl FromStr for TimestampType {
             "global" => Ok(TimestampType::Global),
             "tty" => Ok(TimestampType::TTY),
             "ppid" => Ok(TimestampType::PPID),
-            _ => Err(()),
+            _ => {
+                debug!("Invalid timestamp type: {}", s);
+                Err(())
+            },
         }
     }
 }
+
+
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
@@ -82,10 +88,33 @@ impl Default for Cookiev1 {
     }
 }
 
-fn wait_for_lockfile(lockfile_path: &Path) {
+fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
     let max_retries = 10;
     let retry_interval = time::Duration::from_secs(1);
-
+    let pid_contents: pid_t;
+    if lockfile_path.exists() {
+        if let Ok(mut lockfile) = File::open(lockfile_path) {
+            let mut be : [u8; 4] = [u8::MAX; 4];
+            if lockfile.read_exact(&mut be).is_err() {
+                debug!("Lockfile located at {:?} is empty, continuing...", lockfile_path);
+                fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
+                return Ok(());
+            }
+            pid_contents = i32::from_be_bytes(be);
+            if let Err(err) = kill(nix::unistd::Pid::from_raw(pid_contents),None) {
+                debug!("Lockfile located at {:?} was owned by process {:?}, but not released, remove it, and continuing...", lockfile_path, pid_contents.to_string());
+                fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
+                return Ok(());
+            }
+        } else {
+            debug!("Lockfile located at {:?} was not found, continuing...", lockfile_path);
+            return Ok(());
+        }
+    } else {
+        debug!("Lockfile located at {:?} was not found, continuing...", lockfile_path);
+        return Ok(());
+    }
+    
     for i in 0..max_retries {
         if lockfile_path.exists() {
             if i > 0 {
@@ -95,29 +124,11 @@ fn wait_for_lockfile(lockfile_path: &Path) {
             sleep(retry_interval);
         } else {
             debug!("Lockfile not found, continuing...");
-            return;
+            return Ok(());
         }
     }
-    if let Ok(mut lockfile) = File::open(lockfile_path) {
-        let mut be : [u8; 4] = [u8::MAX; 4];
-        if lockfile.read_exact(&mut be).is_err() {
-            debug!("Lockfile located at {:?} is empty, continuing...", lockfile_path);
-            fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
-            return;
-        }
-        let pid_contents: pid_t = i32::from_be_bytes(be);
-        if kill(nix::unistd::Pid::from_raw(pid_contents),None).is_ok() {
-            debug!("Lockfile located at {:?} is owned by process {:?}, aborting", lockfile_path, pid_contents.to_string());
-            panic!("Several processes are blocking the lockfile, aborting...");
-        } else {
-            debug!("Lockfile located at {:?} was owned by process {:?}, and not released, continuing...", lockfile_path, pid_contents.to_string());
-            fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
-            return;
-        }
-        
-    }
-    // contents contains pid of the process that created the lockfile
-    // read the contents of the lockfile into pid_contents
+    debug!("Lockfile located at {:?} is owned by process {:?}, and not released, failing", lockfile_path, pid_contents.to_string());
+    return Err("Lockfile was not released".into());
     
 }
 
@@ -135,7 +146,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     if ! path.exists() {
         return Ok(Vec::new());
     }
-    wait_for_lockfile(&lockpath);
+    wait_for_lockfile(&lockpath)?;
     write_lockfile(&lockpath);
     let mut file = File::open(&path)?;
     let reader = BufReader::new(&mut file);
@@ -171,7 +182,8 @@ pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstr
                 if cookie.auth_uid != cred_asked.user.uid.as_raw() || cookie.timestamp_type != constraint.timestamptype.parse().unwrap() {
                     continue;
                 }
-                if Utc.timestamp_opt(cookie.timestamp, 0).unwrap() < Utc::now() + constraint.offset || constraint.max_usage.is_some_and(|max_usage| cookie.usage < max_usage) {
+                let max_usage_ok = constraint.max_usage.is_some() && cookie.usage < constraint.max_usage.unwrap();
+                if Utc.timestamp_opt(cookie.timestamp, 0).unwrap() < Utc::now() + constraint.offset || max_usage_ok  {
                     cookie.timestamp = Utc::now().timestamp();
                     cookie.usage += 1;
                     valid = true;

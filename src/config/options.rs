@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
+use tracing::debug;
+
 use super::structs::{Task, Config, Role};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -301,7 +303,7 @@ impl<'a> OptStack<'a> {
             if let Some(opt) = opt.to_owned() {
                 let res = f(opt.as_ref().borrow().as_ref());
                 if res.is_some() {
-                    println!("res: {:?}", res.as_ref().unwrap().0);
+                    debug!("res: {:?}", res.as_ref().unwrap().0);
                     return res;
                 }
             }

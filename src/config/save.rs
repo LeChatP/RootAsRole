@@ -928,7 +928,7 @@ mod tests {
             .starts_with("test_command"));
         let package = read_xml_file(
             format!(
-                "{}/../tests/resources/test_xml_manager_case1.xml",
+                "{}/tests/resources/test_xml_manager_case1.xml",
                 env!("PWD")
             )
             .as_str(),

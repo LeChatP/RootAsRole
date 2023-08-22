@@ -10,6 +10,8 @@ use capctl::CapSet;
 use chrono::Duration;
 use sxd_document::dom::{Document, Element};
 
+use crate::util::capset_to_string;
+
 use super::options::Opt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -211,7 +213,7 @@ impl Default for CookieConstraint {
     fn default() -> Self {
         CookieConstraint {
             offset: Duration::seconds(0),
-            timestamptype: "".to_string(),
+            timestamptype: "tty".to_string(),
             max_usage: None,
         }
     }
@@ -366,7 +368,7 @@ impl<'a> Task<'a> {
         }
 
         if let Some(caps) = &self.capabilities {
-            description.push_str(&format!("Capabilities:\n({})\n", caps.iter().fold(String::new(), |acc, f| acc + " " + &format!("{:?}", f))));
+            description.push_str(&format!("Capabilities:\n({})\n", capset_to_string(caps)));
         }
         if let Some(setuid) = &self.setuid {
             description.push_str(&format!("Setuid:\n({})\n", setuid));

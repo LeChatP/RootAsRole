@@ -52,13 +52,13 @@ impl Input {
     pub fn as_string(&self) -> String {
         match self {
             Input::String(str) => str.to_string(),
-            Input::Vec(vec) => vec.join(","),
+            Input::Vec(vec) => vec.join(" "),
             Input::Caps(caps) => util::capset_to_string(caps),
         }
     }
     pub fn as_vec(&self) -> Vec<String> {
         match self {
-            Input::String(str) => str.split(',').map(|s| s.to_string()).collect(),
+            Input::String(str) => str.split(' ').map(|s| s.to_string()).collect(),
             Input::Vec(vec) => vec.to_vec(),
             Input::Caps(caps) => util::capset_to_vec(caps),
         }
@@ -242,28 +242,28 @@ mod tests {
 
     #[test]
     fn test_input_string() {
-        let input = Input::String("cap_dac_override,cap_sys_admin".to_string());
+        let input = Input::String("CAP_DAC_OVERRIDE CAP_SYS_ADMIN".to_string());
         assert_eq!(
             input.as_vec(),
-            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+            vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_SYS_ADMIN".to_string()]
         );
         let mut expected = CapSet::empty();
         expected.add(Cap::DAC_OVERRIDE);
         expected.add(Cap::SYS_ADMIN);
         assert_eq!(input.as_caps(), expected);
-        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+        assert_eq!(input.as_string(), "CAP_DAC_OVERRIDE CAP_SYS_ADMIN");
     }
 
     #[test]
     fn test_input_vec() {
         let input = Input::Vec(vec![
-            "cap_dac_override".to_string(),
-            "cap_sys_admin".to_string(),
+            "CAP_DAC_OVERRIDE".to_string(),
+            "CAP_SYS_ADMIN".to_string(),
         ]);
-        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+        assert_eq!(input.as_string(), "CAP_DAC_OVERRIDE CAP_SYS_ADMIN");
         assert_eq!(
             input.as_vec(),
-            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+            vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_SYS_ADMIN".to_string()]
         );
         let mut expected = CapSet::empty();
         expected.add(Cap::DAC_OVERRIDE);
@@ -279,9 +279,9 @@ mod tests {
         let input = Input::Caps(expected);
         assert_eq!(
             input.as_vec(),
-            vec!["cap_dac_override".to_string(), "cap_sys_admin".to_string()]
+            vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_SYS_ADMIN".to_string()]
         );
-        assert_eq!(input.as_string(), "cap_dac_override,cap_sys_admin");
+        assert_eq!(input.as_string(), "CAP_DAC_OVERRIDE CAP_SYS_ADMIN");
         
         assert_eq!(input.as_caps(), expected);
     }

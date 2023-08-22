@@ -139,13 +139,26 @@ fn filter_env_vars(env: Vars, checklist: &[&str], whitelist: &[&str]) -> HashMap
     .collect()
 }
 
-fn main() {
+#[cfg(debug_assertions)]
+fn subsribe() {
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_file(true)
         .with_line_number(true)
         .finish()
         .init();
+}
+
+#[cfg(not(debug_assertions))]
+fn subsribe() {
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .finish()
+        .init();
+}
+
+fn main() {
+    subsribe();
     let args = Cli::parse();
     read_effective(true).expect("Failed to read_effective");
     let config = load_config(FILENAME).expect("Failed to load config file");

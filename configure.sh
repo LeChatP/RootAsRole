@@ -17,11 +17,19 @@ while getopts "yd" opt; do
 	esac
 done
 
+echo "Install Rust"
+if [ $(which rustup >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
+	echo "rustup is installed"
+else
+	curl https://sh.rustup.rs -sSf | sh
+fi
+
 echo "Capabilities & PAM packages installation"
 if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
+	cargo install --no-default-features --force cargo-make
 	apt-get install "${YES}" gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-$(uname -r)
 	if [ -n "${TEST}" ]; then
-		apt-get install "${YES}" build-essential procps curl file git libcriterion-dev
+		echo "no more need to install criterion-dev" >/dev/null
 	fi;
 	if [ -n "${DEBUG}" ]; then
 		apt-get install "${YES}" gdb
@@ -30,19 +38,11 @@ if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then
 		apt-get install "${YES}" gcovr
 	fi;
 elif [ $(which yum >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	echo "yum"
+	cargo install --no-default-features --force cargo-make
 elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	pacman -S "${YES}" gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
+	pacman -S "${YES}" cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
 	if [ -n "${TEST}" ]; then
-		if [ $(which yay >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-			yay -S "${YES}" criterion
-		else
-			git clone https://aur.archlinux.org/criterion.git
-			cd criterion
-			makepkg -si
-			cd ..
-			rm -rf criterion
-		fi;
+		echo "no more need to install criterion-dev" >/dev/null
 	fi;
 	if [ -n "${DEBUG}" ]; then
 		pacman -S "${YES}" gdb

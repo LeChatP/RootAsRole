@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rootasrole [
+	<!ELEMENT rootasrole (roles|options?)*>
+	<!ATTLIST rootasrole version CDATA #REQUIRED>
+	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?|timestamp-timeout?)*>
+	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
+	<!ELEMENT env-check (#PCDATA|EMPTY)*>
+	<!ELEMENT allow-root EMPTY>
+	<!ATTLIST allow-root enforce (true|false) "true">
+	<!ELEMENT allow-bounding EMPTY>
+	<!ATTLIST allow-bounding enforce (true|false) "true">
+	<!ELEMENT wildcard-denied (#PCDATA|EMPTY)*>
+	<!ELEMENT timestamp-timeout (#PCDATA|EMPTY)*>
+	<!ELEMENT path (#PCDATA|EMPTY)*>
+	<!ELEMENT roles (role*)>
+	<!ELEMENT role (actors?|task*|options?)*>
+	<!ATTLIST role
+		name ID #REQUIRED
+		parents IDREFS #IMPLIED>
+	<!ELEMENT actors (user*|group*)>
+	<!ELEMENT user EMPTY>
+	<!ATTLIST user name CDATA #REQUIRED>
+	<!ELEMENT group EMPTY>
+	<!ATTLIST group names CDATA #REQUIRED>
+	<!ELEMENT task (command*|options?|purpose?)*>
+	<!ATTLIST task
+		id ID #IMPLIED
+		capabilities CDATA #IMPLIED
+		setuser CDATA #IMPLIED
+		setgroups CDATA #IMPLIED>
+	<!ELEMENT command (#PCDATA)>
+	<!ATTLIST command
+		regex (true|false) "false">
+	<!ELEMENT purpose (#PCDATA)>
+]>
+<!-- This is a test file -->
+<rootasrole version="3.0.0-alpha.1">
+    <!-- This is a comment -->
+    <roles>
+        <!-- This is a comment -->
+        <role name="test1">
+            <!-- This is a comment -->
+            <actors>
+                <!-- This is a comment -->
+                <user name="test1"/>
+                <!-- This is a comment -->
+            </actors>
+            <!-- This is a comment -->
+            <task id="t1_test1" capabilities="cap_dac_override">
+                <!-- This is a comment -->
+                <command>/bin/ls</command>
+                <!-- This is a comment -->
+                <options>
+                    <!-- This is a comment -->
+                    <path>t1_test1</path>
+                    <!-- This is a comment -->
+                </options>
+                <!-- This is a comment -->
+            </task>
+            <!-- This is a comment -->
+            <task id="t1_test2">
+                <!-- This is a comment -->
+                <command>/bin/ls</command>
+                <!-- This is a comment -->
+                <options>
+                    <!-- This is a comment -->
+                    <path>t1_test2</path>
+                    <!-- This is a comment -->
+                </options>
+                <!-- This is a comment -->
+            </task>
+            <!-- This is a comment -->
+        </role>
+        <!-- This is a comment -->
+        <role name="test2">
+            <!-- This is a comment -->
+            <actors>
+                <user name="test1"/>
+            </actors>
+            <task id="t2_test1">
+                <command>/bin/ls</command>
+                <options>
+                    <allow-root enforce="true"/>
+                    <path>t2_test1</path>
+                </options>
+            </task>
+            <!-- This is a comment -->
+        </role>
+        <!-- This is a comment -->
+    </roles>
+    <!-- This is a comment -->
+</rootasrole>
+<!-- This is a comment -->

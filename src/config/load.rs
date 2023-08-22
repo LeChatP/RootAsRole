@@ -292,7 +292,7 @@ mod tests {
     fn test_load_roles() {
         let roles = load_config(
             format!(
-                "{}/../tests/resources/test_xml_manager_case1.xml",
+                "{}/tests/resources/test_xml_manager_case1.xml",
                 env!("PWD")
             )
             .as_str(),
@@ -392,7 +392,7 @@ mod tests {
     fn test_load_roles_with_hierarchy() {
         let roles = load_config(
             format!(
-                "{}/../tests/resources/test_xml_manager_hierarchy.xml",
+                "{}/tests/resources/test_xml_manager_hierarchy.xml",
                 env!("PWD")
             )
             .as_str(),

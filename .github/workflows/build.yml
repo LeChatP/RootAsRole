@@ -39,8 +39,6 @@ jobs:
       run: sr cat /proc/self/status
   rust-build:
     runs-on: ubuntu-latest
-    env:
-      working-directory: "role-manager"
     steps:
     - uses: actions/checkout@v2
     - name: Install Rust
@@ -68,21 +66,12 @@ jobs:
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
-    - name: Install sr tool
-      run: sudo -E make -e install
-      env:
-        DEBUG: 1
     - name: Add read access on config on rootasrole... Because Github Actions...
       run: sudo chmod a+r /etc/security/rootasrole.xml
     - name: print config
-      run: |
-        sr cat /etc/security/rootasrole.xml
+      run: cat /etc/security/rootasrole.xml
     - name: getenv
       run: env
-    - name: sr getenv
-      run: sr env
-    - name: Print capabilities with sr
-      run: sr cat /proc/self/status
     - name: Build Project
       run: cargo build --release
       working-directory: ${{ env.working-directory }}
