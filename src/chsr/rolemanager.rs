@@ -2,10 +2,14 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::rc::{Rc, Weak};
-use sxd_document::{dom::{Document, Element}};
+use sxd_document::dom::{Document, Element};
 
-
-use crate::config::{structs::{Groups, IdTask, Role, Config, Task, Save}, options::{Opt, OptStack}, save::save_config, FILENAME};
+use crate::config::{
+    options::{Opt, OptStack},
+    save::save_config,
+    structs::{Config, Groups, IdTask, Role, Save, Task},
+    FILENAME,
+};
 pub trait ContextMemento<T> {
     fn restore(&self) -> T;
 }
@@ -372,6 +376,6 @@ impl Save for RoleContext {
         _doc: Option<&Document>,
         _element: Option<&Element>,
     ) -> Result<bool, Box<dyn Error>> {
-        save_config(FILENAME,&self.roles.as_ref().borrow()).map(|_| true)
+        save_config(FILENAME, &self.roles.as_ref().borrow()).map(|_| true)
     }
 }

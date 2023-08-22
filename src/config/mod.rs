@@ -1,13 +1,13 @@
 pub mod load;
+pub mod options;
 pub mod save;
 pub mod structs;
-pub mod options;
 
-mod version;
 #[allow(dead_code)]
 mod libxml2;
+mod version;
 
-use capctl::{CapSet, ParseCapError, Cap};
+use capctl::{Cap, CapSet, ParseCapError};
 
 use std::{error::Error, fs::File, io::Read};
 
@@ -44,7 +44,11 @@ where
     Ok(())
 }
 
-pub(crate) fn do_in_main_element<F>(doc: Document, name: &str, mut f: F) -> Result<(), Box<dyn Error>>
+pub(crate) fn do_in_main_element<F>(
+    doc: Document,
+    name: &str,
+    mut f: F,
+) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(ChildOfRoot) -> Result<(), Box<dyn Error>>,
 {
@@ -68,10 +72,13 @@ pub(crate) fn get_groups(node: Element) -> Groups {
 }
 
 pub fn capset_to_string(set: &CapSet) -> String {
-    set.iter().fold(String::new(), |mut acc, cap| {
-        acc.push_str(&format!("CAP_{:?} ", cap));
-        acc
-    }).trim_end().to_string()
+    set.iter()
+        .fold(String::new(), |mut acc, cap| {
+            acc.push_str(&format!("CAP_{:?} ", cap));
+            acc
+        })
+        .trim_end()
+        .to_string()
 }
 
 pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
@@ -162,6 +169,5 @@ mod tests {
         assert_eq!(
             capset_to_string(&set),
             "CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_FSETID CAP_KILL CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_LINUX_IMMUTABLE CAP_NET_BIND_SERVICE CAP_NET_BROADCAST CAP_NET_ADMIN CAP_NET_RAW CAP_IPC_LOCK CAP_IPC_OWNER CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_CHROOT CAP_SYS_PTRACE CAP_SYS_PACCT CAP_SYS_ADMIN CAP_SYS_BOOT CAP_SYS_NICE CAP_SYS_RESOURCE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_MKNOD CAP_LEASE CAP_AUDIT_WRITE CAP_AUDIT_CONTROL CAP_SETFCAP CAP_MAC_OVERRIDE CAP_MAC_ADMIN CAP_SYSLOG CAP_WAKE_ALARM CAP_BLOCK_SUSPEND CAP_AUDIT_READ");
-
-        }
+    }
 }

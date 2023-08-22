@@ -1,5 +1,7 @@
-
-use std::{ffi::{c_char, c_void, CString, c_int, c_uint, c_ushort, c_ulong, c_long}, ptr};
+use std::{
+    ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort, c_void, CString},
+    ptr,
+};
 
 enum XmlDtd {}
 enum XmlNode {}
@@ -122,8 +124,8 @@ enum _XmlDict {}
 #[repr(C)]
 struct XmlValidCtxt {
     user_data: *mut c_void,
-    error: *mut extern "C" fn (*mut c_void, *const c_char, ...),
-    warning: *mut extern "C" fn (*mut c_void, *const c_char, ...),
+    error: *mut extern "C" fn(*mut c_void, *const c_char, ...),
+    warning: *mut extern "C" fn(*mut c_void, *const c_char, ...),
     node: *mut XmlNode,
     node_nr: c_int,
     node_max: c_int,
@@ -180,29 +182,21 @@ static XML_PARSE_PEDANTIC: c_int = 128;
 static XML_PARSE_NOBLANKS: c_int = 256;
 static XML_PARSE_NONET: c_int = 2048;
 
-
 #[link(name = "xml2")]
 extern "C" {
-    
-    fn xmlParseFile(
-        filename: *const ::std::os::raw::c_char
-    ) -> *mut XmlDoc;
+
+    fn xmlParseFile(filename: *const ::std::os::raw::c_char) -> *mut XmlDoc;
     fn xmlFreeDoc(cur: *mut XmlDoc);
     fn xmlNewValidCtxt() -> *mut XmlValidCtxt;
     fn xmlFreeValidCtxt(ctxt: *mut XmlValidCtxt);
-    fn xmlValidateDocument(
-        ctxt: *mut XmlValidCtxt,
-        doc: *mut XmlDoc,
-    ) -> ::std::os::raw::c_int;
-    fn xmlGetIntSubset(
-        doc: *mut XmlDoc,
-    ) -> *mut XmlDtd;
+    fn xmlValidateDocument(ctxt: *mut XmlValidCtxt, doc: *mut XmlDoc) -> ::std::os::raw::c_int;
+    fn xmlGetIntSubset(doc: *mut XmlDoc) -> *mut XmlDtd;
     fn xmlValidateDtd(
         ctxt: *mut XmlValidCtxt,
         doc: *mut XmlDoc,
         dtd: *mut XmlDtd,
     ) -> ::std::os::raw::c_int;
-    fn xmlValidityErrorFunc(ctx : *mut c_void, msg: *const c_char, ...) -> ();
+    fn xmlValidityErrorFunc(ctx: *mut c_void, msg: *const c_char, ...) -> ();
     fn xmlNewParserCtxt() -> *mut XmlParserCtxt;
     fn xmlCtxtReadFile(
         ctxt: *mut XmlParserCtxt,
@@ -210,7 +204,7 @@ extern "C" {
         encoding: *const c_char,
         options: c_int,
     ) -> *mut XmlDoc;
-    
+
 }
 
 /*
@@ -231,7 +225,7 @@ pub(crate) fn validate_Xml_file(filename: &str) -> bool {
         return false;
     }
     let ret = unsafe { XmlValidateDocument(ctxt.0, doc) };
-    
+
     if ret != 1 {
         unsafe {
             XmlFreeDoc(doc);
@@ -246,15 +240,19 @@ pub(crate) fn validate_Xml_file(filename: &str) -> bool {
         XmlFreeValidCtxt(ctxt.0);
     }
     ret == 1
-    
+
 }
 */
 
-pub(crate) unsafe fn validate_xml_file(filename: &str, silent : bool) -> bool {
+pub(crate) unsafe fn validate_xml_file(filename: &str, silent: bool) -> bool {
     let ctxt = xmlNewParserCtxt();
     let filename = CString::new(filename).unwrap();
-    let options : c_int = if silent {
-        XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING
+    let options: c_int = if silent {
+        XML_PARSE_DTDVALID
+            | XML_PARSE_NOBLANKS
+            | XML_PARSE_NONET
+            | XML_PARSE_NOERROR
+            | XML_PARSE_NOWARNING
     } else {
         XML_PARSE_DTDVALID | XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_PEDANTIC
     };

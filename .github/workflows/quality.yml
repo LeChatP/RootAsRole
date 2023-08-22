@@ -60,8 +60,6 @@ jobs:
           sarif_file: results.sarif
   rust-quality-gate:
     name: Rust Quality Gate
-    env:
-      working-directory: "role-manager"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -75,7 +73,6 @@ jobs:
       
       - name: Build code
         run: cargo build --all --release
-        working-directory: ${{ env.working-directory }}
       
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt
@@ -86,18 +83,15 @@ jobs:
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
-        working-directory: ${{ env.working-directory }}
 
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v1
         with:
-          sarif_file: ${{ env.working-directory }}/rust-clippy-results.sarif
+          sarif_file: ./rust-clippy-results.sarif
           wait-for-processing: true
 
   rust-format:
     name: Rust Formatting Gate
-    env:
-      working-directory: "role-manager"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -110,15 +104,11 @@ jobs:
           override: true
       - name: Build code
         run: cargo build --all --release
-        working-directory: ${{ env.working-directory }}
       - name: Format code with Rustfmt
         run: cargo fmt --all -- --check
-        working-directory: ${{ env.working-directory }}
 
   rust-security:
     name: Rust Security Gate
-    env:
-      working-directory: "role-manager"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -132,5 +122,4 @@ jobs:
       
       - name: Cargo audit
         run: cargo audit --json | tee cargo-audit.json
-        working-directory: ${{ env.working-directory }}
         id: cargo-audit

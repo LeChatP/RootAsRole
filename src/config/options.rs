@@ -2,7 +2,7 @@ use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 use tracing::debug;
 
-use super::structs::{Task, Config, Role};
+use super::structs::{Config, Role, Task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Level {
@@ -509,8 +509,8 @@ impl<'a> OptStack<'a> {
 mod tests {
     use crate::xml_version::PACKAGE_VERSION;
 
-    use super::super::structs::*;
     use super::super::options::*;
+    use super::super::structs::*;
 
     #[test]
     fn test_find_in_options() {

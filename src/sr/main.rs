@@ -1,24 +1,29 @@
 mod command;
-mod finder;
-#[path="../util.rs"]
-mod util;
-mod timeout;
-#[path="../config/mod.rs"]
+#[path = "../config/mod.rs"]
 mod config;
-#[path="../xml_version.rs"]
+mod finder;
+mod timeout;
+#[path = "../util.rs"]
+mod util;
+#[path = "../xml_version.rs"]
 mod xml_version;
 
-use std::{collections::HashMap, env::Vars, ops::Not, io::stdout, os::fd::AsRawFd};
+use std::{collections::HashMap, env::Vars, io::stdout, ops::Not, os::fd::AsRawFd};
 
-use xml_version::PACKAGE_VERSION;
 use capctl::{prctl, Cap, CapState};
 use clap::Parser;
 use config::{load::load_config, FILENAME};
 use finder::{Cred, TaskMatcher};
-use nix::{unistd::{User, getuid, Group, seteuid, setegid, setgroups, getgroups, isatty}, libc::{PATH_MAX, dev_t}, sys::stat};
-use pam_client::{Context, conv_cli::Conversation, Flag};
+use nix::{
+    libc::{dev_t, PATH_MAX},
+    sys::stat,
+    unistd::{getgroups, getuid, isatty, setegid, seteuid, setgroups, Group, User},
+};
+use pam_client::{conv_cli::Conversation, Context, Flag};
+use std::panic::set_hook;
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
+use xml_version::PACKAGE_VERSION;
 
 #[derive(Parser, Debug)]
 #[command(name = "RootAsRole")]
@@ -155,6 +160,11 @@ fn subsribe() {
         .with_max_level(Level::INFO)
         .finish()
         .init();
+    set_hook(Box::new(|info| {
+        if let Some(s) = info.payload().downcast_ref::<String>() {
+            println!("{}", s);
+        }
+    }));
 }
 
 fn add_dashes() -> Vec<String> {
@@ -163,8 +173,12 @@ fn add_dashes() -> Vec<String> {
     debug!("args : {:?}", args);
     let mut i = -1;
     //iter through args until we find no dash
-    for (pos,arg) in args.iter().enumerate() {
+    let mut iter = args.iter().enumerate();
+    while let Some((pos, arg)) = iter.next() {
         if arg.starts_with('-') {
+            if arg == "-r" {
+                iter.next();
+            }
             continue;
         } else {
             // add argument at this position
@@ -186,39 +200,55 @@ fn main() {
     let config = load_config(FILENAME).expect("Failed to load config file");
     read_effective(false).expect("Failed to read_effective");
     debug!("loaded config : {:#?}", config);
-    let user = User::from_uid(getuid()).expect("Failed to get user").expect("Failed to get user");
-    let mut groups = getgroups().expect("Failed to get groups").iter().map(|g| Group::from_gid(*g).expect("Failed to get group").expect("Failed to get group")).collect::<Vec<_>>();
-    groups.insert(0,Group::from_gid(user.gid).expect("Failed to get group").expect("Failed to get group"));
-    debug!(
-        "User: {} ({}), Groups: {:?}",
-        user.name,
-        user.uid,
-        groups,
+    let user = User::from_uid(getuid())
+        .expect("Failed to get user")
+        .expect("Failed to get user");
+    let mut groups = getgroups()
+        .expect("Failed to get groups")
+        .iter()
+        .map(|g| {
+            Group::from_gid(*g)
+                .expect("Failed to get group")
+                .expect("Failed to get group")
+        })
+        .collect::<Vec<_>>();
+    groups.insert(
+        0,
+        Group::from_gid(user.gid)
+            .expect("Failed to get group")
+            .expect("Failed to get group"),
     );
+    debug!("User: {} ({}), Groups: {:?}", user.name, user.uid, groups,);
     let mut tty: Option<dev_t> = None;
-    if let Ok(stat) =  stat::fstat(stdout().as_raw_fd()) {
+    if let Ok(stat) = stat::fstat(stdout().as_raw_fd()) {
         if let Ok(istty) = isatty(stdout().as_raw_fd()) {
             if istty {
                 tty = Some(stat.st_rdev);
             }
-        } 
+        }
     }
     // get parent pid
     let ppid = nix::unistd::getppid();
 
-    let user = Cred { user, groups, tty, ppid  };
-    
+    let user = Cred {
+        user,
+        groups,
+        tty,
+        ppid,
+    };
+
     dac_override_effective(true).expect("Failed to dac_override_effective");
     let is_valid = timeout::is_valid(&user, &user, &config.as_ref().borrow().timestamp);
-    dac_override_effective(false).expect("Failed to dac_override_effective");
     debug!("need to re-authenticate : {}", !is_valid);
-    if !is_valid  {
-        
-        let mut context = Context::new("sr", Some(&user.user.name), Conversation::new()).expect("Failed to initialize PAM");
+    if !is_valid {
+        let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
+            .expect("Failed to initialize PAM");
         context.authenticate(Flag::NONE).expect("Permission Denied");
         context.acct_mgmt(Flag::NONE).expect("Permission Denied");
-        timeout::add_cookie(&user, &user).expect("Failed to add cookie");
+        timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
+            .expect("Failed to add cookie");
     }
+    dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching = match args.role {
         None => config
             .matches(&user, &args.command)
@@ -263,7 +293,9 @@ fn main() {
 
     //setuid
     if let Some(setuid) = matching.setuid() {
-        let newuser = User::from_name(setuid).expect("Failed to get user").expect("Failed to get user");
+        let newuser = User::from_name(setuid)
+            .expect("Failed to get user")
+            .expect("Failed to get user");
         setuid_effective(true).expect("Failed to setuid_effective");
         seteuid(newuser.uid).expect("Failed to seteuid");
     }
@@ -271,10 +303,15 @@ fn main() {
     //setgid
     if let Some(setgid) = matching.setgroups() {
         setgid_effective(true).expect("Failed to setgid_effective");
-        let groupsid : Vec<_> = setgid
+        let groupsid: Vec<_> = setgid
             .groups
             .iter()
-            .map(|g| Group::from_name(g).expect("Failed to retrieve setgroups").expect("Failed to retrieve setgroups").gid)
+            .map(|g| {
+                Group::from_name(g)
+                    .expect("Failed to retrieve setgroups")
+                    .expect("Failed to retrieve setgroups")
+                    .gid
+            })
             .collect();
         setegid(groupsid[0]).expect("Failed to setegid");
         setgroups(&groupsid).expect("Failed to setgroups");

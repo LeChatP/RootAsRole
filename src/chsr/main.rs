@@ -2,22 +2,21 @@
 
 mod checklist;
 mod cli;
+#[path = "../config/mod.rs"]
+mod config;
 mod rolemanager;
 mod state;
-#[path="../xml_version.rs"]
-mod xml_version;
-#[path="../config/mod.rs"]
-mod config;
-#[path="../util.rs"]
+#[path = "../util.rs"]
 mod util;
+#[path = "../xml_version.rs"]
+mod xml_version;
 
 use cli::parse_args;
+use config::FILENAME;
 use cursive::Cursive;
 use rolemanager::RoleContext;
 use state::{role::SelectRoleState, InitState};
 use tracing_subscriber::FmtSubscriber;
-use config::FILENAME;
-
 
 pub enum ActorType {
     User,

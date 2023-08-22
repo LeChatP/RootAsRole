@@ -297,7 +297,9 @@ impl State for EditTaskState {
                 purpose.push_str(format!("Setgid : {}\n", setgid.join(",")).as_str());
             }
             if let Some(caps) = &task.as_ref().borrow().capabilities {
-                purpose.push_str(format!("Capabilities : {}\n", util::capset_to_string(caps)).as_str());
+                purpose.push_str(
+                    format!("Capabilities : {}\n", util::capset_to_string(caps)).as_str(),
+                );
             }
         } else {
             purpose = "".to_string();

@@ -187,16 +187,13 @@ fn add_actors(
         for user in already_in_list
             .into_iter()
             .collect::<HashSet<_>>()
-            .difference(
-                &actors
-                    .into_iter()
-                    .collect::<HashSet<_>>(),
-            )
+            .difference(&actors.into_iter().collect::<HashSet<_>>())
         {
             view.add_item(user.to_string(), true, user.to_string());
         }
-    } else { return };
-    
+    } else {
+        return;
+    };
 }
 
 fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
@@ -483,7 +480,13 @@ where
     fn render(&self, manager: &mut RoleContext, cursive: &mut Cursive) {
         if manager.selected_actors.is_none() {
             if let Some(selected) = &self.selected {
-                manager.selected_actors = Some(Rc::new(RefCell::new(selected.groups.iter().map(|s|s.to_string()).collect::<HashSet<_>>())));
+                manager.selected_actors = Some(Rc::new(RefCell::new(
+                    selected
+                        .groups
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<HashSet<_>>(),
+                )));
             } else {
                 manager.selected_actors = Some(Rc::new(RefCell::new(HashSet::new())));
             }

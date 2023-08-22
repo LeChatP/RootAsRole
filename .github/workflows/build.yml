@@ -73,8 +73,8 @@ jobs:
     - name: getenv
       run: env
     - name: Build Project
-      run: cargo build --release
-      working-directory: ${{ env.working-directory }}
-    - name: Run Project
-      run: cargo run --release -- -h
-      working-directory: ${{ env.working-directory }}
+      run: cargo make release
+    - name: Run Sr
+      run: /usr/bin/sr -h
+    - name: Run Chsr
+      run: /usr/bin/chsr -h

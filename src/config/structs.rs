@@ -181,7 +181,7 @@ pub struct Task<'a> {
 #[derive(Debug, Clone)]
 pub struct Role<'a> {
     roles: Option<Weak<RefCell<Config<'a>>>>,
-    ssd : Option<Vec<Weak<Role<'a>>>>,
+    ssd: Option<Vec<Weak<Role<'a>>>>,
     pub parents: Option<Vec<Weak<RefCell<Role<'a>>>>>,
     pub name: String,
     pub users: Vec<String>,
@@ -189,8 +189,6 @@ pub struct Role<'a> {
     pub tasks: Vec<Rc<RefCell<Task<'a>>>>,
     pub options: Option<Rc<RefCell<Opt>>>,
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct CookieConstraint {
@@ -206,7 +204,7 @@ pub struct Config<'a> {
     pub options: Option<Rc<RefCell<Opt>>>,
     pub version: &'a str,
     pub timestamp: CookieConstraint,
-    pub migrated : bool,
+    pub migrated: bool,
 }
 
 impl Default for CookieConstraint {
@@ -228,7 +226,7 @@ impl<'a> Config<'a> {
                 options: None,
                 version,
                 timestamp: CookieConstraint::default(),
-                migrated : false,
+                migrated: false,
             }
             .into(),
         )
@@ -263,7 +261,7 @@ impl<'a> Role<'a> {
                 tasks: Vec::new(),
                 options: None,
                 parents: None,
-                ssd : None,
+                ssd: None,
             }
             .into(),
         )
@@ -416,7 +414,7 @@ mod tests {
 
     use capctl::Cap;
 
-    use super::super::{options::Level, capset_to_string};
+    use super::super::{capset_to_string, options::Level};
 
     use super::*;
 

@@ -3,10 +3,13 @@ use std::{collections::HashSet, error::Error};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    config::{structs::{Groups, IdTask, Save}, options::{OptType, OptValue}},
+    config::{
+        options::{OptType, OptValue},
+        structs::{Groups, IdTask, Save},
+    },
     rolemanager::RoleContext,
-    xml_version::PACKAGE_VERSION,
     util,
+    xml_version::PACKAGE_VERSION,
 };
 
 //chsr newrole "role1" --user "user1" --group "group1" "group2"

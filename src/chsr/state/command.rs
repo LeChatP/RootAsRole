@@ -4,16 +4,13 @@ use cursive::{
     views::{Dialog, LinearLayout, TextArea, TextView},
 };
 
-#[path="../../descriptions.rs"]
+#[path = "../../descriptions.rs"]
 mod descriptions;
 
 use super::{execute, task::EditTaskState, ExecuteType, Input, State};
-use crate::{
-    checklist::CheckListView,
-    Cursive, RoleContext,
-};
+use crate::{checklist::CheckListView, Cursive, RoleContext};
 
-use capctl::{CapSet, Cap};
+use capctl::{Cap, CapSet};
 
 pub struct EditCapabilitiesState;
 
@@ -71,7 +68,9 @@ impl State for EditCapabilitiesState {
         let mut layout = LinearLayout::new(Orientation::Horizontal);
         layout.add_child(select.with_name("capabilities").scrollable());
 
-        layout.add_child(TextView::new(descriptions::get_capability_description(&Cap::CHOWN)).with_name("info"));
+        layout.add_child(
+            TextView::new(descriptions::get_capability_description(&Cap::CHOWN)).with_name("info"),
+        );
         cursive.add_layer(Dialog::around( layout)
         .title("Select capabilities, CTRL+A to check all, CTRL+U to uncheck all and CTRL+D to invert selection")
         .button("Ok",  move|s| {

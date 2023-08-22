@@ -9,13 +9,19 @@ use std::{
 
 use capctl::CapSet;
 use glob::Pattern;
-use nix::{unistd::{Group, User, Pid}, libc::dev_t};
+use nix::{
+    libc::dev_t,
+    unistd::{Group, Pid, User},
+};
 use pcre2::bytes::RegexBuilder;
 use tracing::{debug, warn};
 
 use crate::{
     command::parse_conf_command,
-    config::{structs::{Config, Groups, Role, Task},options::{Opt, OptStack}},
+    config::{
+        options::{Opt, OptStack},
+        structs::{Config, Groups, Role, Task},
+    },
     util::capabilities_are_exploitable,
 };
 use bitflags::bitflags;
@@ -48,8 +54,8 @@ impl<'a> Error for MatchError {
 pub struct Cred {
     pub user: User,
     pub groups: Vec<Group>,
-    pub tty : Option<dev_t>,
-    pub ppid : Pid,
+    pub tty: Option<dev_t>,
+    pub ppid: Pid,
 }
 
 #[derive(Clone, Debug)]
@@ -179,7 +185,6 @@ pub struct TaskMatch<'a> {
 }
 
 impl<'a> TaskMatch<'a> {
-
     pub fn file_exec_path(&self) -> &String {
         &self.settings.exec_path
     }

@@ -1,10 +1,13 @@
 use capctl::{Cap, CapSet, ParseCapError};
 
 pub fn capset_to_string(set: &CapSet) -> String {
-    set.iter().fold(String::new(), |mut acc, cap| {
-        acc.push_str(&format!("CAP_{:?} ", cap));
-        acc
-    }).trim_end().to_string()
+    set.iter()
+        .fold(String::new(), |mut acc, cap| {
+            acc.push_str(&format!("CAP_{:?} ", cap));
+            acc
+        })
+        .trim_end()
+        .to_string()
 }
 
 pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
@@ -34,7 +37,6 @@ pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
     if s.is_empty() || s.eq_ignore_ascii_case("all") {
         return Ok(!CapSet::empty());
     }
-
 
     Ok(parse_capset_iter(s.split(' '))?)
 }

@@ -12,8 +12,8 @@ use cursive::{
     Cursive,
 };
 
-use capctl::CapSet;
 use crate::util;
+use capctl::CapSet;
 
 use crate::{rolemanager::RoleContext, RoleManagerApp};
 
@@ -282,7 +282,7 @@ mod tests {
             vec!["CAP_DAC_OVERRIDE".to_string(), "CAP_SYS_ADMIN".to_string()]
         );
         assert_eq!(input.as_string(), "CAP_DAC_OVERRIDE CAP_SYS_ADMIN");
-        
+
         assert_eq!(input.as_caps(), expected);
     }
 

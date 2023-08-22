@@ -1,20 +1,19 @@
 use std::{
     borrow::{Borrow, BorrowMut},
     collections::HashSet,
-    error::Error, fs::File, os::fd::AsRawFd,
+    error::Error,
+    fs::File,
+    os::fd::AsRawFd,
 };
 
 use sxd_document::dom::{Document, Element};
 
-
-
-use super::{options::Opt, capset_to_string};
+use super::{capset_to_string, options::Opt};
 
 use super::{
-    foreach_element,
-    structs::{Groups, IdTask, Role, Config, Save, Task, ToXml}, read_xml_file,
+    foreach_element, read_xml_file,
+    structs::{Config, Groups, IdTask, Role, Save, Task, ToXml},
 };
-
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 const FS_IOC_GETFLAGS: u64 = 0x80086601;
@@ -41,8 +40,6 @@ fn toggle_lock_config(file: &str, lock: bool) -> Result<(), String> {
     Ok(())
 }
 
-
-
 pub fn sxd_sanitize(element: &mut str) -> String {
     element
         .replace('&', "&amp;")
@@ -60,7 +57,6 @@ pub fn save_config(filename: &str, config: &Config) -> Result<(), Box<dyn Error>
     toggle_lock_config(filename, true)?;
     Ok(())
 }
-
 
 impl<'a> Save for Config<'a> {
     fn save(
@@ -331,8 +327,6 @@ impl<'a> Save for Role<'a> {
         Ok(edited)
     }
 }
-
-
 
 impl<'a> Save for Task<'a> {
     fn save(
@@ -780,10 +774,10 @@ impl ToXml for Opt {
 mod tests {
     use std::rc::Rc;
 
-    use capctl::{CapSet, Cap};
-    use super::super::structs::*;
     use super::super::options::*;
+    use super::super::structs::*;
     use super::*;
+    use capctl::{Cap, CapSet};
 
     #[test]
     fn test_save() {
@@ -927,11 +921,7 @@ mod tests {
             .text()
             .starts_with("test_command"));
         let package = read_xml_file(
-            format!(
-                "{}/tests/resources/test_xml_manager_case1.xml",
-                env!("PWD")
-            )
-            .as_str(),
+            format!("{}/tests/resources/test_xml_manager_case1.xml", env!("PWD")).as_str(),
         )
         .unwrap();
         let doc = package.as_document();

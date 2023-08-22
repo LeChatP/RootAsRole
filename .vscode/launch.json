@@ -58,22 +58,6 @@
                     "ignoreFailures": true
                 }
             ],
-        },
-        {
-                    "type": "lldb",
-                    "request": "launch",
-                    "name": "Debug",
-                    "cargo": {
-                        "args": [
-                            "run"
-                        ],
-                        "filter": {
-                            "name": "role-manager",
-                            "kind": "bin"
-                        }
-                    },
-                    "args": [],
-                    "cwd": "${workspaceFolder}/role-manager/"
-                }
+        }
     ]
 }

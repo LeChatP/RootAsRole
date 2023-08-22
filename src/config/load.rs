@@ -5,11 +5,11 @@ use sxd_document::dom::Element;
 use tracing::warn;
 
 use super::{
+    do_in_main_element, get_groups, libxml2,
     options::{Level, Opt},
-    do_in_main_element, get_groups, read_xml_file,
+    parse_capset, read_xml_file,
     structs::{Config, IdTask, Role, Task},
-    version::migrate, libxml2,
-    parse_capset
+    version::migrate,
 };
 
 use crate::xml_version::PACKAGE_VERSION;
@@ -225,13 +225,13 @@ impl Load for Rc<RefCell<Config<'_>>> {
         }
 
         if let Some(timestamp) = element.attribute_value("timestamp-timeout") {
-            self.as_ref().borrow_mut().timestamp.offset = Duration::seconds(timestamp.parse::<i64>()?);
+            self.as_ref().borrow_mut().timestamp.offset =
+                Duration::seconds(timestamp.parse::<i64>()?);
         }
 
         if let Some(usage_max) = element.attribute_value("password-usage-max") {
             self.as_ref().borrow_mut().timestamp.max_usage = Some(usage_max.parse::<u32>()?);
         }
-
 
         for role in element.children() {
             if let Some(element) = role.element() {
@@ -263,7 +263,7 @@ impl Load for Rc<RefCell<Config<'_>>> {
 }
 
 pub(crate) fn load_config<'a>(filename: &str) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>> {
-    if ! unsafe { libxml2::validate_xml_file(filename, true) } {
+    if !unsafe { libxml2::validate_xml_file(filename, true) } {
         return Err("Invalid XML file".into());
     }
     let package = read_xml_file(filename)?;
@@ -291,11 +291,7 @@ mod tests {
     #[test]
     fn test_load_roles() {
         let roles = load_config(
-            format!(
-                "{}/tests/resources/test_xml_manager_case1.xml",
-                env!("PWD")
-            )
-            .as_str(),
+            format!("{}/tests/resources/test_xml_manager_case1.xml", env!("PWD")).as_str(),
         );
         if let Err(e) = roles {
             panic!("Unable to load roles: {}", e);
@@ -404,5 +400,4 @@ mod tests {
         let roles = binding.as_ref().borrow();
         assert_eq!(roles.roles.len(), 6);
     }
-        
 }
