@@ -264,7 +264,7 @@ fn match_path(
             new_path = env_path;
         }
     }
-    let mut role_path = PathBuf::from(role_path);
+    let mut role_path = std::fs::canonicalize(role_path).unwrap_or(PathBuf::from(role_path.clone()));
     if !role_path.is_absolute() {
         if let Some(env_path) = find_from_envpath(&role_path) {
             role_path = env_path;
@@ -291,7 +291,9 @@ fn match_args(input_args: &[String], role_args: &[String]) -> Result<CmdMin, Box
     }
     let commandline = shell_words::join(input_args);
     let role_args = shell_words::join(role_args);
+    debug!("Matching args {:?} with {:?}", commandline, role_args);
     if commandline != role_args {
+        debug!("test regex");
         let regex = RegexBuilder::new().build(&role_args)?;
         if regex.is_match(commandline.as_bytes())? {
             return Ok(CmdMin::RegexArgs);
@@ -704,5 +706,76 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<Config<'a>>> {
             );
             Ok(tasks[0].clone())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use capctl::Cap;
+    use test_log::test;
+
+    use super::*;
+
+    #[test]
+    fn test_match_path() {
+        let mut result = CmdMin::empty();
+        assert!(match_path(&"/bin/ls".to_string(), &"/bin/ls".to_string(), &mut result).is_ok());
+        assert_eq!(result, CmdMin::Match);
+    }
+
+    
+    #[test]
+    fn test_match_args() {
+        let result = match_args(
+            &vec!["-l".to_string(), "-a".to_string()],
+            &vec!["-l".to_string(), "-a".to_string()],
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), CmdMin::Match);
+    }
+
+
+    #[test]
+    fn test_match_command_line() {
+        let mut final_binary_path = PathBuf::new();
+        let result = match_command_line(
+            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &mut final_binary_path,
+        );
+        assert_eq!(result, CmdMin::Match);
+        assert_eq!(final_binary_path, PathBuf::from("/usr/bin/ls"));
+    }
+
+    #[test]
+    fn test_get_cmd_min() {
+        let mut final_binary_path = PathBuf::new();
+        let result = get_cmd_min(
+            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &vec!["/bin/l*".to_string(), "/bin/ls .*".to_string(), "/bin/ls -l -a".to_string()],
+            &mut final_binary_path,
+        );
+        assert_eq!(result, CmdMin::Match);
+        assert_eq!(final_binary_path, PathBuf::from("/usr/bin/ls"));
+    }
+
+    #[test]
+    fn test_get_caps_min_all() {
+        let mut caps = !CapSet::empty();
+        assert_eq!(get_caps_min(&Some(caps)), CapsMin::CapsAll);
+    }
+
+    #[test]
+    fn test_get_caps_min_no_admin() {
+        let mut caps = CapSet::empty();
+        caps.add(Cap::NET_BIND_SERVICE);
+        assert_eq!(get_caps_min(&Some(caps)), CapsMin::CapsNoAdmin(1));
+    }
+
+    #[test]
+    fn test_get_caps_min_admin() {
+        let mut caps = CapSet::empty();
+        caps.add(Cap::SYS_ADMIN);
+        assert_eq!(get_caps_min(&Some(caps)), CapsMin::CapsAdmin(1));
     }
 }

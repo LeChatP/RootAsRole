@@ -43,3 +43,9 @@ glob = "0.3.1"
 pam-client = { version = "0.5.0" }
 bitflags = { version = "2.4.0" }
 shell-words = "1.1.0"
+
+[dev-dependencies]
+env_logger = "*"
+test-log = { version = "0.2.12", features = ["trace"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
