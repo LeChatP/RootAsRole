@@ -10,46 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      DOCKER: 1
     steps:
-    - uses: actions/checkout@v2
-
-    - name: Update version
-      run: sudo apt-get update
-    - name: Install Dependencies
-      run: sudo ./configure.sh -yd
-    - name: Configure PAM
-      run: |
-        sudo bash -c 'echo "#%PAM-1.0
-        auth    [success=1 default=ignore]  pam_permit.so
-        auth    requisite                   pam_permit.so
-        auth    required                    pam_permit.so
-        account [success=1 default=ignore]  pam_permit.so
-        account requisite                   pam_permit.so
-        account required                    pam_permit.so
-        session [success=1 default=ignore]  pam_permit.so
-        session requisite                   pam_permit.so
-        session required                    pam_permit.so" | tee /etc/pam.d/sr'
-    - name: Build Project
-      run: sudo -E make -e install
-    - name: Run Project
-      run: sr -h
-    - name: Print capabilities with sr
-      run: sr cat /proc/self/status
-  rust-build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: rustup update
-      run: rustup update
-    - name: cargo version
-      run: cargo version
+    - uses: actions/checkout@v3
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
@@ -73,7 +35,7 @@ jobs:
     - name: getenv
       run: env
     - name: Build Project
-      run: cargo make release
+      run: make install
     - name: Run Sr
       run: /usr/bin/sr -h
     - name: Run Chsr

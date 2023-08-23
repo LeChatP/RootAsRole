@@ -14,7 +14,7 @@ $(BIN_DIR)/chsr:
 $(BINS): | $(BIN_DIR)
 
 $(BIN_DIR):
-	mkdir $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
 
 install: $(BINS)
 	cp $(BINS) /usr/bin
