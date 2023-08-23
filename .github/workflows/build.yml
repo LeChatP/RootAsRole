@@ -35,7 +35,7 @@ jobs:
     - name: getenv
       run: env
     - name: Build Project
-      run: make install
+      run: sudo make install
     - name: Run Sr
       run: /usr/bin/sr -h
     - name: Run Chsr
