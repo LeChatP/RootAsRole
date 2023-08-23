@@ -479,6 +479,7 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<Task<'a>>> {
             &self.as_ref().borrow().commands,
             &mut final_binary_path,
         );
+        debug!("= task {} =\nScore for command {:?} is {:?}", self.as_ref().borrow().id.to_string(), command, score.cmd_min);
         if score.cmd_min != CmdMin::empty() {
             score.caps_min = get_caps_min(&self.as_ref().borrow().capabilities);
             score.security_min = get_security_min(&self.as_ref().borrow().options);
@@ -606,6 +607,7 @@ impl<'a> RoleMatcher<'a> for Rc<RefCell<crate::config::structs::Role<'a>>> {
 
 impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<'a>>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch<'a>, MatchError> {
+        
         let borrow = self.as_ref().borrow();
         let mut min_role = TaskMatch {
             score: Score {
@@ -617,8 +619,12 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<
             },
             settings: ExecSettings::new(),
         };
-        let mut nmatch;
-        min_role.score.user_min = self.user_matches(user);
+        debug!(
+            "==== Role {} ====\n score: {:?}",
+            self.as_ref().borrow().name,
+            min_role.score
+        );
+        let mut nmatch = 0;
         if min_role.score.user_min == UserMin::NoMatch {
             return Err(MatchError::NoMatch);
         }
@@ -629,10 +635,7 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<
                 nmatch = 1;
             }
             Err(err) => {
-                if err == MatchError::NoMatch && borrow.parents.is_none() {
-                    debug!("No parent");
-                    return Err(err);
-                } else {
+                if err == MatchError::Conflict {
                     return Err(err);
                 }   
             }
@@ -761,7 +764,7 @@ mod tests {
 
     #[test]
     fn test_get_caps_min_all() {
-        let mut caps = !CapSet::empty();
+        let caps = !CapSet::empty();
         assert_eq!(get_caps_min(&Some(caps)), CapsMin::CapsAll);
     }
 

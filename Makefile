@@ -1,5 +1,4 @@
-
-PROFILE ?= debug
+PROFILE ?= release
 RELEASE = $(if $(filter $(PROFILE),release),--release,)
 BIN_DIR := target/$(PROFILE)
 SR_VERSION = $(shell xmllint --xpath "string(/rootasrole/@version)" resources/rootasrole.xml)
@@ -16,8 +15,10 @@ $(BINS): | $(BIN_DIR)
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-install: $(BINS)
-	cp $(BINS) /usr/bin
+build: $(BINS)
+
+install: build
+	cp -f $(BINS) /usr/bin
 	setcap "=p" /usr/bin/sr
 
 test:
@@ -25,6 +26,7 @@ test:
 
 uninstall:
 	rm -f /usr/bin/sr
+	rm -f /usr/bin/chsr
 	rm -f /usr/bin/capable
 	chattr -i /etc/security/rootasrole.xml
 	rm -f /etc/security/rootasrole.xml

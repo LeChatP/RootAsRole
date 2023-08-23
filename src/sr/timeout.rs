@@ -225,7 +225,7 @@ fn find_valid_cookie(
         cred_asked.user.uid.as_raw(),
         constraint
     );
-    for (a, cookiev) in cookies.iter_mut().enumerate() {
+    for (a, mut cookiev) in cookies.iter_mut().enumerate() {
         match cookiev {
             CookieVersion::V1(cookie) => {
                 debug!("Checking cookie: {:?}", cookie);
@@ -235,13 +235,13 @@ fn find_valid_cookie(
                     continue;
                 }
                 let max_usage_ok =
-                    constraint.max_usage.is_some() && cookie.usage < constraint.max_usage.unwrap();
-                if (Utc.timestamp_opt(cookie.timestamp, 0).unwrap()
-                    < Utc::now() + constraint.offset
-                    || max_usage_ok)
-                    && res.is_none()
+                    constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
+                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.offset.num_seconds(), Utc::now().timestamp() + constraint.offset.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds());
+                let timeofuse: bool = cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds() > 0;
+                debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
+                if timeofuse && max_usage_ok && res.is_none()
                 {
-                    editcookie(cookiev);
+                    editcookie(&mut cookiev);
                     res = Some(cookiev.clone());
                 } else {
                     to_remove.push(a);
@@ -264,7 +264,9 @@ fn find_valid_cookie(
 /// @param max_offset: the maximum offset between the current time and the time of the credentials, including the type of the offset
 /// @return true if the credentials are valid, false otherwise
 pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstraint) -> bool {
-    find_valid_cookie(from, cred_asked, constraint, |_| {}).is_some()
+    find_valid_cookie(from, cred_asked, constraint, |c| {
+        debug!("Found valid cookie ");
+    }).is_some()
 }
 
 /// Add a cookie to the user's cookie file
@@ -275,8 +277,10 @@ pub(crate) fn update_cookie(
 ) -> Result<(), Box<dyn Error>> {
     let res = find_valid_cookie(from, cred_asked, constraint, |cookie| match cookie {
         CookieVersion::V1(cookie) => {
+            
             cookie.usage += 1;
             cookie.timestamp = Utc::now().timestamp();
+            debug!("Updating cookie: {:?}", cookie);
         }
     });
     if res.is_none() {

@@ -175,6 +175,7 @@ fn add_dashes() -> Vec<String> {
     let mut i = -1;
     //iter through args until we find no dash
     let mut iter = args.iter().enumerate();
+    iter.next();
     while let Some((pos, arg)) = iter.next() {
         if arg.starts_with('-') {
             if arg == "-r" {
@@ -184,6 +185,7 @@ fn add_dashes() -> Vec<String> {
         } else {
             // add argument at this position
             i = pos as i32;
+            break;
         }
     }
     if i > -1 {
@@ -246,9 +248,9 @@ fn main() {
             .expect("Failed to initialize PAM");
         context.authenticate(Flag::NONE).expect("Permission Denied");
         context.acct_mgmt(Flag::NONE).expect("Permission Denied");
-        timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
-            .expect("Failed to add cookie");
     }
+    timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
+            .expect("Failed to add cookie");
     dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching = match args.role {
         None => config
