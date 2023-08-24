@@ -37,7 +37,7 @@ jobs:
     - name: Build Project
       run: make build
     - name: Install Project
-      run: sudo -e make -E install
+      run: sudo -E make -e install
     - name: Run Sr
       run: /usr/bin/sr -h
     - name: Run Chsr
