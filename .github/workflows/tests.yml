@@ -19,11 +19,11 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
-        components: llvm-tools-preview
+        components: llvm-tools-preview, grcov
         override: true
-
-    - name: Install grcov
-      run: cargo install grcov
+    
+    - name: Install Dependencies
+      run: sudo ./configure.sh -yd
     
     - name: run tests with coverage
       run: cargo test
