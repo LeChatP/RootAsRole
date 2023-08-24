@@ -36,8 +36,10 @@ jobs:
       run: env
     - name: Build Project
       run: make build
+    - name: Whereis Cargo
+      run: whereis cargo
     - name: Install Project
-      run: sudo make install
+      run: sudo -e make -E install
     - name: Run Sr
       run: /usr/bin/sr -h
     - name: Run Chsr
