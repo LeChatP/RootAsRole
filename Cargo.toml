@@ -31,7 +31,7 @@ semver = "1.0.18"
 nix = { version = "0.26.2", features = ["user"] }
 #sudoers-reader = { path = "sudoers-reader" }
 clap = { version = "4.3.0", features = ["derive"] }
-cursive = { version = "0.20.0" }
+cursive = { version = "0.20.0", default-features = false, features = ["termion-backend"] }
 capctl = "0.2.3"
 pcre2 = "0.2.4"
 chrono = "0.4.26"

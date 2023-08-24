@@ -20,8 +20,6 @@ on:
   pull_request:
     branches:
       - 'main'
-  schedule:
-    - cron: '0 0 * * *'
 
 jobs:
 
@@ -41,11 +39,6 @@ jobs:
           components: clippy
           override: true
       
-      - name: Cargo audit
-        uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Install Dependencies
         run: sudo ./configure.sh -yd
       - name: Configure PAM
@@ -62,27 +55,14 @@ jobs:
           session required                    pam_permit.so" | tee /etc/pam.d/sr'
       
       - name: Build code
-        if: ${{ github.event_name != 'schedule' }}
         run: cargo build --all --release
 
-      - name: Format code with Rustfmt
-        if: ${{ github.event_name != 'schedule' }}
-        run: cargo fmt --all -- --check
-        continue-on-error: true
-      
-      - name: Install required cargo
-        if: ${{ github.event_name != 'schedule' }}
-        run: cargo install clippy-sarif sarif-fmt
-
-      - name: Run rust-clippy
-        if: ${{ github.event_name != 'schedule' }}
-        run:
-          cargo clippy --all-features --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
-        continue-on-error: true
-
-      - name: Upload analysis results to GitHub
-        if: ${{ github.event_name != 'schedule' }}
-        uses: github/codeql-action/upload-sarif@v1
+      # if pull request review only
+      - uses: mbrobbel/rustfmt-check@master
         with:
-          sarif_file: ./rust-clippy-results.sarif
-          wait-for-processing: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
