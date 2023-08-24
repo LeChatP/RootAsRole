@@ -34,8 +34,6 @@ jobs:
       run: cat /etc/security/rootasrole.xml
     - name: getenv
       run: env
-    - name: Build Project
-      run: make build
     - name: Install Project
       run: sudo -E make -e install
     - name: Run Sr

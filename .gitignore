@@ -43,6 +43,7 @@
 *.su
 *.idb
 *.pdb
+*.sarif
 
 # Kernel Module Compile Results
 *.mod*
