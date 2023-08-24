@@ -93,7 +93,8 @@ fn write_doc(f: &mut File) -> Result<(), Box<dyn Error>> {
         .as_bytes(),
     )?;
     f.write_all(
-        r#"pub fn get_capability_description(cap : &Cap) -> &'static str {
+        r#"#[rustfmt::skip] 
+pub fn get_capability_description(cap : &Cap) -> &'static str {
     match *cap {
 "#
         .as_bytes(),
