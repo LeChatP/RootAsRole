@@ -237,10 +237,10 @@ fn find_valid_cookie(
                 let max_usage_ok =
                     constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
                 debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.offset.num_seconds(), Utc::now().timestamp() + constraint.offset.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds());
-                let timeofuse: bool = cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds() > 0;
+                let timeofuse: bool =
+                    cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds() > 0;
                 debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
-                if timeofuse && max_usage_ok && res.is_none()
-                {
+                if timeofuse && max_usage_ok && res.is_none() {
                     editcookie(&mut cookiev);
                     res = Some(cookiev.clone());
                 } else {
@@ -266,7 +266,8 @@ fn find_valid_cookie(
 pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstraint) -> bool {
     find_valid_cookie(from, cred_asked, constraint, |c| {
         debug!("Found valid cookie ");
-    }).is_some()
+    })
+    .is_some()
 }
 
 /// Add a cookie to the user's cookie file
@@ -277,7 +278,6 @@ pub(crate) fn update_cookie(
 ) -> Result<(), Box<dyn Error>> {
     let res = find_valid_cookie(from, cred_asked, constraint, |cookie| match cookie {
         CookieVersion::V1(cookie) => {
-            
             cookie.usage += 1;
             cookie.timestamp = Utc::now().timestamp();
             debug!("Updating cookie: {:?}", cookie);

@@ -264,7 +264,8 @@ fn match_path(
             new_path = env_path;
         }
     }
-    let mut role_path = std::fs::canonicalize(role_path).unwrap_or(PathBuf::from(role_path.clone()));
+    let mut role_path =
+        std::fs::canonicalize(role_path).unwrap_or(PathBuf::from(role_path.clone()));
     if !role_path.is_absolute() {
         if let Some(env_path) = find_from_envpath(&role_path) {
             role_path = env_path;
@@ -479,7 +480,12 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<Task<'a>>> {
             &self.as_ref().borrow().commands,
             &mut final_binary_path,
         );
-        debug!("= task {} =\nScore for command {:?} is {:?}", self.as_ref().borrow().id.to_string(), command, score.cmd_min);
+        debug!(
+            "= task {} =\nScore for command {:?} is {:?}",
+            self.as_ref().borrow().id.to_string(),
+            command,
+            score.cmd_min
+        );
         if score.cmd_min != CmdMin::empty() {
             score.caps_min = get_caps_min(&self.as_ref().borrow().capabilities);
             score.security_min = get_security_min(&self.as_ref().borrow().options);
@@ -517,13 +523,14 @@ fn match_groups(groups: &[Group], role_groups: &Vec<Groups>) -> bool {
 
 impl CredMatcher for Rc<RefCell<crate::config::structs::Role<'_>>> {
     fn user_matches(&self, user: &Cred) -> UserMin {
-        
         let borrow = self.as_ref().borrow();
-        if borrow.user_is_forbidden(user.user.name.as_str()) 
-        || borrow.groups_are_forbidden(&user.groups.iter().map(|g| g.name.to_string()).collect()){
+        if borrow.user_is_forbidden(user.user.name.as_str())
+            || borrow
+                .groups_are_forbidden(&user.groups.iter().map(|g| g.name.to_string()).collect())
+        {
             warn!("You are forbidden to use a role by a conflict of interest, please contact your administrator");
             UserMin::NoMatch
-        }else if borrow.users.contains(&user.user.name) {
+        } else if borrow.users.contains(&user.user.name) {
             UserMin::UserMatch
         } else if match_groups(&user.groups, &borrow.groups) {
             UserMin::GroupMatch(user.groups.len())
@@ -607,7 +614,6 @@ impl<'a> RoleMatcher<'a> for Rc<RefCell<crate::config::structs::Role<'a>>> {
 
 impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<'a>>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch<'a>, MatchError> {
-        
         let borrow = self.as_ref().borrow();
         let mut min_role = TaskMatch {
             score: Score {
@@ -637,7 +643,7 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<
             Err(err) => {
                 if err == MatchError::Conflict {
                     return Err(err);
-                }   
+                }
             }
         };
         debug!("search a better role in parents");
@@ -648,8 +654,7 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<
                 match parent.command_matches(user, command) {
                     Ok(mut command_match) => {
                         command_match.score.user_min = min_role.score.user_min;
-                        if min_role.score.cmd_min.is_empty()
-                            || command_match.score < min_role.score
+                        if min_role.score.cmd_min.is_empty() || command_match.score < min_role.score
                         {
                             min_role = command_match;
                             nmatch = 1;
@@ -726,7 +731,6 @@ mod tests {
         assert_eq!(result, CmdMin::Match);
     }
 
-    
     #[test]
     fn test_match_args() {
         let result = match_args(
@@ -736,7 +740,6 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::Match);
     }
-
 
     #[test]
     fn test_match_command_line() {
@@ -755,7 +758,11 @@ mod tests {
         let mut final_binary_path = PathBuf::new();
         let result = get_cmd_min(
             &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
-            &vec!["/bin/l*".to_string(), "/bin/ls .*".to_string(), "/bin/ls -l -a".to_string()],
+            &vec![
+                "/bin/l*".to_string(),
+                "/bin/ls .*".to_string(),
+                "/bin/ls -l -a".to_string(),
+            ],
             &mut final_binary_path,
         );
         assert_eq!(result, CmdMin::Match);

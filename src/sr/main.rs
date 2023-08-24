@@ -250,7 +250,7 @@ fn main() {
         context.acct_mgmt(Flag::NONE).expect("Permission Denied");
     }
     timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
-            .expect("Failed to add cookie");
+        .expect("Failed to add cookie");
     dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching = match args.role {
         None => config
