@@ -23,18 +23,12 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
-permissions:
-  contents: read
-
 jobs:
 
   rust-quality-gate:
     name: Rust Quality Gate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read 
+    permissions: write-all
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
