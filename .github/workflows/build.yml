@@ -36,8 +36,6 @@ jobs:
       run: env
     - name: Build Project
       run: make build
-    - name: Whereis Cargo
-      run: whereis cargo
     - name: Install Project
       run: sudo -e make -E install
     - name: Run Sr

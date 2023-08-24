@@ -26,6 +26,10 @@ else
 	curl https://sh.rustup.rs -sSf | sh
 fi
 
+if [ ! -f "/usr/bin/cargo" ]; then
+	cp ~/.cargo/bin/cargo /usr/bin
+fi
+
 echo "Capabilities & PAM packages installation"
 if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
 	apt-get install "${YES}" gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-$(uname -r)

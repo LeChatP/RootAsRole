@@ -1,4 +1,4 @@
-CARGO ?= cargo
+CARGO ?= /usr/bin/cargo
 PROFILE ?= release
 RELEASE = $(if $(filter $(PROFILE),release),--release,)
 BIN_DIR := target/$(PROFILE)
