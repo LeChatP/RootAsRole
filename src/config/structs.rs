@@ -388,8 +388,7 @@ impl<'a> Role<'a> {
                 Ok(Some(nixuser)) => {
                     let mut groups_to_check = Vec::new();
                     if let Ok(groups) = getgrouplist(
-                        &CStr::from_bytes_until_nul(nixuser.name.as_bytes())
-                            .expect("Internal Error"),
+                        &CString::new(nixuser.name.as_str()).unwrap().as_c_str(),
                         nixuser.gid,
                     ) {
                         for group in groups.iter() {
