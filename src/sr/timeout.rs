@@ -300,3 +300,21 @@ pub(crate) fn update_cookie(
     }
     Ok(())
 }
+
+
+#[cfg(test)]
+mod test {
+    use test_log::test;
+
+    use super::*;
+
+    #[test]
+    fn test_lockfile() {
+        let lockpath = std::path::Path::new("/tmp/test.lock");
+        assert!(wait_for_lockfile(&lockpath).is_ok());
+        write_lockfile(&lockpath);
+        assert!(wait_for_lockfile(&lockpath).is_err());
+        std::fs::remove_file(&lockpath).unwrap();
+        assert!(wait_for_lockfile(&lockpath).is_ok());
+    }
+}

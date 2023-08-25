@@ -104,10 +104,6 @@ impl From<Groups> for Vec<String> {
     }
 }
 
-pub trait ToXml {
-    fn to_xml_string(&self) -> String;
-}
-
 #[derive(Clone, Debug)]
 pub enum IdTask {
     Name(String),
@@ -494,6 +490,7 @@ pub trait Save {
 
 #[cfg(test)]
 mod tests {
+    use test_log::test;
 
     use capctl::Cap;
 

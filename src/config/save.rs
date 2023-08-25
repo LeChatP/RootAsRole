@@ -12,7 +12,7 @@ use super::{capset_to_string, options::Opt};
 
 use super::{
     foreach_element, read_xml_file,
-    structs::{Config, Groups, IdTask, Role, Save, Task, ToXml},
+    structs::{Config, Groups, IdTask, Role, Save, Task},
 };
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
@@ -636,142 +636,9 @@ impl Save for Opt {
     }
 }
 
-impl<'a> ToXml for Task<'a> {
-    fn to_xml_string(&self) -> String {
-        let mut task = String::from("<task ");
-        if self.id.is_name() {
-            task.push_str(&format!("id=\"{}\" ", self.id.as_ref().unwrap()));
-        }
-        if self.capabilities.is_some() && !self.capabilities.as_ref().unwrap().is_empty() {
-            task.push_str(&format!(
-                "capabilities=\"{}\" ",
-                &capset_to_string(&self.capabilities.clone().unwrap())
-            ));
-        }
-        task.push('>');
-        if self.purpose.is_some() {
-            task.push_str(&format!(
-                "<purpose>{}</purpose>",
-                self.purpose.as_ref().unwrap()
-            ));
-        }
-        task.push_str(
-            &self
-                .commands
-                .iter()
-                .cloned()
-                .map(|x| format!("<command>{}</command>", x))
-                .collect::<Vec<String>>()
-                .join(""),
-        );
-        task.push_str("</task>");
-        task
-    }
-}
-
-impl<'a> ToXml for Role<'a> {
-    fn to_xml_string(&self) -> String {
-        let mut role = String::from("<role ");
-        role.push_str(&format!("name=\"{}\" ", self.name));
-        role.push('>');
-        if !self.users.is_empty() || !self.groups.is_empty() {
-            role.push_str("<actors>\n");
-            role.push_str(
-                &self
-                    .users
-                    .iter()
-                    .cloned()
-                    .map(|x| format!("<user name=\"{}\"/>\n", x))
-                    .collect::<Vec<String>>()
-                    .join(""),
-            );
-            role.push_str(
-                &self
-                    .groups
-                    .iter()
-                    .cloned()
-                    .map(|x| format!("<groups names=\"{}\"/>\n", x.join(",")))
-                    .collect::<Vec<String>>()
-                    .join(""),
-            );
-            role.push_str("</actors>\n");
-        }
-
-        role.push_str(
-            &self
-                .tasks
-                .iter()
-                .cloned()
-                .map(|x| x.as_ref().borrow().to_xml_string())
-                .collect::<Vec<String>>()
-                .join(""),
-        );
-        role.push_str("</role>");
-        role
-    }
-}
-
-impl<'a> ToXml for Config<'a> {
-    fn to_xml_string(&self) -> String {
-        let mut roles = String::from("<rootasrole ");
-        roles.push_str(&format!("version=\"{}\">", self.version));
-        if let Some(options) = self.options.as_ref() {
-            roles.push_str(&format!(
-                "<options>{}</options>",
-                options.as_ref().borrow().to_string()
-            ));
-        }
-        roles.push_str("<roles>");
-        roles.push_str(
-            &self
-                .roles
-                .iter()
-                .map(|x| x.as_ref().borrow().to_xml_string())
-                .collect::<Vec<String>>()
-                .join(""),
-        );
-        roles.push_str("</roles></rootasrole>");
-        roles
-    }
-}
-
-impl ToXml for Opt {
-    fn to_xml_string(&self) -> String {
-        let mut content = String::new();
-        if let Some(path) = self.path.borrow().as_ref() {
-            content.push_str(&format!(
-                "<path>{}</path>",
-                sxd_sanitize(path.to_string().borrow_mut())
-            ));
-        }
-        if let Some(env_whitelist) = self.env_whitelist.borrow().as_ref() {
-            content.push_str(&format!(
-                "<env-keep>{}</env-keep>",
-                sxd_sanitize(env_whitelist.to_string().borrow_mut())
-            ));
-        }
-        if let Some(env_checklist) = self.env_checklist.borrow().as_ref() {
-            content.push_str(&format!(
-                "<env-check>{}</env-check>",
-                sxd_sanitize(env_checklist.to_string().borrow_mut())
-            ));
-        }
-        if let Some(no_root) = self.allow_root.borrow().as_ref() {
-            if no_root == &false {
-                content.push_str(&format!("<allow-root enforce=\"{}\"/>", !no_root));
-            }
-        }
-        if let Some(bounding) = self.disable_bounding.borrow().as_ref() {
-            if bounding == &false {
-                content.push_str(&format!("<allow-bounding enforce=\"{}\"/>", !bounding));
-            }
-        }
-        format!("<options>{}</options>", content)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use test_log::test;
     use std::rc::Rc;
 
     use super::super::options::*;
