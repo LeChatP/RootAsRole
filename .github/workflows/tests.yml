@@ -31,7 +31,7 @@ jobs:
     - name: run tests with coverage
       run: cargo test
       env: 
-        CARGO_LOG: debug
+        RUST_LOG: debug
         CARGO_INCREMENTAL: 0
         RUSTFLAGS: '-Cinstrument-coverage'
         LLVM_PROFILE_FILE: 'cargo-test-%p-%m.profraw'
