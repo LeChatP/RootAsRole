@@ -150,8 +150,11 @@ struct Score {
 }
 
 impl Score {
-    pub fn prettyprint(&self ) -> String {
-        format!("{:?}, {:?}, {:?}, {:?}, {:?}", self.user_min, self.cmd_min, self.caps_min, self.setuid_min, self.security_min)
+    pub fn prettyprint(&self) -> String {
+        format!(
+            "{:?}, {:?}, {:?}, {:?}, {:?}",
+            self.user_min, self.cmd_min, self.caps_min, self.setuid_min, self.security_min
+        )
     }
 }
 
@@ -573,8 +576,16 @@ impl<'a> RoleMatcher<'a> for Rc<RefCell<crate::config::structs::Role<'a>>> {
         for task in borrow.tasks.iter() {
             match task.matches(user, command) {
                 Ok(task_match) => {
-                    debug!("if min_task.score.cmd_min.is_empty() : {}", min_task.score.cmd_min.is_empty());
-                    debug!("task_match.score < min_task.score : {:?} < {:?} -> {}", task_match.score.prettyprint(), min_task.score.prettyprint(), task_match.score < min_task.score);
+                    debug!(
+                        "if min_task.score.cmd_min.is_empty() : {}",
+                        min_task.score.cmd_min.is_empty()
+                    );
+                    debug!(
+                        "task_match.score < min_task.score : {:?} < {:?} -> {}",
+                        task_match.score.prettyprint(),
+                        min_task.score.prettyprint(),
+                        task_match.score < min_task.score
+                    );
                     if min_task.score.cmd_min.is_empty() || task_match.score < min_task.score {
                         debug!(
                             "Role {} : Match for task {}",
@@ -666,9 +677,32 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<crate::config::structs::Role<
                         {
                             min_role = command_match;
                             nmatch = 1;
-                        } else if command_match.score == min_role.score && !Rc::ptr_eq(&command_match.settings.task.upgrade().unwrap(),&min_role.settings.task.upgrade().unwrap()) {
+                        } else if command_match.score == min_role.score
+                            && !Rc::ptr_eq(
+                                &command_match.settings.task.upgrade().unwrap(),
+                                &min_role.settings.task.upgrade().unwrap(),
+                            )
+                        {
                             debug!("Conflict in parent {}", parent.as_ref().borrow().name);
-                            debug!("{:?} == {:?}", command_match.settings.task.upgrade().unwrap().as_ref().borrow().id, min_role.settings.task.upgrade().unwrap().as_ref().borrow().id);
+                            debug!(
+                                "{:?} == {:?}",
+                                command_match
+                                    .settings
+                                    .task
+                                    .upgrade()
+                                    .unwrap()
+                                    .as_ref()
+                                    .borrow()
+                                    .id,
+                                min_role
+                                    .settings
+                                    .task
+                                    .upgrade()
+                                    .unwrap()
+                                    .as_ref()
+                                    .borrow()
+                                    .id
+                            );
                             nmatch += 1;
                         }
                     }
@@ -711,7 +745,12 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<Config<'a>>> {
                 if tasks.is_empty() || matched.score < tasks[0].score {
                     tasks.clear();
                     tasks.push(matched);
-                } else if matched.score == tasks[0].score && !Rc::ptr_eq(&matched.settings.task.upgrade().unwrap(),&tasks[0].settings.task.upgrade().unwrap()) {
+                } else if matched.score == tasks[0].score
+                    && !Rc::ptr_eq(
+                        &matched.settings.task.upgrade().unwrap(),
+                        &tasks[0].settings.task.upgrade().unwrap(),
+                    )
+                {
                     tasks.push(matched);
                 }
             } // we ignore error, because it's not a match
@@ -949,10 +988,20 @@ mod tests {
         config
     }
 
-    fn setup_test_role(num_tasks: usize, role : Option<Rc<RefCell<Role<'static>>>>, with_config: Option<Rc<RefCell<Config<'static>>>>) -> Rc<RefCell<Role<'static>>> {
-        let role = role.unwrap_or(Role::new("test".to_string(), with_config.and_then(|c| Some(Rc::downgrade(&c)))));
+    fn setup_test_role(
+        num_tasks: usize,
+        role: Option<Rc<RefCell<Role<'static>>>>,
+        with_config: Option<Rc<RefCell<Config<'static>>>>,
+    ) -> Rc<RefCell<Role<'static>>> {
+        let role = role.unwrap_or(Role::new(
+            "test".to_string(),
+            with_config.and_then(|c| Some(Rc::downgrade(&c))),
+        ));
         for i in 0..num_tasks {
-            let task = Task::new(IdTask::Name(format!("{}_task_{}",role.as_ref().borrow().name,i)), Rc::downgrade(&role));
+            let task = Task::new(
+                IdTask::Name(format!("{}_task_{}", role.as_ref().borrow().name, i)),
+                Rc::downgrade(&role),
+            );
             role.as_ref().borrow_mut().tasks.push(task);
         }
         role
@@ -961,10 +1010,10 @@ mod tests {
     #[test]
     fn test_matcher_matches() {
         let config = setup_test_config(2);
-        let role1 = setup_test_role(2, Some(config.as_ref().borrow().roles[0].clone()),None);
+        let role1 = setup_test_role(2, Some(config.as_ref().borrow().roles[0].clone()), None);
         let r1_task1 = role1.as_ref().borrow().tasks[0].clone();
         let r1_task2 = role1.as_ref().borrow().tasks[1].clone();
-        let role2 = setup_test_role(2, Some(config.as_ref().borrow().roles[1].clone()),None);
+        let role2 = setup_test_role(2, Some(config.as_ref().borrow().roles[1].clone()), None);
         let r2_task1 = role2.as_ref().borrow().tasks[0].clone();
         let r2_task2 = role2.as_ref().borrow().tasks[1].clone();
 
@@ -975,12 +1024,27 @@ mod tests {
         //resolve conflict if two roles returns same tasks because of parents
         role2.as_ref().borrow_mut().parents = Some(vec![Rc::downgrade(&role1)]);
 
+        r1_task1
+            .as_ref()
+            .borrow_mut()
+            .commands
+            .push("/bin/ls -l -a".to_string()); // candidate
+        r1_task2
+            .as_ref()
+            .borrow_mut()
+            .commands
+            .push("/bin/ls .*".to_string()); // regex args > r1_task1
 
-        r1_task1.as_ref().borrow_mut().commands.push("/bin/ls -l -a".to_string()); // candidate
-        r1_task2.as_ref().borrow_mut().commands.push("/bin/ls .*".to_string()); // regex args > r1_task1
-
-        r2_task1.as_ref().borrow_mut().commands.push("/bin/ls -l -a".to_string()); //AllCaps > r1_task1
-        r2_task2.as_ref().borrow_mut().commands.push("/bin/ls -l -a".to_string()); //One Capability > r1_task1
+        r2_task1
+            .as_ref()
+            .borrow_mut()
+            .commands
+            .push("/bin/ls -l -a".to_string()); //AllCaps > r1_task1
+        r2_task2
+            .as_ref()
+            .borrow_mut()
+            .commands
+            .push("/bin/ls -l -a".to_string()); //One Capability > r1_task1
 
         r2_task1.as_ref().borrow_mut().capabilities = Some(!CapSet::empty());
         let mut capset = CapSet::empty();
@@ -1000,9 +1064,10 @@ mod tests {
         debug!("Result : {:?}", result);
         assert!(result.is_ok());
         let result = result.unwrap();
-        assert_eq!(result.task().as_ref().borrow().id, IdTask::Name("role0_task_0".to_string()));
+        assert_eq!(
+            result.task().as_ref().borrow().id,
+            IdTask::Name("role0_task_0".to_string())
+        );
         assert_eq!(result.role().as_ref().borrow().name, "role0");
-
-
     }
 }
