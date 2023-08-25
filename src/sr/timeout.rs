@@ -301,7 +301,6 @@ pub(crate) fn update_cookie(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod test {
     use test_log::test;

@@ -638,8 +638,8 @@ impl Save for Opt {
 
 #[cfg(test)]
 mod tests {
-    use test_log::test;
     use std::rc::Rc;
+    use test_log::test;
 
     use super::super::options::*;
     use super::super::structs::*;
