@@ -21,25 +21,11 @@ pub struct Groups {
     pub groups: Vec<String>,
 }
 
-impl Iterator for Groups {
-    fn next(&mut self) -> Option<String> {
-        self.groups.iter().next().map(|s| s.to_string())
-    }
-    type Item = String;
-}
-
 impl Hash for Groups {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for group in self.groups.iter() {
             group.hash(state);
         }
-    }
-}
-
-impl Index<usize> for Groups {
-    type Output = String;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.groups[index]
     }
 }
 
