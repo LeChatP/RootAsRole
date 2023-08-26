@@ -145,9 +145,11 @@ const MIGRATIONS: &[Migration] = &[
                 return foreach_inner_elements_names(&main, &mut vec!["roles", "role"], |role| {
                     if let Some(a) = role.attribute("parents") {
                         a.remove_from_parent();
-                    } else if let Some(a) = role.attribute("denied-capabilities") {
+                    } 
+                    if let Some(a) = role.attribute("denied-capabilities") {
                         a.remove_from_parent();
-                    } else if let Some(a) = role.attribute("incompatible-with") {
+                    }
+                    if let Some(a) = role.attribute("incompatible-with") {
                         a.remove_from_parent();
                     }
                     Ok(())
