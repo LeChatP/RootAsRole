@@ -50,7 +50,11 @@ where
     Ok(())
 }
 
-pub(crate) fn foreach_element_name<F>(element: &Element, element_name : &str, mut f: F) -> Result<(), Box<dyn Error>>
+pub(crate) fn foreach_element_name<F>(
+    element: &Element,
+    element_name: &str,
+    mut f: F,
+) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(Element) -> Result<(), Box<dyn Error>>,
 {
@@ -65,7 +69,6 @@ where
     }
     Ok(())
 }
-
 
 pub(crate) fn foreach_inner_elements_names<F>(
     element: &Element,

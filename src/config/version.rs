@@ -188,7 +188,7 @@ mod tests {
         let doc = pkg.as_document();
         let v3 = &Version::parse("3.0.0-alpha.3").unwrap();
         let v2 = &Version::parse("3.0.0-alpha.2").unwrap();
-        
+
         //this migration should remove regex attribute on command element
         assert_eq!(
             _migrate(v2, v3, &doc).expect(format!("Failed to migrate to {}", v3).as_str()),
@@ -203,7 +203,7 @@ mod tests {
         do_in_main_child(&doc, "rootasrole", |element| {
             let element = element.element().unwrap();
             element.set_attribute_value("timestamp-timeout", "10");
-            return foreach_inner_elements_names(&element, &mut vec!["roles","role"], |role| {
+            return foreach_inner_elements_names(&element, &mut vec!["roles", "role"], |role| {
                 role.set_attribute_value("parents", "role1");
                 role.set_attribute_value("denied-capabilities", "CAP_CHOWN");
                 role.set_attribute_value("incompatible-with", "role2");

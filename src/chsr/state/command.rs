@@ -42,10 +42,13 @@ impl State for EditCapabilitiesState {
         let role = manager.get_role().unwrap();
         let caps = input.as_caps();
         if role.borrow().capabilities_are_denied(caps) {
-            manager.set_error(format!(
-                "Capabilities {:?} are denied by role definition (or in hierarchy definition)",
-                role.borrow().denied_capabilities()
-            ).into());
+            manager.set_error(
+                format!(
+                    "Capabilities {:?} are denied by role definition (or in hierarchy definition)",
+                    role.borrow().denied_capabilities()
+                )
+                .into(),
+            );
             return self;
         }
         if let Some(task) = task {
