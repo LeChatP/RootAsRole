@@ -95,7 +95,7 @@ impl<'a> Save for Config<'a> {
     fn save(
         &self,
         doc: Option<&Document>,
-        element: Option<&Element>, // is None
+        _element: Option<&Element>, // is None
     ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let mut edited = false;
