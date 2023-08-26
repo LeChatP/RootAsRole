@@ -376,6 +376,6 @@ impl Save for RoleContext {
         _doc: Option<&Document>,
         _element: Option<&Element>,
     ) -> Result<bool, Box<dyn Error>> {
-        save_config(FILENAME, &self.roles.as_ref().borrow()).map(|_| true)
+        save_config(FILENAME, &self.roles.as_ref().borrow(), true).map(|_| true)
     }
 }

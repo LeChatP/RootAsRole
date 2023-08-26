@@ -249,8 +249,8 @@ trait RoleMatcher<'a> {
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     let env_path = std::env::var_os("PATH").unwrap();
-    for path in std::env::split_paths(&env_path).into_iter() {
-        let path = path.join(&needle);
+    for path in std::env::split_paths(&env_path) {
+        let path = path.join(needle);
         if path.exists() {
             return Some(path);
         }
@@ -322,7 +322,7 @@ fn match_command_line(
     final_binary_path: &mut PathBuf,
 ) -> CmdMin {
     let mut result = CmdMin::empty();
-    if input_command.len() > 0 {
+    if !input_command.is_empty() {
         match match_path(&input_command[0], &role_command[0], &mut result) {
             Ok(final_path) => {
                 *final_binary_path = final_path;
@@ -361,7 +361,7 @@ fn get_cmd_min(
     for command in commands {
         match parse_conf_command(command) {
             Ok(command) => {
-                let new_score = match_command_line(&input_command, &command, final_binary_path);
+                let new_score = match_command_line(input_command, &command, final_binary_path);
                 debug!("Score for command {:?} is {:?}", command, new_score);
                 if min_score.is_empty() || (new_score < min_score) {
                     debug!("New min score for command {:?} is {:?}", command, new_score);
@@ -419,7 +419,7 @@ fn is_root(string: &String) -> bool {
 }
 
 fn list_contains_root(list: &crate::config::structs::Groups) -> bool {
-    list.groups.iter().any(|gid| is_root(gid))
+    list.groups.iter().any(is_root)
 }
 
 fn get_setuid_min(
@@ -429,9 +429,9 @@ fn get_setuid_min(
 ) -> SetuidMin {
     match (setuid, setgid) {
         (Some(setuid), Some(setgid)) => {
-            if security_min.contains(SecurityMin::EnableRoot) && is_root(&setuid) {
+            if security_min.contains(SecurityMin::EnableRoot) && is_root(setuid) {
                 // user root
-                if list_contains_root(&setgid) {
+                if list_contains_root(setgid) {
                     //group has root
                     SetuidMin::SetuidSetgidRoot(setgid.len())
                 } else {
@@ -453,7 +453,7 @@ fn get_setuid_min(
             }
         }
         (Some(setuid), None) => {
-            if security_min.contains(SecurityMin::EnableRoot) && is_root(&setuid) {
+            if security_min.contains(SecurityMin::EnableRoot) && is_root(setuid) {
                 SetuidMin::SetuidRoot
             } else if setuid.is_empty() {
                 SetuidMin::NoSetuidNoSetgid
@@ -462,7 +462,7 @@ fn get_setuid_min(
             }
         }
         (None, Some(setgid)) => {
-            if security_min.contains(SecurityMin::EnableRoot) && list_contains_root(&setgid) {
+            if security_min.contains(SecurityMin::EnableRoot) && list_contains_root(setgid) {
                 SetuidMin::SetgidRoot(setgid.len())
             } else if setgid.is_empty() {
                 SetuidMin::NoSetuidNoSetgid
@@ -508,7 +508,7 @@ impl<'a> TaskMatcher<TaskMatch<'a>> for Rc<RefCell<Task<'a>>> {
             settings.exec_args = command[1..].to_vec();
             settings.setuid = self.as_ref().borrow().setuid.clone();
             settings.setgroups = self.as_ref().borrow().setgid.clone();
-            settings.caps = self.as_ref().borrow().capabilities.clone();
+            settings.caps = self.as_ref().borrow().capabilities;
             let stack = OptStack::from_task(self.clone());
             settings.opt = Some(stack);
 
@@ -594,7 +594,7 @@ impl<'a> RoleMatcher<'a> for Rc<RefCell<crate::config::structs::Role<'a>>> {
                         );
                         let mut task_match = task_match;
                         task_match.score.user_min = min_task.score.user_min;
-                        task_match.settings.task = Rc::downgrade(&task);
+                        task_match.settings.task = Rc::downgrade(task);
                         min_task = task_match;
                         nmatch = 1;
                     } else if task_match.score == min_task.score {
@@ -778,7 +778,7 @@ mod tests {
     use capctl::Cap;
     use test_log::test;
 
-    use crate::config::structs::IdTask;
+    use crate::{config::structs::IdTask, xml_version::PACKAGE_VERSION};
 
     use super::*;
 
@@ -980,7 +980,7 @@ mod tests {
     }
 
     fn setup_test_config(num_roles: usize) -> Rc<RefCell<Config<'static>>> {
-        let config = Config::new("test");
+        let config = Config::new(PACKAGE_VERSION);
         for i in 0..num_roles {
             let role = Role::new(format!("role{}", i), Some(Rc::downgrade(&config)));
             config.as_ref().borrow_mut().roles.push(role);

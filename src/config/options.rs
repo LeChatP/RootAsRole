@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_get_description() {
-        let mut options = OptStack::from_roles(Config::new("3.0.0"));
+        let mut options = OptStack::from_roles(Config::new(PACKAGE_VERSION));
         println!("{:?}", options);
         options.set_at_level(
             OptType::Path,
@@ -561,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_get_description_inherited() {
-        let mut options = OptStack::from_roles(Config::new("3.0.0"));
+        let mut options = OptStack::from_roles(Config::new(PACKAGE_VERSION));
         options.set_at_level(
             OptType::Path,
             Some(OptValue::String("path1".to_string())),

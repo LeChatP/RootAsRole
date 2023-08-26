@@ -1,7 +1,10 @@
-use std::{borrow::BorrowMut, cell::RefCell, error::Error, rc::Rc};
+use std::{borrow::BorrowMut, cell::RefCell, error::Error, fmt::Display, path::Path, rc::Rc};
 
 use chrono::Duration;
-use sxd_document::dom::Element;
+use sxd_document::{
+    dom::{Document, Element},
+    Package,
+};
 use tracing::warn;
 
 use super::{
@@ -160,7 +163,7 @@ impl Load for Rc<RefCell<Role<'_>>> {
                     "actors" => add_actors(&mut self.as_ref().borrow_mut(), element)?,
                     "task" => {
                         i += 1;
-                        let task = Task::new(IdTask::Number(i), Rc::downgrade(&self));
+                        let task = Task::new(IdTask::Number(i), Rc::downgrade(self));
                         task.load(element)?;
                         self.as_ref().borrow_mut().tasks.push(task);
                     }
@@ -200,13 +203,13 @@ impl Load for Rc<RefCell<Role<'_>>> {
                         confparents
                     );
                 }
-                if roles.len() != 0 {
+                if !roles.is_empty() {
                     for role in roles {
                         parents.push(Rc::downgrade(&role));
                     }
                 }
             }
-            if parents.len() != 0 {
+            if !parents.is_empty() {
                 self.as_ref().borrow_mut().parents = Some(parents);
             }
         }
@@ -241,7 +244,7 @@ impl Load for Rc<RefCell<Config<'_>>> {
                         if let Some(element) = role.element() {
                             if element.name().local_part() == "role" {
                                 let name = element.attribute_value("name").unwrap();
-                                let role = Role::new(name.to_string(), Some(Rc::downgrade(&self)));
+                                let role = Role::new(name.to_string(), Some(Rc::downgrade(self)));
                                 ziprole.push((role, element));
                             }
                         }
@@ -262,22 +265,46 @@ impl Load for Rc<RefCell<Config<'_>>> {
     }
 }
 
-pub(crate) fn load_config<'a>(filename: &str) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>> {
-    if !unsafe { libxml2::validate_xml_file(filename, true) } {
+pub fn load_document<'a, P>(filename: &P, validate: bool) -> Result<Package, Box<dyn Error>>
+where
+    P: AsRef<Path> + Display,
+{
+    if validate && !unsafe { libxml2::validate_xml_file(filename, true) } {
         return Err("Invalid XML file".into());
     }
-    let package = read_xml_file(filename)?;
-    let doc = package.as_document();
+    read_xml_file(filename)
+}
 
-    let rc_roles = Config::new(PACKAGE_VERSION);
+pub(crate) fn load_config<'a, P>(filename: &P) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>>
+where
+    P: AsRef<Path> + Display,
+{
+    load_document(filename, true).and_then(|pkg| load_config_from_doc(&pkg.as_document(), true))
+}
+
+pub fn load_config_from_doc<'a>(
+    doc: &Document,
+    do_migration: bool,
+) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>> {
+    let mut version = PACKAGE_VERSION.to_string();
     do_in_main_element(doc, "rootasrole", |element| {
         if let Some(element) = element.element() {
-            let migrated = migrate(
-                element.attribute_value("version").expect("No version"),
-                element.document(),
-            )?;
+            version = element
+                .attribute_value("version")
+                .expect("No version")
+                .to_string();
+        }
+        Ok(())
+    })?;
+    let rc_roles = Config::new(version.as_str());
+    do_in_main_element(doc, "rootasrole", |element| {
+        if let Some(element) = element.element() {
+            if do_migration {
+                migrate(&version, doc)?;
+                rc_roles.as_ref().borrow_mut().version = PACKAGE_VERSION.to_string();
+                rc_roles.as_ref().borrow_mut().migrated = true;
+            }
             rc_roles.load(element)?;
-            rc_roles.as_ref().borrow_mut().migrated = migrated;
         }
         Ok(())
     })?;
@@ -287,12 +314,14 @@ pub(crate) fn load_config<'a>(filename: &str) -> Result<Rc<RefCell<Config<'a>>>,
 #[cfg(test)]
 mod tests {
 
+    use crate::util;
+
     use super::*;
     #[test]
     fn test_load_roles() {
-        let roles = load_config(
-            format!("{}/tests/resources/test_xml_manager_case1.xml", env!("PWD")).as_str(),
-        );
+        let roles = load_config(&util::test::test_resources_file(
+            "test_xml_manager_case1.xml",
+        ));
         if let Err(e) = roles {
             panic!("Unable to load roles: {}", e);
         }
@@ -386,13 +415,9 @@ mod tests {
 
     #[test]
     fn test_load_roles_with_hierarchy() {
-        let roles = load_config(
-            format!(
-                "{}/tests/resources/test_xml_manager_hierarchy.xml",
-                env!("PWD")
-            )
-            .as_str(),
-        );
+        let roles = load_config(&util::test::test_resources_file(
+            "test_xml_manager_hierarchy.xml",
+        ));
         if let Err(e) = roles {
             panic!("Unable to load roles: {}", e);
         }

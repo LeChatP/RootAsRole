@@ -79,7 +79,7 @@ impl State for EditCapabilitiesState {
             let mut caps = CapSet::empty();
             for item in view.iter() {
                 if *item.1 {
-                    caps.add(item.2.clone());
+                    caps.add(*item.2);
                 }
             }
             execute(s,ExecuteType::Input( Input::Caps(caps)));

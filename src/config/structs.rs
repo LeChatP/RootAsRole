@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::hash::{Hash, Hasher};
-use std::ops::Index;
+
 use std::rc::{Rc, Weak};
 use std::str::Split;
 
@@ -201,7 +201,7 @@ pub struct Config<'a> {
     pub config: Option<Weak<RefCell<Config<'a>>>>,
     pub roles: Vec<Rc<RefCell<Role<'a>>>>,
     pub options: Option<Rc<RefCell<Opt>>>,
-    pub version: &'a str,
+    pub version: String,
     pub timestamp: CookieConstraint,
     pub migrated: bool,
 }
@@ -217,13 +217,13 @@ impl Default for CookieConstraint {
 }
 
 impl<'a> Config<'a> {
-    pub fn new(version: &'a str) -> Rc<RefCell<Config<'a>>> {
+    pub fn new(version: &str) -> Rc<RefCell<Config<'a>>> {
         Rc::new(
             Config {
                 config: None,
                 roles: Vec::new(),
                 options: None,
-                version,
+                version: version.to_string(),
                 timestamp: CookieConstraint::default(),
                 migrated: false,
             }
@@ -340,7 +340,7 @@ impl<'a> Role<'a> {
             Some(roles) => {
                 let mut vgroups = Vec::new();
                 for group in groups {
-                    match nix::unistd::Group::from_name(&group) {
+                    match nix::unistd::Group::from_name(group) {
                         Ok(Some(nixgroup)) => {
                             vgroups.push(nixgroup);
                         }
@@ -370,7 +370,7 @@ impl<'a> Role<'a> {
                 Ok(Some(nixuser)) => {
                     let mut groups_to_check = Vec::new();
                     if let Ok(groups) = getgrouplist(
-                        &CString::new(nixuser.name.as_str()).unwrap().as_c_str(),
+                        CString::new(nixuser.name.as_str()).unwrap().as_c_str(),
                         nixuser.gid,
                     ) {
                         for group in groups.iter() {

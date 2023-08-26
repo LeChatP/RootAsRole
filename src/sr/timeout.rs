@@ -21,16 +21,12 @@ use crate::{config::structs::CookieConstraint, finder::Cred};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum TimestampType {
     Global,
     TTY,
+    #[default]
     PPID,
-}
-
-impl Default for TimestampType {
-    fn default() -> Self {
-        TimestampType::PPID
-    }
 }
 
 impl FromStr for TimestampType {
@@ -169,7 +165,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
         lockfile_path,
         pid_contents.to_string()
     );
-    return Err("Lockfile was not released".into());
+    Err("Lockfile was not released".into())
 }
 
 fn write_lockfile(lockfile_path: &Path) {
@@ -225,7 +221,7 @@ fn find_valid_cookie(
         cred_asked.user.uid.as_raw(),
         constraint
     );
-    for (a, mut cookiev) in cookies.iter_mut().enumerate() {
+    for (a, cookiev) in cookies.iter_mut().enumerate() {
         match cookiev {
             CookieVersion::V1(cookie) => {
                 debug!("Checking cookie: {:?}", cookie);
@@ -241,7 +237,7 @@ fn find_valid_cookie(
                     cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds() > 0;
                 debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
                 if timeofuse && max_usage_ok && res.is_none() {
-                    editcookie(&mut cookiev);
+                    editcookie(cookiev);
                     res = Some(cookiev.clone());
                 } else {
                     to_remove.push(a);
@@ -264,7 +260,7 @@ fn find_valid_cookie(
 /// @param max_offset: the maximum offset between the current time and the time of the credentials, including the type of the offset
 /// @return true if the credentials are valid, false otherwise
 pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstraint) -> bool {
-    find_valid_cookie(from, cred_asked, constraint, |c| {
+    find_valid_cookie(from, cred_asked, constraint, |_c| {
         debug!("Found valid cookie ");
     })
     .is_some()

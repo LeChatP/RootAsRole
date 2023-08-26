@@ -9,7 +9,7 @@ mod version;
 
 use capctl::{Cap, CapSet, ParseCapError};
 
-use std::{error::Error, fs::File, io::Read};
+use std::{error::Error, fs::File, io::Read, path::Path};
 
 use sxd_document::{
     dom::{ChildOfElement, ChildOfRoot, Document, Element},
@@ -20,13 +20,19 @@ use self::structs::Groups;
 
 pub(crate) const FILENAME: &str = "/etc/security/rootasrole.xml";
 
-pub(crate) fn read_file(file_path: &str, contents: &mut String) -> Result<(), Box<dyn Error>> {
+pub(crate) fn read_file<P>(file_path: P, contents: &mut String) -> Result<(), Box<dyn Error>>
+where
+    P: AsRef<Path>,
+{
     let mut file = File::open(file_path)?;
     file.read_to_string(contents)?;
     Ok(())
 }
 
-pub(crate) fn read_xml_file(file_path: &str) -> Result<Package, Box<dyn Error>> {
+pub(crate) fn read_xml_file<P>(file_path: &P) -> Result<Package, Box<dyn Error>>
+where
+    P: AsRef<Path>,
+{
     let mut contents = String::new();
     read_file(file_path, &mut contents)?;
     Ok(parser::parse(&contents)?)
@@ -36,7 +42,7 @@ pub(crate) fn foreach_element<F>(element: &Element, mut f: F) -> Result<(), Box<
 where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {
-    if element.children().len() > 0 {
+    if !element.children().is_empty() {
         for child in element.children() {
             f(child)?;
         }
@@ -45,7 +51,7 @@ where
 }
 
 pub(crate) fn do_in_main_element<F>(
-    doc: Document,
+    doc: &Document,
     name: &str,
     mut f: F,
 ) -> Result<(), Box<dyn Error>>

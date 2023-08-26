@@ -1,14 +1,17 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
-    collections::HashSet,
-    error::Error,
-    fs::File,
-    os::fd::AsRawFd,
+    borrow::Borrow, collections::HashSet, error::Error, fs::File, io::Write, os::fd::AsRawFd,
+    path::Path, str::from_utf8,
 };
 
-use sxd_document::dom::{Document, Element};
+use sxd_document::{
+    dom::{Document, Element},
+    writer::Writer,
+};
+use tracing::debug;
 
-use super::{capset_to_string, options::Opt};
+use crate::xml_version::DTD;
+
+use super::{capset_to_string, do_in_main_element, options::Opt};
 
 use super::{
     foreach_element, read_xml_file,
@@ -49,12 +52,42 @@ pub fn sxd_sanitize(element: &mut str) -> String {
         .replace('\'', "&apos;")
 }
 
-pub fn save_config(filename: &str, config: &Config) -> Result<(), Box<dyn Error>> {
-    let package = read_xml_file(filename)?;
+fn write_xml_config(file: &str, content: Option<&[u8]>) -> Result<(), Box<dyn Error>> {
+    debug!("Writing config file {}", file);
+    let mut file = File::create(file)?;
+    if let Some(content) = content {
+        let mut content = from_utf8(content).unwrap().to_string();
+        content = content.replace("?>", format!("?>\n{}", DTD).as_str());
+        file.write_all(content.as_bytes())?;
+    } else {
+        file.write_fmt(format_args!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n<rootasrole></rootasrole>\n",
+            DTD,
+        ))?;
+    }
+
+    Ok(())
+}
+
+pub fn save_config(filename: &str, config: &Config, lock: bool) -> Result<(), Box<dyn Error>> {
+    if !Path::new(filename).exists() {
+        write_xml_config(filename, None)?;
+    }
+    let package = read_xml_file(&filename)?;
     let doc = package.as_document();
-    toggle_lock_config(filename, false)?;
     config.save(Some(&doc), None)?;
-    toggle_lock_config(filename, true)?;
+    let mut output = Vec::new();
+    Writer::new()
+        .set_single_quotes(false)
+        .format_document(&doc, &mut output)?;
+    if lock {
+        toggle_lock_config(filename, false)?;
+    }
+    write_xml_config(filename, Some(&output))?;
+    if lock {
+        toggle_lock_config(filename, true)?;
+    }
+
     Ok(())
 }
 
@@ -62,92 +95,93 @@ impl<'a> Save for Config<'a> {
     fn save(
         &self,
         doc: Option<&Document>,
-        element: Option<&Element>,
+        element: Option<&Element>, // is None
     ) -> Result<bool, Box<dyn Error>> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
-        let element = element.ok_or::<Box<dyn Error>>("Unable to retrieve Element".into())?;
-        if element.name().local_part() != "rootasrole" {
-            return Err("Unable to save roles".into());
-        }
         let mut edited = false;
         let mut hasroles = false;
-        foreach_element(element, |child| {
-            if let Some(child) = child.element() {
-                match child.name().local_part() {
-                    "roles" => {
-                        hasroles = true;
-                        let mut rolesnames = self.get_roles_names();
-                        foreach_element(&child, |role_element| {
-                            if let Some(role_element) = role_element.element() {
-                                let rolename = role_element.attribute_value("name").unwrap();
-                                if let Some(role) = self.get_role(rolename) {
-                                    if role
-                                        .as_ref()
-                                        .borrow()
-                                        .save(doc.into(), Some(&role_element))?
-                                    {
-                                        edited = true;
+        do_in_main_element(doc, "rootasrole", |element| {
+            let element = element.element().unwrap();
+            element.set_attribute_value("version", self.version.as_str());
+            foreach_element(&element, |child| {
+                if let Some(child) = child.element() {
+                    match child.name().local_part() {
+                        "roles" => {
+                            hasroles = true;
+                            let mut rolesnames = self.get_roles_names();
+                            foreach_element(&child, |role_element| {
+                                if let Some(role_element) = role_element.element() {
+                                    let rolename = role_element.attribute_value("name").unwrap();
+                                    if let Some(role) = self.get_role(rolename) {
+                                        if role
+                                            .as_ref()
+                                            .borrow()
+                                            .save(doc.into(), Some(&role_element))?
+                                        {
+                                            edited = true;
+                                        }
+                                    } else {
+                                        role_element.remove_from_parent();
                                     }
-                                } else {
-                                    role_element.remove_from_parent();
+                                    rolesnames.remove(&rolename.to_string());
                                 }
-                                rolesnames.remove(&rolename.to_string());
+                                Ok(())
+                            })?;
+                            if !rolesnames.is_empty() {
+                                edited = true;
                             }
-                            Ok(())
-                        })?;
-                        if !rolesnames.is_empty() {
-                            edited = true;
-                        }
-                        for rolename in rolesnames {
-                            let role = self.get_role(&rolename).unwrap();
-                            let role_element = doc.create_element("role");
-                            role_element.set_attribute_value("name", &rolename);
+                            for rolename in rolesnames {
+                                let role = self.get_role(&rolename).unwrap();
+                                let role_element = doc.create_element("role");
+                                role_element.set_attribute_value("name", &rolename);
 
-                            role.as_ref()
+                                role.as_ref()
+                                    .borrow()
+                                    .save(doc.into(), Some(&role_element))?;
+                                child.append_child(role_element);
+                            }
+                        }
+                        "options" => {
+                            if self
+                                .options
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
                                 .borrow()
-                                .save(doc.into(), Some(&role_element))?;
-                            child.append_child(role_element);
+                                .save(doc.into(), Some(&child))?
+                            {
+                                edited = true;
+                            }
                         }
+                        _ => (),
                     }
-                    "options" => {
-                        if self
-                            .options
-                            .as_ref()
-                            .unwrap()
-                            .as_ref()
-                            .borrow()
-                            .save(doc.into(), Some(&child))?
-                        {
-                            edited = true;
-                        }
-                    }
-                    _ => (),
                 }
+                Ok(())
+            })?;
+            if !hasroles {
+                if let Some(options) = &self.options {
+                    let options = options.as_ref();
+                    let options_element = doc.create_element("options");
+                    options.borrow().save(doc.into(), Some(&options_element))?;
+                    element.append_child(options_element);
+                }
+                let roles_element = doc.create_element("roles");
+                let rolesnames = self.get_roles_names();
+                for rolename in rolesnames {
+                    let role = self.get_role(&rolename).unwrap();
+                    let role_element = doc.create_element("role");
+                    role_element.set_attribute_value("name", &rolename);
+
+                    role.as_ref()
+                        .borrow()
+                        .save(doc.into(), Some(&role_element))?;
+                    roles_element.append_child(role_element);
+                }
+                element.append_child(roles_element);
+                edited = true;
             }
             Ok(())
         })?;
-        if !hasroles {
-            if let Some(options) = &self.options {
-                let options = options.as_ref();
-                let options_element = doc.create_element("options");
-                options.borrow().save(doc.into(), Some(&options_element))?;
-                element.append_child(options_element);
-            }
-            let roles_element = doc.create_element("roles");
-            let rolesnames = self.get_roles_names();
-            for rolename in rolesnames {
-                let role = self.get_role(&rolename).unwrap();
-                let role_element = doc.create_element("role");
-                role_element.set_attribute_value("name", &rolename);
-
-                role.as_ref()
-                    .borrow()
-                    .save(doc.into(), Some(&role_element))?;
-                roles_element.append_child(role_element);
-            }
-            element.append_child(roles_element);
-            edited = true;
-        }
         Ok(edited)
     }
 }
@@ -161,7 +195,7 @@ fn add_actors_to_child_element(
     if !users.is_empty() || !groups.is_empty() {
         for user in users {
             let actor_element = doc.create_element("user");
-            actor_element.set_attribute_value("name", &user);
+            actor_element.set_attribute_value("name", user);
             child.append_child(actor_element);
         }
         for group in groups {
@@ -187,13 +221,13 @@ impl<'a> Save for Role<'a> {
             return Err("Unable to save role".into());
         }
         let mut edited = false;
-        if element.children().len() > 0 {
+        if !element.children().is_empty() {
             let mut hasactors = false;
             let mut hasoptions = false;
             let mut hastasks = false;
             let mut taskid = 0;
 
-            foreach_element(&element, |child| {
+            foreach_element(element, |child| {
                 if let Some(child) = child.element() {
                     match child.name().local_part() {
                         "actors" => {
@@ -236,7 +270,7 @@ impl<'a> Save for Role<'a> {
                                 }
                                 Ok(())
                             })?;
-                            edited = add_actors_to_child_element(&doc, &child, &users, &groups);
+                            edited = add_actors_to_child_element(doc, &child, &users, &groups);
                         }
                         "task" => {
                             hastasks = true;
@@ -281,7 +315,7 @@ impl<'a> Save for Role<'a> {
                 let mut groups = HashSet::new();
                 groups.extend(self.groups.clone());
                 let actors_element = doc.create_element("actors");
-                add_actors_to_child_element(&doc, &actors_element, &users, &groups);
+                add_actors_to_child_element(doc, &actors_element, &users, &groups);
                 element.append_child(actors_element);
                 edited = true;
             }
@@ -373,7 +407,7 @@ impl<'a> Save for Task<'a> {
         commands.extend(self.commands.clone());
         let mut hasoptions = false;
         let mut haspurpose = false;
-        foreach_element(&element, |child| {
+        foreach_element(element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "command" => {
@@ -398,7 +432,7 @@ impl<'a> Save for Task<'a> {
                                 .text()
                                 != purpose
                             {
-                                child_element.set_text(&purpose);
+                                child_element.set_text(purpose);
                                 edited = true;
                             }
                         } else {
@@ -471,7 +505,7 @@ impl Save for Opt {
         let mut hasallow_root = false;
         let mut hasdisable_bounding = false;
         let mut haswildcard_denied = false;
-        foreach_element(&element, |child| {
+        foreach_element(element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "path" => {
@@ -641,6 +675,8 @@ mod tests {
     use std::rc::Rc;
     use test_log::test;
 
+    use crate::xml_version::PACKAGE_VERSION;
+
     use super::super::options::*;
     use super::super::structs::*;
     use super::*;
@@ -648,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_save() {
-        let roles = Config::new("vtest");
+        let roles = Config::new(PACKAGE_VERSION);
         let binding = "role_test".to_string();
         let role = Role::new(binding, Some(Rc::downgrade(&roles)));
         let task = Task::new(IdTask::Name("task_test".to_string()), Rc::downgrade(&role));
@@ -706,8 +742,9 @@ mod tests {
         let doc = package.as_document();
         let root = doc.create_element("rootasrole");
         root.set_attribute_value("version", "vtest");
-        roles_mut.save(Some(&doc), Some(&root)).unwrap();
         doc.root().append_child(root);
+        roles_mut.save(Some(&doc), None).unwrap();
+
         let childs = root.children();
         assert_eq!(childs.len(), 2);
         let roles_options = childs[0].element().unwrap();
@@ -787,9 +824,9 @@ mod tests {
             .unwrap()
             .text()
             .starts_with("test_command"));
-        let package = read_xml_file(
-            format!("{}/tests/resources/test_xml_manager_case1.xml", env!("PWD")).as_str(),
-        )
+        let package = read_xml_file(&crate::util::test::test_resources_file(
+            "test_xml_manager_case1.xml",
+        ))
         .unwrap();
         let doc = package.as_document();
         let element = doc.root().children();

@@ -10,7 +10,6 @@ use crate::{
     },
     rolemanager::RoleContext,
     util,
-    xml_version::PACKAGE_VERSION,
 };
 
 //chsr newrole "role1" --user "user1" --group "group1" "group2"
@@ -29,9 +28,6 @@ use crate::{
 //chsr config --allow-bounding false
 
 #[derive(Parser, Debug)]
-#[command(name = "RootAsRole")]
-#[command(author = "Eddie B. <eddie.billoir@irit.fr>")]
-#[command(version = PACKAGE_VERSION)]
 #[command(
     about = "Configure Roles for RootAsRole",
     long_about = "Role Manager is a tool to configure RBAC for RootAsRole.
@@ -144,7 +140,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             let role = manager.get_role().unwrap();
             if let Some(user) = &user {
                 let user = user
-                    .into_iter()
+                    .iter()
                     .collect::<HashSet<_>>()
                     .into_iter()
                     .map(|x| x.to_owned())
@@ -153,7 +149,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             }
             if let Some(group) = &group {
                 let group = group
-                    .into_iter()
+                    .iter()
                     .collect::<HashSet<_>>()
                     .into_iter()
                     .collect::<Vec<&String>>();
@@ -195,12 +191,10 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                         .filter(|x| {
                             let xgroups = x
                                 .split('&')
-                                .map(|x| match Group::from_name(x) {
+                                .filter_map(|x| match Group::from_name(x) {
                                     Ok(Some(g)) => Some(g),
                                     _ => None,
                                 })
-                                .filter(|x| x.is_some())
-                                .map(|x| x.unwrap())
                                 .collect::<Vec<_>>();
                             for group in role.as_ref().borrow_mut().groups.iter() {
                                 if group.is_unix_subset(&xgroups) {
@@ -214,7 +208,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                             let xgroups =
                                 x.split('&').map(|x| x.to_string()).collect::<Vec<String>>();
                             if role.as_ref().borrow().groups_are_forbidden(&xgroups) {
-                                forbidden.push(xgroups.to_owned());
+                                forbidden.push(xgroups);
                                 false
                             } else {
                                 true
@@ -225,7 +219,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                     role.as_ref().borrow_mut().groups.append(&mut to_add);
                     let groups = &role.as_ref().borrow_mut().groups;
                     role.as_ref().borrow_mut().groups = groups
-                        .into_iter()
+                        .iter()
                         .collect::<HashSet<_>>()
                         .into_iter()
                         .map(|x| x.to_owned())
@@ -255,7 +249,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
             if let Some(role) = manager.find_role(role.as_str()) {
                 if let Some(user) = &user {
                     for u in user {
-                        if !role.as_ref().borrow().users.contains(&u) {
+                        if !role.as_ref().borrow().users.contains(u) {
                             role.as_ref().borrow_mut().users.retain(|x| x != u);
                         }
                     }
@@ -342,10 +336,9 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 );
             }
             if let Some(allow_bounding) = allow_bounding {
-                manager.get_options().set_value(
-                    OptType::Bounding,
-                    Some(OptValue::Bool(allow_bounding.clone())),
-                );
+                manager
+                    .get_options()
+                    .set_value(OptType::Bounding, Some(OptValue::Bool(*allow_bounding)));
             }
             if let Some(wildcard_denied) = wildcard_denied {
                 manager.get_options().set_value(
@@ -373,7 +366,7 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 }
             } else {
                 let roles = manager.roles.as_ref().borrow();
-                for role in roles.roles.iter().cloned() {
+                for role in roles.roles.iter() {
                     println!("=============\nRole {}", role.as_ref().borrow().name);
                     println!("{}", role.as_ref().borrow().get_description());
                 }

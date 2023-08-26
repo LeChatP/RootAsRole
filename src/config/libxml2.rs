@@ -1,5 +1,7 @@
 use std::{
     ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_ushort, c_void, CString},
+    fmt::Display,
+    path::Path,
     ptr,
 };
 
@@ -196,7 +198,7 @@ extern "C" {
         doc: *mut XmlDoc,
         dtd: *mut XmlDtd,
     ) -> ::std::os::raw::c_int;
-    fn xmlValidityErrorFunc(ctx: *mut c_void, msg: *const c_char, ...) -> ();
+    fn xmlValidityErrorFunc(ctx: *mut c_void, msg: *const c_char, ...);
     fn xmlNewParserCtxt() -> *mut XmlParserCtxt;
     fn xmlCtxtReadFile(
         ctxt: *mut XmlParserCtxt,
@@ -244,9 +246,12 @@ pub(crate) fn validate_Xml_file(filename: &str) -> bool {
 }
 */
 
-pub(crate) unsafe fn validate_xml_file(filename: &str, silent: bool) -> bool {
+pub(crate) unsafe fn validate_xml_file<P>(filename: &P, silent: bool) -> bool
+where
+    P: AsRef<Path> + Display,
+{
     let ctxt = xmlNewParserCtxt();
-    let filename = CString::new(filename).unwrap();
+    let filename = CString::new(filename.to_string()).unwrap();
     let options: c_int = if silent {
         XML_PARSE_DTDVALID
             | XML_PARSE_NOBLANKS

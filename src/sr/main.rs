@@ -24,12 +24,8 @@ use pam_client::{conv_cli::Conversation, Context, Flag};
 use std::panic::set_hook;
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
-use xml_version::PACKAGE_VERSION;
 
 #[derive(Parser, Debug)]
-#[command(name = "RootAsRole")]
-#[command(author = "Eddie B. <eddie.billoir@irit.fr>")]
-#[command(version = PACKAGE_VERSION)]
 #[command(
     about = "Execute privileged commands with a role-based access control system",
     long_about = "sr is a tool to execute privileged commands with a role-based access control system. 
@@ -111,7 +107,7 @@ fn tz_is_safe(tzval: &str) -> bool {
                 || tzval
                     .chars()
                     .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                    == None)
+                    .is_none())
         {
             return false;
         }
@@ -132,7 +128,7 @@ fn check_var(key: &str, value: &str) -> bool {
     } else {
         match key {
             "TZ" => tz_is_safe(value),
-            _ => !value.contains(&['/', '%']),
+            _ => !value.contains(['/', '%']),
         }
     }
 }
@@ -200,7 +196,7 @@ fn main() {
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
     read_effective(true).expect("Failed to read_effective");
-    let config = load_config(FILENAME).expect("Failed to load config file");
+    let config = load_config(&FILENAME).expect("Failed to load config file");
     read_effective(false).expect("Failed to read_effective");
     debug!("loaded config : {:#?}", config);
     let user = User::from_uid(getuid())
@@ -329,7 +325,7 @@ fn main() {
                 capctl::bounding::drop(cap).expect("Failed to set bounding cap");
             }
         }
-        capstate.permitted = caps.clone();
+        capstate.permitted = *caps;
         capstate.inheritable = *caps;
         capstate.set_current().expect("Failed to set current cap");
         for cap in caps.iter() {
@@ -351,7 +347,7 @@ fn main() {
     let whitelist = optstack.get_env_whitelist().1;
     let veccheck: Vec<&str> = checklist.split(',').collect();
     let vecwhitelist: Vec<&str> = whitelist.split(',').collect();
-    let mut command = std::process::Command::new(&matching.file_exec_path())
+    let mut command = std::process::Command::new(matching.file_exec_path())
         .args(matching.exec_args())
         .envs(filter_env_vars(std::env::vars(), &veccheck, &vecwhitelist))
         .stdin(std::process::Stdio::inherit())

@@ -38,7 +38,7 @@ pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
         return Ok(!CapSet::empty());
     }
 
-    Ok(parse_capset_iter(s.split(' '))?)
+    parse_capset_iter(s.split(' '))
 }
 
 /// Reference every capabilities that lead to almost a direct privilege escalation
@@ -58,4 +58,16 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::SYS_CHROOT)
         || caps.has(Cap::SYS_BOOT)
         || caps.has(Cap::MKNOD)
+}
+
+#[cfg(test)]
+pub(super) mod test {
+    pub fn test_resources_folder() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("resources")
+    }
+    pub fn test_resources_file(filename: &str) -> String {
+        test_resources_folder().join(filename).display().to_string()
+    }
 }

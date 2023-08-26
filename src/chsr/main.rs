@@ -29,9 +29,9 @@ pub struct RoleManagerApp {
 }
 
 fn main() {
-    let roles = config::load::load_config(FILENAME);
+    let roles = config::load::load_config(&FILENAME);
     if let Err(err) = roles {
-        eprintln!("{}", err.to_string());
+        eprintln!("{}", err);
         std::process::exit(1);
     }
     let roles = roles.unwrap();

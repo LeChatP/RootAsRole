@@ -192,8 +192,7 @@ fn add_actors(
             view.add_item(user.to_string(), true, user.to_string());
         }
     } else {
-        return;
-    };
+    }
 }
 
 fn add_actors_select(actortype: ActorType, view: &mut SelectView<String>) {
@@ -530,9 +529,9 @@ where
         }
         let mut select = CheckListView::<String>::new()
             .autojump()
-            .on_submit(|s, b, i| {
+            .on_submit(|s, _b, i| {
                 if !i.is_empty() {
-                    let RoleManagerApp { mut manager, state } = s.take_user_data().unwrap();
+                    let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
 
                     if let Some(selected) = manager.selected_actors.as_ref() {
                         selected.as_ref().borrow_mut().insert(i.to_owned());

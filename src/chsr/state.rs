@@ -67,7 +67,7 @@ impl Input {
         match self {
             Input::String(string) => util::parse_capset(string).unwrap(),
             Input::Vec(vec) => util::parse_capset_iter(vec.iter().map(|s| s.as_str())).unwrap(),
-            Input::Caps(caps) => caps.clone(),
+            Input::Caps(caps) => *caps,
         }
     }
 }

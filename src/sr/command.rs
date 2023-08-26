@@ -11,7 +11,7 @@ fn get_command_abspath_and_args(content: &str) -> Result<Vec<String>, ParseError
 
 fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
     let path = var("PATH").unwrap_or("".to_string());
-    for dir in path.split(":") {
+    for dir in path.split(':') {
         let path = Path::new(dir).join(executable);
         if path.exists() {
             return Some(path);
