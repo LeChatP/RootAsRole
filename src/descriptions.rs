@@ -3,7 +3,6 @@
 // Instead edit build.rs and run cargo build
 use capctl::Cap;
 #[rustfmt::skip]
-#[allow(clippy::all)]
 pub fn get_capability_description(cap : &Cap) -> &'static str {
     match *cap {
         Cap::AUDIT_CONTROL => r#"(since Linux 2.6.11)
