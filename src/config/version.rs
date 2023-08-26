@@ -16,6 +16,13 @@ struct Migration {
     down: fn(&Self, &Document) -> Result<(), Box<dyn Error>>,
 }
 
+#[derive(PartialEq, Eq, Debug)]
+enum ChangeResult {
+    Direct,
+    Indirect,
+    None,
+}
+
 impl Migration {
     fn from(&self) -> Version {
         (self.from)()
@@ -23,11 +30,28 @@ impl Migration {
     fn to(&self) -> Version {
         (self.to)()
     }
-    fn change(&self, doc: &Document) -> Result<(), Box<dyn Error>> {
-        if self.from < self.to {
-            (self.up)(self, doc)
+    fn change(
+        &self,
+        doc: &Document,
+        from: &Version,
+        to: &Version,
+    ) -> Result<ChangeResult, Box<dyn Error>> {
+        if self.from() == *from && self.to() == *to {
+            (self.up)(self, doc)?;
+            Ok(ChangeResult::Direct)
+        } else if self.from() == *to && self.to() == *from {
+            (self.down)(self, doc)?;
+            Ok(ChangeResult::Direct)
+        } else if self.from() == *from && *from < *to && self.to() < *to {
+            // 1.0.0 -> 2.0.0 -> 3.0.0
+            (self.up)(self, doc)?;
+            Ok(ChangeResult::Indirect)
+        } else if self.from() == *from && *from > *to && self.to() > *to {
+            // 3.0.0 -> 2.0.0 -> 1.0.0
+            (self.down)(self, doc)?;
+            Ok(ChangeResult::Indirect)
         } else {
-            (self.down)(self, doc)
+            Ok(ChangeResult::None)
         }
     }
 }
@@ -36,21 +60,22 @@ fn _migrate(from: &Version, to: &Version, doc: &Document) -> Result<bool, Box<dy
     let mut from = from.clone();
     debug!("Migrating from {} to {}", from, to);
     if from != *to {
-        while from != *to {
-            let mut migrated = false;
+        let mut migrated = ChangeResult::Indirect;
+        while migrated == ChangeResult::Indirect {
             for migration in MIGRATIONS {
-                if (migration.from() == from && migration.to() == *to)
-                    || (migration.from() == *to && migration.to() == from)
-                {
-                    migration.change(doc)?;
-                    return Ok(true);
-                } else if migration.from() == from && *to > migration.to() {
-                    migration.change(doc)?;
-                    from = migration.to();
-                    migrated = true;
+                match migration.change(doc, &from, to)? {
+                    ChangeResult::Direct => {
+                        return Ok(true);
+                    }
+                    ChangeResult::Indirect => {
+                        from = migration.to();
+                        migrated = ChangeResult::Indirect;
+                        break;
+                    }
+                    ChangeResult::None => {}
                 }
             }
-            if !migrated {
+            if migrated == ChangeResult::None {
                 return Err(format!("No migration from {} to {} found", from, to).into());
             }
         }
