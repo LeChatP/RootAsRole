@@ -122,7 +122,7 @@ const MIGRATIONS: &[Migration] = &[
                 set_to_version(&main, m);
                 foreach_inner_elements_names(
                     &main,
-                    &["roles", "role", "task", "command"],
+                    &mut vec!["roles", "role", "task", "command"],
                     |cmdelement| {
                         cmdelement.remove_attribute("regex");
                         Ok(())
@@ -142,7 +142,7 @@ const MIGRATIONS: &[Migration] = &[
                 if let Some(a) = main.attribute("timestamp-timeout") {
                     a.remove_from_parent();
                 }
-                return foreach_inner_elements_names(&main, &["roles", "role"], |role| {
+                return foreach_inner_elements_names(&main, &mut vec!["roles", "role"], |role| {
                     if let Some(a) = role.attribute("parents") {
                         a.remove_from_parent();
                     } else if let Some(a) = role.attribute("denied-capabilities") {
@@ -203,7 +203,7 @@ mod tests {
         do_in_main_child(&doc, "rootasrole", |element| {
             let element = element.element().unwrap();
             element.set_attribute_value("timestamp-timeout", "10");
-            return foreach_inner_elements_names(&element, &["roles","role"], |role| {
+            return foreach_inner_elements_names(&element, &mut vec!["roles","role"], |role| {
                 role.set_attribute_value("parents", "role1");
                 role.set_attribute_value("denied-capabilities", "CAP_CHOWN");
                 role.set_attribute_value("incompatible-with", "role2");

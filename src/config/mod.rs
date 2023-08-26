@@ -66,28 +66,32 @@ where
     Ok(())
 }
 
+
 pub(crate) fn foreach_inner_elements_names<F>(
     element: &Element,
-    elements_structure: &[&str],
+    elements_structure: &mut Vec<&str>,
     mut f: F,
 ) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(Element) -> Result<(), Box<dyn Error>>,
 {
-    for i in 0..elements_structure.len() {
-        if i == elements_structure.len() - 1 {
-            foreach_element_name(element, elements_structure[i], |element| {
-                f(element)?;
-                Ok(())
-            })?;
-        } else {
-            foreach_element_name(element, elements_structure[i], |element| {
-                foreach_inner_elements_names(&element, &elements_structure[i + 1..], |element| {
-                    f(element)?;
-                    Ok(())
-                })?;
-                Ok(())
-            })?;
+    if elements_structure.is_empty() {
+        return Ok(());
+    } else if elements_structure.len() == 1 {
+        return foreach_element_name(element, elements_structure.first().unwrap(), f);
+    } else if elements_structure.len() > 128 {
+        return Err("elements_structure is too big".into());
+    }
+    for child in element.children() {
+        if let Some(element) = child.element() {
+            if element.name().local_part() == *elements_structure.first().unwrap() {
+                elements_structure.remove(0);
+                if elements_structure.is_empty() {
+                    return f(element);
+                } else {
+                    return foreach_inner_elements_names(&element, elements_structure, f);
+                }
+            }
         }
     }
     Ok(())
