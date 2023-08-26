@@ -181,6 +181,7 @@ pub struct Task<'a> {
 pub struct Role<'a> {
     roles: Option<Weak<RefCell<Config<'a>>>>,
     ssd: Option<Vec<Weak<Role<'a>>>>,
+    denied_caps: Option<CapSet>,
     pub parents: Option<Vec<Weak<RefCell<Role<'a>>>>>,
     pub name: String,
     pub users: Vec<String>,
@@ -261,6 +262,7 @@ impl<'a> Role<'a> {
                 options: None,
                 parents: None,
                 ssd: None,
+                denied_caps: None,
             }
             .into(),
         )
@@ -400,19 +402,28 @@ impl<'a> Role<'a> {
             },
             None => false,
         };
-        /*
-        let groups = getgrouplist(CString::from(user) as CStr, group)
-        if let Some(roles) = self.ssd.as_ref() {
-            for role in roles.iter() {
-                if let Some(role) = role.upgrade() {
-                    if role.users.contains(&user.to_string()) {
-                        return true;
+    }
+
+    pub fn capabilities_are_denied(&self, caps: CapSet) -> bool {
+        !self.denied_capabilities().intersection(caps).is_empty()
+    }
+
+    pub fn denied_capabilities(&self) -> CapSet {
+        let mut denied_caps = if self.denied_caps.is_some() {
+            self.denied_caps.as_ref().unwrap().clone()
+        } else {
+            CapSet::empty()
+        };
+        if let Some(parents) = &self.parents {
+            for parent in parents.iter() {
+                if let Some(parent) = parent.upgrade() {
+                    if let Some(denied) = &parent.as_ref().borrow().denied_caps {
+                        denied_caps = denied_caps.union(*denied);
                     }
                 }
             }
         }
-        false
-        */
+        denied_caps
     }
 }
 

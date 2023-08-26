@@ -38,7 +38,7 @@ where
     Ok(parser::parse(&contents)?)
 }
 
-pub(crate) fn foreach_element<F>(element: &Element, mut f: F) -> Result<(), Box<dyn Error>>
+pub(crate) fn foreach_child<F>(element: &Element, mut f: F) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(ChildOfElement) -> Result<(), Box<dyn Error>>,
 {
@@ -50,7 +50,50 @@ where
     Ok(())
 }
 
-pub(crate) fn do_in_main_element<F>(
+pub(crate) fn foreach_element_name<F>(element: &Element, element_name : &str, mut f: F) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(Element) -> Result<(), Box<dyn Error>>,
+{
+    if !element.children().is_empty() {
+        for child in element.children() {
+            if let Some(element) = child.element() {
+                if element.name().local_part() == element_name {
+                    f(element)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn foreach_inner_elements_names<F>(
+    element: &Element,
+    elements_structure: &[&str],
+    mut f: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(Element) -> Result<(), Box<dyn Error>>,
+{
+    for i in 0..elements_structure.len() {
+        if i == elements_structure.len() - 1 {
+            foreach_element_name(element, elements_structure[i], |element| {
+                f(element)?;
+                Ok(())
+            })?;
+        } else {
+            foreach_element_name(element, elements_structure[i], |element| {
+                foreach_inner_elements_names(&element, &elements_structure[i + 1..], |element| {
+                    f(element)?;
+                    Ok(())
+                })?;
+                Ok(())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn do_in_main_child<F>(
     doc: &Document,
     name: &str,
     mut f: F,
@@ -66,6 +109,22 @@ where
         }
     }
     Ok(())
+}
+
+pub(crate) fn do_in_main_element<F>(
+    doc: &Document,
+    name: &str,
+    mut f: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(Element) -> Result<(), Box<dyn Error>>,
+{
+    do_in_main_child(doc, name, |child| {
+        if let Some(element) = child.element() {
+            f(element.into())?;
+        }
+        Ok(())
+    })
 }
 
 pub(crate) fn get_groups(node: Element) -> Groups {

@@ -32,13 +32,15 @@
 	<!ELEMENT purpose (#PCDATA)>
 ]>
 <rootasrole version="3.0.0-alpha.2">
-	<role>
-		<actors>
-			<user name="root"/>
-		</actors>
-		<task>
-			<command regex="true">/bin/echo</command>
-			<command regex="true">/bin/ls</command>
-		</task>
-	</role>
+	<roles>
+		<role name="root">
+			<actors>
+				<user name="root"/>
+			</actors>
+			<task>
+				<command regex="true" >/bin/echo</command>
+				<command>/bin/ls</command>
+			</task>
+		</role>
+	</roles>
 </rootasrole>

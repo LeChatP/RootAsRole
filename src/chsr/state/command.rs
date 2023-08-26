@@ -10,7 +10,7 @@ use cursive::{
 mod descriptions;
 
 use super::{execute, task::EditTaskState, ExecuteType, Input, State};
-use crate::{checklist::CheckListView, Cursive, RoleContext};
+use crate::{checklist::CheckListView, Cursive, RoleContext, RoleManagerApp};
 
 use capctl::{Cap, CapSet};
 
@@ -39,8 +39,17 @@ impl State for EditCapabilitiesState {
     }
     fn input(self: Box<Self>, manager: &mut RoleContext, input: Input) -> Box<dyn State> {
         let task = manager.get_task();
+        let role = manager.get_role().unwrap();
+        let caps = input.as_caps();
+        if role.borrow().capabilities_are_denied(caps) {
+            manager.set_error(format!(
+                "Capabilities {:?} are denied by role definition (or in hierarchy definition)",
+                role.borrow().denied_capabilities()
+            ).into());
+            return self;
+        }
         if let Some(task) = task {
-            task.borrow_mut().capabilities = Some(input.as_caps());
+            task.borrow_mut().capabilities = Some(caps);
         }
 
         Box::new(EditTaskState)
@@ -49,10 +58,19 @@ impl State for EditCapabilitiesState {
         let mut select = CheckListView::<Cap>::new()
             .autojump()
             .on_select(|s, _, item| {
+                let RoleManagerApp { manager, state } = s.take_user_data().unwrap();
                 let info = s.find_name::<TextView>("info");
                 if let Some(mut info) = info {
-                    info.set_content(descriptions::get_capability_description(item));
+                    let mut capset = CapSet::empty();
+                    capset.add(*item);
+                    let warning = if manager.get_role().unwrap().borrow().capabilities_are_denied(capset) {
+                        "WARNING: This capability is denied by role definition (or in hierarchy definition)\n"
+                    } else {
+                        ""
+                    };
+                    info.set_content(format!("{}{}\n", warning, descriptions::get_capability_description(item)));
                 }
+                s.set_user_data(RoleManagerApp { manager, state });
             });
         let task = manager.get_task();
         let mut selected = CapSet::empty();

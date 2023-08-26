@@ -11,10 +11,10 @@ use tracing::debug;
 
 use crate::xml_version::DTD;
 
-use super::{capset_to_string, do_in_main_element, options::Opt};
+use super::{capset_to_string, do_in_main_child, options::Opt};
 
 use super::{
-    foreach_element, read_xml_file,
+    foreach_child, read_xml_file,
     structs::{Config, Groups, IdTask, Role, Save, Task},
 };
 
@@ -100,16 +100,16 @@ impl<'a> Save for Config<'a> {
         let doc = doc.ok_or::<Box<dyn Error>>("Unable to retrieve Document".into())?;
         let mut edited = false;
         let mut hasroles = false;
-        do_in_main_element(doc, "rootasrole", |element| {
+        do_in_main_child(doc, "rootasrole", |element| {
             let element = element.element().unwrap();
             element.set_attribute_value("version", self.version.as_str());
-            foreach_element(&element, |child| {
+            foreach_child(&element, |child| {
                 if let Some(child) = child.element() {
                     match child.name().local_part() {
                         "roles" => {
                             hasroles = true;
                             let mut rolesnames = self.get_roles_names();
-                            foreach_element(&child, |role_element| {
+                            foreach_child(&child, |role_element| {
                                 if let Some(role_element) = role_element.element() {
                                     let rolename = role_element.attribute_value("name").unwrap();
                                     if let Some(role) = self.get_role(rolename) {
@@ -227,7 +227,7 @@ impl<'a> Save for Role<'a> {
             let mut hastasks = false;
             let mut taskid = 0;
 
-            foreach_element(element, |child| {
+            foreach_child(element, |child| {
                 if let Some(child) = child.element() {
                     match child.name().local_part() {
                         "actors" => {
@@ -236,7 +236,7 @@ impl<'a> Save for Role<'a> {
                             users.extend(self.users.clone());
                             let mut groups = HashSet::new();
                             groups.extend(self.groups.clone());
-                            foreach_element(&child, |actor_element| {
+                            foreach_child(&child, |actor_element| {
                                 if let Some(actor_element) = actor_element.element() {
                                     match actor_element.name().local_part() {
                                         "user" => {
@@ -407,7 +407,7 @@ impl<'a> Save for Task<'a> {
         commands.extend(self.commands.clone());
         let mut hasoptions = false;
         let mut haspurpose = false;
-        foreach_element(element, |child| {
+        foreach_child(element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "command" => {
@@ -505,7 +505,7 @@ impl Save for Opt {
         let mut hasallow_root = false;
         let mut hasdisable_bounding = false;
         let mut haswildcard_denied = false;
-        foreach_element(element, |child| {
+        foreach_child(element, |child| {
             if let Some(child_element) = child.element() {
                 match child_element.name().local_part() {
                     "path" => {

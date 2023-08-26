@@ -281,7 +281,15 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 task.as_ref().borrow_mut().commands = cmds.to_owned();
             }
             if let Some(caps) = &caps {
-                task.as_ref().borrow_mut().capabilities = Some(util::parse_capset(caps)?);
+                let role = manager.get_role().unwrap();
+                let caps = util::parse_capset(caps)?;
+                if role.as_ref().borrow().capabilities_are_denied(caps) {
+                    println!(
+                        "Capabilities {:?} are denied by role definition (or in hierarchy definition)",
+                        role.as_ref().borrow().denied_capabilities().intersection(caps));
+                    return Ok(false);
+                }
+                task.as_ref().borrow_mut().capabilities = Some(caps);
             }
             manager.save(None, None)?;
             Ok(true)

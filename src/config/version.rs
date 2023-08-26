@@ -7,7 +7,10 @@ use semver::Version;
 use sxd_document::dom::{Document, Element};
 use tracing::debug;
 
-use super::{do_in_main_element, foreach_element};
+use super::{
+    do_in_main_child, do_in_main_element, foreach_child, foreach_element_name,
+    foreach_inner_elements_names,
+};
 
 struct Migration {
     from: fn() -> Version,
@@ -100,7 +103,7 @@ fn set_to_version(element: &Element, m: &Migration) {
 }
 
 fn set_to_version_from_doc(doc: &Document, m: &Migration) -> Result<(), Box<dyn Error>> {
-    do_in_main_element(doc, "rootasrole", |main| {
+    do_in_main_child(doc, "rootasrole", |main| {
         if let Some(mainelement) = main.element() {
             set_to_version(&mainelement, m);
         }
@@ -114,46 +117,41 @@ const MIGRATIONS: &[Migration] = &[
         to: || "3.0.0-alpha.3".parse().unwrap(),
         /// Upgrade from 3.0.0-alpha.2 to 3.0.0-alpha.3
         /// The version attribute is set to 3.0.0-alpha.3
-        /// Nothing else is changed, because the new attributes are optional.
-        up: |m, doc| set_to_version_from_doc(doc, m),
+        up: |m, doc| {
+            do_in_main_element(doc, "rootasrole", |main| {
+                set_to_version(&main, m);
+                foreach_inner_elements_names(
+                    &main,
+                    &["roles", "role", "task", "command"],
+                    |cmdelement| {
+                        cmdelement.remove_attribute("regex");
+                        Ok(())
+                    },
+                )?;
+                Ok(())
+            })?;
+            Ok(())
+        },
         /// Downgrade from 3.0.0-alpha.3 to 3.0.0-alpha.2
         /// The timestamp-timeout attribute is removed from the root element.
         /// The version attribute is set to 3.0.0-alpha.2
         /// The parents, denied-capabilities and incompatible-with attributes are removed from the role element.
         down: |s: &Migration, doc| {
             do_in_main_element(doc, "rootasrole", |main| {
-                if let Some(mainelement) = main.element() {
-                    set_to_version(&mainelement, s);
-                    if let Some(a) = mainelement.attribute("timestamp-timeout") {
+                set_to_version(&main, s);
+                if let Some(a) = main.attribute("timestamp-timeout") {
+                    a.remove_from_parent();
+                }
+                return foreach_inner_elements_names(&main, &["roles", "role"], |role| {
+                    if let Some(a) = role.attribute("parents") {
+                        a.remove_from_parent();
+                    } else if let Some(a) = role.attribute("denied-capabilities") {
+                        a.remove_from_parent();
+                    } else if let Some(a) = role.attribute("incompatible-with") {
                         a.remove_from_parent();
                     }
-                    foreach_element(&mainelement, |element| {
-                        if let Some(subelement) = element.element() {
-                            if subelement.name().local_part() == "roles" {
-                                return foreach_element(&subelement, |rolechild| {
-                                    if let Some(roleelement) = rolechild.element() {
-                                        if roleelement.name().local_part() == "role" {
-                                            if let Some(a) = roleelement.attribute("parents") {
-                                                a.remove_from_parent();
-                                            } else if let Some(a) =
-                                                roleelement.attribute("denied-capabilities")
-                                            {
-                                                a.remove_from_parent();
-                                            } else if let Some(a) =
-                                                roleelement.attribute("incompatible-with")
-                                            {
-                                                a.remove_from_parent();
-                                            }
-                                        }
-                                    }
-                                    Ok(())
-                                });
-                            }
-                        }
-                        Ok(())
-                    })?;
-                }
-                Ok(())
+                    Ok(())
+                });
             })?;
             Ok(())
         },
@@ -161,14 +159,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         from: || "3.0.0-alpha.1".parse().unwrap(),
         to: || "3.0.0-alpha.2".parse().unwrap(),
-        /// Upgrade from 3.0.0-alpha.2 to 3.0.0-alpha.3
-        /// The version attribute is set to 3.0.0-alpha.3
-        /// Nothing else is changed, because the new attributes are optional.
         up: |m, doc| set_to_version_from_doc(doc, m),
-        /// Downgrade from 3.0.0-alpha.3 to 3.0.0-alpha.2
-        /// The timestamp-timeout attribute is removed from the root element.
-        /// The version attribute is set to 3.0.0-alpha.2
-        /// The parents, denied-capabilities and incompatible-with attributes are removed from the role element.
         down: |s, doc| set_to_version_from_doc(doc, s),
     },
 ];
@@ -197,21 +188,32 @@ mod tests {
         let doc = pkg.as_document();
         let v3 = &Version::parse("3.0.0-alpha.3").unwrap();
         let v2 = &Version::parse("3.0.0-alpha.2").unwrap();
-        assert_eq!(
-            _migrate(v3, v3, &doc).expect(format!("Failed to migrate to {}", v3).as_str()),
-            false
-        );
+        
+        //this migration should remove regex attribute on command element
         assert_eq!(
             _migrate(v2, v3, &doc).expect(format!("Failed to migrate to {}", v3).as_str()),
             true
         );
+        //this migration should do nothing
+        assert_eq!(
+            _migrate(v3, v3, &doc).expect(format!("Failed to migrate to {}", v3).as_str()),
+            false
+        );
+        //we add v3 features on document
+        do_in_main_child(&doc, "rootasrole", |element| {
+            let element = element.element().unwrap();
+            element.set_attribute_value("timestamp-timeout", "10");
+            return foreach_inner_elements_names(&element, &["roles","role"], |role| {
+                role.set_attribute_value("parents", "role1");
+                role.set_attribute_value("denied-capabilities", "CAP_CHOWN");
+                role.set_attribute_value("incompatible-with", "role2");
+                Ok(())
+            });
+        })
+        .expect("Failed to add v3 features on document");
         assert_eq!(
             _migrate(v3, v2, &doc).expect(format!("Failed to migrate to {}", v2).as_str()),
             true
-        );
-        assert_eq!(
-            _migrate(v2, v2, &doc).expect(format!("Failed to migrate to {}", v2).as_str()),
-            false
         );
         assert_eq!(
             _migrate(v2, v3, &doc).expect(format!("Failed to migrate to {}", v3).as_str()),

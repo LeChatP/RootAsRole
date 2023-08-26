@@ -8,7 +8,7 @@ use sxd_document::{
 use tracing::warn;
 
 use super::{
-    do_in_main_element, get_groups, libxml2,
+    do_in_main_child, get_groups, libxml2,
     options::{Level, Opt},
     parse_capset, read_xml_file,
     structs::{Config, IdTask, Role, Task},
@@ -287,7 +287,7 @@ pub fn load_config_from_doc<'a>(
     do_migration: bool,
 ) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>> {
     let mut version = PACKAGE_VERSION.to_string();
-    do_in_main_element(doc, "rootasrole", |element| {
+    do_in_main_child(doc, "rootasrole", |element| {
         if let Some(element) = element.element() {
             version = element
                 .attribute_value("version")
@@ -297,7 +297,7 @@ pub fn load_config_from_doc<'a>(
         Ok(())
     })?;
     let rc_roles = Config::new(version.as_str());
-    do_in_main_element(doc, "rootasrole", |element| {
+    do_in_main_child(doc, "rootasrole", |element| {
         if let Some(element) = element.element() {
             if do_migration {
                 migrate(&version, doc)?;
