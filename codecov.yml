@@ -1,3 +1,6 @@
 ignore:
   - "tests/*"
   - "tests/**"
+  - "legacy/*"
+  - "legacy/**"
+  - "src/descriptions.rs"
