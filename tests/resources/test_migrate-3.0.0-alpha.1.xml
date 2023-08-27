@@ -31,7 +31,7 @@
 		regex (true|false) "false">
 	<!ELEMENT purpose (#PCDATA)>
 ]>
-<rootasrole version="3.0.0-alpha.2">
+<rootasrole version="3.0.0-alpha.1">
 	<roles>
 		<role name="root">
 			<actors>
