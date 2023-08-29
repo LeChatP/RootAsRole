@@ -55,28 +55,12 @@ fn get_options(level: Level, node: Element) -> Opt {
         let mut options = rc_options.borrow_mut();
         if let Some(elem) = child.element() {
             match elem.name().local_part() {
-                "path" => {
-                    options.path = Some(
-                        option_element_string(elem),
-                    )
-                }
-                "env-keep" => {
-                    options.env_whitelist = Some(
-                        option_element_string(elem),
-                    )
-                }
-                "env-check" => {
-                    options.env_checklist = Some(
-                        option_element_string(elem),
-                    )
-                }
+                "path" => options.path = Some(option_element_string(elem)),
+                "env-keep" => options.env_whitelist = Some(option_element_string(elem)),
+                "env-check" => options.env_checklist = Some(option_element_string(elem)),
                 "allow-root" => options.allow_root = Some(is_enforced(elem)),
                 "allow-bounding" => options.disable_bounding = Some(is_enforced(elem)),
-                "wildcard-denied" => {
-                    options.wildcard_denied = Some(
-                        option_element_string(elem),
-                    )
-                }
+                "wildcard-denied" => options.wildcard_denied = Some(option_element_string(elem)),
                 _ => warn!("Unknown option: {}", elem.name().local_part()),
             }
         }
