@@ -44,12 +44,12 @@ fn write_dtd(f: &mut File, xml_contents: &str) -> Result<(), Box<dyn Error>> {
     .map_err(|e| e.into())
 }
 
-fn set_cargo_version(package_version: &str) -> Result<(), Box<dyn Error>> {
-    let cargo_toml = File::open(std::path::Path::new("Cargo.toml")).expect("Cargo.toml not found");
+fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
+    let cargo_toml = File::open(std::path::Path::new(file)).expect("Cargo.toml not found");
     let reader = BufReader::new(cargo_toml);
     let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
     let mut cargo_toml =
-        File::create(std::path::Path::new("Cargo.toml")).expect("Cargo.toml not found");
+    File::create(std::path::Path::new(file)).expect("Cargo.toml not found");
     for line in lines {
         if line.starts_with("version") {
             writeln!(cargo_toml, "version = \"{}\"", package_version)?;
@@ -128,6 +128,26 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
     Ok(())
 }
 
+fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
+    let readme = File::open(std::path::Path::new(file)).expect("README.md not found");
+    let reader = BufReader::new(readme);
+    let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
+    let mut readme =
+    File::create(std::path::Path::new(file)).expect("README.md not found");
+    for line in lines {
+        if line.starts_with("# RootAsRole (V") {
+            let mut s = line.split("(V").nth(0).unwrap().to_string();
+            let end = line.split(')').nth(1).unwrap();
+            s.push_str(&format!("(V{}){}", package_version, end));
+            writeln!(readme, "{}", s)?;
+        } else {
+            writeln!(readme, "{}", line)?;
+        }
+    }
+    readme.sync_all()?;
+    Ok(())
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=resources/rootasrole.xml");
     println!("cargo:rerun-if-changed=build.rs");
@@ -154,7 +174,19 @@ fn main() {
         .unwrap();
     match write_version(&mut f, cargo_toml) {
         Ok(package_version) => {
-            if let Err(err) = set_cargo_version(package_version) {
+            if let Err(err) = set_cargo_version(package_version, "Cargo.toml") {
+                eprintln!("cargo:warning={}", err);
+            }
+            if let Err(err) = set_cargo_version(package_version, "capable/Cargo.toml") {
+                eprintln!("cargo:warning={}", err);
+            }
+            if let Err(err) = set_cargo_version(package_version, "capable-ebpf/Cargo.toml") {
+                eprintln!("cargo:warning={}", err);
+            }
+            if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
+                eprintln!("cargo:warning={}", err);
+            }
+            if let Err(err) = set_readme_version(package_version, "README.md") {
                 eprintln!("cargo:warning={}", err);
             }
         }

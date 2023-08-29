@@ -28,7 +28,8 @@
     },
     "rust-analyzer.linkedProjects": [
         "sudoers-reader/Cargo.toml",
-        "Cargo.toml"
+        "Cargo.toml",
+        "./capable/Cargo.toml"
     ],
     "c-cpp-flylint.clang.includePaths": [
         "${workspaceFolder}/src"
