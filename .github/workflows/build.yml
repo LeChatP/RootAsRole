@@ -18,7 +18,7 @@ jobs:
       run: sudo ./configure.sh -yd
     - name: Add cargo to PATH
       run: |
-        echo "export PATH=$PATH:/home/runner/.cargo/bin" >> $GITHUB_ENV
+        echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
     - name: Configure PAM
       run: |
         sudo bash -c 'echo "#%PAM-1.0
