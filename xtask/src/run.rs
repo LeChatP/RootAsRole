@@ -23,7 +23,7 @@ pub struct Options {
 
 /// Build the project
 fn build(opts: &Options) -> Result<(), anyhow::Error> {
-    let mut args = vec!["build"];
+    let mut args = vec!["build","--package","capable"];
     if opts.release {
         args.push("--release")
     }

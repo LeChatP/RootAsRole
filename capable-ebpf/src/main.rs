@@ -14,7 +14,7 @@ use vmlinux::{task_struct, nsproxy, pid_namespace, ns_common};
 const MAX_PID : u32 = 4*1024*1024;
 
 type Key = i32;
-type task_struct_ptr = *mut task_struct;
+type TaskStructPtr = *mut task_struct;
 
 #[map]
 static KALLSYMS_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
@@ -37,7 +37,7 @@ pub fn capable(ctx: ProbeContext) -> u32 {
 
 fn try_capable(ctx: ProbeContext) -> Result<u32, i64> {
     unsafe {
-        let task: task_struct_ptr = bpf_get_current_task() as task_struct_ptr;
+        let task: TaskStructPtr = bpf_get_current_task() as TaskStructPtr;
         let task = bpf_probe_read_kernel(&task)?;
         let ppid: i32 = get_ppid(task)?;
         let pid: i32 = bpf_probe_read_kernel(&(*task).pid)?;
@@ -54,21 +54,21 @@ fn try_capable(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-unsafe fn get_ppid(task : task_struct_ptr) -> Result<i32, i64> {
-    let parent_task: task_struct_ptr = get_parent_task(task)?;
+unsafe fn get_ppid(task : TaskStructPtr) -> Result<i32, i64> {
+    let parent_task: TaskStructPtr = get_parent_task(task)?;
     return bpf_probe_read_kernel(&(*parent_task).pid);
 }
 
-unsafe fn get_parent_task(task : task_struct_ptr) -> Result<task_struct_ptr, i64> {
+unsafe fn get_parent_task(task : TaskStructPtr) -> Result<TaskStructPtr, i64> {
     return bpf_probe_read_kernel(&(*task).real_parent);
 }
 
-unsafe fn get_parent_ns_inode(task : task_struct_ptr) -> Result<u32, i64> {
-    let parent_task: task_struct_ptr = get_parent_task(task)?;
+unsafe fn get_parent_ns_inode(task : TaskStructPtr) -> Result<u32, i64> {
+    let parent_task: TaskStructPtr = get_parent_task(task)?;
     return get_ns_inode(parent_task);
 }
 
-unsafe fn get_ns_inode(task : task_struct_ptr) -> Result<u32, i64> {
+unsafe fn get_ns_inode(task : TaskStructPtr) -> Result<u32, i64> {
     let nsp: *mut nsproxy  = bpf_probe_read_kernel(&(*task).nsproxy)?;
     let pns: *mut pid_namespace = bpf_probe_read_kernel(&(*nsp).pid_ns_for_children)?;
     let nsc: ns_common = bpf_probe_read_kernel(&(*pns).ns)?;
