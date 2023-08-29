@@ -21,6 +21,9 @@ trait Load {
     fn load(&self, node: Element) -> Result<(), Box<dyn Error>>;
 }
 
+/// Checks if an element is enforced.
+/// It checks the enforce attribute of the element.
+/// If the enforce attribute is true, then the element is enforced.
 pub fn is_enforced(node: Element) -> bool {
     let enforce = node.attribute("enforce");
     (enforce.is_some()
@@ -31,6 +34,20 @@ pub fn is_enforced(node: Element) -> bool {
         || enforce.is_none()
 }
 
+/// Retrieve string from an option element.
+/// It returns the text of the first child of the element.
+fn option_element_string(elem: Element<'_>) -> String {
+    elem.children()
+        .first()
+        .unwrap()
+        .text()
+        .expect("Cannot read option")
+        .text()
+        .to_string()
+}
+
+/// Construct an option from the document structure level and the pointed element
+/// It returns an option with the level and the element.
 fn get_options(level: Level, node: Element) -> Opt {
     let mut rc_options = Opt::new(level);
 
@@ -40,48 +57,24 @@ fn get_options(level: Level, node: Element) -> Opt {
             match elem.name().local_part() {
                 "path" => {
                     options.path = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read PATH option")
-                            .text()
-                            .to_string(),
+                        option_element_string(elem),
                     )
                 }
                 "env-keep" => {
                     options.env_whitelist = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read Whitelist option")
-                            .text()
-                            .to_string(),
+                        option_element_string(elem),
                     )
                 }
                 "env-check" => {
                     options.env_checklist = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read Checklist option")
-                            .text()
-                            .to_string(),
+                        option_element_string(elem),
                     )
                 }
                 "allow-root" => options.allow_root = Some(is_enforced(elem)),
                 "allow-bounding" => options.disable_bounding = Some(is_enforced(elem)),
                 "wildcard-denied" => {
                     options.wildcard_denied = Some(
-                        elem.children()
-                            .first()
-                            .unwrap()
-                            .text()
-                            .expect("Cannot read Checklist option")
-                            .text()
-                            .to_string(),
+                        option_element_string(elem),
                     )
                 }
                 _ => warn!("Unknown option: {}", elem.name().local_part()),
@@ -91,6 +84,10 @@ fn get_options(level: Level, node: Element) -> Opt {
     rc_options
 }
 
+/// Load a task from an element.
+/// It loads the id, the commands, the options and the purpose of the task.
+/// It also loads the capabilities, the setuid and the setgid if they are present.
+/// It returns an error if the id is not present. The id is required by the DTD.
 impl Load for Rc<RefCell<Task<'_>>> {
     fn load(&self, node: Element) -> Result<(), Box<dyn Error>> {
         if let Some(id) = node.attribute_value("id") {
@@ -137,6 +134,7 @@ impl Load for Rc<RefCell<Task<'_>>> {
     }
 }
 
+/// Obtain every role actors from the actors element.
 fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     for child in node.children() {
         if let Some(elem) = child.element() {
@@ -154,6 +152,8 @@ fn add_actors(role: &mut Role, node: Element) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Load a role from an element.
+/// It loads the name, the actors, the tasks and the options.
 impl Load for Rc<RefCell<Role<'_>>> {
     fn load(&self, element: Element) -> Result<(), Box<dyn Error>> {
         let mut i: usize = 0;
@@ -217,6 +217,9 @@ impl Load for Rc<RefCell<Role<'_>>> {
     }
 }
 
+/// Load the rootasrole element.
+/// It load the timestamp-type, the timestamp-timeout and the password-usage-max attributes.
+/// It also load the roles and the options.
 impl Load for Rc<RefCell<Config<'_>>> {
     fn load(&self, element: Element) -> Result<(), Box<dyn Error>> {
         if element.name().local_part() != "rootasrole" {
@@ -265,6 +268,8 @@ impl Load for Rc<RefCell<Config<'_>>> {
     }
 }
 
+/// Load a document with the filename, and check for his DTD validity if validate is set to true.
+/// It returns an error if the document is not valid.
 pub fn load_document<'a, P>(filename: &P, validate: bool) -> Result<Package, Box<dyn Error>>
 where
     P: AsRef<Path> + Display,
@@ -275,6 +280,8 @@ where
     read_xml_file(filename)
 }
 
+/// Load a config from the filename, and check for his DTD validity.
+/// It returns an error if the document is not valid
 pub(crate) fn load_config<'a, P>(filename: &P) -> Result<Rc<RefCell<Config<'a>>>, Box<dyn Error>>
 where
     P: AsRef<Path> + Display,
@@ -282,6 +289,9 @@ where
     load_document(filename, true).and_then(|pkg| load_config_from_doc(&pkg.as_document(), true))
 }
 
+/// Load a config from the filename, and check for his DTD validity.
+/// It also perform a migration if the version of the config is not the same as the package version.
+/// It returns an error if the document is not valid
 pub fn load_config_from_doc<'a>(
     doc: &Document,
     do_migration: bool,
