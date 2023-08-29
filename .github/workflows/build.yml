@@ -15,9 +15,8 @@ jobs:
     - name: Update version
       run: sudo apt-get update
     - name: Install Dependencies
-      run: sudo ./configure.sh -yd
-    - name: Add cargo to PATH
       run: |
+        sudo ./configure.sh -yd
         sudo cp /root/.cargo/bin/* /usr/bin/
         echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
     - name: Configure PAM
