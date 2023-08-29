@@ -60,6 +60,9 @@ else
 	exit 2
 fi
 
+echo "Install cargo bpf-linker"
+cargo install --force bpf-linker
+
 export $(grep -h '^ID' /etc/*-release)
 
 echo "Configuration files installation"
