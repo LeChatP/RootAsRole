@@ -1,0 +1,24 @@
+[package]
+name = "capable"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+aya = { git = "https://github.com/aya-rs/aya", features = ["async_tokio"] }
+aya-log = { git = "https://github.com/aya-rs/aya" }
+capable-common = { path = "../capable-common", features = ["user"] }
+anyhow = "1"
+env_logger = "0.10"
+libc = "0.2"
+log = "0.4"
+tokio = { version = "1.25", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
+clap = { version = "4.4.0", features = ["derive"] }
+unshare = "0.7.0"
+tabled = "0.14.0"
+capctl = "0.2.3"
+nix = { version = "0.27.1", features = ["user", "signal"] }
+
+[[bin]]
+name = "capable"
+path = "src/main.rs"

@@ -2,7 +2,9 @@
 
 ## Introduction
 
-In many cases, it is very difficult for a user or administrator to know what kind of capabilities are requested by a program. So we build the capable tool in order to help Linux users know discover the capabilities requested by a program. Our tool uses eBPF in order to intercept the cap_capable() calls in the kernel. This filter uses JIT compilation and is injected to the kernel and will give back information to user-space. More details [https://github.com/pratyushanand/learn-bpf](here)
+In many cases, it is very difficult for a user or administrator to know what kind of capabilities are requested by a program. So we created the capable tool in order to help Linux users know discover the capabilities requested by a program.
+
+Our tool uses eBPF in order to intercept the cap_capable() calls in the kernel. This filter uses JIT compilation and is injected to the kernel and will give back information to user-space. More details [here](https://github.com/pratyushanand/learn-bpf)
 However, the kernel retruns the list of capabilities to all programs that are running on the OS. We have added a filtering mecanism in order to let the user see only the capabilites requested by his program.
 
 ## Tested Plateforms
@@ -14,7 +16,7 @@ This program has been tested with kernel version 5.0.0-13-generic with x86_64 ar
 ### How to Build
 
 1. cd RootAsRole/ebpf
-2. sr -r root -c 'make install'
+2. sr make install
 
 ### Usage
 
@@ -47,7 +49,7 @@ tcpdump: wlp108s0: You don't have permission to capture on that device
 (socket: Operation not permitted)
 
 Here's all capabilities intercepted for this program :
-cap_net_raw, cap_sys_admin
+cap_net_raw
 WARNING: These capabilities aren't mandatory, but can change the behavior of tested program.
 WARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant
 ```

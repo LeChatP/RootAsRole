@@ -1,3 +1,6 @@
+[workspace]
+members = ["xtask", "capable", "capable-common"]
+
 [package]
 name = "RootAsRole"
 version = "3.0.0-alpha.3"

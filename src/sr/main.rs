@@ -290,31 +290,39 @@ fn main() {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
-    //setuid
-    if let Some(setuid) = matching.setuid() {
-        let newuser = User::from_name(setuid)
-            .expect("Failed to get user")
-            .expect("Failed to get user");
-        setuid_effective(true).expect("Failed to setuid_effective");
-        seteuid(newuser.uid).expect("Failed to seteuid");
-    }
+    debug!("setuid : {:?}", matching.setuid());
 
-    //setgid
-    if let Some(setgid) = matching.setgroups() {
-        setgid_effective(true).expect("Failed to setgid_effective");
-        let groupsid: Vec<_> = setgid
-            .groups
+    let uid = matching.setuid().as_ref().map(|u| {
+        User::from_name(&u)
+            .expect("Failed to get user")
+            .expect("Failed to get user")
+            .uid
+            .as_raw()
+    });
+    let gid = matching.setgroups().as_ref().map(|g| {
+        Group::from_name(&g.groups[0])
+            .expect("Failed to get group")
+            .expect("Failed to get group")
+            .gid
+            .as_raw()
+    });
+    let groups = matching.setgroups().as_ref().map(|g| {
+        g.groups
             .iter()
             .map(|g| {
                 Group::from_name(g)
-                    .expect("Failed to retrieve setgroups")
-                    .expect("Failed to retrieve setgroups")
+                    .expect("Failed to get group")
+                    .expect("Failed to get group")
                     .gid
+                    .as_raw()
             })
-            .collect();
-        setegid(groupsid[0]).expect("Failed to setegid");
-        setgroups(&groupsid).expect("Failed to setgroups");
-    }
+            .collect::<Vec<_>>()
+    });
+
+    setuid_effective(true).expect("Failed to setuid_effective");
+    capctl::cap_set_ids(uid, gid, groups.as_ref().map(|g| g.as_slice()))
+        .expect("Failed to set ids");
+    setuid_effective(false).expect("Failed to setuid_effective");
 
     //set capabilities
     if let Some(caps) = matching.caps() {

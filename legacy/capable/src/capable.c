@@ -136,10 +136,7 @@ int main(int argc, char **argv)
 		cap_free(cap);
 	}
 	#ifndef DEBUG
-	if (args.command == NULL) {
-		if(load_bpf("capable"))goto free_rscs;
-	}else if(load_bpf("nscapable"))
-		goto free_rscs;
+	if(load_bpf("capable"))goto free_rscs;
 	#endif
 	ignoreKallsyms(); // we remove blacklisted 
 	if (args.command != NULL) {
@@ -149,7 +146,9 @@ int main(int argc, char **argv)
 		stackTop = stack + STACK_SIZE;	/* Assume stack grows downward */
 		signal(SIGINT,killProc);
 		signal(SIGTERM,killProc);
-		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD,(void*)&args);
+		p_popen = clone(do_clone,stackTop,CLONE_NEWPID  | SIGCHLD | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWCGROUP,(void*)&args);
+		if (p_popen == -1)
+            perror("clone");
 		char *namespaceFile = "/proc/%d/ns/pid";
 		char *namespace = malloc(strlen(namespaceFile)*sizeof(char)+sizeof(pid_t));
 		snprintf(namespace,strlen(namespaceFile)*sizeof(char)+sizeof(pid_t),namespaceFile,p_popen);

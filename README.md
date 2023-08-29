@@ -16,9 +16,13 @@
 </p>
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0-alpha.3) : a secure alternative to sudo/su on Linux systems
 
-A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
+This tool allows you to configure your privilege access management more securely on a single operating system. 
+
+Unlike sudo, this project sets the principle least privilege on its core features. Like sudo, this project wants to be usable. More than sudo, we care about configurators, and we try to warn configurators about dangerous manipulations.
+
+By using a role-based access control model, this project allows us to better manage administrative tasks. With this project, you could distribute privileges and prevent them from escalating directly. Unlike sudo does, we don't want to give entire privileges for any insignificant administrative task, so you could configure it easily with `capable` command.
 
 ## Installation
 
@@ -27,32 +31,75 @@ A role-based access control tool for administrative tasks on Linux. This tool tr
   1. git clone <https://github.com/SamerW/RootAsRole>
   2. cd RootAsRole
   3. sudo sh ./configure.sh
-  4. make
-  5. sudo make install
+  4. sudo make install
+
+> [!WARNING]
+> **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
+
+### Usage
+
+<pre>
+Execute privileged commands with a role-based access control system
+
+<u><b>Usage</b></u>: <b>sr</b> [OPTIONS] [COMMAND]...
+
+<u><b>Arguments</b></u>:
+  [COMMAND]...  Command to execute
+
+<u><b>Options</b></u>:
+  <b>-r, --role</b> &lt;ROLE&gt;  Role to select
+  <b>-i, --info</b>         Display rights of executor
+  <b>-h, --help</b>         Print help (see more with '--help')
+  <b>-V, --version</b>      Print version
+</pre>
+
+If you're used to using the sudo tool, and you can't change your habit, you could perform an alias safely : 
+```sh
+alias sudo="sr"
+```
 
 ### How to Configure
 
-Our role manager is currently under development. But you can manually execute these commands :
+To configure this program you could use the `chsr` command.
+
+<pre>
+Configure Roles for RootAsRole
+
+<u><b>Usage</b></u>: <b>chsr</b> [COMMAND]
+
+<u><b>Commands</b></u>:
+  <b>list</b>     List all roles
+  <b>newrole</b>  Create a new role, you can add users, groups, tasks. You can assign tasks through the command "addtask"
+  <b>grant</b>    You can grant users/groups to role
+  <b>revoke</b>   You can revoke users/groups from role
+  <b>addtask</b>  Add a task to a role, you can add commands and capabilities
+  <b>deltask</b>  Delete a task from a role
+  <b>delrole</b>  Delete a role, this is not reversible
+  <b>config</b>   You could configure options for all roles, specific role, or specific task
+  <b>import</b>   NOT IMPLEMENTED: Import sudoers file
+  <b>help</b>     Print this message or the help of the given subcommand(s)
+
+<u><b>Options</b></u>:
+  <b>-h, --help</b>     Print help (see more with '--help')
+  <b>-V, --version</b>  Print version
+</pre>
+
+You could also use the fancy TUI configuration manager : 
+
+![Chsr TUI](assets/chsr-tui.png)
+
+This role manager is currently under development and does not provide entire configuration edition. So you can manually execute these commands :
 
 ```sh
 sr chattr -i /etc/security/rootasrole.xml
 sr nano /etc/security/rootasrole.xml
 ```
 
-With the new role management features, you will be able to restrict the responsibilities of configurators, but this remains dangerous and there is still a contract of trust with them.
+This will remove immutable bit flag on the configuration and open text editor for the configuration file.
 
-However, today, you can start to configure this tool with the rootasrole.xml file configuration. Some examples are commented on the preinstalled configuration file.
+### How to find out the privileges needed for your command
 
-### Usage
 
-```txt
-Usage: sr [options] [command [args]]
-Options:
-  -r, --role <role>      Role to use
-  -i, --info             Display rights of executor
-  -v, --version          Display version
-  -h, --help             Display this help
-```
 
 ## Feedback
 
