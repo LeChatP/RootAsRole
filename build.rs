@@ -48,8 +48,7 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     let cargo_toml = File::open(std::path::Path::new(file)).expect("Cargo.toml not found");
     let reader = BufReader::new(cargo_toml);
     let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
-    let mut cargo_toml =
-    File::create(std::path::Path::new(file)).expect("Cargo.toml not found");
+    let mut cargo_toml = File::create(std::path::Path::new(file)).expect("Cargo.toml not found");
     for line in lines {
         if line.starts_with("version") {
             writeln!(cargo_toml, "version = \"{}\"", package_version)?;
@@ -132,8 +131,7 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     let readme = File::open(std::path::Path::new(file)).expect("README.md not found");
     let reader = BufReader::new(readme);
     let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
-    let mut readme =
-    File::create(std::path::Path::new(file)).expect("README.md not found");
+    let mut readme = File::create(std::path::Path::new(file)).expect("README.md not found");
     for line in lines {
         if line.starts_with("# RootAsRole (V") {
             let mut s = line.split("(V").nth(0).unwrap().to_string();
