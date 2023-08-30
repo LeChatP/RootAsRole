@@ -1,0 +1,8 @@
+[package]
+name = "xtask"
+version = "3.0.0-alpha.3"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.1", features = ["derive"] }

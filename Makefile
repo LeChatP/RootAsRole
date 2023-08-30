@@ -1,74 +1,40 @@
-#Makefile for sr
-#Author: Rémi Venant, Eddie BILLOIR
-COMP = gcc
+CARGO ?= /usr/bin/cargo
+PROFILE ?= release
+RELEASE = $(if $(filter $(PROFILE),release),--release,)
+BIN_DIR := target/$(PROFILE)
+SR_VERSION = $(shell xmllint --xpath "string(/rootasrole/@version)" resources/rootasrole.xml)
+BINS := $(addprefix $(BIN_DIR)/,sr chsr capable)
+.PHONY: $(BIN_DIR)/sr $(BIN_DIR)/chsr
+$(BIN_DIR)/sr:
+	cargo build $(RELEASE) --bin sr
 
-SRC_DIR := src
-MANAGER_DIR := new_role_manager
-OBJ_DIR := obj
-BIN_DIR := bin
-TEST_DIR := tests/unit
-WARNINGS := -Wall -Wextra
-LIBCAP := -lcap -lcap-ng
-LIBPAM := -lpam -lpam_misc
-STDOPT=-std=c11
-GDB_D = $(if $(GDB_DEBUG), -DGDB_DEBUG,)
-DEBUGLD := $(if $(DEBUG),-g $(GDB_D),-pedantic -Werror)
-DEBUGCOMP := $(if $(DEBUG),$(DEBUGLD) -static-libasan,$(DEBUGLD))
-COVOPT := $(if $(COV),--coverage -fprofile-abs-path,)
+$(BIN_DIR)/chsr:
+	cargo build $(RELEASE) --bin chsr
 
-ALLOPT := $(STDOPT) $(WARNINGS) $(COVOPT)
-
-COMPOPTIONS = $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
-SR_LDOPTIONS := $(LIBCAP) $(LIBPAM) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
-LDUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --libs) $(DEBUGLD) $(ALLOPT)
-COMPUNIT := -lcriterion $(LIBCAP) -I$(SRC_DIR) $(shell xml2-config --cflags) $(DEBUGCOMP) $(ALLOPT)
-EXECUTABLES := sr
-
-OBJS := $(addprefix $(SRC_DIR)/,capabilities.o user.o xml_manager.o env.o sr.o params.o command.o)
-BINS := $(addprefix $(BIN_DIR)/,sr)
-
-all: $(BINS)
-
-.PHONY: clean
-
-$(OBJ_DIR)/%.o : $(SRC_DIR)/%.c | $(OBJ_DIR)
-	$(COMP) -o $@ -c $< $(COMPOPTIONS)
-
-$(OBJ_DIR)/%.o : $(TEST_DIR)/%.c | $(OBJ_DIR)
-	$(COMP) -o $@ -c $< $(COMPUNIT)
-
-$(OBJS): | $(OBJ_DIR)
-
-$(OBJ_DIR):
-	mkdir $(OBJ_DIR)
-
-$(BIN_DIR)/sr: $(addprefix $(OBJ_DIR)/,capabilities.o xml_manager.o user.o env.o sr.o params.o command.o) | $(BIN_DIR)
-	$(COMP) -o $@ $^ $(SR_LDOPTIONS)
-
-$(BIN_DIR)/unit_test: $(addprefix $(OBJ_DIR)/test_,xml_manager.o command.o params.o capabilities.o env.o) | $(BIN_DIR)
-	$(COMP) -o $@ $^ $(LDUNIT)
+$(BIN_DIR)/capable:
+	cargo xtask build-ebpf $(RELEASE)
+	cargo build --package capable $(RELEASE)
 
 $(BINS): | $(BIN_DIR)
 
 $(BIN_DIR):
-	mkdir $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
 
-#run as root
-install: $(BINS)
-	cp $(BINS) /usr/bin
+build: $(BINS)
+
+install: build
+	cp -f $(BINS) /usr/bin
 	setcap "=p" /usr/bin/sr
 
-build_unit_test: clean $(BIN_DIR)/unit_test
-
-unit_test: build_unit_test
-	$(BIN_DIR)/unit_test --verbose=1
+test:
+	cargo test
 
 uninstall:
 	rm -f /usr/bin/sr
+	rm -f /usr/bin/chsr
 	rm -f /usr/bin/capable
 	chattr -i /etc/security/rootasrole.xml
 	rm -f /etc/security/rootasrole.xml
 
 clean:
-	@rm -rf $(BIN_DIR) $(OBJ_DIR) ebpf/$(BIN_DIR) ebpf/$(OBJ_DIR)
-	
+	cargo clean

@@ -76,7 +76,11 @@
                 "build_unit_test"
             ],
             "options": {
-                "cwd": "${cwd}"
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "GDB_DEBUG": "1",
+                    "DEBUG": "1"
+                }
             },
             "problemMatcher": [
                 "$gcc"

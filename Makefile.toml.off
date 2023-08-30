@@ -1,0 +1,25 @@
+[tasks.build_release]
+command = "cargo"
+args = ["build", "--release"]
+env = { "SR_BINARY" = "${CARGO_MAKE_WORKING_DIRECTORY}/target/release/sr" }
+
+[tasks.build_debug]
+command = "cargo"
+args = ["build", "--debug"]
+env = { "SR_BINARY" = "${CARGO_MAKE_WORKING_DIRECTORY}/target/debug/sr" }
+
+[tasks.setcap]
+command = "/usr/bin/setcap"
+args = ["=pi", "${INSTALL_BIN}"]
+
+[tasks.cp]
+command = "/usr/bin/cp"
+args = ["${SR_BINARY}", "${INSTALL_BIN}"]
+
+[tasks.release]
+dependencies = ["build_release", "cp", "setcap", ]
+env = { "INSTALL_BIN" = "/usr/bin/sr" }
+
+[tasks.debug]
+dependencies = ["build_debug", "setcap", ]
+env = { "INSTALL_BIN" = "${CARGO_MAKE_WORKING_DIRECTORY}/target/debug/sr" }

@@ -45,6 +45,7 @@
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
+            "miDebuggerPath": "${workspaceFolder}/.vscode/gdb_root.sh",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -56,23 +57,7 @@
                     "text": "-gdb-set disassembly-flavor intel",
                     "ignoreFailures": true
                 }
-            ]
-        },
-        {
-                    "type": "lldb",
-                    "request": "launch",
-                    "name": "Debug",
-                    "cargo": {
-                        "args": [
-                            "run"
-                        ],
-                        "filter": {
-                            "name": "role-manager",
-                            "kind": "bin"
-                        }
-                    },
-                    "args": [],
-                    "cwd": "${workspaceFolder}/role-manager/"
-                }
+            ],
+        }
     ]
 }

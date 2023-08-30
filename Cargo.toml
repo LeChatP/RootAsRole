@@ -1,0 +1,55 @@
+[workspace]
+members = ["xtask", "capable", "capable-common"]
+
+[package]
+name = "RootAsRole"
+version = "3.0.0-alpha.3"
+authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
+edition = "2021"
+default-run = "sr"
+
+#[features]
+#cursive_lib = [ "cursive" ]
+#srlibs = [ "pam-client", "bitflags" ]
+
+[[bin]]
+name = "sr"
+path = "src/sr/main.rs"
+
+
+[[bin]]
+name = "chsr"
+path = "src/chsr/main.rs"
+
+[build-dependencies]
+reqwest = { version = "0.11.18", features = ["blocking", "json"] }
+pcre2 = "0.2.4"
+regex = "1.9.1"
+
+[dependencies]
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+libc = "0.2.139"
+semver = "1.0.18"
+nix = { version = "0.26.2", features = ["user"] }
+#sudoers-reader = { path = "sudoers-reader" }
+clap = { version = "4.3.0", features = ["derive"] }
+cursive = { version = "0.20.0", default-features = false, features = ["termion-backend"] }
+capctl = "0.2.3"
+pcre2 = "0.2.4"
+chrono = "0.4.26"
+sxd-document = "0.3.2"
+sxd-xpath = "0.4.2"
+serde = "1.0.185"
+ciborium = "0.2.1"
+glob = "0.3.1"
+pam-client = { version = "0.5.0" }
+bitflags = { version = "2.4.0" }
+shell-words = "1.1.0"
+syslog-tracing = "0.2.0"
+
+[dev-dependencies]
+env_logger = "*"
+test-log = { version = "0.2.12", features = ["trace"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }

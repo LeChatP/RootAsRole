@@ -7,7 +7,6 @@
   
 <img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/build.yml?label=Build"/>
 <img alt="Test Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/tests.yml?label=Unit%20Tests">
-<a href="https://app.codacy.com/gh/LeChatP/RootAsRole/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade"><img src="https://app.codacy.com/project/badge/Grade/60b8105a12ca4419b8471d150ef93ebd"/></a>
 <a href="https://codecov.io/gh/LeChatP/RootAsRole" >
  <img src="https://codecov.io/gh/LeChatP/RootAsRole/branch/main/graph/badge.svg?token=6J7CRGEIG8"/>
  </a>
@@ -16,43 +15,93 @@
 </p>
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0-alpha.1) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0.0-alpha.3) : a secure alternative to sudo/su on Linux systems
 
-A role-based access control tool for administrative tasks on Linux. This tool tries to convince the least privilege and ease of use. We design this tool to being least privilege and least vulnerability prone by default.
+This tool allows you to configure your privilege access management more securely on a single operating system. 
+
+Unlike sudo, this project sets the principle least privilege on its core features. Like sudo, this project wants to be usable. More than sudo, we care about configurators, and we try to warn configurators about dangerous manipulations.
+
+By using a role-based access control model, this project allows us to better manage administrative tasks. With this project, you could distribute privileges and prevent them from escalating directly. Unlike sudo does, we don't want to give entire privileges for any insignificant administrative task, so you could configure it easily with `capable` command.
 
 ## Installation
 
 ### How to Build
 
+Requirement: rustc >= 1.70.0
+
   1. git clone <https://github.com/SamerW/RootAsRole>
   2. cd RootAsRole
   3. sudo sh ./configure.sh
-  4. make
-  5. sudo make install
+  4. sudo make install
+
+> [!WARNING]
+> **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
+
+### Usage
+
+<pre>
+Execute privileged commands with a role-based access control system
+
+<u><b>Usage</b></u>: <b>sr</b> [OPTIONS] [COMMAND]...
+
+<u><b>Arguments</b></u>:
+  [COMMAND]...  Command to execute
+
+<u><b>Options</b></u>:
+  <b>-r, --role</b> &lt;ROLE&gt;  Role to select
+  <b>-i, --info</b>         Display rights of executor
+  <b>-h, --help</b>         Print help (see more with '--help')
+  <b>-V, --version</b>      Print version
+</pre>
+
+If you're used to using the sudo tool, and you can't change your habit, you could perform an alias : 
+```sh
+alias sudo="sr"
+```
 
 ### How to Configure
 
-Our role manager is currently under development. But you can manually execute these commands :
+To configure this program you could use the `chsr` command.
+
+<pre>
+Configure Roles for RootAsRole
+
+<u><b>Usage</b></u>: <b>chsr</b> [COMMAND]
+
+<u><b>Commands</b></u>:
+  <b>list</b>     List all roles
+  <b>newrole</b>  Create a new role, you can add users, groups, tasks. You can assign tasks through the command "addtask"
+  <b>grant</b>    You can grant users/groups to role
+  <b>revoke</b>   You can revoke users/groups from role
+  <b>addtask</b>  Add a task to a role, you can add commands and capabilities
+  <b>deltask</b>  Delete a task from a role
+  <b>delrole</b>  Delete a role, this is not reversible
+  <b>config</b>   You could configure options for all roles, specific role, or specific task
+  <b>import</b>   NOT IMPLEMENTED: Import sudoers file
+  <b>help</b>     Print this message or the help of the given subcommand(s)
+
+<u><b>Options</b></u>:
+  <b>-h, --help</b>     Print help (see more with '--help')
+  <b>-V, --version</b>  Print version
+</pre>
+
+You could also use the fancy TUI configuration manager : 
+
+![Chsr TUI](assets/chsr-tui.png)
+
+This role manager is currently under development and does not provide entire configuration edition. So you can manually execute these commands :
 
 ```sh
 sr chattr -i /etc/security/rootasrole.xml
 sr nano /etc/security/rootasrole.xml
 ```
 
-With the new role management features, you will be able to restrict the responsibilities of configurators, but this remains dangerous and there is still a contract of trust with them.
+This will remove immutable bit flag on the configuration and open text editor for the configuration file.
 
-However, today, you can start to configure this tool with the rootasrole.xml file configuration. Some examples are commented on the preinstalled configuration file.
+### How to find out the privileges needed for your command
 
-### Usage
+Use `capable` program, it will listen every capabilities requests and display them to you.
 
-```txt
-Usage: sr [options] [command [args]]
-Options:
-  -r, --role <role>      Role to use
-  -i, --info             Display rights of executor
-  -v, --version          Display version
-  -h, --help             Display this help
-```
 
 ## Feedback
 
@@ -85,8 +134,8 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. wildcarded command path is more precise than wildcarded command path and regex args
    1. wildcarded command path and regex args is more precise than complete wildcard
    1. A role granting no capability is less privileged than one granting at least one capability
-   1. A role granting no "ADMIN" capability is less privileged than one granting "ADMIN" capability
-   1. A role granting the "ADMIN" capability is less privileged than one granting all capabilities.
+   1. A role granting no insecure capability is less privileged than one at least one insecure capability
+   1. A role granting insecure capability is less privileged than one granting all capabilities.
    1. A role without setuid is less privileged than one has setuid.
    1. if no root is disabled, a role without 'root' setuid is less privileged than a role with 'root' setuid
    1. A role without setgid is less privileged than one has setgid.
@@ -98,7 +147,7 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
 
 After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
 
-Regarding the (vii),(viii), and (ix) points, the choice of least privilege is somewhat arbitrary. We are currently working on a explaination on a paper.
+Regarding the (vii),(viii), and (ix) points, the insecure criteria is somewhat arbitrary. We are working on a explaination on a paper.
 
 ## Tested Platforms
 
@@ -108,18 +157,12 @@ Our module has been tested on:
 * Debian>=10
 * ArchLinux
 
-After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
+After the installation you will find a file called rootasrole.xml in the /etc/security directory. You could configure it with `chsr` command or you could configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
 ## Capable Tool
 
 Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
 
-For more information please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
-
-## Role Manager
-
-Since V2.3 We created a set of tools that allow to add/edit/delete roles without ncessarily needs to edit XML file manaualy.
-For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/role-manager)
 
 ## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 

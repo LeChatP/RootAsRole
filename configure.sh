@@ -17,12 +17,22 @@ while getopts "yd" opt; do
 	esac
 done
 
+echo "Install Rust"
+if [ $(which cargo &>/dev/null ; echo $?) -eq 0 ]; then 
+	echo "Cargo is installed"
+elif [ "${YES}" == "-y" ]; then
+	curl https://sh.rustup.rs -sSf | sh -s -- -y
+else
+	curl https://sh.rustup.rs -sSf | sh
+fi
+
+if [ ! -f "/usr/bin/cargo" ]; then
+	cp ~/.cargo/bin/cargo /usr/bin
+fi
+
 echo "Capabilities & PAM packages installation"
 if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
 	apt-get install "${YES}" gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-$(uname -r)
-	if [ -n "${TEST}" ]; then
-		apt-get install "${YES}" build-essential procps curl file git libcriterion-dev
-	fi;
 	if [ -n "${DEBUG}" ]; then
 		apt-get install "${YES}" gdb
 	fi;
@@ -30,20 +40,15 @@ if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then
 		apt-get install "${YES}" gcovr
 	fi;
 elif [ $(which yum >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	echo "yum"
-elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	pacman -S "${YES}" gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
-	if [ -n "${TEST}" ]; then
-		if [ $(which yay >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-			yay -S "${YES}" criterion
-		else
-			git clone https://aur.archlinux.org/criterion.git
-			cd criterion
-			makepkg -si
-			cd ..
-			rm -rf criterion
-		fi;
+	yum install "${YES}" gcc llvm clang libcap libcap-ng libelf libxml2 make kernel-headers
+	if [ -n "${DEBUG}" ]; then
+		yum install "${YES}" gdb
 	fi;
+	if [ -n "${COV}" ]; then
+		yum install "${YES}" gcovr
+	fi;
+elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
+	pacman -S "${YES}" cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
 	if [ -n "${DEBUG}" ]; then
 		pacman -S "${YES}" gdb
 	fi;
@@ -54,6 +59,9 @@ else
 	echo "Unable to find a supported package manager, exiting..."
 	exit 2
 fi
+
+echo "Install cargo bpf-linker"
+cargo install --force bpf-linker
 
 export $(grep -h '^ID' /etc/*-release)
 

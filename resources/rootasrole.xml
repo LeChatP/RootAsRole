@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE rootasrole [
 	<!ELEMENT rootasrole (roles|options?)*>
-	<!ATTLIST rootasrole version CDATA #REQUIRED>
+	<!ATTLIST rootasrole version CDATA #REQUIRED
+		timestamp-timeout CDATA #IMPLIED>
 	<!ELEMENT options (path?|env-keep?|env-check?|env-reset?|allow-root?|allow-bounding?|setuid?|wildcard-denied?)*>
 	<!ELEMENT env-keep (#PCDATA|EMPTY)*>
 	<!ELEMENT env-check (#PCDATA|EMPTY)*>
@@ -14,7 +15,10 @@
 	<!ELEMENT roles (role*)>
 	<!ELEMENT role (actors?|task*|options?)*>
 	<!ATTLIST role
-		name ID #REQUIRED>
+		name ID #REQUIRED
+		parents IDREFS #IMPLIED
+		denied-capabilities CDATA #IMPLIED
+		incompatible-with IDREFS #IMPLIED >
 	<!ELEMENT actors (user*|group*)>
 	<!ELEMENT user EMPTY>
 	<!ATTLIST user name CDATA #REQUIRED>
@@ -27,11 +31,9 @@
 		setuser CDATA #IMPLIED
 		setgroups CDATA #IMPLIED>
 	<!ELEMENT command (#PCDATA)>
-	<!ATTLIST command
-		regex (true|false) "false">
 	<!ELEMENT purpose (#PCDATA)>
-]>
-<rootasrole version="3.0.0-alpha.1">
+]> 
+<rootasrole version="3.0.0-alpha.3" timestamp-timeout="300">
 	<!-- OPTIONS, could be applied to all roles, or to a specefic role, or to specific task in a
 	role
 		Be cautionous about changing them.-->
@@ -70,156 +72,17 @@
 	<roles>
 		<role name="superuser">
 			<actors>
-				<user name="ROOTADMINISTRATOR" />
+				<user name="root" />
 			</actors>
 			<task id="t_root" setuser="root" setgroups="root" capabilities="ALL">
-				<command>**</command>
+				<command>ALL</command>
 				<purpose>access to every commands</purpose>
 			</task>
 		</role>
-		<role name="AdminIAM">
+		<role name="admin" parents="superuser">
 			<actors>
 				<user name="ROOTADMINISTRATOR" />
 			</actors>
-			<task id="t_root-as-role"> <!-- capabilities="" to define -->
-				<command>/usr/sbin/rar (.*)</command>
-				<purpose>Edit admin acess roles</purpose>
-			</task>
-		</role>
-		<role name="IAM">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_account-management" setuser="root"> <!-- capabilities="" to define -->
-				<purpose>Manage user accounts</purpose>
-				<!--
-				<command>/usr/bin/useradd (.*)</command>
-				<command>/usr/bin/userdel (.*)</command>
-				<command>/usr/bin/usermod (.*)</command>
-				<command>/usr/bin/passwd (.*)</command>
-				<command>/usr/bin/chage (.*)</command>
-				<command>/usr/bin/chfn (.*)</command> -->
-			</task>
-			<task id="t_group-management" setuser="root"> <!-- capabilities="" to define -->
-				<purpose>Manage user groups</purpose>
-				<!--
-				<command>/usr/bin/groupadd (.*)</command>
-				<command>/usr/bin/groupdel (.*)</command>
-				<command>/usr/bin/groupmod (.*)</command> -->
-			</task>
-		</role>
-		<role name="backup">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_backup" setuser="root"> <!-- capabilities="" to define -->
-				<purpose>Backup files</purpose>
-				<!--
-				<command>/usr/bin/rsync (.*)</command>
-				<command>/usr/bin/tar (.*)</command>
-				<command>/usr/bin/zip (.*)</command>
-				<command>/usr/bin/unzip (.*)</command> -->
-			</task>
-		</role>
-		<role name="network"> <!-- Not exaustive -->
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_ssh" ><!-- capabilities="" to define -->
-				<purpose>Manage ssh</purpose>
-				<!-- 
-				<command>/usr/bin/ssh (.*)</command>
-				<command>/usr/bin/ssh-keygen (.*)</command>
-				<command>/usr/bin/ssh-copy-id (.*)</command>
-				<command>/usr/bin/ssh-agent (.*)</command>
-				<command>/usr/bin/ssh-add (.*)</command>
-				<command>/usr/bin/ssh-keyscan (.*)</command>
-				<command>/usr/bin/ssh-keysign (.*)</command>
-				-->
-			</task>
-			<task id="t_ip" > <!-- capabilities="CAP_NET_RAW,CAP_NET_ADMIN"> -->
-				<purpose>Manage connectivity</purpose>
-				<!-- <command>/usr/bin/ip (.*)</command>
-				<command>/usr/bin/ifconfig (.*)</command>
-				<command>/usr/bin/arp (.*)</command>
-				<command>/usr/bin/arping (.*)</command>
-				<command>/usr/bin/ping (.*)</command>
-				<command>/usr/bin/ping6 (.*)</command>
-				<command>/usr/bin/traceroute (.*)</command>
-				<command>/usr/bin/traceroute6 (.*)</command>
-				<command>/usr/bin/route (.*)</command>
-				<command>/usr/bin/netstat (.*)</command>
-				<command>/usr/bin/ss (.*)</command>
-				<command>/usr/bin/nc (.*)</command>
-				<command>/usr/bin/ncat (.*)</command>
-				<command>/usr/bin/nc.traditional (.*)</command>
-				<command>/usr/bin/ncat-traditional (.*)</command> -->
-			</task>
-			<task id="t_dns">
-				<purpose>Manage DNS</purpose>
-				<!--
-				<command>/usr/bin/dig (.*)</command>
-				<command>/usr/bin/host (.*)</command>
-				<command>/usr/bin/nslookup (.*)</command> -->
-			</task>
-		</role>
-		<role name="installator">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_installator" setuser="root"> <!-- capabilities="" to define -->
-				<purpose>Install software</purpose>
-				<!--
-				<command>/usr/bin/apt-get (.*)</command>
-				<command>/usr/bin/aptitude (.*)</command>
-				<command>/usr/bin/dpkg (.*)</command>
-				<command>/usr/bin/dpkg-reconfigure (.*)</command>
-				<command>/usr/bin/yum (.*)</command>
-				<command>/usr/bin/rpm (.*)</command>
-				<command>/usr/bin/pacman (.*)</command>
-				-->
-			</task>
-		</role>
-		<role name="monitoring">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_audit">
-				<purpose>Manage audit</purpose>
-				<!--
-				<command>/usr/sbin/auditctl (.*)</command>
-				<command>/usr/sbin/auditd (.*)</command>
-				<command>/usr/sbin/aureport (.*)</command>
-				<command>/usr/sbin/ausearch (.*)</command>
-				<command>/usr/sbin/autrace (.*)</command>
-				<command>/usr/sbin/aulast (.*)</command>
-				<command>/usr/sbin/aulastlog (.*)</command>
-				<command>/usr/sbin/auvirt (.*)</command>
-				-->
-			</task>
-		</role>
-		<role name="troubleshooting">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_troubleshooting" setuser="root"> <!-- capabilities="" to define -->
-				<purpose>Manage troubleshooting</purpose>
-				<!--
-				<command>/usr/bin/strace (.*)</command>
-				<command>/usr/bin/ltrace (.*)</command>
-				<command>/usr/bin/ldd (.*)</command>
-				<command>/usr/bin/ldconfig (.*)</command>
-				-->
-			</task>
-		</role>
-		<role name="forensic">
-			<actors>
-				<user name="ROOTADMINISTRATOR" />
-			</actors>
-			<task id="t_all" setuser="root" setgroups="root"> <!-- capabilities="" to define -->
-				<purpose>Break the glass case, forensic mode enabled</purpose>
-				<!--<command>**</command>-->
-			</task>
 		</role>
 	</roles>
 </rootasrole>

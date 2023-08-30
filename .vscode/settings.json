@@ -27,11 +27,9 @@
         "typeinfo": "c"
     },
     "rust-analyzer.linkedProjects": [
-        "./role-manager/Cargo.toml",
-        "./role-manager/Cargo.toml",
-        "./role-manager/Cargo.toml",
-        "./role-manager/Cargo.toml",
-        "./role-manager/libs/sudoers_reader/Cargo.toml"
+        "sudoers-reader/Cargo.toml",
+        "Cargo.toml",
+        "./capable/Cargo.toml"
     ],
     "c-cpp-flylint.clang.includePaths": [
         "${workspaceFolder}/src"
