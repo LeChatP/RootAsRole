@@ -22,7 +22,7 @@ use nix::{
 use pam_client::{conv_cli::Conversation, Context, Flag};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
-use tracing::{debug, Level, error};
+use tracing::{debug, error, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser, Debug)]
@@ -143,7 +143,6 @@ fn filter_env_vars(env: Vars, checklist: &[&str], whitelist: &[&str]) -> HashMap
 
 #[cfg(debug_assertions)]
 fn subsribe() {
-
     let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
@@ -260,15 +259,13 @@ fn main() {
         .expect("Failed to add cookie");
     dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching = match args.role {
-        None => match config
-            .matches(&user, &args.command) {
-                Err(err) => {
-                    error!("Permission Denied");
-                    std::process::exit(1);
-                },
-                Ok(matching) => matching,
-            } 
-            ,
+        None => match config.matches(&user, &args.command) {
+            Err(err) => {
+                error!("Permission Denied");
+                std::process::exit(1);
+            }
+            Ok(matching) => matching,
+        },
         Some(role) => config
             .as_ref()
             .borrow()
