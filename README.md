@@ -55,7 +55,7 @@ Execute privileged commands with a role-based access control system
   <b>-V, --version</b>      Print version
 </pre>
 
-If you're used to using the sudo tool, and you can't change your habit, you could perform an alias safely : 
+If you're used to using the sudo tool, and you can't change your habit, you could perform an alias : 
 ```sh
 alias sudo="sr"
 ```
@@ -101,6 +101,7 @@ This will remove immutable bit flag on the configuration and open text editor fo
 
 ### How to find out the privileges needed for your command
 
+Use `capable` program, it will listen every capabilities requests and display them to you.
 
 
 ## Feedback
@@ -134,8 +135,8 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. wildcarded command path is more precise than wildcarded command path and regex args
    1. wildcarded command path and regex args is more precise than complete wildcard
    1. A role granting no capability is less privileged than one granting at least one capability
-   1. A role granting no "ADMIN" capability is less privileged than one granting "ADMIN" capability
-   1. A role granting the "ADMIN" capability is less privileged than one granting all capabilities.
+   1. A role granting no insecure capability is less privileged than one at least one insecure capability
+   1. A role granting insecure capability is less privileged than one granting all capabilities.
    1. A role without setuid is less privileged than one has setuid.
    1. if no root is disabled, a role without 'root' setuid is less privileged than a role with 'root' setuid
    1. A role without setgid is less privileged than one has setgid.
@@ -147,7 +148,7 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
 
 After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
 
-Regarding the (vii),(viii), and (ix) points, the choice of least privilege is somewhat arbitrary. We are currently working on a explaination on a paper.
+Regarding the (vii),(viii), and (ix) points, the insecure criteria is somewhat arbitrary. We are working on a explaination on a paper.
 
 ## Tested Platforms
 
@@ -157,18 +158,12 @@ Our module has been tested on:
 * Debian>=10
 * ArchLinux
 
-After the installation you will find a file called rootasrole.xml in the /etc/security directory. You should configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
+After the installation you will find a file called rootasrole.xml in the /etc/security directory. You could configure it with `chsr` command or you could configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
 
 ## Capable Tool
 
 Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
 
-For more information please see [Here](https://github.com/SamerW/RootAsRole/tree/master/ebpf)
-
-## Role Manager
-
-Since V2.3 We created a set of tools that allow to add/edit/delete roles without ncessarily needs to edit XML file manaualy.
-For more information please check here [Here](https://github.com/SamerW/RootAsRole/tree/master/role-manager)
 
 ## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
 
