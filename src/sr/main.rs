@@ -22,7 +22,7 @@ use nix::{
 use pam_client::{conv_cli::Conversation, Context, Flag};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
-use tracing::{debug, Level};
+use tracing::{debug, Level, error};
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser, Debug)]
@@ -143,18 +143,29 @@ fn filter_env_vars(env: Vars, checklist: &[&str], whitelist: &[&str]) -> HashMap
 
 #[cfg(debug_assertions)]
 fn subsribe() {
+
+    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
+    let options = syslog_tracing::Options::LOG_PID;
+    let facility = syslog_tracing::Facility::Auth;
+    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_file(true)
         .with_line_number(true)
+        .with_writer(syslog)
         .finish()
         .init();
 }
 
 #[cfg(not(debug_assertions))]
 fn subsribe() {
+    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
+    let options = syslog_tracing::Options::LOG_PID;
+    let facility = syslog_tracing::Facility::Auth;
+    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
     tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::ERROR)
+        .with_writer(syslog)
         .finish()
         .init();
     set_hook(Box::new(|info| {
@@ -249,9 +260,15 @@ fn main() {
         .expect("Failed to add cookie");
     dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching = match args.role {
-        None => config
-            .matches(&user, &args.command)
-            .expect("Permission Denied"),
+        None => match config
+            .matches(&user, &args.command) {
+                Err(err) => {
+                    error!("Permission Denied");
+                    std::process::exit(1);
+                },
+                Ok(matching) => matching,
+            } 
+            ,
         Some(role) => config
             .as_ref()
             .borrow()
@@ -361,8 +378,15 @@ fn main() {
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .expect("Failed to execute command");
+        .spawn();
+    let mut command = match command {
+        Ok(command) => command,
+        Err(_) => {
+            error!("{} : command not found", matching.file_exec_path());
+            eprintln!("sr: {} : command not found", matching.file_exec_path());
+            std::process::exit(1);
+        }
+    };
     //wait for command to finish
     let status = command.wait().expect("Failed to wait for command");
     std::process::exit(status.code().unwrap_or(1));

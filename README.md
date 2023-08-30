@@ -28,6 +28,8 @@ By using a role-based access control model, this project allows us to better man
 
 ### How to Build
 
+Requirement: rustc >= 1.70.0
+
   1. git clone <https://github.com/SamerW/RootAsRole>
   2. cd RootAsRole
   3. sudo sh ./configure.sh
