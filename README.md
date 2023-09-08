@@ -54,7 +54,7 @@ Execute privileged commands with a role-based access control system
   <b>-V, --version</b>      Print version
 </pre>
 
-If you're used to using the sudo tool, and you can't change your habit, you could perform an alias : 
+If you're accustomed to utilizing the sudo tool and find it difficult to break that habit, consider creating an alias : 
 ```sh
 alias sudo="sr"
 ```
