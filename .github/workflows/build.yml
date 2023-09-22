@@ -17,7 +17,6 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo ./configure.sh -yd
-        sudo cp /root/.cargo/bin/bpf-linker /usr/bin/
         echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
     - name: Configure PAM
       run: |
