@@ -17,7 +17,7 @@ while getopts "yd" opt; do
 	esac
 done
 
-echo "Install Rust"
+echo "Install Rust Cargo compiler"
 if [ $(which cargo &>/dev/null ; echo $?) -eq 0 ]; then 
 	echo "Cargo is installed"
 elif [ "${YES}" == "-y" ]; then
@@ -27,7 +27,8 @@ else
 fi
 
 if [ ! -f "/usr/bin/cargo" ]; then
-	cp ~/.cargo/bin/cargo /usr/bin
+	mv -f ~/.cargo/bin/cargo /usr/local/bin
+	echo "$HOME/.cargo/bin/cargo program is copied to /usr/local/bin"
 fi
 
 echo "Capabilities & PAM packages installation"
@@ -60,8 +61,21 @@ else
 	exit 2
 fi
 
-echo "Install cargo bpf-linker"
-cargo install --force bpf-linker
+# ask for user to install bpf-linker
+if [ "${YES}" == "-y" ]; then
+	echo "cargo install bpf-linker into /usr/local/bin"
+	cargo install --force bpf-linker
+	mv -f ~/.cargo/bin/bpf-linker /usr/local/bin
+else
+	read -r -p "Install bpf-linker in /usr/local/bin? (mandatory for build) [y/N] " response
+	case "$response" in
+		[yY][eE][sS]|[yY]|[oO]) 
+			echo "cargo install bpf-linker into /usr/local/bin"
+			cargo install --force bpf-linker
+			mv -f ~/.cargo/bin/bpf-linker /usr/local/bin
+			;;
+	esac
+fi
 
 export $(grep -h '^ID' /etc/*-release)
 
