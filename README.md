@@ -31,7 +31,7 @@ Requirement: rustc >= 1.70.0
 
   1. git clone <https://github.com/SamerW/RootAsRole>
   2. cd RootAsRole
-  3. sudo sh ./configure.sh
+  3. sudo ./configure.sh
   4. sudo make install
 
 Note: The `configure.sh` installs `cargo` and `bpf-linker` rust programs manually into `/usr/local/bin`. You can refuse to install it this way, but these are mandatory to build the program. Depending on your distribution or how you want to install this software, you may know that most rust binaries are installed to `$HOME/.cargo/bin`. When you use sudo to configure, these binaries are installed in the effective user home directory. You may need to move these binaries to a known-user path. 
