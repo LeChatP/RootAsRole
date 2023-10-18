@@ -20,7 +20,7 @@ done
 
 echo "Capabilities & PAM packages installation"
 if command -v apt-get &>/dev/null; then
-	apt-get install "${YES}" openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make "linux-headers-$(uname -r)"
+	apt-get install "${YES}" pkg-config openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make "linux-headers-$(uname -r)"
 	if [ -n "${DEBUG}" ]; then
 		apt-get install "${YES}" gdb
 	fi;
@@ -28,7 +28,7 @@ if command -v apt-get &>/dev/null; then
 		apt-get install "${YES}" gcovr
 	fi;
 elif command -v yum &>/dev/null; then
-	yum install "${YES}" openssl-devel curl gcc llvm clang libcap libcap-ng libelf libxml2 make kernel-headers
+	yum install "${YES}" pkgconfig openssl-devel curl gcc llvm clang libcap libcap-ng libelf libxml2 make kernel-headers
 	if [ -n "${DEBUG}" ]; then
 		yum install "${YES}" gdb
 	fi;
@@ -36,7 +36,7 @@ elif command -v yum &>/dev/null; then
 		yum install "${YES}" gcovr
 	fi;
 elif command -v pacman &>/dev/null; then
-	pacman -S "${YES}" openssl curl cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
+	pacman -S "${YES}" pkgconf openssl curl cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
 	if [ -n "${DEBUG}" ]; then
 		pacman -S "${YES}" gdb
 	fi;
