@@ -14,42 +14,29 @@ while getopts "yd" opt; do
 			;;
 		d ) DOCKER=1
 			;;
+		* ) ;;
 	esac
 done
 
-echo "Install Rust Cargo compiler"
-if [ $(which cargo &>/dev/null ; echo $?) -eq 0 ]; then 
-	echo "Cargo is installed"
-elif [ "${YES}" == "-y" ]; then
-	curl https://sh.rustup.rs -sSf | sh -s -- -y
-else
-	curl https://sh.rustup.rs -sSf | sh
-fi
-
-if [ ! -f "/usr/bin/cargo" ]; then
-	mv -f ~/.cargo/bin/cargo /usr/local/bin
-	echo "$HOME/.cargo/bin/cargo program is copied to /usr/local/bin"
-fi
-
 echo "Capabilities & PAM packages installation"
-if [ $(which apt-get >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	apt-get install "${YES}" gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make linux-headers-$(uname -r)
+if command -v apt-get &>/dev/null; then
+	apt-get install "${YES}" openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make "linux-headers-$(uname -r)"
 	if [ -n "${DEBUG}" ]; then
 		apt-get install "${YES}" gdb
 	fi;
 	if [ -n "${COV}" ]; then
 		apt-get install "${YES}" gcovr
 	fi;
-elif [ $(which yum >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	yum install "${YES}" gcc llvm clang libcap libcap-ng libelf libxml2 make kernel-headers
+elif command -v yum &>/dev/null; then
+	yum install "${YES}" openssl-devel curl gcc llvm clang libcap libcap-ng libelf libxml2 make kernel-headers
 	if [ -n "${DEBUG}" ]; then
 		yum install "${YES}" gdb
 	fi;
 	if [ -n "${COV}" ]; then
 		yum install "${YES}" gcovr
 	fi;
-elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then 
-	pacman -S "${YES}" cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
+elif command -v pacman &>/dev/null; then
+	pacman -S "${YES}" openssl curl cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
 	if [ -n "${DEBUG}" ]; then
 		pacman -S "${YES}" gdb
 	fi;
@@ -59,6 +46,18 @@ elif [ $(which pacman >/dev/null 2>&1 ; echo $?) -eq 0 ];then
 else
 	echo "Unable to find a supported package manager, exiting..."
 	exit 2
+fi
+
+echo "Install Rust Cargo compiler"
+if [ "$(which cargo &>/dev/null ; echo $?)" -eq "0" ]; then 
+	echo "Cargo is installed"
+else
+	curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly ${YES}
+fi
+
+if [ ! -f "/usr/bin/cargo" ]; then
+	mv -f ~/.cargo/bin/cargo /usr/local/bin
+	echo "$HOME/.cargo/bin/cargo program is copied to /usr/local/bin"
 fi
 
 # ask for user to install bpf-linker
@@ -91,6 +90,7 @@ else
 	echo "Unable to find a supported distribution, exiting..."
 	exit 3
 fi
+
 if [ -e "/etc/security/rootasrole.xml" ];then
 	read -r -p "Reconfigure policy? [y/N] " response
 	case "$response" in
