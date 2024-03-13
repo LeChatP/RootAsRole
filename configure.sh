@@ -20,7 +20,7 @@ done
 
 echo "Capabilities & PAM packages installation"
 if command -v apt-get &>/dev/null; then
-	apt-get install "${YES}" pkg-config openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev make "linux-headers-$(uname -r)"
+	apt-get install "${YES}" pkg-config openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev libclang-dev make "linux-headers-$(uname -r)"
 	if [ -n "${DEBUG}" ]; then
 		apt-get install "${YES}" gdb
 	fi;
