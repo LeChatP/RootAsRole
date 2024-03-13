@@ -8,7 +8,7 @@
 #[allow(dead_code)]
 mod vmlinux;
 
-use aya_bpf::{macros::{kprobe,map}, maps::HashMap, programs::ProbeContext, helpers::{bpf_get_current_task, bpf_get_current_uid_gid, bpf_probe_read_kernel}};
+use aya_ebpf::{macros::{kprobe,map}, maps::HashMap, programs::ProbeContext, helpers::{bpf_get_current_task, bpf_get_current_uid_gid, bpf_probe_read_kernel}};
 use vmlinux::{task_struct, nsproxy, pid_namespace, ns_common};
 
 const MAX_PID : u32 = 4*1024*1024;

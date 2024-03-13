@@ -4,7 +4,7 @@ version = "3.0.0-alpha.3"
 edition = "2021"
 
 [dependencies]
-aya-bpf = { git = "https://github.com/aya-rs/aya" }
+aya-ebpf = { git = "https://github.com/aya-rs/aya" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya" }
 capable-common = { path = "../capable-common" }
 
