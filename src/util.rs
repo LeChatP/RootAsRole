@@ -1,4 +1,5 @@
 use capctl::{Cap, CapSet, ParseCapError};
+use tracing::warn;
 
 pub fn capset_to_string(set: &CapSet) -> String {
     set.iter()
@@ -29,13 +30,12 @@ where
             }
         }
     }
-
     Ok(res)
 }
 
 pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
     if s.is_empty() || s.eq_ignore_ascii_case("all") {
-        return Ok(!CapSet::empty());
+        return Ok(!CapSet::empty() & capctl::bounding::probe());
     }
 
     parse_capset_iter(s.split(' '))

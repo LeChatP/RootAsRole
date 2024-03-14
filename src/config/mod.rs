@@ -155,7 +155,7 @@ pub fn capset_to_string(set: &CapSet) -> String {
 
 pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
     if s.is_empty() || s.eq_ignore_ascii_case("all") {
-        return Ok(!CapSet::empty());
+        return Ok(!CapSet::empty() & capctl::bounding::probe());
     }
 
     let mut res = CapSet::empty();
