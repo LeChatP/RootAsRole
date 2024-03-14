@@ -201,13 +201,19 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
+const CAPABILITIES_ERROR : &str = "You need at least dac_override, setpcap, setuid capabilities to run sr";
+fn cap_effective_error(caplist : &str) -> String {
+    format!("Unable to toggle {} privilege. {}",caplist, CAPABILITIES_ERROR)
+}
+
 fn main() {
     subsribe();
+    
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
-    read_effective(true).expect("Failed to read_effective");
+    read_effective(true).or(dac_override_effective(true)).expect(&cap_effective_error("dac_read_search or dac_override"));
     let config = load_config(&FILENAME).expect("Failed to load config file");
-    read_effective(false).expect("Failed to read_effective");
+    read_effective(false).or(dac_override_effective(false)).expect(&cap_effective_error("dac_read_search or dac_override"));
     debug!("loaded config : {:#?}", config);
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
@@ -246,7 +252,7 @@ fn main() {
         ppid,
     };
 
-    dac_override_effective(true).expect("Failed to dac_override_effective");
+    dac_override_effective(true).expect(&cap_effective_error("dac_override"));
     let is_valid = timeout::is_valid(&user, &user, &config.as_ref().borrow().timestamp);
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
@@ -257,7 +263,7 @@ fn main() {
     }
     timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
         .expect("Failed to add cookie");
-    dac_override_effective(false).expect("Failed to dac_override_effective");
+    dac_override_effective(false).expect(&cap_effective_error("dac_override"));
     let matching = match args.role {
         None => match config.matches(&user, &args.command) {
             Err(err) => {
@@ -333,14 +339,14 @@ fn main() {
             .collect::<Vec<_>>()
     });
 
-    setuid_effective(true).expect("Failed to setuid_effective");
+    setuid_effective(true).expect(&cap_effective_error("setuid"));
     capctl::cap_set_ids(uid, gid, groups.as_ref().map(|g| g.as_slice()))
         .expect("Failed to set ids");
-    setuid_effective(false).expect("Failed to setuid_effective");
+    setuid_effective(false).expect(&cap_effective_error("setuid"));
 
     //set capabilities
     if let Some(caps) = matching.caps() {
-        setpcap_effective(true).expect("Failed to setpcap_effective");
+        setpcap_effective(true).expect(CAPABILITIES_ERROR);
         let mut capstate = CapState::empty();
         if optstack.get_bounding().1 {
             for cap in caps.not().iter() {
@@ -353,15 +359,15 @@ fn main() {
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
         }
-        setpcap_effective(false).expect("Failed to setpcap_effective");
+        setpcap_effective(false).expect(&cap_effective_error("setpcap"));
     } else {
-        setpcap_effective(true).expect("Failed to setpcap_effective");
+        setpcap_effective(true).expect(CAPABILITIES_ERROR);
         if optstack.get_bounding().1 {
-            capctl::bounding::clear().expect("Failed to clear bounding cap");
+            capctl::bounding::clear().expect(&cap_effective_error("setpcap"));
         }
         let capstate = CapState::empty();
         capstate.set_current().expect("Failed to set current cap");
-        setpcap_effective(false).expect("Failed to setpcap_effective");
+        setpcap_effective(false).expect(&cap_effective_error("setpcap"));
     }
 
     //execute command
