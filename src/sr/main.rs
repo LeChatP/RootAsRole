@@ -1,29 +1,33 @@
 mod command;
-#[path = "../config/mod.rs"]
-mod config;
+#[path = "../mod.rs"]
+mod common;
 mod finder;
 mod timeout;
-#[path = "../util.rs"]
-mod util;
-#[path = "../xml_version.rs"]
-mod xml_version;
-
-use std::{collections::HashMap, env::Vars, io::stdout, ops::Not, os::fd::AsRawFd};
 
 use capctl::{prctl, Cap, CapState};
 use clap::Parser;
-use config::{load::load_config, FILENAME};
-use finder::{Cred, TaskMatcher};
+use common::{
+    config::{Settings, ROOTASROLE},
+    database::structs::SConfig,
+};
+use finder::{Cred, ExecSettings, TaskMatcher};
 use nix::{
     libc::{dev_t, PATH_MAX},
     sys::stat,
-    unistd::{getgroups, getuid, isatty, setegid, seteuid, setgroups, Group, User},
+    unistd::{getgroups, getuid, isatty, Group, User},
 };
 use pam_client::{conv_cli::Conversation, Context, Flag};
+use pty_process::blocking::{Command, Pty};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
+use std::{
+    cell::RefCell, collections::HashMap, env::Vars, error::Error, io::stdout, os::fd::AsRawFd,
+    rc::Rc,
+};
 use tracing::{debug, error, Level};
 use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::common::{config, database::structs::SGroups};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -42,6 +46,10 @@ struct Cli {
     info: bool,
     /// Command to execute
     command: Vec<String>,
+}
+
+enum Storage {
+    JSON(Rc<RefCell<SConfig>>),
 }
 
 fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
@@ -133,10 +141,13 @@ fn check_var(key: &str, value: &str) -> bool {
     }
 }
 
-fn filter_env_vars(env: Vars, checklist: &[&str], whitelist: &[&str]) -> HashMap<String, String> {
+fn filter_env_vars(
+    env: Vars,
+    checklist: &[String],
+    whitelist: &[String],
+) -> HashMap<String, String> {
     env.filter(|(key, value)| {
-        checklist.contains(&key.as_str()) && check_var(key, value)
-            || whitelist.contains(&key.as_str())
+        checklist.contains(key) && check_var(key, value) || whitelist.contains(key)
     })
     .collect()
 }
@@ -201,14 +212,48 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
+fn read_json_config(settings: Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+    let file = std::fs::File::open(
+        settings
+            .remote_storage_settings
+            .unwrap_or_default()
+            .path
+            .unwrap_or(ROOTASROLE.into()),
+    )?;
+    let config = serde_json::from_reader(file)?;
+    Ok(config)
+}
+
+fn from_json_execution_settings(
+    args: &Cli,
+    config: &Rc<RefCell<SConfig>>,
+    user: &Cred,
+) -> Result<ExecSettings, Box<dyn Error>> {
+    match &args.role {
+        None => match config.matches(&user, &args.command) {
+            Err(_) => {
+                error!("Permission Denied");
+                std::process::exit(1);
+            }
+            Ok(matching) => Ok(matching.settings),
+        },
+        Some(role) => Ok(as_borrow!(config)
+            .role(&role)
+            .expect("Permission Denied")
+            .matches(&user, &args.command)
+            .expect("Permission Denied")
+            .settings),
+    }
+}
+
 fn main() {
     subsribe();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
     read_effective(true).expect("Failed to read_effective");
-    let config = load_config(&FILENAME).expect("Failed to load config file");
+    let settings = config::get_settings();
     read_effective(false).expect("Failed to read_effective");
-    debug!("loaded config : {:#?}", config);
+    debug!("loaded config : {:#?}", settings);
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
         .expect("Failed to get user");
@@ -247,7 +292,18 @@ fn main() {
     };
 
     dac_override_effective(true).expect("Failed to dac_override_effective");
-    let is_valid = timeout::is_valid(&user, &user, &config.as_ref().borrow().timestamp);
+    let config = match settings.storage_method {
+        config::StorageMethod::JSON => {
+            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
+        }
+        _ => {
+            error!("Unsupported storage method");
+            std::process::exit(1);
+        }
+    };
+    let is_valid = match config {
+        Storage::JSON(ref config) => timeout::is_valid(&user, &user, &config.as_ref().borrow().timeout),
+    };
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
@@ -255,41 +311,38 @@ fn main() {
         context.authenticate(Flag::NONE).expect("Permission Denied");
         context.acct_mgmt(Flag::NONE).expect("Permission Denied");
     }
-    timeout::update_cookie(&user, &user, &config.as_ref().borrow().timestamp)
-        .expect("Failed to add cookie");
+    match config {
+        Storage::JSON(ref config) => {
+            timeout::update_cookie(&user, &user, &config.as_ref().borrow().timeout)
+                .expect("Failed to add cookie");
+        }
+    }
     dac_override_effective(false).expect("Failed to dac_override_effective");
-    let matching = match args.role {
-        None => match config.matches(&user, &args.command) {
-            Err(err) => {
-                error!("Permission Denied");
-                std::process::exit(1);
-            }
-            Ok(matching) => matching,
-        },
-        Some(role) => config
-            .as_ref()
-            .borrow()
-            .roles
-            .iter()
-            .find(|r| r.as_ref().borrow().name == role)
-            .expect("Permission Denied")
-            .matches(&user, &args.command)
-            .expect("Permission Denied"),
+    let matching: ExecSettings = match config {
+        Storage::JSON(ref config) => {
+            let result =
+                from_json_execution_settings(&args, config, &user).expect("Failed to get settings");
+
+            result
+        }
     };
     debug!(
         "Config : Matched user {}\n - with task {}\n - with role {}",
         user.user.name,
-        matching.task().as_ref().borrow().id.to_string(),
+        matching.task().as_ref().borrow().name.to_string(),
         matching.role().as_ref().borrow().name
     );
 
     if args.info {
         println!("Role: {}", matching.role().as_ref().borrow().name);
-        println!("Task: {}", matching.task().as_ref().borrow().id.to_string());
+        println!(
+            "Task: {}",
+            matching.task().as_ref().borrow().name.to_string()
+        );
         println!(
             "With capabilities: {}",
             matching
-                .caps()
+                .caps
                 .unwrap_or_default()
                 .into_iter()
                 .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
@@ -297,58 +350,82 @@ fn main() {
         std::process::exit(0);
     }
 
-    let optstack = matching.opt().as_ref().unwrap();
+    let optstack = matching.opt.as_ref().unwrap();
 
     // disable root
-    if optstack.get_no_root().1 {
+    if !optstack.get_root_behavior().1.is_privileged() {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
-    debug!("setuid : {:?}", matching.setuid());
+    debug!("setuid : {:?}", matching.setuid);
 
-    let uid = matching.setuid().as_ref().map(|u| {
-        User::from_name(&u)
-            .expect("Failed to get user")
-            .expect("Failed to get user")
-            .uid
-            .as_raw()
+    let uid = matching.setuid.and_then(|u| {
+        let res = u.into_user().unwrap_or(None);
+        if let Some(user) = res {
+            Some(user.uid.as_raw())
+        } else {
+            None
+        }
     });
-    let gid = matching.setgroups().as_ref().map(|g| {
-        Group::from_name(&g.groups[0])
-            .expect("Failed to get group")
-            .expect("Failed to get group")
-            .gid
-            .as_raw()
+    let gid = matching.setgroups.as_ref().and_then(|g| match g {
+        SGroups::Single(g) => {
+            let res = g.into_group().unwrap_or(None);
+            if let Some(group) = res {
+                Some(group.gid.as_raw())
+            } else {
+                None
+            }
+        }
+        SGroups::Multiple(g) => {
+            let res = g.get(0).unwrap().into_group().unwrap_or(None);
+            if let Some(group) = res {
+                Some(group.gid.as_raw())
+            } else {
+                None
+            }
+        }
     });
-    let groups = matching.setgroups().as_ref().map(|g| {
-        g.groups
-            .iter()
-            .map(|g| {
-                Group::from_name(g)
-                    .expect("Failed to get group")
-                    .expect("Failed to get group")
-                    .gid
-                    .as_raw()
-            })
-            .collect::<Vec<_>>()
+    let groups = matching.setgroups.as_ref().and_then(|g| {
+        match g {
+            SGroups::Single(g) => {
+                let res = g.into_group().unwrap_or(None);
+                if let Some(group) = res {
+                    Some(vec![group.gid.as_raw()])
+                } else {
+                    None
+                }
+            }
+            SGroups::Multiple(g) => {
+                let res = g.iter().map(|g| g.into_group().unwrap_or(None));
+                let mut groups = Vec::new();
+                for group in res {
+                    if let Some(group) = group {
+                        groups.push(group.gid.as_raw());
+                    }
+                }
+                Some(groups)
+            }
+        }
     });
 
+    setgid_effective(true).expect("Failed to setgid_effective");
     setuid_effective(true).expect("Failed to setuid_effective");
     capctl::cap_set_ids(uid, gid, groups.as_ref().map(|g| g.as_slice()))
         .expect("Failed to set ids");
+    setgid_effective(false).expect("Failed to setgid_effective");
     setuid_effective(false).expect("Failed to setuid_effective");
 
     //set capabilities
-    if let Some(caps) = matching.caps() {
+    if let Some(caps) = matching.caps {
         setpcap_effective(true).expect("Failed to setpcap_effective");
         let mut capstate = CapState::empty();
-        if optstack.get_bounding().1 {
-            for cap in caps.not().iter() {
+        if !optstack.get_bounding().1.is_ignore() {
+            for cap in (!caps).iter() {
                 capctl::bounding::drop(cap).expect("Failed to set bounding cap");
             }
         }
-        capstate.permitted = *caps;
-        capstate.inheritable = *caps;
+        capstate.permitted = caps;
+        capstate.inheritable = caps;
         capstate.set_current().expect("Failed to set current cap");
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
@@ -356,7 +433,7 @@ fn main() {
         setpcap_effective(false).expect("Failed to setpcap_effective");
     } else {
         setpcap_effective(true).expect("Failed to setpcap_effective");
-        if optstack.get_bounding().1 {
+        if !optstack.get_bounding().1.is_ignore() {
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
@@ -365,26 +442,30 @@ fn main() {
     }
 
     //execute command
-    let checklist = optstack.get_env_checklist().1;
-    let whitelist = optstack.get_env_whitelist().1;
-    let veccheck: Vec<&str> = checklist.split(',').collect();
-    let vecwhitelist: Vec<&str> = whitelist.split(',').collect();
-    let mut command = std::process::Command::new(matching.file_exec_path())
-        .args(matching.exec_args())
-        .envs(filter_env_vars(std::env::vars(), &veccheck, &vecwhitelist))
+    let envset = optstack.calculate_filtered_env().expect("Failed to calculate env");
+    let pty = Pty::new().expect("Failed to create pty");
+
+    let command = Command::new(&matching.exec_path)
+        .args(matching.exec_args)
+        .envs(envset)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
-        .spawn();
+        .spawn(&pty.pts().expect("Failed to get pts"));
     let mut command = match command {
         Ok(command) => command,
         Err(_) => {
-            error!("{} : command not found", matching.file_exec_path());
-            eprintln!("sr: {} : command not found", matching.file_exec_path());
+            error!(
+                "{} : command not found",
+                matching.exec_path.display()
+            );
+            eprintln!(
+                "sr: {} : command not found",
+                matching.exec_path.display()
+            );
             std::process::exit(1);
         }
     };
-    //wait for command to finish
     let status = command.wait().expect("Failed to wait for command");
     std::process::exit(status.code().unwrap_or(1));
 }

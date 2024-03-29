@@ -1,0 +1,118 @@
+{
+    "version": "3.0.0-alpha.4",
+    "timeout": {
+        "type": "ppid",
+        "duration": "00:05:00"
+    },
+    "options": {
+        "path": {
+            "default": "delete",
+            "add": [
+                "/usr/local/sbin",
+                "/usr/local/bin",
+                "/usr/sbin",
+                "/usr/bin",
+                "/sbin",
+                "/bin",
+                "/snap/bin"
+            ]
+        },
+        "env": {
+            "default": "delete",
+            "keep": [
+                "HOME",
+                "USER",
+                "LOGNAME",
+                "COLORS",
+                "DISPLAY",
+                "HOSTNAME",
+                "KRB5CCNAME",
+                "LS_COLORS",
+                "PS1",
+                "PS2",
+                "XAUTHORY",
+                "XAUTHORIZATION",
+                "XDG_CURRENT_DESKTOP"
+            ],
+            "check": [
+                "COLORTERM",
+                "LANG",
+                "LANGUAGE",
+                "LC_*",
+                "LINGUAS",
+                "TERM",
+                "TZ"
+            ]
+        },
+        "allow-root": false,
+        "allow-bounding": false,
+        "wildcard-denied": ";&|"
+    },
+    "roles": [
+        {
+            "name": "t_root",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "t_root",
+                    "purpose": "access to every commands",
+                    "cred": {
+                        "setuid": "root",
+                        "setgid": "root",
+                        "capabilities": {
+                            "default": "all"
+                        }
+                    },
+                    "commands": {
+                        "default": "all",
+                        "sub": [
+                            "cap_sys_admin"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "functionnal",
+            "tasks": [
+                {
+                    "name": "facl",
+                    "purpose": "File Access Control Managament",
+                    "cred": {
+                        "capabilities": {
+                            "default": "none",
+                            "add": [
+                                "cap_dac_override"
+                            ]
+                        }
+                    },
+                    "commands": {
+                        "default": "none",
+                        "add": [
+                            "/usr/bin/chmod ([ugoa]*([-+=]([rwxXt]+|[ugo]))+|[-+=][0-7]{0,4})(,(?1))* /home/[^. ]+"
+                        ]
+                    }
+                },
+                {
+                    "name": "softs",
+                    "purpose": "Install and update Softwares",
+                    "cred": {
+                        "setuid": "root",
+                        "setgid": "root"
+                    },
+                    "commands": {
+                        "default": "none",
+                        "add": [
+                            "/usr/bin/apt install .*"
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}

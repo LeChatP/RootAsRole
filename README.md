@@ -15,7 +15,7 @@
 </p>
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0-alpha.3) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0.0-alpha.4) : a secure alternative to sudo/su on Linux systems
 
 This tool allows you to configure your privilege access management more securely on a single operating system. 
 

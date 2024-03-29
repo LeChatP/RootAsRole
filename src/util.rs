@@ -1,5 +1,33 @@
 use capctl::{Cap, CapSet, ParseCapError};
 
+#[macro_export]
+macro_rules! upweak {
+    ($e:expr) => {
+        $e.upgrade().unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! as_borrow {
+    ($e:expr) => {
+        $e.as_ref().borrow()
+    };
+}
+
+#[macro_export]
+macro_rules! as_borrow_mut {
+    ($e:expr) => {
+        $e.as_ref().borrow_mut()
+    };
+}
+
+#[macro_export]
+macro_rules! rc_refcell {
+    ($e:expr) => {
+        std::rc::Rc::new(std::cell::RefCell::new($e))
+    };
+}
+
 pub fn capset_to_string(set: &CapSet) -> String {
     set.iter()
         .fold(String::new(), |mut acc, cap| {
@@ -33,12 +61,15 @@ where
     Ok(res)
 }
 
-pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
-    if s.is_empty() || s.eq_ignore_ascii_case("all") {
-        return Ok(!CapSet::empty());
+pub fn parse_capset(s: &String) -> Result<CapSet, ParseCapError> {
+    let mut init = CapSet::empty();
+    if s.to_lowercase().replace(" ", "").starts_with("all-") {
+        parse_capset_iter(s.replace('-', "").split_at(3).1.split(' ')).and(Ok(!init))
+    } else {
+        parse_capset_iter(s.split(' '))
     }
 
-    parse_capset_iter(s.split(' '))
+    
 }
 
 /// Reference every capabilities that lead to almost a direct privilege escalation
@@ -59,6 +90,7 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::SYS_BOOT)
         || caps.has(Cap::MKNOD)
 }
+
 
 #[cfg(test)]
 pub(super) mod test {

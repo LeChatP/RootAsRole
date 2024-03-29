@@ -1,6 +1,6 @@
 [package]
 name = "capable"
-version = "3.0.0-alpha.3"
+version = "3.0.0-alpha.4"
 edition = "2021"
 publish = false
 

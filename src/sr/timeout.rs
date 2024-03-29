@@ -7,42 +7,18 @@ use std::{
     time,
 };
 
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use nix::{
     libc::dev_t,
     libc::{pid_t, uid_t},
     sys::signal::kill,
 };
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use tracing::debug;
 
-use crate::{config::structs::CookieConstraint, finder::Cred};
+use crate::{common::database::structs::{STimeout, TimestampType}, finder::Cred};
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[repr(u8)]
-#[derive(Default)]
-pub enum TimestampType {
-    Global,
-    TTY,
-    #[default]
-    PPID,
-}
 
-impl FromStr for TimestampType {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "global" => Ok(TimestampType::Global),
-            "tty" => Ok(TimestampType::TTY),
-            "ppid" => Ok(TimestampType::PPID),
-            _ => {
-                debug!("Invalid timestamp type: {}", s);
-                Err(())
-            }
-        }
-    }
-}
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
@@ -64,7 +40,7 @@ impl Default for ParentRecord {
         match TimestampType::default() {
             TimestampType::TTY => Self::TTY(0),
             TimestampType::PPID => Self::PPID(0),
-            TimestampType::Global => Self::None,
+            TimestampType::UID => Self::None,
         }
     }
 }
@@ -80,7 +56,7 @@ impl ParentRecord {
                 }
             }
             TimestampType::PPID => Self::PPID(user.ppid.as_raw()),
-            TimestampType::Global => Self::None,
+            TimestampType::UID => Self::None,
         }
     }
 }
@@ -90,7 +66,7 @@ struct Cookiev1 {
     timestamp_type: TimestampType,
     start_time: i64,
     timestamp: i64,
-    usage: u32,
+    usage: u64,
     parent_record: ParentRecord,
     auth_uid: uid_t,
 }
@@ -210,7 +186,7 @@ fn save_cookies(user: &Cred, cookies: &Vec<CookieVersion>) -> Result<(), Box<dyn
 fn find_valid_cookie(
     from: &Cred,
     cred_asked: &Cred,
-    constraint: &CookieConstraint,
+    constraint: &STimeout,
     editcookie: fn(&mut CookieVersion),
 ) -> Option<CookieVersion> {
     let mut cookies = read_cookies(from).unwrap_or_default();
@@ -226,15 +202,15 @@ fn find_valid_cookie(
             CookieVersion::V1(cookie) => {
                 debug!("Checking cookie: {:?}", cookie);
                 if cookie.auth_uid != cred_asked.user.uid.as_raw()
-                    || cookie.timestamp_type != constraint.timestamptype.parse().unwrap()
+                    || cookie.timestamp_type != constraint.type_field
                 {
                     continue;
                 }
                 let max_usage_ok =
                     constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
-                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.offset.num_seconds(), Utc::now().timestamp() + constraint.offset.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds());
+                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.duration.num_seconds(), Utc::now().timestamp() + constraint.duration.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.duration.num_seconds());
                 let timeofuse: bool =
-                    cookie.timestamp - Utc::now().timestamp() + constraint.offset.num_seconds() > 0;
+                    cookie.timestamp - Utc::now().timestamp() + constraint.duration.num_seconds() > 0;
                 debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
                 if timeofuse && max_usage_ok && res.is_none() {
                     editcookie(cookiev);
@@ -259,7 +235,7 @@ fn find_valid_cookie(
 /// @param cred_asked: the credentials of the user that is asked to execute a command
 /// @param max_offset: the maximum offset between the current time and the time of the credentials, including the type of the offset
 /// @return true if the credentials are valid, false otherwise
-pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstraint) -> bool {
+pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
     find_valid_cookie(from, cred_asked, constraint, |_c| {
         debug!("Found valid cookie ");
     })
@@ -270,7 +246,7 @@ pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &CookieConstr
 pub(crate) fn update_cookie(
     from: &Cred,
     cred_asked: &Cred,
-    constraint: &CookieConstraint,
+    constraint: &STimeout,
 ) -> Result<(), Box<dyn Error>> {
     let res = find_valid_cookie(from, cred_asked, constraint, |cookie| match cookie {
         CookieVersion::V1(cookie) => {
@@ -281,11 +257,10 @@ pub(crate) fn update_cookie(
     });
     if res.is_none() {
         let mut cookies = read_cookies(from).unwrap_or_default();
-        let timestamp_type: TimestampType = constraint.timestamptype.parse().unwrap_or_default();
-        let parent_record = ParentRecord::new(&timestamp_type, from);
+        let parent_record = ParentRecord::new(&constraint.type_field, from);
         let cookie = CookieVersion::V1(Cookiev1 {
             auth_uid: cred_asked.user.uid.as_raw(),
-            timestamp_type,
+            timestamp_type: constraint.type_field,
             start_time: Utc::now().timestamp(),
             timestamp: Utc::now().timestamp(),
             usage: 0,
