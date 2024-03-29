@@ -2,17 +2,16 @@
 
 mod checklist;
 mod cli;
-#[path = "../config/mod.rs"]
+#[path = "../config.rs"]
 mod config;
 mod rolemanager;
 mod state;
 #[path = "../util.rs"]
 mod util;
-#[path = "../xml_version.rs"]
-mod xml_version;
+#[path = "../version.rs"]
+mod version;
 
 use cli::parse_args;
-use config::FILENAME;
 use cursive::Cursive;
 use rolemanager::RoleContext;
 use state::{role::SelectRoleState, InitState};
@@ -29,7 +28,7 @@ pub struct RoleManagerApp {
 }
 
 fn main() {
-    let roles = config::load::load_config(&FILENAME);
+    let roles = config::load_config();
     if let Err(err) = roles {
         eprintln!("{}", err);
         std::process::exit(1);

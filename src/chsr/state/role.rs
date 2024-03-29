@@ -14,7 +14,8 @@ use cursive::view::{Nameable, Scrollable};
 use cursive::views::{Dialog, LinearLayout, SelectView, TextView};
 use cursive::Cursive;
 
-use crate::config::structs::{Groups, Role, Save};
+use crate::config::save_config;
+use crate::config::structs::{Groups, Role, ActorSetTrait};
 use crate::{RoleContext, RoleManagerApp};
 
 #[derive(Clone)]
@@ -70,7 +71,9 @@ impl State for SelectRoleState {
     }
 
     fn confirm(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
-        if let Err(err) = manager.save(None, None) {
+        let binding = manager.get_config();
+        let borrow = save_config(&binding.as_ref().borrow_mut());
+        if let Err(err) = borrow{
             manager.set_error(err);
         }
         self
@@ -196,7 +199,8 @@ impl State for EditRoleState {
                         .unwrap()
                         .as_ref()
                         .borrow()
-                        .users
+                        .actors
+                        .users()
                         .to_vec()
                         .into(),
                 ),
@@ -209,7 +213,8 @@ impl State for EditRoleState {
                     .unwrap()
                     .as_ref()
                     .borrow()
-                    .groups
+                    .actors
+                    .groups()
                     .to_vec(),
             )),
             2 => Box::new(SelectTaskState),
@@ -340,13 +345,12 @@ impl PushableItemState<String> for EditRoleState {
 
 impl PushableItemState<Users> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Users) {
-        manager.get_role().unwrap().as_ref().borrow_mut().users =
-            item.name.as_ref().borrow().to_vec();
+        manager.get_role().unwrap().as_ref().borrow_mut().actors.extend(item.name.as_ref().borrow().to_vec().iter().map(|x| crate::config::structs::Actor::User(x.to_string())));
     }
 }
 
 impl PushableItemState<Vec<Groups>> for EditRoleState {
     fn push(&mut self, manager: &mut RoleContext, item: Vec<Groups>) {
-        manager.get_role().unwrap().as_ref().borrow_mut().groups = item;
+        manager.get_role().unwrap().as_ref().borrow_mut().actors.extend(item.iter().map(|x| crate::config::structs::Actor::Group(x.clone())));
     }
 }

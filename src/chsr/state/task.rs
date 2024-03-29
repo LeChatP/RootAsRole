@@ -2,7 +2,7 @@ use cursive::{
     align::{HAlign, VAlign},
     event::Key,
     view::{Nameable, Scrollable},
-    views::{Dialog, LinearLayout, SelectView, TextView},
+    views::{Dialog, LinearLayout, SelectView, TextView, Button},
     Cursive,
 };
 
@@ -182,8 +182,8 @@ impl DeletableItemState for SelectTaskState {
  * And used to set options on the command block (with Dialog)
  */
 impl State for EditTaskState {
-    fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
-        Box::new(EditCommandState)
+    fn create(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
+        Box::new(EditCommandState { remove :  manager.is_blacklist() })
     }
     fn delete(self: Box<Self>, manager: &mut RoleContext, index: usize) -> Box<dyn State> {
         if let Err(err) = manager.select_command(index) {
@@ -195,7 +195,7 @@ impl State for EditTaskState {
             &format!(
                 "Are you sure to delete Command #{}?\n\"{}\"",
                 index,
-                manager.get_task().unwrap().borrow().commands[index]
+                manager.get_command_set().unwrap()[index]
             ),
             index,
         ))
@@ -205,7 +205,7 @@ impl State for EditTaskState {
             manager.set_error(err);
             return self;
         }
-        Box::new(EditCommandState)
+        Box::new(EditCommandState { remove :  manager.is_blacklist() })
     }
     fn cancel(self: Box<Self>, manager: &mut RoleContext) -> Box<dyn State> {
         if manager.get_new_task().is_some() {
@@ -254,6 +254,12 @@ impl State for EditTaskState {
                 "Set task id",
                 Some(manager.get_task().unwrap().as_ref().borrow().id.to_owned()),
             )),
+            "d" => {
+                let binding = manager.get_task().unwrap();
+                let mut task = binding.as_ref().borrow_mut();
+                task.commands.all = !task.commands.is_all();
+                self
+            }
             _ => panic!("Unknown input {}", input.as_string()),
         }
     }
@@ -263,20 +269,32 @@ impl State for EditTaskState {
             title = format!("Edit {}", o.as_ref().borrow().id.to_string());
             o
         });
-        let mut select = SelectView::new().on_submit(|s, item| {
+        let mut select_whitelist = SelectView::new().on_submit(|s, item| {
+            let RoleManagerApp { mut manager, state } = s.take_user_data().unwrap();
+            manager.select_command_set(true);
+            s.set_user_data(RoleManagerApp { manager, state });
+            execute(s, ExecuteType::Submit(*item));
+        });
+        let mut select_blacklist = SelectView::new().on_submit(|s, item| {
+            let RoleManagerApp { mut manager, state } = s.take_user_data().unwrap();
+            manager.select_command_set(false);
+            s.set_user_data(RoleManagerApp { manager, state });
             execute(s, ExecuteType::Submit(*item));
         });
 
         let mut purpose = String::new();
+        let mut default_cmd = "No command matching by default";
 
         if let Some(task) = task {
-            task.as_ref()
-                .borrow()
-                .commands
-                .iter()
+            task.as_ref().borrow().commands.added().iter()
                 .enumerate()
                 .for_each(|(index, e)| {
-                    select.add_item(e.to_string(), index);
+                    select_whitelist.add_item(e.to_string(), index);
+                });
+            task.as_ref().borrow().commands.removed().iter()
+                .enumerate()
+                .for_each(|(index, e)| {
+                    select_blacklist.add_item(e.to_string(), index);
                 });
             cursive.set_global_callback(Key::Del, move |s| {
                 let sel = s
@@ -301,12 +319,26 @@ impl State for EditTaskState {
                     format!("Capabilities : {}\n", util::capset_to_string(caps)).as_str(),
                 );
             }
+            task.as_ref().borrow().commands.is_all().then(|| {
+                default_cmd = "All commands matching by default";
+            });
         } else {
             purpose = "".to_string();
         }
 
+        // Create a button to switch between ALL and NONE command set
+        
+        let button = Button::new(default_cmd, |s| {
+            execute(s, ExecuteType::Input(Input::String("d".to_string())));
+        });
+
+        let horizontal = LinearLayout::horizontal()
+            .child(select_whitelist.with_name("whitelist").scrollable())
+            .child(select_blacklist.with_name("blacklist").scrollable());
+
         let layout = LinearLayout::vertical()
-            .child(select.with_name("select").scrollable())
+            .child(button)
+            .child(horizontal)
             .child(TextView::new(purpose).align(cursive::align::Align {
                 h: HAlign::Center,
                 v: VAlign::Bottom,
@@ -358,7 +390,7 @@ impl DeletableItemState for EditTaskState {
             })
             .borrow_mut()
             .commands
-            .remove(index);
+            .remove_added_entry_index(&index);
     }
 }
 impl PushableItemState<Users> for EditTaskState {

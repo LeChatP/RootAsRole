@@ -1,16 +1,7 @@
-use std::{collections::HashSet, error::Error};
+use std::error::Error;
+use clap::{Parser, Subcommand, ValueEnum};
 
-use clap::{Parser, Subcommand};
-use nix::unistd::Group;
-
-use crate::{
-    config::{
-        options::{OptType, OptValue},
-        structs::{Groups, IdTask, Save},
-    },
-    rolemanager::RoleContext,
-    util,
-};
+use crate::rolemanager::RoleContext;
 
 //chsr newrole "role1" --user "user1" --group "group1" "group2"
 //chsr addtask "role1" --cmds "command1" --caps "cap_dac_override,cap_dac_read_search"
@@ -41,65 +32,140 @@ struct Cli {
     command: Option<CCommand>,
 }
 
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)] // ArgEnum here
+#[clap(rename_all = "kebab_case")]
+enum Action {
+    Add,
+    Del,
+    Purge,
+    Set,
+    List,
+}
+
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)] // ArgEnum here
+#[clap(rename_all = "kebab_case")]
+enum Manage {
+    Grant,
+    Revoke,
+    Purge,
+    Set,
+    List,
+}
+
 #[derive(Subcommand, Debug, PartialEq, Eq)]
 enum CCommand {
-    /// List all roles
-    #[command(name = "list")]
-    List {
-        #[arg(short, long)]
-        /// Describe role
-        role: Option<String>,
-        #[arg(short, long)]
-        /// Describe task within role
-        task: Option<String>,
-    },
-    /// Create a new role, you can add users, groups, tasks. You can assign tasks through the command "addtask"
-    #[command(name = "newrole")]
-    NewRole {
+    /// Manipulate role, you can add users, groups, tasks. You can assign tasks through the command "addtask"
+    #[command(name = "role")]
+    Role {
+        /// WARNING! Purge == remove all roles on the config
+        #[arg(value_enum)]
+        action: Action,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
+
+        /// Role name
         role: String,
+        /// Add users to role, multiple users can be added by multiple -u
         #[arg(short, long)]
         user: Option<Vec<String>>,
+        /// Add groups to role, multiple groups can be added by multiple -g,
+        /// Group combinaison can be done by separating groups with a comma,
+        /// Example: -g group1 -g group2,group3
         #[arg(short, long)]
         group: Option<Vec<String>>,
     },
-    /// You can grant users/groups to role
-    #[command(name = "grant")]
-    Grant {
+
+    /// Manipulate users assigned to roles
+    #[command(name = "actors")]
+    Actors {
+        /// Purge == remove all users and groups from role
+        #[arg(value_enum)]
+        action: Manage,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
+
+        /// Role name
         role: String,
+        /// Add users to role, multiple users can be added by multiple -u
         #[arg(short, long)]
         user: Option<Vec<String>>,
+        /// Add groups to role, multiple groups can be added by multiple -g,
+        /// Group combinaison can be done by separating groups with a comma,
+        /// Example: -g group1 -g group2,group3
         #[arg(short, long)]
         group: Option<Vec<String>>,
     },
-    /// You can revoke users/groups from role
-    #[command(name = "revoke")]
-    Revoke {
-        role: String,
-        #[arg(short, long)]
-        user: Option<Vec<String>>,
-        #[arg(short, long)]
-        group: Option<Vec<String>>,
-    },
+
     /// Add a task to a role, you can add commands and capabilities
-    #[command(name = "addtask")]
-    AddTask {
+    #[command(name = "task")]
+    Task {
+        /// WARNING! Purge == remove all tasks from role
+        #[arg(value_enum)]
+        action: Action,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
+
         role: String,
-        #[arg(short, long)]
-        withid: Option<String>,
-        #[arg(short, long)]
-        cmds: Option<Vec<String>>,
-        #[arg(short = 'p', long)]
-        caps: Option<String>,
+        #[arg(short = 't', long)]
+        id: Option<String>,
     },
-    /// Delete a task from a role
-    #[command(name = "deltask")]
-    DelTask { role: String, id: String },
-    /// Delete a role, this is not reversible
-    #[command(name = "delrole")]
-    DelRole { role: String },
-    /// You could configure options for all roles, specific role, or specific task
+    /// Perform action on command entries to a task
+    #[command(name = "cmd")]
+    Cmd {
+        /// WARNING! Purge == remove all commands from task, and set all_cmd to false
+        #[arg(value_enum)]
+        action: Action,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
+
+        role: String,
+        task_id: String,
+        /// If set, all commands are allowed. This option is exclusive with whitelist
+        #[arg(short, long)]
+        all_cmd: bool,
+        /// append whitelisted commands
+        #[arg(short, long)]
+        whitelist: Option<Vec<String>>,
+        /// append blacklisted commands
+        #[arg(short, long)]
+        blacklist: Option<Vec<String>>,
+    },
+
+    #[command(name = "cred")]
+    Cred {
+        /// Purge == remove all credentials from task, the task will be executable as executor user without privileges.
+        #[arg(value_enum)]
+        action: Action,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
+
+        role: String,
+        task_id: String,
+        /// Set capabilities to task
+        /// Format: cap1 cap2 cap3
+        /// Or : all- cap1 cap2
+        #[arg(short, long)]
+        caps: Option<String>,
+        /// Setuid applied to task
+        #[arg(short, long)]
+        setuid: Option<String>,
+        /// Setgid applied to task
+        #[arg(short, long)]
+        setgid: Option<String>,
+    },
     #[command(name = "config")]
     Config {
+        /// WARNING! Purge == purges global, role or task config considering the options you set
+        #[arg(value_enum)]
+        action: Action,
+        /// Always Confirm dangerous action if set
+        #[arg(short)]
+        yes: bool,
         #[arg(short, long)]
         /// Role name
         role: Option<String>,
@@ -118,6 +184,9 @@ enum CCommand {
         /// When false, capabilties are permanently dropped, when true, process can regain them (with sudo as example)
         #[arg(long)]
         allow_bounding: Option<bool>,
+        /// When false, root is disabled, when true, root is enabled
+        #[arg(long)]
+        allow_root: Option<bool>,
         /// When you configure command with wildcard, you can except chars of wildcard match
         #[arg(long)]
         wildcard_denied: Option<String>,
@@ -129,191 +198,132 @@ enum CCommand {
     },
 }
 
+fn perform_option_command(
+    manager: &mut RoleContext,
+    action: Action,
+    opttype: OptType,
+    value: OptValue,
+) {
+    match action {
+        Action::Add => {
+            let mut optvalue = manager.get_options().get_from_type(opttype);
+            match value {
+                OptValue::String(s) => {
+                    optvalue.1.as_string().push_str(&s);
+                }
+                OptValue::VecString(v) => {
+                    optvalue.1.as_vec_string().extend(v.0);
+                }
+                OptValue::Bool(b) => {
+                    optvalue.1 = OptValue::Bool(value.as_bool());
+                }
+            }
+            manager.get_options().set_value(opttype, Some(optvalue.1));
+        }
+        Action::Del => {
+            let mut optvalue = manager.get_options().get_from_type(opttype);
+            match value {
+                OptValue::String(s) => {
+                    optvalue.1 = OptValue::String(optvalue.1.as_string().replace(&s, ""));
+                }
+                OptValue::VecString(v) => {
+                    optvalue.1.as_vec_string().retain(|x| !v.0.contains(x));
+                }
+                OptValue::Bool(b) => {
+                    manager.get_options().set_value(opttype, None);
+                    return;
+                }
+            }
+            manager.get_options().set_value(opttype, Some(optvalue.1));
+        }
+        Action::Purge => {
+            manager.get_options().unset_value(opttype);
+        }
+        Action::Set => {
+            manager.get_options().set_value(opttype, Some(value));
+        }
+        Action::List => {
+            let paths = manager.get_options().get_from_type(opttype);
+            match paths.1 {
+                OptValue::String(s) => {
+                    println!("{} = {}", opttype, s);
+                }
+                OptValue::VecString(v) => {
+                    println!("{} = {}", opttype, v.0.join(&v.1));
+                }
+                OptValue::Bool(b) => {
+                    println!("{} = {}", opttype, b);
+                }
+            }
+        }
+    }
+}
+
 /**
  * Parse the command line arguments
  */
 pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
     let args = Cli::parse();
     match args.command.as_ref() {
-        Some(CCommand::NewRole { role, user, group }) => {
-            manager.create_new_role(role.to_owned());
-            let role = manager.get_role().unwrap();
-            if let Some(user) = &user {
-                let user = user
-                    .iter()
-                    .collect::<HashSet<_>>()
-                    .into_iter()
-                    .map(|x| x.to_owned())
-                    .collect::<Vec<String>>();
-                role.as_ref().borrow_mut().users = user;
-            }
-            if let Some(group) = &group {
-                let group = group
-                    .iter()
-                    .collect::<HashSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<&String>>();
-                role.as_ref().borrow_mut().groups = group
-                    .iter()
-                    .map(|x| Into::<Groups>::into(x.split(',')))
-                    .collect::<Vec<Groups>>();
-            }
-            manager.save_new_role();
-            manager.save(None, None)?;
-            Ok(true)
-        }
-        Some(CCommand::Grant { role, user, group }) => {
-            let mut res = false;
-            if let Some(role) = manager.find_role(role.as_str()) {
-                if let Some(user) = &user {
-                    let mut forbidden = Vec::new();
-                    for u in user {
-                        if role.as_ref().borrow().user_is_forbidden(u) {
-                            forbidden.push(u.to_owned());
-                            continue;
-                        }
-                        if !role.as_ref().borrow().users.contains(u) {
-                            role.as_ref().borrow_mut().users.push(u.to_owned());
-                        }
-                    }
-                    if forbidden.is_empty() {
-                        res = true;
-                    } else {
-                        println!("Forbidden users: {:?}", forbidden);
-                        println!("By the static separation of duty, you can't grant these users to this role");
-                    }
-                }
-                if let Some(group) = &group {
-                    let mut already = Vec::new();
-                    let mut forbidden = Vec::new();
-                    let mut to_add = group
-                        .iter()
-                        .filter(|x| {
-                            let xgroups = x
-                                .split('&')
-                                .filter_map(|x| match Group::from_name(x) {
-                                    Ok(Some(g)) => Some(g),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>();
-                            for group in role.as_ref().borrow_mut().groups.iter() {
-                                if group.is_unix_subset(&xgroups) {
-                                    already.push(group.to_owned());
-                                    return false;
-                                }
-                            }
-                            true
-                        })
-                        .filter(|x| {
-                            let xgroups =
-                                x.split('&').map(|x| x.to_string()).collect::<Vec<String>>();
-                            if role.as_ref().borrow().groups_are_forbidden(&xgroups) {
-                                forbidden.push(xgroups);
-                                false
-                            } else {
-                                true
-                            }
-                        })
-                        .map(|x| Into::<Groups>::into(x.split('&')))
-                        .collect::<Vec<Groups>>();
-                    role.as_ref().borrow_mut().groups.append(&mut to_add);
-                    let groups = &role.as_ref().borrow_mut().groups;
-                    role.as_ref().borrow_mut().groups = groups
-                        .iter()
-                        .collect::<HashSet<_>>()
-                        .into_iter()
-                        .map(|x| x.to_owned())
-                        .collect::<Vec<_>>();
-
-                    if !forbidden.is_empty() {
-                        println!("Forbidden groups: {:?}", forbidden);
-                        println!("By the static separation of duty, you can't grant these groups to this role");
-                    }
-                    if !already.is_empty() {
-                        println!("Groups already granted by their numberical id or name combinaison: {:?}", already);
-                    }
-                    if forbidden.is_empty() && already.is_empty() {
-                        res = true;
-                    } else {
-                        println!("Others groups are successfully granted");
-                    }
-                }
-                if res {
-                    manager.save(None, None)?;
-                }
-            }
-            Ok(res)
-        }
-        Some(CCommand::Revoke { role, user, group }) => {
-            let mut res = false;
-            if let Some(role) = manager.find_role(role.as_str()) {
-                if let Some(user) = &user {
-                    for u in user {
-                        if !role.as_ref().borrow().users.contains(u) {
-                            role.as_ref().borrow_mut().users.retain(|x| x != u);
-                        }
-                    }
-                    res = true;
-                }
-                if let Some(group) = &group {
-                    role.as_ref().borrow_mut().groups = group
-                        .iter()
-                        .map(|x| Into::<Groups>::into(x.split('&')))
-                        .collect::<Vec<Groups>>();
-                    res = true;
-                }
-                if res {
-                    manager.save(None, None)?;
-                }
-            }
-            Ok(res)
-        }
-        Some(CCommand::AddTask {
+        Some(CCommand::Role {
+            action,
+            yes,
             role,
-            withid,
-            cmds,
-            caps,
+            user,
+            group,
         }) => {
-            manager.select_role_by_name(role.as_str())?;
-            manager.create_new_task(withid.as_ref())?;
-            let task = manager.get_task().unwrap();
-            if let Some(cmds) = &cmds {
-                task.as_ref().borrow_mut().commands = cmds.to_owned();
-            }
-            if let Some(caps) = &caps {
-                let role = manager.get_role().unwrap();
-                let caps = util::parse_capset(caps)?;
-                if role.as_ref().borrow().capabilities_are_denied(caps) {
-                    println!(
-                        "Capabilities {:?} are denied by role definition (or in hierarchy definition)",
-                        role.as_ref().borrow().denied_capabilities().intersection(caps));
-                    return Ok(false);
-                }
-                task.as_ref().borrow_mut().capabilities = Some(caps);
-            }
-            manager.save(None, None)?;
             Ok(true)
         }
-        Some(CCommand::DelTask { role, id }) => {
-            manager.select_role_by_name(role.as_str())?;
-            manager.select_task_by_id(&IdTask::Name(id.to_string()))?;
-            manager.delete_task()?;
-            manager.save(None, None)?;
+        Some(CCommand::Actors {
+            action,
+            yes,
+            role,
+            user,
+            group,
+        }) => {
             Ok(true)
         }
-        Some(CCommand::DelRole { role }) => {
-            manager.select_role_by_name(role.as_str())?;
-            manager.delete_role()?;
-            manager.save(None, None)?;
+        Some(CCommand::Task {
+            action,
+            yes,
+            role,
+            id,
+        }) => {
             Ok(true)
         }
+        Some(CCommand::Cmd {
+            action,
+            yes,
+            role,
+            task_id,
+            all_cmd,
+            whitelist,
+            blacklist,
+        }) => {
+            Ok(true)
+        }
+        Some(CCommand::Cred {
+            action,
+            yes,
+            role,
+            task_id,
+            caps,
+            setuid,
+            setgid,
+        }) => {
+            Ok(true)
+        }
+
         Some(CCommand::Config {
+            action,
+            yes,
             role,
             task,
             path,
             env_keep,
             env_check,
             allow_bounding,
+            allow_root,
             wildcard_denied,
         }) => {
             if let Some(role) = role.as_ref() {
@@ -327,58 +337,54 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
                 manager.select_task_by_id(&tid)?;
             }
             if let Some(path) = path {
-                manager
-                    .get_options()
-                    .set_value(OptType::Path, Some(OptValue::String(path.to_string())));
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
+                    OptType::Path,
+                    OptValue::from_str_vec(OptType::Path, path.to_string()),
+                );
             }
             if let Some(env_keep) = env_keep {
-                manager.get_options().set_value(
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
                     OptType::EnvWhitelist,
-                    Some(OptValue::String(env_keep.to_string())),
+                    OptValue::from_str_vec(OptType::EnvWhitelist, env_keep.to_string()),
                 );
             }
             if let Some(env_check) = env_check {
-                manager.get_options().set_value(
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
                     OptType::EnvChecklist,
-                    Some(OptValue::String(env_check.to_string())),
+                    OptValue::from_str_vec(OptType::EnvChecklist, env_check.to_string()),
                 );
             }
             if let Some(allow_bounding) = allow_bounding {
-                manager
-                    .get_options()
-                    .set_value(OptType::Bounding, Some(OptValue::Bool(*allow_bounding)));
-            }
-            if let Some(wildcard_denied) = wildcard_denied {
-                manager.get_options().set_value(
-                    OptType::Wildcard,
-                    Some(OptValue::String(wildcard_denied.to_string())),
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
+                    OptType::Bounding,
+                    OptValue::Bool(allow_bounding.to_owned()),
                 );
             }
-            manager.save(None, None)?;
-            Ok(true)
-        }
-        Some(CCommand::List { role, task }) => {
-            if let Some(role) = role.as_ref() {
-                manager.select_role_by_name(role)?;
-                if let Some(task) = task {
-                    let tid = match task.parse::<usize>() {
-                        Ok(id) => IdTask::Number(id),
-                        Err(_) => IdTask::Name(task.to_string()),
-                    };
-                    manager.select_task_by_id(&tid)?;
-                    let task = manager.get_task().unwrap();
-                    println!("{}", task.as_ref().borrow().get_description());
-                } else {
-                    let role = manager.get_role().unwrap();
-                    println!("{}", role.as_ref().borrow().get_description());
-                }
-            } else {
-                let roles = manager.roles.as_ref().borrow();
-                for role in roles.roles.iter() {
-                    println!("=============\nRole {}", role.as_ref().borrow().name);
-                    println!("{}", role.as_ref().borrow().get_description());
-                }
+            if let Some(allow_root) = allow_root {
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
+                    OptType::NoRoot,
+                    OptValue::Bool(allow_root.to_owned()),
+                );
             }
+            if let Some(wildcard_denied) = wildcard_denied {
+                perform_option_command(
+                    manager,
+                    action.to_owned(),
+                    OptType::Wildcard,
+                    OptValue::String(wildcard_denied.to_owned()),
+                );
+            }
+            save_config(&manager.get_config().as_ref().borrow())?;
             Ok(true)
         }
         Some(CCommand::Import { file: _ }) => Err("not implemented".into()),
@@ -389,138 +395,5 @@ pub fn parse_args(manager: &mut RoleContext) -> Result<bool, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_parse_args_new_role() {
-        let args = Cli::parse_from(&[
-            "chsr", "newrole", "admin", "--user", "user1", "--group", "group1",
-        ])
-        .command;
-        let expected_command = Some(CCommand::NewRole {
-            role: "admin".to_string(),
-            user: Some(["user1".to_string()].to_vec()),
-            group: Some(["group1".to_string()].to_vec()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_grant() {
-        let args = Cli::parse_from(&[
-            "chsr", "grant", "admin", "--user", "user1", "--group", "group1",
-        ])
-        .command;
-        let expected_command = Some(CCommand::Grant {
-            role: "admin".to_string(),
-            user: Some(["user1".to_string()].to_vec()),
-            group: Some(["group1".to_string()].to_vec()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_revoke() {
-        let args = Cli::parse_from(&[
-            "chsr", "revoke", "admin", "--user", "user1", "--group", "group1",
-        ])
-        .command;
-        let expected_command = Some(CCommand::Revoke {
-            role: "admin".to_string(),
-            user: Some(["user1".to_string()].to_vec()),
-            group: Some(["group1".to_string()].to_vec()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_add_task() {
-        let args = Cli::parse_from(&[
-            "chsr", "addtask", "admin", "--withid", "task1", "--cmds", "cmd1", "--caps", "cap1",
-        ])
-        .command;
-        let expected_command = Some(CCommand::AddTask {
-            role: "admin".to_string(),
-            withid: Some("task1".to_string()),
-            cmds: Some(["cmd1".to_string()].to_vec()),
-            caps: Some("cap1".to_string()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_del_task() {
-        let args = Cli::parse_from(&["chsr", "deltask", "admin", "task1"]).command;
-        let expected_command = Some(CCommand::DelTask {
-            role: "admin".to_string(),
-            id: "task1".to_string(),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_del_role() {
-        let args = Cli::parse_from(&["chsr", "delrole", "admin"]).command;
-        let expected_command = Some(CCommand::DelRole {
-            role: "admin".to_string(),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_config() {
-        let args = Cli::parse_from(&[
-            "chsr",
-            "config",
-            "--role",
-            "admin",
-            "--task",
-            "task1",
-            "--path",
-            "/path/to/file",
-            "--env-keep",
-            "env1",
-            "--env-check",
-            "env2",
-            "--allow-bounding",
-            "true",
-            "--wildcard-denied",
-            ";;",
-        ])
-        .command;
-        let expected_command = Some(CCommand::Config {
-            role: Some("admin".to_string()),
-            task: Some("task1".to_string()),
-            path: Some("/path/to/file".to_string()),
-            env_keep: Some("env1".to_string()),
-            env_check: Some("env2".to_string()),
-            allow_bounding: Some(true),
-            wildcard_denied: Some(";;".to_string()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_list() {
-        let args = Cli::parse_from(&["chsr", "list", "--role", "admin", "--task", "task1"]).command;
-        let expected_command = Some(CCommand::List {
-            role: Some("admin".to_string()),
-            task: Some("task1".to_string()),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_import() {
-        let args = Cli::parse_from(&["chsr", "import", "/path/to/file"]).command;
-        let expected_command = Some(CCommand::Import {
-            file: "/path/to/file".to_string(),
-        });
-        assert_eq!(args, expected_command);
-    }
-
-    #[test]
-    fn test_parse_args_no_command() {
-        let args = Cli::parse_from(&["chsr"]).command;
-        let expected_command = None;
-        assert_eq!(args, expected_command);
-    }
+    
 }

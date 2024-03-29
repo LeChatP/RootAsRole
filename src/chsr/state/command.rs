@@ -16,7 +16,9 @@ use capctl::{Cap, CapSet};
 
 pub struct EditCapabilitiesState;
 
-pub struct EditCommandState;
+pub struct EditCommandState {
+    pub remove: bool,
+}
 
 impl State for EditCapabilitiesState {
     fn create(self: Box<Self>, _manager: &mut RoleContext) -> Box<dyn State> {
@@ -135,12 +137,22 @@ impl State for EditCommandState {
                 return self;
             }
         } else {
-            manager
-                .get_task()
-                .unwrap()
-                .borrow_mut()
-                .commands
-                .push(input.as_string());
+            if self.remove {
+                manager
+                    .get_task()
+                    .unwrap()
+                    .borrow_mut()
+                    .commands
+                    .remove_command(&input.as_string());
+            } else {
+                manager
+                    .get_task()
+                    .unwrap()
+                    .borrow_mut()
+                    .commands
+                    .add_command(&input.as_string());
+            }
+            
         }
         Box::new(EditTaskState)
     }
