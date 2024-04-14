@@ -16,7 +16,7 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::{common::database::structs::{STimeout, TimestampType}, finder::Cred};
+use crate::common::database::{options::{STimeout, TimestampType}, finder::Cred};
 
 
 

@@ -1,73 +1,31 @@
 //extern crate sudoers_reader;
 
-mod checklist;
+use capctl::Cap;
+use common::{config::{self, Storage}, database::read_json_config, read_effective};
+use tracing::error;
+
 mod cli;
-#[path = "../config.rs"]
-mod config;
-mod rolemanager;
-mod state;
-#[path = "../util.rs"]
-mod util;
-#[path = "../version.rs"]
-mod version;
+#[path = "../mod.rs"]
+mod common;
 
-use cli::parse_args;
-use cursive::Cursive;
-use rolemanager::RoleContext;
-use state::{role::SelectRoleState, InitState};
-use tracing_subscriber::FmtSubscriber;
-
-pub enum ActorType {
-    User,
-    Group,
-}
-
-pub struct RoleManagerApp {
-    manager: RoleContext,
-    state: Box<dyn state::State>,
-}
 
 fn main() {
-    let roles = config::load_config();
-    if let Err(err) = roles {
-        eprintln!("{}", err);
-        std::process::exit(1);
-    }
-    let roles = roles.unwrap();
-    let mut rc_role_manager = RoleContext::new(roles);
-    match parse_args(&mut rc_role_manager) {
-        Ok(value) => {
-            if value {
-                std::process::exit(0);
-            }
+    let settings = config::get_settings();
+    let config = match settings.storage_method {
+        config::StorageMethod::JSON => {
+            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
         }
-        Err(err) => {
-            eprintln!("{}", err);
+        _ => {
+            error!("Unsupported storage method");
             std::process::exit(1);
         }
-    }
-    // a builder for `FmtSubscriber`.
-    let subscriber = FmtSubscriber::builder()
-        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-        // will be written to stdout.
-        .with_max_level(tracing::Level::TRACE)
-        // completes the builder.
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-
-    let mut siv = cursive::default();
-    //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
-    //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
-
-    siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
-    SelectRoleState.config_cursive(&mut siv);
-
-    let app = RoleManagerApp {
-        manager: rc_role_manager,
-        state: Box::new(SelectRoleState),
     };
+    cli::main(&config);
+}
 
-    siv.set_user_data(app);
-    siv.run();
+fn olmain() {
+    read_effective(true).expect("Failed to read_effective");
+    let settings = config::get_settings();
+    read_effective(false).expect("Failed to read_effective");
+
 }

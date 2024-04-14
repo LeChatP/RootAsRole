@@ -51,9 +51,11 @@ const FILEPATH : &str = "/etc/security/rootasrole_storage.json";
 pub const ROOTASROLE : &str = "/etc/security/rootasrole.json";
 
 
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use serde::Deserialize;
+
+use super::database::structs::SConfig;
 
 #[derive(Deserialize, Debug)]
 pub enum StorageMethod {
@@ -64,6 +66,10 @@ pub enum StorageMethod {
 //    LDAP,
     #[serde(other)]
     Unknown,
+}
+
+pub enum Storage {
+    JSON(Rc<RefCell<SConfig>>),
 }
 
 #[derive(Deserialize, Debug)]

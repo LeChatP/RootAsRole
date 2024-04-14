@@ -7,8 +7,9 @@ use crate::{
     as_borrow,
     common::{
         api::{PluginManager, PluginPosition, PluginResult},
-        database::structs::{SActor, SConfig, SGroups, SRole},
-    }, finder::Cred,
+        database::{structs::{SActor, SConfig, SGroups, SRole},
+                    finder::Cred},
+    },
 };
 
 #[derive(Deserialize)]

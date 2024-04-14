@@ -1,10 +1,5 @@
 use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    error::Error,
-    fmt::{Display, Formatter},
-    path::PathBuf,
-    rc::{Rc, Weak},
+    cell::RefCell, cmp::Ordering, env::var, error::Error, fmt::{Display, Formatter}, path::{Path, PathBuf}, rc::{Rc, Weak}
 };
 
 use capctl::CapSet;
@@ -14,13 +9,13 @@ use nix::{
     unistd::{Group, Pid, User},
 };
 use pcre2::bytes::RegexBuilder;
+use shell_words::ParseError;
 use strum::EnumIs;
 use tracing::{debug, warn};
 
 use crate::{as_borrow, common::{
     api::{PluginManager, PluginResultAction}, database::{options::{Opt, OptStack}, structs::{SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask, SetBehavior}}, util::capabilities_are_exploitable
 }};
-use crate::command::parse_conf_command;
 use bitflags::bitflags;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -52,7 +47,7 @@ impl Error for MatchError {
 pub struct ExecSettings {
     pub exec_path: PathBuf,
     pub exec_args: Vec<String>,
-    pub opt: Option<OptStack>,
+    pub opt: OptStack,
     pub setuid: Option<SActorType>,
     pub setgroups: Option<SGroups>,
     pub caps: Option<CapSet>,
@@ -64,7 +59,7 @@ impl ExecSettings {
         ExecSettings {
             exec_path: PathBuf::new(),
             exec_args: Vec::new(),
-            opt: None,
+            opt: OptStack::default(),
             setuid: None,
             setgroups: None,
             caps: None,
@@ -215,7 +210,7 @@ impl TaskMatch {
         &self.settings.exec_args
     }
 
-    pub fn opt(&self) -> &Option<OptStack> {
+    pub fn opt(&self) -> &OptStack {
         &self.settings.opt
     }
 
@@ -265,6 +260,54 @@ pub trait TaskMatcher<T> {
 
 trait CredMatcher {
     fn user_matches(&self, user: &Cred) -> UserMin;
+}
+
+fn get_command_abspath_and_args(content: &str) -> Result<Vec<String>, ParseError> {
+    shell_words::split(content)
+}
+
+pub fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
+    let path = var("PATH").unwrap_or("".to_string());
+    for dir in path.split(':') {
+        let path = Path::new(dir).join(executable);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Error>> {
+    match command {
+        SCommand::Simple(command) => {
+            if command == "ALL" {
+                return Ok(vec!["**".to_string(), ".*".to_string()]);
+            }
+            Ok(shell_words::split(command)?)
+        },
+        SCommand::Complex(command) => {
+            if let Some(array) = command.as_array() {
+                let mut result = Vec::new();
+                if ! array.iter().all(|item| {
+                    // if it is a string
+                    item.is_string() && {
+                        //add to result
+                        result.push(item.as_str().unwrap().to_string());
+                        true // continue
+                    }
+                    
+                }) { // if any of the items is not a string
+                    return Err("Invalid command".into());
+                }
+                Ok(result)
+            } else {
+                // call PluginManager
+                PluginManager::notify_complex_command_parser(command)
+            }
+
+        }
+    }
+    
 }
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
@@ -464,7 +507,7 @@ fn get_setuid_min(
                     if groups_contains_root(setgid) {
                         SetuidMin::SetuidSetgidRoot(groups_len(setgid))
                     } else {
-                        SetuidMin::SetuidRoot
+                        SetuidMin::SetuidRootSetgid(groups_len(setgid))
                     }
                 } else {
                     if groups_contains_root(setgid) {
@@ -510,7 +553,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
         settings.setgroups = setgid.clone();
         settings.caps = capset;
         let stack = OptStack::from_task(self.clone());
-        settings.opt = Some(stack);
+        settings.opt = stack;
 
         Ok(TaskMatch { score, settings })
     }

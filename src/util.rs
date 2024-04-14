@@ -62,7 +62,7 @@ where
 }
 
 pub fn parse_capset(s: &String) -> Result<CapSet, ParseCapError> {
-    let mut init = CapSet::empty();
+    let init = CapSet::empty();
     if s.to_lowercase().replace(" ", "").starts_with("all-") {
         parse_capset_iter(s.replace('-', "").split_at(3).1.split(' ')).and(Ok(!init))
     } else {

@@ -1,15 +1,32 @@
 
 
+use std::{cell::RefCell, error::Error, rc::Rc};
+
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
-use self::options::EnvKey;
+use self::{options::EnvKey, structs::SConfig};
+
+use super::config::{Settings, ROOTASROLE};
 
 mod migration;
 pub mod structs;
 mod version;
 pub mod options;
 pub mod wrapper;
+pub mod finder;
+
+pub fn read_json_config(settings: Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+    let file = std::fs::File::open(
+        settings
+            .remote_storage_settings
+            .unwrap_or_default()
+            .path
+            .unwrap_or(ROOTASROLE.into()),
+    )?;
+    let config = serde_json::from_reader(file)?;
+    Ok(config)
+}
 
 // deserialize the linked hash set
 fn lhs_deserialize_envkey<'de, D>(deserializer: D) -> Result<LinkedHashSet<EnvKey>, D::Error>
@@ -47,7 +64,7 @@ where
     v.serialize(serializer)
 }
 
-fn is_default<T: PartialEq + Default>(t: &T) -> bool {
+pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 

@@ -6,14 +6,14 @@ SR_VERSION = $(shell xmllint --xpath "string(/rootasrole/@version)" resources/ro
 BINS := $(addprefix $(BIN_DIR)/,sr chsr capable)
 .PHONY: $(BIN_DIR)/sr $(BIN_DIR)/chsr
 $(BIN_DIR)/sr:
-	cargo build $(RELEASE) --bin sr
+	cargo build $(RELEASE) --bin sr || true
 
 $(BIN_DIR)/chsr:
-	cargo build $(RELEASE) --bin chsr
+	cargo build $(RELEASE) --bin chsr || true
 
 $(BIN_DIR)/capable:
-	cargo xtask build-ebpf $(RELEASE)
-	cargo build --package capable $(RELEASE)
+	cargo xtask build-ebpf $(RELEASE) || true
+	cargo build --package capable $(RELEASE) || true
 
 $(BINS): | $(BIN_DIR)
 

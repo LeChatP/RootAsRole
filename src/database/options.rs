@@ -1,17 +1,21 @@
+use std::fmt;
+use std::path::Display;
 use std::{
     borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc
 };
 
+use chrono::Duration;
+use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, FromRepr};
+use strum::{Display, EnumIs, EnumIter, FromRepr, IntoEnumIterator};
 use tracing::debug;
 
 use crate::rc_refcell;
 
-use super::is_default;
+use super::{deserialize_duration, is_default, serialize_duration};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -28,13 +32,14 @@ pub enum Level {
 }
 
 
-#[derive(Debug, Clone, Copy, FromRepr)]
+#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
 pub enum OptType {
     Path,
     Env,
     Root,
     Bounding,
     Wildcard,
+    Timeout,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
@@ -44,6 +49,48 @@ pub enum PathBehavior {
     KeepSafe,
     KeepUnsafe,
     Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display)]
+#[serde(rename_all = "lowercase")]
+pub enum TimestampType
+{
+    PPID,
+    TTY,
+    UID,
+}
+
+impl Default for TimestampType
+{
+    fn default() -> Self {
+        TimestampType::PPID
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct STimeout
+{
+    #[serde(default, rename = "type")]
+    pub type_field: TimestampType,
+    #[serde(serialize_with = "serialize_duration", deserialize_with = "deserialize_duration")]
+    pub duration: Duration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_usage: Option<u64>,
+    #[serde(default)]
+    #[serde(flatten, skip_serializing_if = "Map::is_empty")]
+    pub _extra_fields: Map<String,Value>,
+}
+
+impl Default for STimeout
+{
+    fn default() -> Self {
+        STimeout {
+            type_field: TimestampType::default(),
+            duration: Duration::minutes(5),
+            max_usage: None,
+            _extra_fields: Map::default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -84,7 +131,9 @@ enum EnvKeyType {
 }
 
 #[derive(Eq, Hash, PartialEq, Serialize, Debug, Clone)]
+#[serde(transparent)]
 pub struct EnvKey {
+    #[serde(skip)]
     env_type: EnvKeyType,
     value: String,
 }
@@ -148,6 +197,8 @@ pub struct Opt {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wildcard_denied: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<STimeout>,
     #[serde(default)]
     #[serde(flatten)]
     pub _extra_fields: Map<String,Value>,
@@ -204,10 +255,23 @@ impl Default for Opt {
             root: Some(SPrivileged::default()),
             bounding: Some(SBounding::default()),
             wildcard_denied: Some(";&|".to_string()),
+            timeout: Some(STimeout::default()),
             _extra_fields: Map::default(),
             level: Level::Default,
         }
     }
+}
+
+impl Default for OptStack {
+    fn default() -> Self {
+        OptStack {
+            stack: [None, Some(Rc::new(Opt::default().into())), None, None, None],
+            roles: None,
+            role: None,
+            task: None,
+        }
+    }
+
 }
 
 impl Default for SPathOptions {
@@ -392,10 +456,65 @@ impl EnvSet for LinkedHashSet<EnvKey> {
     }
 }
 
+fn tz_is_safe(tzval: &str) -> bool {
+    // tzcode treats a value beginning with a ':' as a path.
+    let tzval = if tzval.starts_with(':') {
+        &tzval[1..]
+    } else {
+        tzval
+    };
+
+    // Reject fully-qualified TZ that doesn't begin with the zoneinfo dir.
+    if tzval.starts_with('/') {
+        return false;
+    }
+
+    // Make sure TZ only contains printable non-space characters
+    // and does not contain a '..' path element.
+    let mut lastch = '/';
+    for cp in tzval.chars() {
+        if cp.is_ascii_whitespace() || !cp.is_ascii_graphic() {
+            return false;
+        }
+        if lastch == '/'
+            && cp == '.'
+            && tzval
+                .chars()
+                .nth(tzval.chars().position(|c| c == '.').unwrap() + 1)
+                == Some('.')
+            && (tzval
+                .chars()
+                .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
+                == Some('/')
+                || tzval
+                    .chars()
+                    .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
+                    .is_none())
+        {
+            return false;
+        }
+        lastch = cp;
+    }
+
+    // Reject extra long TZ values (even if not a path).
+    if tzval.len() >= PATH_MAX.try_into().unwrap() {
+        return false;
+    }
+
+    true
+}
+
+fn check_env(key: &str, value: &str) -> bool {
+    match key {
+        "TZ" => tz_is_safe(value),
+        _ => value.chars().any(|c| c == '/' || c == '%')
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
-    roles: Rc<RefCell<SConfig>>,
+    roles: Option<Rc<RefCell<SConfig>>>,
     role: Option<Rc<RefCell<SRole>>>,
     task: Option<Rc<RefCell<STask>>>,
 }
@@ -419,12 +538,13 @@ impl OptStack {
         let mut stack = OptStack::new(roles);
         stack.set_opt(
             Level::Global,
-            stack.get_roles().as_ref().borrow().options.to_owned(),
+            stack.get_roles().unwrap().as_ref().borrow().options.to_owned(),
         );
         stack
     }
 
     fn new(roles: Rc<RefCell<SConfig>>) -> OptStack {
+        let mut res = OptStack::default();
         let mut opt = Opt::default();
         opt.level = Level::Global;
         opt.root = Some(SPrivileged::User);
@@ -437,32 +557,21 @@ impl OptStack {
                 .collect();
         opt.env = Some(env);
         opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
-        OptStack {
-            stack: [
-                None,
-                Some(Rc::new(opt.into())
-                        ,
-                ),
-                None,
-                None,
-                None,
-            ],
-            roles,
-            role: None,
-            task: None,
-        }
+        res.set_opt(Level::Global, Some(Rc::new(RefCell::new(opt))));
+        res.roles = Some(roles);
+        res
     }
 
-    fn get_roles(&self) -> Rc<RefCell<SConfig>> {
+    fn get_roles(&self) -> Option<Rc<RefCell<SConfig>>> {
         self.roles.to_owned()
     }
 
     fn save(&mut self) {
-        let level = self.get_level();
+        let level = self.get_lowest_level();
         let opt = self.get_opt(level);
         match level {
             Level::Global => {
-                self.get_roles().as_ref().borrow_mut().options = opt;
+                self.get_roles().unwrap().as_ref().borrow_mut().options = opt;
             }
             Level::Role => {
                 self.role.to_owned().unwrap().as_ref().borrow_mut().options = opt;
@@ -476,18 +585,6 @@ impl OptStack {
         }
     }
 
-    pub fn get_level(&self) -> Level {
-        self.stack
-            .iter()
-            .rev()
-            .find(|opt| opt.is_some())
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .level
-    }
     fn set_opt(&mut self, level: Level, opt: Option<Rc<RefCell<Opt>>>) {
         if let Some(opt) = opt {
             self.stack[level as usize] = Some(opt);
@@ -597,9 +694,7 @@ impl OptStack {
         }
     }
 
-    fn check_env(&self, value: &str) -> bool {
-        value.chars().any(|c| c == '/' || c == '%')
-    }
+
 
     pub fn calculate_filtered_env(&self) -> Result<LinkedHashSet<(String,String)>, String> {
         let final_env = std::env::vars();
@@ -677,7 +772,7 @@ impl OptStack {
             EnvBehavior::Delete => {
                 Ok(final_env.filter_map(|(key, value)| {
                     let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if final_keep.env_matches(&key) || (final_check.env_matches(&key) && self.check_env(&value)) {
+                    if final_keep.env_matches(&key) || (final_check.env_matches(&key) && check_env(&key.value, &value)) {
                         Some((key.value, value))
                     }
                     else {
@@ -690,7 +785,7 @@ impl OptStack {
                     let key = EnvKey::new(key).expect("Unexpected environment variable");
                     if key.value == "PATH" {
                         Some((key.value, self.calculate_path()))
-                    } else if final_delete.env_matches(&key) || (final_check.env_matches(&key) && self.check_env(&value)) {
+                    } else if final_delete.env_matches(&key) || (final_check.env_matches(&key) && check_env(&key.value, &value)) {
                         Some((key.value, value))
                     } else {
                         None
@@ -727,6 +822,16 @@ impl OptStack {
         .unwrap_or((Level::None, "".to_owned()))
     }
 
+    pub fn get_timeout(&self) -> (Level, STimeout) {
+        self.find_in_options(|opt| {
+            if let Some(p) = &opt.borrow().timeout {
+                return Some((opt.level, p.clone()));
+            }
+            None
+        })
+        .unwrap_or((Level::None, STimeout::default()))
+    }
+
     fn get_description_of(&self, opttype: OptType) -> (Level, String) {
         self.find_in_options(|opt| {
             match opttype {
@@ -754,6 +859,11 @@ impl OptStack {
                     if let Some(p) = opt.wildcard_denied.borrow().as_ref() {
                         return Some((opt.level, format!("Wildcard denied: {}\n", p).to_string()));
                     }
+                },
+                OptType::Timeout => {
+                    if let Some(p) = &opt.timeout {
+                        return Some((opt.level, format!("Timeout: {}\n", p).to_string()));
+                    }
                 }
             }
             None
@@ -773,7 +883,44 @@ impl OptStack {
         } else {
             " (setted at this level)"
         };
-        format!("{}\n{}", leveldesc, description)
+        format!("{} {}\n{}", opttype, leveldesc, description)
+    }
+
+    fn get_lowest_level(&self) -> Level {
+        if self.task.is_some() {
+            Level::Task
+        } else if self.role.is_some() {
+            Level::Role
+        } else {
+            Level::Global
+        }
+    }
+}
+
+impl fmt::Display for OptStack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut res = String::new();
+        for opttype in OptType::iter() {
+            res.push_str(self.get_description(self.get_lowest_level(), opttype).as_str());
+        }
+        write!(f, "{}", res)
+    }
+}
+
+impl fmt::Display for STimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "  Based on: {}\n", self.type_field)?;
+        if self.duration.is_zero() {
+            write!(f, "  Time before ask password: Not set (always ask)\n")?;
+        } else {
+            write!(f, "  Time before ask password: {:02}:{:02}:{:02}", self.duration.num_hours(), self.duration.num_minutes()-(self.duration.num_hours()*60), self.duration.num_seconds()-(self.duration.num_minutes()*60))?;
+        }
+        if let Some(max_usage) = self.max_usage {
+            write!(f, "  Max Usage: {}", max_usage)?;
+        } else {
+            write!(f, "  Max Usage: Not set (always ask)")?;
+        }
+        Ok(())
     }
 }
 

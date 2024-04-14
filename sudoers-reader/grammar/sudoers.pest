@@ -94,7 +94,7 @@ User_Name    = _{ User_Str | id | Group_Name | netgroup }
 Group_Name   = @{ "%" ~ User_Str | "%:" ~ id | "%:" ~ SID_Group | "%" ~ Domain_Group }
 SID_Group    = @{ "S" ~ ("-" | NUMBER)+ }
 Domain_Group = @{ User_Str ~ "@" ~ Domain_Name }
-User_Str     = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31} | (CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$") }
+User_Str     = @{ (CASED_LETTER | "_") ~ (((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$" | CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31}) }
 
 valid_name = _{ !("," | NEWLINE | ":") ~ ANY }
 id         = @{ "#" ~ NUMBER+ }

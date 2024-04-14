@@ -1,16 +1,15 @@
 mod command;
 #[path = "../mod.rs"]
 mod common;
-mod finder;
 mod timeout;
 
 use capctl::{prctl, Cap, CapState};
 use clap::Parser;
 use common::{
     config::{Settings, ROOTASROLE},
-    database::structs::SConfig,
+    database::{options::OptStack, structs::SConfig},
 };
-use finder::{Cred, ExecSettings, TaskMatcher};
+use common::database::finder::{Cred, ExecSettings, TaskMatcher};
 use nix::{
     libc::{dev_t, PATH_MAX},
     sys::stat,
@@ -27,7 +26,7 @@ use std::{
 use tracing::{debug, error, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::common::{config, database::structs::SGroups};
+use crate::common::{activates_no_new_privs, config::{self, Storage}, dac_override_effective, database::{read_json_config, structs::SGroups}, read_effective, setgid_effective, setpcap_effective, setuid_effective};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -48,109 +47,6 @@ struct Cli {
     command: Vec<String>,
 }
 
-enum Storage {
-    JSON(Rc<RefCell<SConfig>>),
-}
-
-fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
-    let mut current = CapState::get_current()?;
-    current.effective.set_state(cap, enable);
-    current.set_current()
-}
-
-fn setpcap_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETPCAP, enable)
-}
-
-fn setuid_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETUID, enable)
-}
-
-fn setgid_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETGID, enable)
-}
-
-fn read_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::DAC_READ_SEARCH, enable)
-}
-
-fn dac_override_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::DAC_OVERRIDE, enable)
-}
-
-fn activates_no_new_privs() -> Result<(), capctl::Error> {
-    prctl::set_no_new_privs()
-}
-
-fn tz_is_safe(tzval: &str) -> bool {
-    // tzcode treats a value beginning with a ':' as a path.
-    let tzval = if tzval.starts_with(':') {
-        &tzval[1..]
-    } else {
-        tzval
-    };
-
-    // Reject fully-qualified TZ that doesn't begin with the zoneinfo dir.
-    if tzval.starts_with('/') {
-        return false;
-    }
-
-    // Make sure TZ only contains printable non-space characters
-    // and does not contain a '..' path element.
-    let mut lastch = '/';
-    for cp in tzval.chars() {
-        if cp.is_ascii_whitespace() || !cp.is_ascii_graphic() {
-            return false;
-        }
-        if lastch == '/'
-            && cp == '.'
-            && tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 1)
-                == Some('.')
-            && (tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                == Some('/')
-                || tzval
-                    .chars()
-                    .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                    .is_none())
-        {
-            return false;
-        }
-        lastch = cp;
-    }
-
-    // Reject extra long TZ values (even if not a path).
-    if tzval.len() >= PATH_MAX.try_into().unwrap() {
-        return false;
-    }
-
-    true
-}
-
-fn check_var(key: &str, value: &str) -> bool {
-    if key.is_empty() || value.is_empty() {
-        false
-    } else {
-        match key {
-            "TZ" => tz_is_safe(value),
-            _ => !value.contains(['/', '%']),
-        }
-    }
-}
-
-fn filter_env_vars(
-    env: Vars,
-    checklist: &[String],
-    whitelist: &[String],
-) -> HashMap<String, String> {
-    env.filter(|(key, value)| {
-        checklist.contains(key) && check_var(key, value) || whitelist.contains(key)
-    })
-    .collect()
-}
 
 #[cfg(debug_assertions)]
 fn subsribe() {
@@ -212,17 +108,7 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
-fn read_json_config(settings: Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
-    let file = std::fs::File::open(
-        settings
-            .remote_storage_settings
-            .unwrap_or_default()
-            .path
-            .unwrap_or(ROOTASROLE.into()),
-    )?;
-    let config = serde_json::from_reader(file)?;
-    Ok(config)
-}
+
 
 fn from_json_execution_settings(
     args: &Cli,
@@ -301,23 +187,6 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let is_valid = match config {
-        Storage::JSON(ref config) => timeout::is_valid(&user, &user, &config.as_ref().borrow().timeout),
-    };
-    debug!("need to re-authenticate : {}", !is_valid);
-    if !is_valid {
-        let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
-            .expect("Failed to initialize PAM");
-        context.authenticate(Flag::NONE).expect("Permission Denied");
-        context.acct_mgmt(Flag::NONE).expect("Permission Denied");
-    }
-    match config {
-        Storage::JSON(ref config) => {
-            timeout::update_cookie(&user, &user, &config.as_ref().borrow().timeout)
-                .expect("Failed to add cookie");
-        }
-    }
-    dac_override_effective(false).expect("Failed to dac_override_effective");
     let matching: ExecSettings = match config {
         Storage::JSON(ref config) => {
             let result =
@@ -332,6 +201,9 @@ fn main() {
         matching.task().as_ref().borrow().name.to_string(),
         matching.role().as_ref().borrow().name
     );
+    let optstack = &matching.opt;
+    check_auth(optstack, config, user);
+    dac_override_effective(false).expect("Failed to dac_override_effective");
 
     if args.info {
         println!("Role: {}", matching.role().as_ref().borrow().name);
@@ -350,7 +222,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    let optstack = matching.opt.as_ref().unwrap();
+    
 
     // disable root
     if !optstack.get_root_behavior().1.is_privileged() {
@@ -469,3 +341,25 @@ fn main() {
     let status = command.wait().expect("Failed to wait for command");
     std::process::exit(status.code().unwrap_or(1));
 }
+
+fn check_auth(optstack: &OptStack, config: Storage, user: Cred) {
+    let timeout = optstack.get_timeout().1;
+    let is_valid = match config {
+        Storage::JSON(_) => {
+            timeout::is_valid(&user, &user, &timeout)
+        }
+    };
+    debug!("need to re-authenticate : {}", !is_valid);
+    if !is_valid {
+        let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
+            .expect("Failed to initialize PAM");
+        context.authenticate(Flag::NONE).expect("Permission Denied");
+        context.acct_mgmt(Flag::NONE).expect("Permission Denied");
+    }
+    match config {
+        Storage::JSON(_) => {
+            timeout::update_cookie(&user, &user, &timeout)
+                .expect("Failed to add cookie");
+        }
+    }
+    }

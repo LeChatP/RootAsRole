@@ -1,10 +1,10 @@
 {
     "version": "3.0.0-alpha.4",
-    "timeout": {
-        "type": "ppid",
-        "duration": "00:05:00"
-    },
     "options": {
+        "timeout": {
+            "type": "ppid",
+            "duration": "00:05:00"
+        },
         "path": {
             "default": "delete",
             "add": [

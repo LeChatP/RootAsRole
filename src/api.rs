@@ -4,7 +4,7 @@ use capctl::CapSet;
 use serde_json::Value;
 use strum::EnumIs;
 
-use crate::finder::{Cred, ExecSettings, TaskMatch, UserMin};
+use crate::common::database::finder::{Cred, ExecSettings, TaskMatch, UserMin};
 
 use super::database::structs::{SActor, SConfig, SRole, STask};
 use once_cell::sync::Lazy;

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 
-use crate::{command::{find_executable_in_path, parse_conf_command}, common::{api::{PluginManager, PluginPosition}, database::structs::SCommand}};
+use crate::common::{database::finder::{find_executable_in_path, parse_conf_command}, api::{PluginManager, PluginPosition}, database::structs::SCommand};
 
 use md5;
 

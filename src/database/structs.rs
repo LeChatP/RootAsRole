@@ -1,5 +1,4 @@
 use capctl::CapSet;
-use chrono::Duration;
 use derivative::Derivative;
 use nix::{errno::Errno, unistd::{Group, User}};
 use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
@@ -10,15 +9,13 @@ use std::{cell::RefCell, cmp::Ordering,  fmt, ops::{Index, Not}, rc::{Rc, Weak}}
 
 use crate::common::database::is_default;
 
-use super::{deserialize_duration, options::Opt, serialize_duration, wrapper::{OptWrapper, STaskWrapper}};
+use super::{options::Opt, wrapper::{OptWrapper, STaskWrapper}};
 
 
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SConfig
 {
-    #[serde(default, skip_serializing_if = "is_default")]
-    pub timeout: STimeout,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: OptWrapper,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -28,38 +25,7 @@ pub struct SConfig
     pub _extra_fields: Map<String,Value>,
 }
 
-impl SRole
-{
-    pub fn new(name : String, config: Weak<RefCell<SConfig>>) -> Self {
-        let mut r = SRole::default();
-        r.name = name;
-        r._config = Some(config);
-        r
-    }
-}
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum TimestampType
-{
-    PPID,
-    TTY,
-    UID,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug,)]
-pub struct STimeout
-{
-    #[serde(default, rename = "type")]
-    pub type_field: TimestampType,
-    #[serde(serialize_with = "serialize_duration", deserialize_with = "deserialize_duration")]
-    pub duration: Duration,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_usage: Option<u64>,
-    #[serde(default)]
-    #[serde(flatten, skip_serializing_if = "Map::is_empty")]
-    pub _extra_fields: Map<String,Value>,
-}
 
 
 
@@ -105,14 +71,14 @@ pub enum SActor
 {
     #[serde(rename = "user")]
     User { 
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "name", skip_serializing_if = "Option::is_none")]
         id: Option<SActorType>, 
         #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
         _extra_fields: Map<String,Value>,
     },
     #[serde(rename = "group")]
     Group { 
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "names", skip_serializing_if = "Option::is_none")]
         groups: Option<SGroups>,
         #[serde(default, flatten)]
         _extra_fields: Map<String,Value>,
@@ -161,7 +127,7 @@ pub struct SCredentials{
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub additional_auth: Option<String>,
+    pub additional_auth: Option<String>, // TODO: to extract as plugin
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String,Value>,
 }
@@ -179,9 +145,9 @@ pub struct SCapabilities
 {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: SetBehavior,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<String>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String,Value>,
@@ -199,9 +165,9 @@ pub struct SCommands
 {
     #[serde(rename = "default")]
     pub default_behavior: Option<SetBehavior>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String,Value>,
@@ -215,35 +181,12 @@ impl Default for SConfig
 {
     fn default() -> Self {
         SConfig {
-            timeout: STimeout::default(),
             options: Some(Rc::new(RefCell::new(Opt::default()))),
             roles: Vec::new(),
             _extra_fields: Map::default(),
         }
     }
 }
-
-impl Default for STimeout
-{
-    fn default() -> Self {
-        STimeout {
-            type_field: TimestampType::default(),
-            duration: Duration::minutes(5),
-            max_usage: None,
-            _extra_fields: Map::default(),
-        }
-    }
-}
-
-impl Default for TimestampType
-{
-    fn default() -> Self {
-        TimestampType::PPID
-    }
-}
-
-
-
 
 impl Default for SRole
 {
@@ -417,8 +360,20 @@ impl SConfig
 
 impl SRole
 {
+    pub fn new(name :String, config: Weak<RefCell<SConfig>>) -> Self {
+        let mut ret = SRole::default();
+        ret.name = name;
+        ret._config = Some(config);
+        ret
+    }
     pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
         self._config.as_ref()?.upgrade()
+    }
+    pub fn task(&self, name: &IdTask) -> Option<&Rc<RefCell<STask>>>
+    {
+        self.tasks.iter().find(|task| {
+            task.as_ref().borrow().name == *name
+        })
     }
 }
 
@@ -447,6 +402,38 @@ impl Index<usize> for SRole
     }
 }
 
+// =================
+// Display implementations
+// =================
+
+impl core::fmt::Display for SActor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SActor::User { id, _extra_fields } => {
+                write!(f, "User: {}", id.as_ref().unwrap())
+            },
+            SActor::Group { groups, _extra_fields } => {
+                write!(f, "Group: {}", groups.as_ref().unwrap())
+            },
+            SActor::Unknown(unknown) => {
+                write!(f, "Unknown: {}", unknown)
+            },
+        }
+    }
+}
+
+impl core::fmt::Display for SGroups {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SGroups::Single(group) => {
+                write!(f, "{}", group)
+            },
+            SGroups::Multiple(groups) => {
+                write!(f, "{:?}", groups)
+            },
+        }
+    }
+}
 
 // =================
 // Other implementations
@@ -618,18 +605,23 @@ impl SActor {
     pub fn from_group_id(id: u32) -> Self {
         SActor::Group { groups: Some(SGroups::Single(id.into())), _extra_fields: Map::default() }
     }
-    pub fn from_group_vec_string(group: Vec<SActorType>) -> Self {
-        SActor::Group { groups: Some(SGroups::Multiple(group)), _extra_fields: Map::default() }
+    pub fn from_group_vec_string(group: Vec<&str>) -> Self {
+        Self::from_group_vec_actors(group.into_iter().map(|str| str.into()).collect::<Vec<SActorType>>())
     }
     pub fn from_group_vec_id(groups: Vec<u32>) -> Self {
-        SActor::Group { groups: Some(SGroups::Multiple(groups.into_iter().map(|id| id.into()).collect::<Vec<SActorType>>())), _extra_fields: Map::default() }
+        Self::from_group_vec_actors(groups.into_iter().map(|id| id.into()).collect::<Vec<SActorType>>())
+    }
+    pub fn from_group_vec_actors(groups: Vec<SActorType>) -> Self {
+        SActor::Group { groups: Some(SGroups::Multiple(groups)), _extra_fields: Map::default() }
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::{as_borrow, common::database::options::{EnvBehavior, PathBehavior}};
+    use chrono::Duration;
+
+    use crate::{as_borrow, common::database::options::{EnvBehavior, PathBehavior, TimestampType}};
 
     use super::*;
     
@@ -640,10 +632,6 @@ mod tests {
         let config = r#"
         {
             "version": "1.0.0",
-            "timeout": {
-                "type": "ppid",
-                "duration": "00:05:00"
-            },
             "options": {
                 "path": {
                     "default": "delete",
@@ -657,7 +645,11 @@ mod tests {
                 },
                 "root": "privileged",
                 "bounding": "ignore",
-                "wildcard-denied": "wildcards"
+                "wildcard-denied": "wildcards",
+                "timeout": {
+                    "type": "ppid",
+                    "duration": "00:05:00"
+                }
             },
             "roles": [
                 {
@@ -698,9 +690,6 @@ mod tests {
         "#;
         println!("STEP 1");
         let config: SConfig = serde_json::from_str(config).unwrap();
-        let timeout = config.timeout;
-        assert_eq!(timeout.type_field, TimestampType::PPID);
-        assert_eq!(timeout.duration, Duration::minutes(5));
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
@@ -712,6 +701,10 @@ mod tests {
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
+
+        let timeout = options.timeout.as_ref().unwrap();
+        assert_eq!(timeout.type_field, TimestampType::PPID);
+        assert_eq!(timeout.duration, Duration::minutes(5));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
         match actor0 {
@@ -752,11 +745,6 @@ mod tests {
         let config = r#"
         {
             "version": "1.0.0",
-            "timeout": {
-                "type": "ppid",
-                "duration": "00:05:00",
-                "unknown": "unknown"
-            },
             "options": {
                 "path": {
                     "default": "delete",
@@ -773,6 +761,11 @@ mod tests {
                 "allow-root": false,
                 "allow-bounding": false,
                 "wildcard-denied": "wildcards",
+                "timeout": {
+                    "type": "ppid",
+                    "duration": "00:05:00",
+                    "unknown": "unknown"
+                },
                 "unknown": "unknown"
             },
             "roles": [
@@ -821,8 +814,7 @@ mod tests {
         "#;
         let config: SConfig = serde_json::from_str(config).unwrap();
         assert_eq!(config._extra_fields.get("unknown").unwrap(), "unknown");
-        let timeout = config.timeout;
-        assert_eq!(timeout._extra_fields.get("unknown").unwrap(), "unknown");
+        
         let binding = config.options.unwrap();
         let options = binding.as_ref().borrow();
         let path = options.path.as_ref().unwrap();
@@ -830,6 +822,8 @@ mod tests {
         let env = &options.env.as_ref().unwrap();
         assert_eq!(env._extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(options._extra_fields.get("unknown").unwrap(), "unknown");
+        let timeout = options.timeout.as_ref().unwrap();
+        assert_eq!(timeout._extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(config._extra_fields.get("unknown").unwrap(), "unknown");
         let actor0 = &as_borrow!(config.roles[0]).actors[0];
         match actor0 {
