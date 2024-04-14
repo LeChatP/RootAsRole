@@ -530,7 +530,7 @@ pub fn main(storage: &Storage) -> ExitCode {
   {BOLD}role, r{RST}                         Manage roles and related operations.
 
 {UNDERLINE}{BOLD}Role Operations:{RST}
-  chsr role [role_name] [operation] [options]
+chsr role [role_name] [operation] [options]
   {BOLD}add, create{RST}                   Add a new role.
   {BOLD}del, delete, unset, d, rm{RST}     Delete a specified role.
   {BOLD}show, list, l{RST}                 Show details of a specified role (actors, tasks, all).
@@ -542,30 +542,30 @@ pub fn main(storage: &Storage) -> ExitCode {
     {BOLD}-g, --group{RST} [group_names]     Specify one or more groups for grant or revoke operations.
 
 {UNDERLINE}{BOLD}Task Operations:{RST}
-  chsr role [role_name] task [task_name] [operation]
-    show, list, l{RST}                 Show task details (all, cmd, cred).
-    purge{RST}                         Purge configurations or credentials of a task (all, cmd, cred).
-    add, create{RST}                   Add a new task.
-    del, delete, unset, d, rm{RST}     Remove a task.
+chsr role [role_name] task [task_name] [operation]
+  {BOLD}show, list, l{RST}                 Show task details (all, cmd, cred).
+  {BOLD}purge{RST}                         Purge configurations or credentials of a task (all, cmd, cred).
+  {BOLD}add, create{RST}                   Add a new task.
+  {BOLD} del, delete, unset, d, rm{RST}     Remove a task.
 
 {UNDERLINE}{BOLD}Command Operations:{RST}
-  chsr role [role_name] task [task_name] command [cmd]
+chsr role [role_name] task [task_name] command [cmd]
   {BOLD}show{RST}                          Show commands.
   {BOLD}setpolicy{RST} [policy]            Set policy for commands (allow-all, deny-all).
   {BOLD}whitelist, wl{RST}                 Manage the whitelist for commands.
   {BOLD}blacklist, bl{RST}                 Manage the blacklist for commands.
 
 {UNDERLINE}{BOLD}Credentials Operations:{RST}
-  chsr role [role_name] task [task_name] credentials [operation]
+chsr role [role_name] task [task_name] credentials [operation]
   {BOLD}show{RST}                          Show credentials.
   {BOLD}set, unset{RST}                    Set or unset credentials details.
   {BOLD}whitelist, wl{RST}                 Manage whitelist for credentials.
   {BOLD}blacklist, bl{RST}                 Manage blacklist for credentials.
 
 {UNDERLINE}{BOLD}Options:{RST}
-  chsr options [option] [operation]
-  chsr role [role_name] options [option] [operation]
-  chsr role [role_name] task [task_name] options [option] [operation]
+chsr options [option] [operation]
+chsr role [role_name] options [option] [operation]
+chsr role [role_name] task [task_name] options [option] [operation]
   {BOLD}path{RST}                          Manage path settings (set, whitelist, blacklist).
   {BOLD}env{RST}                           Manage environment variable settings (set, whitelist, blacklist, checklist).
   {BOLD}root{RST}                          Set root options (privileged, user, inherit).
