@@ -1,13 +1,16 @@
 
 
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, fs::File, os::fd::AsRawFd, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
+use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
-use self::{options::EnvKey, structs::SConfig};
+use crate::rc_refcell;
 
-use super::config::{Settings, ROOTASROLE};
+use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
+
+use super::{config::{RemoteStorageSettings, Settings, ROOTASROLE}, dac_override_effective, immutable_effective, util::parse_capset_iter};
 
 mod migration;
 pub mod structs;
@@ -16,16 +19,71 @@ pub mod options;
 pub mod wrapper;
 pub mod finder;
 
-pub fn read_json_config(settings: Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+const FS_IMMUTABLE_FL: u32 = 0x00000010;
+
+fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
+    let file = match File::open(file) {
+        Err(e) => return Err(e.to_string()),
+        Ok(f) => f,
+    };
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    if lock {
+        val &= !(FS_IMMUTABLE_FL);
+    } else {
+        val |= FS_IMMUTABLE_FL;
+    }
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+    let default_remote = RemoteStorageSettings::default();
     let file = std::fs::File::open(
         settings
-            .remote_storage_settings
-            .unwrap_or_default()
-            .path
-            .unwrap_or(ROOTASROLE.into()),
+            .remote_storage_settings.as_ref()
+            .unwrap_or(&default_remote)
+            .path.as_ref()
+            .unwrap_or(&ROOTASROLE.into()),
     )?;
-    let config = serde_json::from_reader(file)?;
-    Ok(config)
+    let versionned_config :  Versioning<SConfig>= serde_json::from_reader(file)?;
+    let config = rc_refcell!(versionned_config.data);
+    if Migration::migrate(&versionned_config.version, &mut *config.as_ref().borrow_mut(), version::JSON_MIGRATIONS)? {
+        save_json(settings, config.clone())?;
+    }
+    
+    Ok(config.clone())
+}
+
+pub fn save_json(settings : &Settings, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
+    immutable_effective(true)?;
+    dac_override_effective(true)?;
+    // remove immutable flag
+    let path = settings.remote_storage_settings.as_ref().unwrap().path.as_ref().unwrap();
+    toggle_lock_config(path, false)?;
+    write_json_config(&settings, config)?;
+    toggle_lock_config(path, true)?;
+    dac_override_effective(false)?;
+    immutable_effective(false)?;
+    Ok(())
+}
+
+fn write_json_config(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
+    let default_remote = RemoteStorageSettings::default();
+    let file = std::fs::File::create(
+        settings
+            .remote_storage_settings.as_ref()
+            .unwrap_or(&default_remote)
+            .path.as_ref()
+            .unwrap_or(&ROOTASROLE.into()),
+    )?;
+    serde_json::to_writer_pretty(file, &*config.borrow())?;
+    Ok(())
 }
 
 // deserialize the linked hash set
@@ -91,4 +149,24 @@ where
         return Ok(Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds))
     }
     Err(de::Error::custom("Invalid duration format"))    
+}
+
+fn deserialize_capset<'de, D>(deserializer: D) -> Result<capctl::CapSet, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let s: Vec<&str> = Vec::deserialize(deserializer)?;
+    let res = parse_capset_iter(s.into_iter());
+    match res {
+        Ok(capset) => Ok(capset),
+        Err(_) => Err(de::Error::custom("Invalid capset format"))
+    }
+}
+
+fn serialize_capset<S>(value: &capctl::CapSet, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let v: Vec<String> = value.iter().map(|cap| cap.to_string()).collect();
+    v.serialize(serializer)
 }

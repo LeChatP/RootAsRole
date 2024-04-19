@@ -75,11 +75,11 @@ task_id           = @{ name }
 // chsr r r1 t t1 cmd (whitelist|blacklist) (add|del) c1
 
 cmd_keyword = { ("command" | "cmd") }
-command_operations       = _{ cmd_keyword ~ ((cmd_setpolicy | cmd_checklisting) | list) }
+command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
 cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
-cmd_checklisting = { (whitelist | blacklist) ~ (add | del) ~ cmd }
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
 cmd         = @{ name }
 
 // ========================
@@ -107,9 +107,9 @@ capability   =  { "CAP_"? ~ (LETTER | "_")+ }
 // chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
 // chsr r r1 t t1 cred caps (whitelist|blacklist) (add|del) cap1 cap2 cap3
 cred_caps_operations      = _{ "caps" ~ (caps_setpolicy | caps_listing) }
-caps_setpolicy = _{ setpolicy ~ cmd_policy }
+caps_setpolicy = _{ setpolicy ~ caps_policy }
 caps_policy    =  @{ cmd_policy }
-caps_listing   =  { (whitelist | blacklist) ~ (add | del) ~ capabilities }
+caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities | purge)}
 
 // ========================
 // options
@@ -131,13 +131,13 @@ caps_listing   =  { (whitelist | blacklist) ~ (add | del) ~ capabilities }
 // chsr o timeout set --type tty --duration 5:00 --max_usage 1
 // chsr o t unset --type --duration --max_usage
 
-options_operations  = _{ ("options" | "o") ~ opt_args }
+options_operations  = { ("options" | "o") ~ opt_args }
 opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout }
 
 opt_show     = _{ list ~ opt_show_arg? }
 opt_show_arg = { "all" | "cmd" | "cred" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout" }
 
-opt_path           = _{ "path" ~ (opt_path_args | help) }
+opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_set | opt_path_setpolicy | opt_path_listing }
 opt_path_set       = _{ set ~ path }
 opt_path_setpolicy = _{ setpolicy ~ path_policy }
@@ -145,25 +145,23 @@ path_policy        =  { "delete-all" | "keep-safe" | "keep-unsafe" | "inherit" }
 opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
 path               =  @{ name }
 
-opt_env         = _{ "env" ~ (opt_env_args | help) }
+opt_env         = { "env" ~ (opt_env_args | help) }
 opt_env_args    = _{ opt_env_set | opt_env_setpolicy | opt_env_listing }
-opt_env_setpolicy = _{ setpolicy ~ env_policy }
+opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
-opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env) | purge) }
+opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_list) | purge) }
 opt_env_set     = _{ set ~ env_list }
-env_list        = _{ env ~ (("," | WHITESPACE) ~ env_list) | env }
+env_list        = _{ env_key ~ (("," | WHITESPACE) ~ env_list) | env_key }
 
-env       = { env_key ~ assignment ~ env_value }
 env_key   = { (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
-env_value = @{ name }
 
-opt_root      = _{ "root" ~ (opt_root_args | help) }
-opt_root_args = _{ "privileged" | "user" | "inherit" }
+opt_root      = { "root" ~ (opt_root_args | help) }
+opt_root_args = { "privileged" | "user" | "inherit" }
 
-opt_bounding      = _{ "bounding" ~ (opt_bounding_args | help) }
-opt_bounding_args = _{ "strict" | "ignore" | "inherit" }
+opt_bounding      = { "bounding" ~ (opt_bounding_args | help) }
+opt_bounding_args = { "strict" | "ignore" | "inherit" }
 
-opt_wildcard      = _{ "wildcard-denied" ~ (opt_wildcard_args | help) }
+opt_wildcard      = { "wildcard-denied" ~ (opt_wildcard_args | help) }
 opt_wildcard_args = _{ (add | del | set) ~ wildcard_value }
 wildcard_value    = { name }
 

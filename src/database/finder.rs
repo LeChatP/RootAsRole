@@ -506,6 +506,8 @@ fn get_setuid_min(
                 if is_root(setuid) {
                     if groups_contains_root(setgid) {
                         SetuidMin::SetuidSetgidRoot(groups_len(setgid))
+                    } else if setgid.is_none() || groups_len(setgid) == 0 {
+                        SetuidMin::SetuidRoot
                     } else {
                         SetuidMin::SetuidRootSetgid(groups_len(setgid))
                     }
@@ -611,14 +613,6 @@ fn match_groups(groups: &[Group], role_groups: &Vec<SGroups>) -> bool {
         }
     }
     false
-}
-
-fn user_matches(user : &Cred) -> UserMin {
-    if user.user.name == "root" {
-        UserMin::UserMatch
-    } else {
-        UserMin::NoMatch
-    }
 }
 
 impl CredMatcher for Rc<RefCell<SRole>> {

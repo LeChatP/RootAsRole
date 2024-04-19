@@ -34,6 +34,10 @@ pub fn dac_override_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::DAC_OVERRIDE, enable)
 }
 
+pub fn immutable_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::LINUX_IMMUTABLE, enable)
+}
+
 pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }

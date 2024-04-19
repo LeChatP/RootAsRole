@@ -5,7 +5,7 @@ use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
-use std::{cell::RefCell, cmp::Ordering,  fmt, ops::{Index, Not}, rc::{Rc, Weak}};
+use std::{cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, rc::{Rc, Weak}};
 
 use crate::common::database::is_default;
 
@@ -145,10 +145,10 @@ pub struct SCapabilities
 {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub add: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sub: Vec<String>,
+    #[serde(default, skip_serializing_if = "CapSet::is_empty", deserialize_with = "super::deserialize_capset", serialize_with = "super::serialize_capset")]
+    pub add: CapSet,
+    #[serde(default, skip_serializing_if = "CapSet::is_empty", deserialize_with = "super::deserialize_capset", serialize_with = "super::serialize_capset")]
+    pub sub: CapSet,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String,Value>,
 }
@@ -254,8 +254,8 @@ impl Default for SCapabilities
     fn default() -> Self {
         SCapabilities {
             default_behavior: SetBehavior::default(),
-            add: Vec::new(),
-            sub: Vec::new(),
+            add: CapSet::empty(),
+            sub: CapSet::empty(),
             _extra_fields: Map::default(),
         }
     }
@@ -298,12 +298,8 @@ impl From<&str> for SCommand {
 
 impl From<CapSet> for SCapabilities {
     fn from(capset: CapSet) -> Self {
-        let mut add = Vec::new();
-        for cap in capset.iter() {
-            add.push(cap.to_string());
-        }
         let mut c  = SCapabilities::default();
-        c.add = add;
+        c.add = capset;
         c
         }
 }
@@ -356,6 +352,9 @@ impl SConfig
     pub fn role(&self, name: &str) -> Option<&Rc<RefCell<SRole>>> {
         self.roles.iter().find(|role| role.borrow().name == name)
     }
+    pub fn task(&self, role: &str, name: &IdTask) -> Result<Rc<RefCell<STask>>,Box<dyn Error>> {
+        self.role(role).and_then(|role| role.as_ref().borrow().task(name).cloned()).ok_or_else(|| format!("Task {} not found in role {}", name, role).into())
+    }
 }
 
 impl SRole
@@ -379,6 +378,12 @@ impl SRole
 
 impl STask
 {
+    pub fn new(name: IdTask, role: Weak<RefCell<SRole>>) -> Self {
+        let mut ret = STask::default();
+        ret.name = name;
+        ret._role = Some(role);
+        ret
+    }
     pub fn role(&self) -> Option<Rc<RefCell<SRole>>> {
         self._role.as_ref()?.upgrade()
     }
@@ -445,12 +450,8 @@ impl SCapabilities {
             SetBehavior::All => CapSet::not(CapSet::empty()),
             SetBehavior::None => CapSet::empty(),
         };
-        for cap in &self.add {
-            capset.add(cap.parse().unwrap());
-        }
-        for cap in &self.sub {
-            capset.drop(cap.parse().unwrap());
-        }
+        capset = capset.union(self.add);
+        capset.drop_all(self.sub);
         capset
     }
 }
@@ -619,6 +620,7 @@ impl SActor {
 #[cfg(test)]
 mod tests {
 
+    use capctl::Cap;
     use chrono::Duration;
 
     use crate::{as_borrow, common::database::options::{EnvBehavior, PathBehavior, TimestampType}};
@@ -673,8 +675,8 @@ mod tests {
                                 "setgid": "setgid1",
                                 "capabilities": {
                                     "default": "all",
-                                    "add": ["cap1"],
-                                    "sub": ["cap2"]
+                                    "add": ["cap_net_bind_service"],
+                                    "sub": ["cap_sys_admin"]
                                 }
                             },
                             "commands": {
@@ -733,8 +735,8 @@ mod tests {
         assert_eq!(cred.setgid.as_ref().unwrap(), "setgid1");
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
-        assert_eq!(capabilities.add[0], "cap1");
-        assert_eq!(capabilities.sub[0], "cap2");
+        assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
+        assert!(capabilities.sub.has(Cap::SYS_ADMIN));
         let commands = &as_borrow!(&role[0]).commands;
         assert_eq!(*commands.default_behavior.as_ref().unwrap(), SetBehavior::All);
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));

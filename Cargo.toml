@@ -60,6 +60,7 @@ crossterm = "0.27.0"
 pest = "2.7.8"
 pest_derive = "2.7.8"
 phf = { version = "0.11.2", features = ["macros"] }
+const_format = "0.2.32"
 
 [dev-dependencies]
 env_logger = "*"

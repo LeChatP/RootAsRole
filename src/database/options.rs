@@ -1,5 +1,4 @@
 use std::fmt;
-use std::path::Display;
 use std::{
     borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc
 };

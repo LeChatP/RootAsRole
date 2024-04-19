@@ -38,7 +38,7 @@ pub fn capset_to_string(set: &CapSet) -> String {
         .to_string()
 }
 
-pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
+pub fn capset_to_vec(set: &capctl::CapSet) -> Vec<String> {
     set.iter().map(|cap| cap.to_string()).collect()
 }
 

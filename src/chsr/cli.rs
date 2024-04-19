@@ -1,33 +1,169 @@
-use std::{cell::RefCell, ops::Deref, process::ExitCode, rc::Rc, str::FromStr, time::Duration};
+use std::{
+    cell::RefCell,
+    error::Error,
+    mem,
+    ops::Deref,
+    rc::{Rc, Weak},
+    str::FromStr,
+};
 
 use capctl::{Cap, CapSet};
-use pest::{iterators::Pair, Parser};
+use chrono::Duration;
+use const_format::formatcp;
+use linked_hash_set::LinkedHashSet;
+use pest::{error::LineColLocation, iterators::Pair, Parser};
 use pest_derive::Parser;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
-use crate::common::{
-    config::Storage,
-    database::{
-        options::{
-            EnvBehavior, Level, OptStack, OptType, PathBehavior, SBounding, SPrivileged,
-            TimestampType,
-        },
-        structs::{
-            IdTask, SActor, SActorType, SGroups, SetBehavior,
+use crate::{
+    common::{
+        config::Storage,
+        database::{
+            options::{
+                EnvBehavior, EnvKey, Level, Opt, OptStack, OptType, PathBehavior, SBounding,
+                SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType,
+            },
+            structs::{
+                IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
+                SetBehavior,
+            },
         },
     },
+    rc_refcell,
 };
 
 #[derive(Parser)]
 #[grammar = "chsr/cli.pest"]
 struct Cli;
 
-const RAR_SHORT_DESC: &str = "Configure Roles for RootAsRole";
 const LONG_ABOUT: &str = "Role Manager is a tool to configure RBAC for RootAsRole.
 A role is a set of tasks that can be executed by a user or a group of users.
-These tasks are multiple commands associated with their permissions (capabilities).
+These tasks are multiple commands associated with their granted permissions (credentials).
 Like Sudo, you could manipulate environment variables, PATH, and other options.
-But Sudo is not designed to use permissions for commands.";
+More than Sudo, you can manage the capabilities and remove privileges from the root user.";
+
+const RST: &str = "\x1B[0m";
+const BOLD: &str = "\x1B[1m";
+const UNDERLINE: &str = "\x1B[4m";
+const RED: &str = "\x1B[31m";
+
+const RAR_USAGE_GENERAL: &str = formatcp!("{UNDERLINE}{BOLD}Usage:{RST} {BOLD}chsr{RST} [command] [options]
+
+{UNDERLINE}{BOLD}Commands:{RST}
+  {BOLD}-h, --help{RST}                    Show help for commands and options.
+  {BOLD}list, show, l{RST}                 List available items; use with specific commands for detailed views.
+  {BOLD}role, r{RST}                       Manage roles and related operations.
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_ROLE: &str = formatcp!("{UNDERLINE}{BOLD}Role Operations:{RST}
+chsr role [role_name] [operation] [options]
+  {BOLD}add, create{RST}                   Add a new role.
+  {BOLD}del, delete, unset, d, rm{RST}     Delete a specified role.
+  {BOLD}show, list, l{RST}                 Show details of a specified role (actors, tasks, all).
+  {BOLD}purge{RST}                         Remove all items from a role (actors, tasks, all).
+  
+  {BOLD}grant{RST}                         Grant permissions to a user or group.
+  {BOLD}revoke{RST}                        Revoke permissions from a user or group.
+    {BOLD}-u, --user{RST} [user_name]      Specify a user for grant or revoke operations.
+    {BOLD}-g, --group{RST} [group_names]   Specify one or more groups combinaison for grant or revoke operations.
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_TASK: &str = formatcp!("{UNDERLINE}{BOLD}Task Operations:{RST}
+chsr role [role_name] task [task_name] [operation]
+  {BOLD}show, list, l{RST}                 Show task details (all, cmd, cred).
+  {BOLD}purge{RST}                         Purge configurations or credentials of a task (all, cmd, cred).
+  {BOLD}add, create{RST}                   Add a new task.
+  {BOLD}del, delete, unset, d, rm{RST}     Remove a task.
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_CMD: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Command Operations:{RST}
+chsr role [role_name] task [task_name] command [cmd]
+  {BOLD}show{RST}                          Show commands.
+  {BOLD}setpolicy{RST} [policy]            Set policy for commands (allow-all, deny-all).
+  {BOLD}whitelist, wl{RST} [listing]       Manage the whitelist for commands.
+  {BOLD}blacklist, bl{RST} [listing]       Manage the blacklist for commands.
+",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
+
+const RAR_USAGE_CRED: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Credentials Operations:{RST}
+chsr role [role_name] task [task_name] credentials [operation]
+  {BOLD}show{RST}                          Show credentials.
+  {BOLD}set, unset{RST}                    Set or unset credentials details.
+  {BOLD}caps{RST}                          Manage capabilities for credentials.
+",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
+
+const RAR_USAGE_CRED_CAPS: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Capabilities Operations:{RST}
+chsr role [role_name] task [task_name] credentials caps [operation]
+  {BOLD}setpolicy{RST} [policy]            Set policy for capabilities (allow-all, deny-all).
+  {BOLD}whitelist, wl{RST} [listing]       Manage whitelist for credentials.
+  {BOLD}blacklist, bl{RST} [listing]       Manage blacklist for credentials.
+",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
+
+const RAR_USAGE_OPTIONS_GENERAL :&str = formatcp!("{UNDERLINE}{BOLD}Options:{RST}
+chsr options [option] [operation]
+chsr role [role_name] options [option] [operation]
+chsr role [role_name] task [task_name] options [option] [operation]
+  {BOLD}path{RST}                          Manage path settings (set, whitelist, blacklist).
+  {BOLD}env{RST}                           Manage environment variable settings (set, whitelist, blacklist, checklist).
+  {BOLD}root{RST} [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (privileged, user, inherit)
+  {BOLD}bounding{RST} [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (strict, ignore, inherit)
+  {BOLD}wildcard-denied{RST}               Manage chars that are denied in binary path.
+  {BOLD}timeout{RST}                       Manage timeout settings (set, unset).
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_OPTIONS_PATH :&str = formatcp!("{UNDERLINE}{BOLD}Path options:{RST}
+chsr options path [operation]
+  {BOLD}setpolicy{RST} [policy]            Specify the policy for path settings (delete-all, keep-safe, keep-unsafe, inherit).
+  {BOLD}set{RST} [path]                    Set the policy as delete-all and the path to enforce.
+  {BOLD}whitelist, wl{RST} [listing]       Manage the whitelist for path settings.
+  {BOLD}blacklist, bl{RST} [listing]       Manage the blacklist for path settings.
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_OPTIONS_ENV :&str = formatcp!("{UNDERLINE}{BOLD}Environment options:{RST}
+chsr options env [operation]
+  {BOLD}setpolicy{RST} [policy]            Specify the policy for environment settings (delete-all, keep-all, inherit).
+  {BOLD}set{RST} [key=value,...]           Set the policy as delete-all and the key-value map to enforce.
+  {BOLD}whitelist, wl{RST} [listing]       Manage the whitelist for environment settings.
+  {BOLD}blacklist, bl{RST} [listing]       Manage the blacklist for environment settings.
+  {BOLD}checklist, cl{RST} [listing]       Manage the checklist for environment settings. (Removed if contains unsafe chars)
+",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
+
+const RAR_USAGE_OPTIONS_TIMEOUT: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Timeout options:{RST}
+chsr options timeout [operation]
+  {BOLD}set, unset{RST}                    Set or unset timeout settings.
+    {BOLD}--type{RST} [tty, ppid, uid]     Specify the type of timeout.
+    {BOLD}--duration{RST} [HH:MM:SS]       Specify the duration of the timeout.
+    {BOLD}--max-usage{RST} [number]        Specify the maximum usage of the timeout.",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
+
+const RAR_USAGE_LISTING: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Listing:{RST}
+    add [items,...]                        Add items to the list.
+    del [items,...]                        Remove items from the list.
+    set [items,...]                        Set items in the list.
+    purge                                  Remove all items from the list.",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
 
 #[derive(Debug)]
 enum RoleType {
@@ -69,7 +205,7 @@ struct Inputs {
     timeout_max_usage: Option<u64>,
     role_id: Option<String>,
     role_type: Option<RoleType>,
-    actors: Vec<SActor>,
+    actors: Option<Vec<SActor>>,
     task_id: Option<IdTask>,
     task_type: Option<TaskType>,
     cmd_policy: Option<SetBehavior>,
@@ -82,7 +218,7 @@ struct Inputs {
     options_type: Option<OptType>,
     options_path: Option<String>,
     options_path_policy: Option<PathBehavior>,
-    options_env: Option<Vec<(String, String)>>,
+    options_env: Option<LinkedHashSet<EnvKey>>,
     options_env_policy: Option<EnvBehavior>,
     options_root: Option<SPrivileged>,
     options_bounding: Option<SBounding>,
@@ -99,7 +235,7 @@ impl Default for Inputs {
             timeout_max_usage: None,
             role_id: None,
             role_type: None,
-            actors: Vec::new(),
+            actors: None,
             task_id: None,
             task_type: None,
             cmd_policy: None,
@@ -139,10 +275,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         Rule::set => {
             inputs.action = InputAction::Set;
         }
-        Rule::add => {
+        Rule::add | Rule::grant => {
             inputs.action = InputAction::Add;
         }
-        Rule::del => {
+        Rule::del | Rule::revoke => {
             inputs.action = InputAction::Del;
         }
         Rule::purge => {
@@ -173,7 +309,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "allow-all" {
                 inputs.cred_policy = Some(SetBehavior::All);
             } else {
-                warn!("Unknown cmd policy: {}", pair.as_str())
+                warn!("Unknown caps policy: {}", pair.as_str())
             }
         }
         Rule::path_policy => {
@@ -204,12 +340,22 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         Rule::opt_timeout_d_arg => {
             let mut reversed = pair.as_str().split(':').rev();
             let mut duration: Duration =
-                Duration::from_secs(reversed.nth(0).unwrap().parse::<u64>().unwrap());
+                Duration::try_seconds(reversed.nth(0).unwrap().parse::<i64>().unwrap_or(0))
+                    .unwrap_or_default();
             if let Some(mins) = reversed.nth(1) {
-                duration += Duration::from_secs(mins.parse::<u64>().unwrap() * 60);
+                duration = duration
+                    .checked_add(
+                        &Duration::try_minutes(mins.parse::<i64>().unwrap_or(0))
+                            .unwrap_or_default(),
+                    )
+                    .expect("Invalid minutes");
             }
             if let Some(hours) = reversed.nth(2) {
-                duration += Duration::from_secs(hours.parse::<u64>().unwrap() * 3600);
+                duration = duration
+                    .checked_add(
+                        &Duration::try_hours(hours.parse::<i64>().unwrap_or(0)).unwrap_or_default(),
+                    )
+                    .expect("Invalid hours");
             }
             inputs.timeout_duration = Some(duration);
         }
@@ -244,17 +390,31 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         }
         // === actors ===
         Rule::user => {
-            inputs.actors.push(SActor::from_user_string(
-                pair.clone().into_inner().nth(0).unwrap().as_str(),
-            ));
+            if inputs.actors.is_none() {
+                inputs.actors = Some(Vec::new());
+            }
+            inputs
+                .actors
+                .as_mut()
+                .unwrap()
+                .push(SActor::from_user_string(
+                    pair.clone().into_inner().nth(0).unwrap().as_str(),
+                ));
         }
         Rule::group => {
-            inputs.actors.push(SActor::from_group_vec_actors(
-                pair.clone()
-                    .into_inner()
-                    .map(|p| p.as_str().into())
-                    .collect(),
-            ));
+            if inputs.actors.is_none() {
+                inputs.actors = Some(Vec::new());
+            }
+            inputs
+                .actors
+                .as_mut()
+                .unwrap()
+                .push(SActor::from_group_vec_actors(
+                    pair.clone()
+                        .into_inner()
+                        .map(|p| p.as_str().into())
+                        .collect(),
+                ));
         }
         // === tasks ===
         Rule::task_id => {
@@ -307,7 +467,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         // === options ===
-        Rule::opt_show => {
+        Rule::options_operations => {
             inputs.options = true;
         }
         Rule::opt_env_listing => {
@@ -338,14 +498,16 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         Rule::path => {
             inputs.options_path = Some(pair.as_str().to_string());
         }
-        Rule::env => {
+        Rule::env_key => {
             if inputs.options_env.is_none() {
-                inputs.options_env = Some(Vec::new());
+                inputs.options_env = Some(LinkedHashSet::new());
             }
-            let mut inner = pair.clone().into_inner();
-            let key = inner.nth(0).unwrap().as_str().to_string();
-            let value = inner.nth(2).unwrap().as_str().to_string();
-            inputs.options_env.as_mut().unwrap().push((key, value));
+
+            inputs
+                .options_env
+                .as_mut()
+                .unwrap()
+                .insert_if_absent(pair.as_str().into());
         }
         Rule::opt_root_args => {
             if pair.as_str() == "privileged" {
@@ -404,84 +566,21 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::EOI => "end of input",
         Rule::cli => "a command line",
         Rule::chsr => unreachable!(),
-        Rule::list => todo!(),
-        Rule::set => todo!(),
-        Rule::add => todo!(),
-        Rule::del => todo!(),
-        Rule::purge => todo!(),
-        Rule::grant => todo!(),
-        Rule::revoke => todo!(),
-        Rule::setpolicy => todo!(),
-        Rule::whitelist => todo!(),
-        Rule::blacklist => todo!(),
-        Rule::checklist => todo!(),
-        Rule::all => todo!(),
-        Rule::name => todo!(),
-        Rule::opt_timeout => todo!(),
-        Rule::opt_timeout_args => todo!(),
-        Rule::opt_timeout_type => todo!(),
-        Rule::time => todo!(),
-        Rule::colon => todo!(),
-        Rule::hours => todo!(),
-        Rule::minutes => todo!(),
-        Rule::seconds => todo!(),
-        Rule::opt_timeout_max_usage => todo!(),
-        Rule::role => todo!(),
-        Rule::role_operations => todo!(),
-        Rule::role_id => todo!(),
-        Rule::user_or_groups => todo!(),
-        Rule::user => todo!(),
-        Rule::group => todo!(),
-        Rule::name_combination => todo!(),
-        Rule::actor_name => todo!(),
-        Rule::tasks_operations => todo!(),
-        Rule::task_operations => todo!(),
-        Rule::task_show_purge => todo!(),
-        Rule::task_type_arg => todo!(),
-        Rule::task_spec => todo!(),
-        Rule::cmd_keyword => todo!(),
-        Rule::cmd_setpolicy => todo!(),
-        Rule::cred_keyword => todo!(),
-        Rule::cred_set_operations => todo!(),
-        Rule::cred_set_args => todo!(),
-        Rule::capabilities => todo!(),
-        Rule::capability => todo!(),
-        Rule::caps_setpolicy => todo!(),
-        Rule::caps_policy => todo!(),
-        Rule::caps_listing => todo!(),
-        Rule::options_operations => todo!(),
-        Rule::opt_args => todo!(),
-        Rule::opt_show => todo!(),
-        Rule::opt_show_arg => todo!(),
-        Rule::opt_path => todo!(),
-        Rule::opt_path_args => todo!(),
-        Rule::opt_path_set => todo!(),
-        Rule::opt_path_setpolicy => todo!(),
-        Rule::path_policy => todo!(),
-        Rule::opt_path_listing => todo!(),
-        Rule::path => todo!(),
-        Rule::opt_env => todo!(),
-        Rule::opt_env_args => todo!(),
-        Rule::opt_env_setpolicy => todo!(),
-        Rule::env_policy => todo!(),
-        Rule::opt_env_listing => todo!(),
-        Rule::opt_env_set => todo!(),
-        Rule::env_list => todo!(),
-        Rule::env => todo!(),
-        Rule::env_key => todo!(),
-        Rule::env_value => todo!(),
-        Rule::opt_root => todo!(),
-        Rule::opt_root_args => todo!(),
-        Rule::opt_bounding => todo!(),
-        Rule::opt_bounding_args => todo!(),
-        Rule::opt_wildcard => todo!(),
-        Rule::opt_wildcard_args => todo!(),
-        Rule::wildcard_value => todo!(),
-        Rule::assignment => todo!(),
-        Rule::help => todo!(),
-        Rule::NOT_ESCAPE_QUOTE => todo!(),
-        Rule::WHITESPACE => todo!(),
-        _ => todo!(),
+        Rule::list => "show, list, l",
+        Rule::opt_timeout => "timeout",
+        Rule::opt_path => "path",
+        Rule::opt_env => "env",
+        Rule::opt_root => "root",
+        Rule::opt_bounding => "bounding",
+        Rule::opt_wildcard => "wildcard",
+        Rule::help => "--help",
+        Rule::set => "set",
+        Rule::setpolicy => "setpolicy",
+        Rule::opt_env_listing => "whitelist, blacklist, checklist",
+        _ => {
+            println!("{:?}", rule);
+            "unknown rule"
+        }
     }
     .to_string()
 }
@@ -490,7 +589,6 @@ fn print_role(
     role: &std::rc::Rc<std::cell::RefCell<crate::common::database::structs::SRole>>,
     role_type: &RoleType,
 ) {
-    println!("Role: {}", role.as_ref().borrow().name);
     match role_type {
         RoleType::All => {
             println!("{}", serde_json::to_string_pretty(&role).unwrap());
@@ -510,7 +608,64 @@ fn print_role(
     }
 }
 
-pub fn main(storage: &Storage) -> ExitCode {
+fn start(error: &pest::error::Error<Rule>) -> (usize, usize) {
+    match error.line_col {
+        LineColLocation::Pos(line_col) => line_col,
+        LineColLocation::Span(start_line_col, _) => start_line_col,
+    }
+}
+
+fn underline(error: &pest::error::Error<Rule>) -> String {
+    let mut underline = String::new();
+
+    let mut start = start(error).1;
+    let end = match error.line_col {
+        LineColLocation::Span(_, (_, mut end)) => {
+            let inverted_cols = start > end;
+            if inverted_cols {
+                mem::swap(&mut start, &mut end);
+                start -= 1;
+                end += 1;
+            }
+
+            Some(end)
+        }
+        _ => None,
+    };
+    let offset = start - 1;
+    let line_chars = error.line().chars();
+
+    for c in line_chars.take(offset) {
+        match c {
+            '\t' => underline.push('\t'),
+            _ => underline.push(' '),
+        }
+    }
+
+    if let Some(end) = end {
+        underline.push('^');
+        if end - start > 1 {
+            for _ in 2..(end - start) {
+                underline.push('-');
+            }
+            underline.push('^');
+        }
+    } else {
+        underline.push_str("^---")
+    }
+
+    underline
+}
+
+fn usage_concat(usages: &[&'static str]) -> String {
+    let mut usage = String::new();
+    for u in usages {
+        usage.push_str(u);
+    }
+    usage
+}
+
+pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
     let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
         s.push_str(&e);
         s.push_str("\" \"");
@@ -521,69 +676,70 @@ pub fn main(storage: &Storage) -> ExitCode {
     let args = match args {
         Ok(v) => v,
         Err(e) => {
-            let e = e.clone().renamed_rules(|rule| rule_to_string(rule));
-            println!("{UNDERLINE}{BOLD}Usage:{RST} {BOLD}chsr{RST} [command] [options]
-
-{UNDERLINE}{BOLD}Commands:{RST}
-  {BOLD}help, -h, --help{RST}                Show help for commands and options.
-  {BOLD}list, show, l{RST}                   List available items; use with specific commands for detailed views.
-  {BOLD}role, r{RST}                         Manage roles and related operations.
-
-{UNDERLINE}{BOLD}Role Operations:{RST}
-chsr role [role_name] [operation] [options]
-  {BOLD}add, create{RST}                   Add a new role.
-  {BOLD}del, delete, unset, d, rm{RST}     Delete a specified role.
-  {BOLD}show, list, l{RST}                 Show details of a specified role (actors, tasks, all).
-  {BOLD}purge{RST}                         Remove all items from a role (actors, tasks, all).
-  
-  {BOLD}grant{RST}                         Grant permissions to a user or group.
-  {BOLD}revoke{RST}                        Revoke permissions from a user or group.
-    {BOLD}-u, --user{RST} [user_name]        Specify a user for grant or revoke operations.
-    {BOLD}-g, --group{RST} [group_names]     Specify one or more groups for grant or revoke operations.
-
-{UNDERLINE}{BOLD}Task Operations:{RST}
-chsr role [role_name] task [task_name] [operation]
-  {BOLD}show, list, l{RST}                 Show task details (all, cmd, cred).
-  {BOLD}purge{RST}                         Purge configurations or credentials of a task (all, cmd, cred).
-  {BOLD}add, create{RST}                   Add a new task.
-  {BOLD} del, delete, unset, d, rm{RST}     Remove a task.
-
-{UNDERLINE}{BOLD}Command Operations:{RST}
-chsr role [role_name] task [task_name] command [cmd]
-  {BOLD}show{RST}                          Show commands.
-  {BOLD}setpolicy{RST} [policy]            Set policy for commands (allow-all, deny-all).
-  {BOLD}whitelist, wl{RST}                 Manage the whitelist for commands.
-  {BOLD}blacklist, bl{RST}                 Manage the blacklist for commands.
-
-{UNDERLINE}{BOLD}Credentials Operations:{RST}
-chsr role [role_name] task [task_name] credentials [operation]
-  {BOLD}show{RST}                          Show credentials.
-  {BOLD}set, unset{RST}                    Set or unset credentials details.
-  {BOLD}whitelist, wl{RST}                 Manage whitelist for credentials.
-  {BOLD}blacklist, bl{RST}                 Manage blacklist for credentials.
-
-{UNDERLINE}{BOLD}Options:{RST}
-chsr options [option] [operation]
-chsr role [role_name] options [option] [operation]
-chsr role [role_name] task [task_name] options [option] [operation]
-  {BOLD}path{RST}                          Manage path settings (set, whitelist, blacklist).
-  {BOLD}env{RST}                           Manage environment variable settings (set, whitelist, blacklist, checklist).
-  {BOLD}root{RST}                          Set root options (privileged, user, inherit).
-  {BOLD}bounding{RST}                      Set bounding options (strict, ignore, inherit).
-  {BOLD}wildcard-denied{RST}               Manage settings for denied wildcards (add, set, del).
-  {BOLD}timeout{RST}                       Manage timeout settings (set, unset).
-
-Timeout:
-  chsr timeout [operation]
-  {BOLD}set, unset{RST}                    Set or unset timeout settings.
-    {BOLD}--type{RST} [tty, ppid, uid]     Specify the type of timeout.
-    {BOLD}--duration{RST} [HH:MM:SS]       Specify the duration of the timeout.
-    {BOLD}--max-usage{RST} [number]        Specify the maximum usage of the timeout.
-
-{UNDERLINE}{BOLD}Note: Use '-h' or '--help' with any command to get more detailed help about that specific command.{RST}
-", UNDERLINE = "\x1B[4m", BOLD = "\x1B[1m", RST = "\x1B[0m");
-            println!("Unrecognized input:\n{}", e.to_string());
-            return ExitCode::FAILURE;
+            let mut usage = usage_concat(&[
+                RAR_USAGE_GENERAL,
+                RAR_USAGE_ROLE,
+                RAR_USAGE_TASK,
+                RAR_USAGE_CMD,
+                RAR_USAGE_CRED,
+            ]);
+            let e = e.clone().renamed_rules(|rule| {
+                match rule {
+                    Rule::options_operations
+                    | Rule::opt_args
+                    | Rule::opt_show
+                    | Rule::opt_show_arg
+                    | Rule::opt_path
+                    | Rule::opt_path_args
+                    | Rule::opt_path_set
+                    | Rule::opt_path_setpolicy
+                    | Rule::path_policy
+                    | Rule::path
+                    | Rule::opt_env
+                    | Rule::opt_env_args
+                    | Rule::opt_env_setpolicy
+                    | Rule::env_policy
+                    | Rule::opt_env_set
+                    | Rule::env_list
+                    | Rule::env_key
+                    | Rule::opt_root
+                    | Rule::opt_root_args
+                    | Rule::opt_bounding
+                    | Rule::opt_bounding_args
+                    | Rule::opt_wildcard
+                    | Rule::opt_wildcard_args
+                    | Rule::wildcard_value => {
+                        usage = usage_concat(&[
+                            RAR_USAGE_OPTIONS_GENERAL,
+                            RAR_USAGE_OPTIONS_PATH,
+                            RAR_USAGE_OPTIONS_ENV,
+                            RAR_USAGE_OPTIONS_TIMEOUT,
+                        ]);
+                    }
+                    Rule::caps_listing => {
+                        usage = usage_concat(&[RAR_USAGE_CRED_CAPS, RAR_USAGE_LISTING]);
+                    }
+                    Rule::cmd_checklisting | Rule::opt_path_listing => {
+                        usage = usage_concat(&[RAR_USAGE_CMD, RAR_USAGE_LISTING]);
+                    }
+                    Rule::opt_env_listing => {
+                        usage = usage_concat(&[RAR_USAGE_OPTIONS_ENV, RAR_USAGE_LISTING]);
+                    }
+                    _ => {}
+                };
+                rule_to_string(rule)
+            });
+            println!("{}", usage);
+            println!(
+                "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
+                e.line(),
+                underline(&e),
+                e.variant.message(),
+                RED = RED,
+                BOLD = BOLD,
+                RST = RST
+            );
+            return Err(Box::new(e));
         }
     };
     let mut inputs = Inputs::default();
@@ -597,7 +753,8 @@ Timeout:
             ..
         } => {
             println!("{}", LONG_ABOUT);
-            ExitCode::SUCCESS
+            println!("{}", RAR_USAGE_GENERAL);
+            Ok(false)
         }
         Inputs {
             action: InputAction::List,
@@ -605,8 +762,8 @@ Timeout:
             role_id,
             role_type,
             task_id,
-            task_type,                     // what to show
-            options_type,           // in json
+            task_type,    // what to show
+            options_type, // in json
             ..
         } => match storage {
             Storage::JSON(rconfig) => list_json(
@@ -617,44 +774,514 @@ Timeout:
                 options_type,
                 task_type,
                 role_type,
-            ),
-            _ => {
-                error!("Unsupported storage method");
-                ExitCode::FAILURE
+            )
+            .and(Ok(false)),
+        },
+        Inputs {
+            // chsr role r1 add|del
+            action,
+            role_id: Some(role_id),
+            task_id: None,
+            setlist_type: None,
+            options: false,
+            actors: None,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let mut config = rconfig.as_ref().borrow_mut();
+                match action {
+                    InputAction::Add => {
+                        config
+                            .roles
+                            .push(rc_refcell!(SRole::new(role_id, Weak::new())));
+                        Ok(true)
+                    }
+                    InputAction::Del => {
+                        config.roles.retain(|r| r.as_ref().borrow().name != role_id);
+                        Ok(true)
+                    }
+                    _ => Ok(false),
+                }
             }
         },
         Inputs {
+            // chsr role r1 grant|revoke -u u1 -u u2 -g g1,g2
+            action,
+            role_id: Some(role_id),
+            actors: Some(actors),
+            options: false,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let role = config.role(&role_id).ok_or("Role not found")?;
+                match action {
+                    InputAction::Add => {
+                        role.as_ref().borrow_mut().actors.extend(actors);
+                        Ok(true)
+                    }
+                    InputAction::Del => {
+                        role.as_ref()
+                            .borrow_mut()
+                            .actors
+                            .retain(|a| !actors.contains(a));
+                        Ok(true)
+                    }
+                    _ => Err("Unknown action".into()),
+                }
+            }
+        },
+
+        Inputs {
+            // chsr role r1 task t1 add|del
+            action,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            setlist_type: None,
+            options: false,
+            cmd_id: None,
+            cred_caps: None,
+            cred_setuid: None,
+            cred_setgid: None,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let role = config.role(&role_id).ok_or("Role not found")?;
+                match action {
+                    InputAction::Add => {
+                        role.as_ref()
+                            .borrow_mut()
+                            .tasks
+                            .push(rc_refcell!(STask::new(task_id, Weak::new())));
+                        Ok(true)
+                    }
+                    InputAction::Del => {
+                        role.as_ref()
+                            .borrow_mut()
+                            .tasks
+                            .retain(|t| t.as_ref().borrow().name != task_id);
+                        Ok(true)
+                    }
+                    _ => Ok(false),
+                }
+            }
+        },
+        Inputs {
+            //chsr role r1 task t1 cred --caps "cap_net_raw,cap_sys_admin"
             action: InputAction::Set,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cred_caps,
+            cred_setuid,
+            cred_setgid,
+            cmd_id: None,
             ..
-        } => {
-            println!("Set");
-            ExitCode::SUCCESS
-        }
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                match config.task(&role_id, &task_id) {
+                    Ok(task) => {
+                        if let Some(caps) = cred_caps {
+                            task.as_ref().borrow_mut().cred.capabilities =
+                                Some(SCapabilities::from(caps));
+                        }
+                        if let Some(setuid) = cred_setuid {
+                            task.as_ref().borrow_mut().cred.setuid = Some(setuid);
+                        }
+                        if let Some(setgid) = cred_setgid {
+                            task.as_ref().borrow_mut().cred.setgid = Some(setgid);
+                        }
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+        },
         Inputs {
-            action: InputAction::Add,
+            action,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            setlist_type: Some(setlist_type),
+            cred_caps: Some(cred_caps),
             ..
-        } => {
-            println!("Add");
-            ExitCode::SUCCESS
-        }
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let task = config.task(&role_id, &task_id)?;
+                match setlist_type {
+                    SetListType::WhiteList => match action {
+                        InputAction::Add => {
+                            let caps = &mut task.as_ref().borrow_mut().cred.capabilities;
+
+                            caps.as_mut().unwrap().add = caps.as_ref().unwrap().add.union(cred_caps)
+                        }
+                        InputAction::Del => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .cred
+                                .capabilities
+                                .as_mut()
+                                .unwrap()
+                                .add
+                                .drop_all(cred_caps);
+                        }
+                        InputAction::Set => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .cred
+                                .capabilities
+                                .as_mut()
+                                .unwrap()
+                                .add = cred_caps;
+                        }
+                        _ => {
+                            return Err("Unknown action".into());
+                        }
+                    },
+                    SetListType::BlackList => match action {
+                        InputAction::Add => {
+                            let caps = &mut task.as_ref().borrow_mut().cred.capabilities;
+
+                            caps.as_mut().unwrap().sub = caps.as_ref().unwrap().sub.union(cred_caps)
+                        }
+                        InputAction::Del => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .cred
+                                .capabilities
+                                .as_mut()
+                                .unwrap()
+                                .sub
+                                .drop_all(cred_caps);
+                        }
+                        InputAction::Set => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .cred
+                                .capabilities
+                                .as_mut()
+                                .unwrap()
+                                .sub = cred_caps;
+                        }
+                        _ => {
+                            return Err("Unknown action".into());
+                        }
+                    },
+                    _ => {
+                        return Err("Unknown setlist type".into());
+                    }
+                }
+                Ok(true)
+            }
+        },
         Inputs {
-            action: InputAction::Del,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cred_policy: Some(cred_policy),
             ..
-        } => {
-            println!("Del");
-            ExitCode::SUCCESS
-        }
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let task = config.task(&role_id, &task_id)?;
+                if task.as_ref().borrow_mut().cred.capabilities.is_none() {
+                    task.as_ref()
+                        .borrow_mut()
+                        .cred
+                        .capabilities
+                        .replace(SCapabilities::default());
+                }
+                task.as_ref()
+                    .borrow_mut()
+                    .cred
+                    .capabilities
+                    .as_mut()
+                    .unwrap()
+                    .default_behavior = cred_policy;
+                Ok(true)
+            }
+        },
         Inputs {
-            action: InputAction::Purge,
+            // chsr role r1 task t1 command whitelist add c1
+            action,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cmd_id: Some(cmd_id),
+            setlist_type: Some(setlist_type),
             ..
-        } => {
-            println!("Purge");
-            ExitCode::SUCCESS
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let task = config.task(&role_id, &task_id)?;
+                match setlist_type {
+                    SetListType::WhiteList => match action {
+                        InputAction::Add => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .commands
+                                .add
+                                .push(SCommand::Simple(cmd_id));
+                        }
+                        InputAction::Del => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .commands
+                                .add
+                                .retain(|c| c != &SCommand::Simple(cmd_id.clone()));
+                        }
+                        _ => {
+                            return Err("Unknown action".into());
+                        }
+                    },
+                    SetListType::BlackList => match action {
+                        InputAction::Add => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .commands
+                                .sub
+                                .push(SCommand::Simple(cmd_id));
+                        }
+                        InputAction::Del => {
+                            task.as_ref()
+                                .borrow_mut()
+                                .commands
+                                .sub
+                                .retain(|c| c != &SCommand::Simple(cmd_id.clone()));
+                        }
+                        _ => {
+                            return Err("Unknown action".into());
+                        }
+                    },
+                    _ => {
+                        return Err("Unknown setlist type".into());
+                    }
+                }
+                Ok(true)
+            }
+        },
+        Inputs {
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cmd_policy: Some(cmd_policy),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                let config = rconfig.as_ref().borrow_mut();
+                let task = config.task(&role_id, &task_id)?;
+                task.as_ref()
+                    .borrow_mut()
+                    .commands
+                    .default_behavior
+                    .replace(cmd_policy);
+                Ok(true)
+            }
+        },
+        // Set options
+        Inputs {
+            // chsr o env set A,B,C
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_type: None,
+            options_env: Some(options_env),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut env = SEnvOptions::default();
+                    env.default_behavior = EnvBehavior::Delete;
+                    env.keep = options_env.clone();
+                    opt.as_ref().borrow_mut().env = Some(env);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o root set privileged
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_root: Some(options_root),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    opt.as_ref().borrow_mut().root = Some(options_root);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o bounding set strict
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_bounding: Some(options_bounding),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    opt.as_ref().borrow_mut().bounding = Some(options_bounding.clone());
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o wildcard-denied set ";&*$"
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_wildcard: Some(options_wildcard),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o path whitelist set a:b:c
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_path: Some(options_path),
+            options_type: Some(OptType::Path),
+            setlist_type,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut default_path = SPathOptions::default();
+                    let mut binding = opt.as_ref().borrow_mut();
+                    let path = binding.path.as_mut().unwrap_or(&mut default_path);
+                    match setlist_type {
+                        Some(SetListType::WhiteList) => {
+                            path.add = options_path.split(":").map(|s| s.to_string()).collect();
+                        }
+                        Some(SetListType::BlackList) => {
+                            path.sub = options_path.split(":").map(|s| s.to_string()).collect();
+                        }
+                        _ => {
+                            return Err("Unknown setlist type".into());
+                        }
+                    }
+                    opt.as_ref().borrow_mut().path.as_mut().replace(path);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o env whitelist set A,B,C
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_env: Some(options_env),
+            options_type: Some(OptType::Env),
+            setlist_type,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut default_env = SEnvOptions::default();
+                    let mut binding = opt.as_ref().borrow_mut();
+                    let env = binding.env.as_mut().unwrap_or(&mut default_env);
+                    match setlist_type {
+                        Some(SetListType::WhiteList) => {
+                            env.keep = options_env.clone();
+                        }
+                        Some(SetListType::BlackList) => {
+                            env.delete = options_env.clone();
+                        }
+                        Some(SetListType::CheckList) => {
+                            env.check = options_env.clone();
+                        }
+                        _ => {
+                            return Err("Internal Error: setlist type not found".into());
+                        }
+                    }
+                    opt.as_ref().borrow_mut().env.as_mut().replace(env);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o timeout set --type tty --duration 00:00:00 --max-usage 1
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            timeout_type,
+            timeout_duration,
+            timeout_max_usage,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut timeout = STimeout::default();
+                    if let Some(timeout_type) = timeout_type {
+                        timeout.type_field = timeout_type;
+                    }
+                    if let Some(duration) = timeout_duration {
+                        timeout.duration = duration;
+                    }
+                    if let Some(max_usage) = timeout_max_usage {
+                        timeout.max_usage = Some(max_usage);
+                    }
+                    opt.as_ref().borrow_mut().timeout = Some(timeout);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        _ => Err("Unknown action".into()),
+    }
+}
+fn perform_on_target_opt(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let config = rconfig.as_ref().borrow_mut();
+    if let Some(role_id) = role_id {
+        if let Some(role) = config.role(&role_id) {
+            if let Some(task_id) = task_id {
+                if let Some(task) = role.as_ref().borrow().task(&task_id) {
+                    if let Some(options) = &task.as_ref().borrow_mut().options {
+                        return exec_on_opt(options.clone());
+                    } else {
+                        let options = Rc::new(RefCell::new(Opt::default()));
+                        let ret = exec_on_opt(options.clone());
+                        task.as_ref().borrow_mut().options = Some(options);
+                        return ret;
+                    }
+                } else {
+                    return Err("Task not found".into());
+                }
+            } else {
+                if let Some(options) = &role.as_ref().borrow_mut().options {
+                    return exec_on_opt(options.clone());
+                } else {
+                    let options = Rc::new(RefCell::new(Opt::default()));
+                    let ret = exec_on_opt(options.clone());
+                    role.as_ref().borrow_mut().options = Some(options);
+                    return ret;
+                }
+            }
+        } else {
+            return Err("Role not found".into());
         }
-        _ => {
-            println!("Unknown action");
-            ExitCode::SUCCESS
-        }
+    } else {
+        return exec_on_opt(config.options.as_ref().unwrap().clone());
     }
 }
 
@@ -666,25 +1293,17 @@ fn list_json(
     options_type: Option<OptType>,
     task_type: Option<TaskType>,
     role_type: Option<RoleType>,
-) -> ExitCode {
+) -> Result<(), Box<dyn Error>> {
     let config = rconfig.as_ref().borrow();
     if let Some(role_id) = role_id {
         if let Some(role) = config.role(&role_id) {
-            list_task(
-                task_id,
-                role,
-                options,
-                options_type,
-                task_type,
-                role_type,
-            )
+            list_task(task_id, role, options, options_type, task_type, role_type)
         } else {
-            error!("Role not found");
-            ExitCode::FAILURE
+            Err("Role not found".into())
         }
     } else {
         println!("{}", serde_json::to_string_pretty(config.deref()).unwrap());
-        ExitCode::SUCCESS
+        Ok(())
     }
 }
 
@@ -695,7 +1314,7 @@ fn list_task(
     options_type: Option<OptType>,
     task_type: Option<TaskType>,
     role_type: Option<RoleType>,
-) -> ExitCode {
+) -> Result<(), Box<dyn Error>> {
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
@@ -706,27 +1325,19 @@ fn list_task(
                     println!("{}", stack);
                 }
             } else {
-                print_task(
-                    task,
-                    task_type.unwrap_or(TaskType::All),
-                );
+                print_task(task, task_type.unwrap_or(TaskType::All));
             }
-            ExitCode::SUCCESS
         } else {
-            error!("Task not found");
-            ExitCode::FAILURE
+            return Err("Task not found".into());
         }
     } else {
         if options {
             println!("{}", OptStack::from_role(role.clone()));
         } else {
-            print_role(
-                &role,
-                &role_type.unwrap_or(RoleType::All),
-            );
+            print_role(&role, &role_type.unwrap_or(RoleType::All));
         }
-        ExitCode::SUCCESS
     }
+    Ok(())
 }
 
 fn print_task(

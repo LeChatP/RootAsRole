@@ -1,17 +1,13 @@
-mod command;
 #[path = "../mod.rs"]
 mod common;
 mod timeout;
 
-use capctl::{prctl, Cap, CapState};
+use capctl::CapState;
 use clap::Parser;
-use common::{
-    config::{Settings, ROOTASROLE},
-    database::{options::OptStack, structs::SConfig},
-};
+use common::database::{options::OptStack, structs::SConfig};
 use common::database::finder::{Cred, ExecSettings, TaskMatcher};
 use nix::{
-    libc::{dev_t, PATH_MAX},
+    libc::dev_t,
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
@@ -20,7 +16,7 @@ use pty_process::blocking::{Command, Pty};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{
-    cell::RefCell, collections::HashMap, env::Vars, error::Error, io::stdout, os::fd::AsRawFd,
+    cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd,
     rc::Rc,
 };
 use tracing::{debug, error, Level};
@@ -180,7 +176,7 @@ fn main() {
     dac_override_effective(true).expect("Failed to dac_override_effective");
     let config = match settings.storage_method {
         config::StorageMethod::JSON => {
-            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
+            Storage::JSON(read_json_config(&settings).expect("Failed to read config"))
         }
         _ => {
             error!("Unsupported storage method");

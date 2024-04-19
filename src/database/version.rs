@@ -15,7 +15,7 @@ pub struct Versioning<T : Default> {
 }
 
 impl Versioning<SConfig> {
-    fn deserialize<'de, D>(deserializer: D) -> Result<SConfig, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SConfig, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -35,6 +35,6 @@ impl Versioning<SConfig> {
     }
 }
 
-const JSON_MIGRATIONS: &[Migration<SConfig>] = &[
+pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[
     
 ];
