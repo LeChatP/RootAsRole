@@ -1,9 +1,8 @@
 use std::fmt;
-use std::{
-    borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc
-};
+use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
+use ciborium::de;
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 use pcre2::bytes::Regex;
@@ -30,7 +29,6 @@ pub enum Level {
     Task,
 }
 
-
 #[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
 pub enum OptType {
     Path,
@@ -52,36 +50,35 @@ pub enum PathBehavior {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display)]
 #[serde(rename_all = "lowercase")]
-pub enum TimestampType
-{
+pub enum TimestampType {
     PPID,
     TTY,
     UID,
 }
 
-impl Default for TimestampType
-{
+impl Default for TimestampType {
     fn default() -> Self {
         TimestampType::PPID
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub struct STimeout
-{
+pub struct STimeout {
     #[serde(default, rename = "type")]
     pub type_field: TimestampType,
-    #[serde(serialize_with = "serialize_duration", deserialize_with = "deserialize_duration")]
+    #[serde(
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration"
+    )]
     pub duration: Duration,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_usage: Option<u64>,
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
-    pub _extra_fields: Map<String,Value>,
+    pub _extra_fields: Map<String, Value>,
 }
 
-impl Default for STimeout
-{
+impl Default for STimeout {
     fn default() -> Self {
         STimeout {
             type_field: TimestampType::default(),
@@ -112,7 +109,7 @@ pub struct SPathOptions {
     pub sub: LinkedHashSet<String>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Map<String,Value>,
+    pub _extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
@@ -163,7 +160,7 @@ pub struct SEnvOptions {
     )]
     pub delete: LinkedHashSet<EnvKey>,
     #[serde(default, flatten)]
-    pub _extra_fields: Map<String,Value>,
+    pub _extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
@@ -200,11 +197,10 @@ pub struct Opt {
     pub timeout: Option<STimeout>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Map<String,Value>,
+    pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
     pub level: Level,
 }
-
 
 impl Default for Level {
     fn default() -> Self {
@@ -244,8 +240,6 @@ impl Opt {
     }
 }
 
-
-
 impl Default for Opt {
     fn default() -> Self {
         Opt {
@@ -270,7 +264,6 @@ impl Default for OptStack {
             task: None,
         }
     }
-
 }
 
 impl Default for SPathOptions {
@@ -345,7 +338,7 @@ impl<'de> Deserialize<'de> for EnvKey {
 }
 
 impl SPathOptions {
-    fn new(behavior : PathBehavior ) -> Self {
+    fn new(behavior: PathBehavior) -> Self {
         let mut res = SPathOptions::default();
         res.default_behavior = behavior;
         res
@@ -367,7 +360,6 @@ impl SPathOptions {
         }
         description
     }
-
 }
 
 impl Default for SEnvOptions {
@@ -506,11 +498,11 @@ fn tz_is_safe(tzval: &str) -> bool {
 fn check_env(key: &str, value: &str) -> bool {
     match key {
         "TZ" => tz_is_safe(value),
-        _ => value.chars().any(|c| c == '/' || c == '%')
+        _ => value.chars().any(|c| c == '/' || c == '%'),
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
     roles: Option<Rc<RefCell<SConfig>>>,
@@ -520,15 +512,29 @@ pub struct OptStack {
 
 impl OptStack {
     pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
-        let mut stack =
-            OptStack::from_role(task.as_ref().borrow()._role.as_ref().unwrap().upgrade().unwrap());
+        let mut stack = OptStack::from_role(
+            task.as_ref()
+                .borrow()
+                ._role
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap(),
+        );
         stack.task = Some(task.to_owned());
         stack.set_opt(Level::Task, task.as_ref().borrow().options.to_owned());
         stack
     }
     pub fn from_role(role: Rc<RefCell<SRole>>) -> Self {
-        let mut stack =
-            OptStack::from_roles(role.as_ref().borrow()._config.as_ref().unwrap().upgrade().unwrap());
+        let mut stack = OptStack::from_roles(
+            role.as_ref()
+                .borrow()
+                ._config
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap(),
+        );
         stack.role = Some(role.to_owned());
         stack.set_opt(Level::Role, role.as_ref().borrow().options.to_owned());
         stack
@@ -537,7 +543,13 @@ impl OptStack {
         let mut stack = OptStack::new(roles);
         stack.set_opt(
             Level::Global,
-            stack.get_roles().unwrap().as_ref().borrow().options.to_owned(),
+            stack
+                .get_roles()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .options
+                .to_owned(),
         );
         stack
     }
@@ -549,11 +561,10 @@ impl OptStack {
         opt.root = Some(SPrivileged::User);
         opt.bounding = Some(SBounding::Strict);
         let mut env = SEnvOptions::new(EnvBehavior::Delete);
-        env.check =
-            vec!["TZ".into(), "LOGNAME".into(), "LOGIN".into(), "USER".into()]
-                .iter()
-                .cloned()
-                .collect();
+        env.check = vec!["TZ".into(), "LOGNAME".into(), "LOGIN".into(), "USER".into()]
+            .iter()
+            .cloned()
+            .collect();
         opt.env = Some(env);
         opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
         res.set_opt(Level::Global, Some(Rc::new(RefCell::new(opt))));
@@ -618,59 +629,17 @@ impl OptStack {
     }
 
     fn calculate_path(&self) -> String {
-        let mut final_behavior = PathBehavior::Delete;
-        let final_add = rc_refcell!(LinkedHashSet::new()); // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(LinkedHashSet::new());
-        self.iter_in_options(|opt| {
-            let final_add_clone = Rc::clone(&final_add);
-            let final_sub_clone = Rc::clone(&final_sub);
-            if let Some(p) = opt.path.borrow().as_ref() {
-                match p.default_behavior {
-                    PathBehavior::Delete => {
-                        
-                        // policy is to delete, so we add whitelist and remove blacklist
-                        final_add_clone.as_ref().replace(final_add_clone.as_ref().borrow()
-                            .union(&p.add)
-                            .filter(|e| !p.sub.contains(*e))
-                            .cloned()
-                            .collect());
-                    }
-                    PathBehavior::KeepSafe | PathBehavior::KeepUnsafe => {
-                        //policy is to keep, so we remove blacklist and add whitelist
-                        final_sub_clone.as_ref().replace(final_sub_clone.as_ref().borrow()
-                            .union(&p.sub)
-                            .filter(|e| !p.add.contains(*e))
-                            .cloned()
-                            .collect());
-                    }
-                    PathBehavior::Inherit => {
-                        if final_behavior.is_delete() {
-                            final_add_clone.as_ref().replace(final_add_clone.as_ref().borrow()
-                                .union(&p.add)
-                                .filter(|e| !p.sub.contains(*e))
-                                .cloned()
-                                .collect());
-                        } else {
-                            final_sub_clone.as_ref().replace(final_sub_clone.as_ref().borrow()
-                                .union(&p.sub)
-                                .filter(|e| !p.add.contains(*e))
-                                .cloned()
-                                .collect());
-                        }
-                    }
-                }
-                if !p.default_behavior.is_inherit() {
-                    final_behavior = p.default_behavior;
-                }
-            }
-        });
-        let final_add = final_add.clone().as_ref().borrow()
+        let (final_behavior, final_add, final_sub) = self.get_final_path();
+        let final_add = final_add
+            .clone()
+            .as_ref()
+            .borrow()
             .difference(&final_sub.as_ref().borrow())
-            .fold("".to_string(), |mut acc, s| {
+            .fold("".to_string(), |mut acc, mut s| {
                 if !acc.is_empty() {
-                    acc.push(':');
+                    acc.insert(0, ':');
                 }
-                acc.push_str(s);
+                acc.insert_str(0, s);
                 acc
             });
         match final_behavior {
@@ -693,10 +662,118 @@ impl OptStack {
         }
     }
 
+    fn get_final_path(
+        &self,
+    ) -> (
+        PathBehavior,
+        Rc<RefCell<LinkedHashSet<String>>>,
+        Rc<RefCell<LinkedHashSet<String>>>,
+    ) {
+        let mut final_behavior = PathBehavior::Delete;
+        let final_add = rc_refcell!(LinkedHashSet::new());
+        // Cannot use HashSet as we need to keep order
+        let final_sub = rc_refcell!(LinkedHashSet::new());
+        self.iter_in_options(|opt| {
+            let final_add_clone = Rc::clone(&final_add);
+            let final_sub_clone = Rc::clone(&final_sub);
+            if let Some(p) = opt.path.borrow().as_ref() {
+                match p.default_behavior {
+                    PathBehavior::Delete => {
+                        let union = final_add_clone
+                            .as_ref()
+                            .borrow()
+                            .union(&p.add)
+                            .filter(|e| !p.sub.contains(*e))
+                            .cloned()
+                            .collect();
+                        // policy is to delete, so we add whitelist and remove blacklist
+                        final_add_clone.as_ref().replace(union);
+                        debug!("delete final_add: {:?}", final_add_clone.as_ref().borrow());
+                    }
+                    PathBehavior::KeepSafe | PathBehavior::KeepUnsafe => {
+                        let union = final_sub_clone
+                            .as_ref()
+                            .borrow()
+                            .union(&p.sub)
+                            .filter(|e| !p.add.contains(*e))
+                            .cloned()
+                            .collect();
+                        //policy is to keep, so we remove blacklist and add whitelist
+                        final_sub_clone.as_ref().replace(union);
+                    }
+                    PathBehavior::Inherit => {
+                        if final_behavior.is_delete() {
+                            let union: LinkedHashSet<String> = final_add_clone
+                                .as_ref()
+                                .borrow()
+                                .union(&p.add)
+                                .filter(|e| !p.sub.contains(*e))
+                                .cloned()
+                                .collect();
+                            final_add_clone.as_ref().borrow_mut().extend(union);
+                            debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
+                        } else {
+                            let union: LinkedHashSet<String> = final_sub_clone
+                                .as_ref()
+                                .borrow()
+                                .union(&p.sub)
+                                .filter(|e| !p.add.contains(*e))
+                                .cloned()
+                                .collect();
+                            final_sub_clone.as_ref().borrow_mut().extend(union);
+                        }
+                    }
+                }
+                if !p.default_behavior.is_inherit() {
+                    final_behavior = p.default_behavior;
+                }
+            }
+        });
+        (final_behavior, final_add, final_sub)
+    }
 
-
-    pub fn calculate_filtered_env(&self) -> Result<LinkedHashSet<(String,String)>, String> {
+    pub fn calculate_filtered_env(&self) -> Result<LinkedHashSet<(String, String)>, String> {
         let final_env = std::env::vars();
+        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
+        match final_behavior {
+            EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
+            EnvBehavior::Delete => Ok(final_env
+                .filter_map(|(key, value)| {
+                    let key = EnvKey::new(key).expect("Unexpected environment variable");
+                    if final_keep.env_matches(&key)
+                        || (final_check.env_matches(&key) && check_env(&key.value, &value))
+                    {
+                        Some((key.value, value))
+                    } else {
+                        None
+                    }
+                })
+                .collect()),
+            EnvBehavior::Keep => Ok(final_env
+                .filter_map(|(key, value)| {
+                    let key = EnvKey::new(key).expect("Unexpected environment variable");
+                    if key.value == "PATH" {
+                        Some((key.value, self.calculate_path()))
+                    } else if final_delete.env_matches(&key)
+                        || (final_check.env_matches(&key) && check_env(&key.value, &value))
+                    {
+                        Some((key.value, value))
+                    } else {
+                        None
+                    }
+                })
+                .collect()),
+        }
+    }
+
+    fn get_final_env(
+        &self,
+    ) -> (
+        EnvBehavior,
+        LinkedHashSet<EnvKey>,
+        LinkedHashSet<EnvKey>,
+        LinkedHashSet<EnvKey>,
+    ) {
         let mut final_behavior = EnvBehavior::default();
         let mut final_keep = LinkedHashSet::new();
         let mut final_check = LinkedHashSet::new();
@@ -736,9 +813,7 @@ impl OptStack {
                         if final_behavior.is_delete() {
                             final_keep = final_keep
                                 .union(&p.keep)
-                                .filter(|e| {
-                                    !p.delete.env_matches(&e) || !p.check.env_matches(&e)
-                                })
+                                .filter(|e| !p.delete.env_matches(&e) || !p.check.env_matches(&e))
                                 .cloned()
                                 .collect();
                             final_check = final_check
@@ -762,41 +837,13 @@ impl OptStack {
                     }
                 };
             }
-            
         });
-        match final_behavior {
-            EnvBehavior::Inherit => {
-                Err("Internal Error with environment behavior".to_string())
-            }
-            EnvBehavior::Delete => {
-                Ok(final_env.filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if final_keep.env_matches(&key) || (final_check.env_matches(&key) && check_env(&key.value, &value)) {
-                        Some((key.value, value))
-                    }
-                    else {
-                        None
-                    }
-                }).collect())
-            }
-            EnvBehavior::Keep => {
-                Ok(final_env.filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if key.value == "PATH" {
-                        Some((key.value, self.calculate_path()))
-                    } else if final_delete.env_matches(&key) || (final_check.env_matches(&key) && check_env(&key.value, &value)) {
-                        Some((key.value, value))
-                    } else {
-                        None
-                    }
-                }).collect())
-            }
-        }
+        (final_behavior, final_keep, final_check, final_delete)
     }
     pub fn get_root_behavior(&self) -> (Level, SPrivileged) {
         self.find_in_options(|opt| {
             if let Some(p) = &opt.borrow().root {
-                return Some((opt.level,*p));
+                return Some((opt.level, *p));
             }
             None
         })
@@ -831,60 +878,6 @@ impl OptStack {
         .unwrap_or((Level::None, STimeout::default()))
     }
 
-    fn get_description_of(&self, opttype: OptType) -> (Level, String) {
-        self.find_in_options(|opt| {
-            match opttype {
-                OptType::Path => {
-                    if let Some(p) = opt.path.borrow().as_ref() {
-                        return Some((opt.level, format!("{}\n", p.get_description()).to_string()));
-                    }
-                }
-                OptType::Env => {
-                    if let Some(p) = opt.env.borrow().as_ref() {
-                        return Some((opt.level, format!("{}\n", p.get_description()).to_string()));
-                    }
-                }
-                OptType::Root => {
-                    if let Some(p) = &opt.root {
-                        return Some((opt.level, format!("Root type: {}\n", p).to_string()));
-                    }
-                }
-                OptType::Bounding => {
-                    if let Some(p) = &opt.bounding {
-                        return Some((opt.level, format!("Bounding enforcement: {}\n", p).to_string()));
-                    }
-                }
-                OptType::Wildcard => {
-                    if let Some(p) = opt.wildcard_denied.borrow().as_ref() {
-                        return Some((opt.level, format!("Wildcard denied: {}\n", p).to_string()));
-                    }
-                },
-                OptType::Timeout => {
-                    if let Some(p) = &opt.timeout {
-                        return Some((opt.level, format!("Timeout: {}\n", p).to_string()));
-                    }
-                }
-            }
-            None
-        }).unwrap_or((Level::None, "".to_string()))
-    }
-
-    pub fn get_description(&self, current_level: Level, opttype: OptType) -> String {
-        let (level, description) = self.get_description_of(opttype.to_owned());
-        let leveldesc = if level != current_level {
-            match level {
-                Level::Default => " (Inherited from Default)",
-                Level::Global => " (Inherited from Global)",
-                Level::Role => " (Inherited from Role)",
-                Level::Task => " (Inherited from Commands)",
-                Level::None => " (Inherited from None)",
-            }
-        } else {
-            " (setted at this level)"
-        };
-        format!("{} {}\n{}", opttype, leveldesc, description)
-    }
-
     fn get_lowest_level(&self) -> Level {
         if self.task.is_some() {
             Level::Task
@@ -894,32 +887,33 @@ impl OptStack {
             Level::Global
         }
     }
-}
 
-impl fmt::Display for OptStack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut res = String::new();
-        for opttype in OptType::iter() {
-            res.push_str(self.get_description(self.get_lowest_level(), opttype).as_str());
-        }
-        write!(f, "{}", res)
-    }
-}
-
-impl fmt::Display for STimeout {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "  Based on: {}\n", self.type_field)?;
-        if self.duration.is_zero() {
-            write!(f, "  Time before ask password: Not set (always ask)\n")?;
-        } else {
-            write!(f, "  Time before ask password: {:02}:{:02}:{:02}", self.duration.num_hours(), self.duration.num_minutes()-(self.duration.num_hours()*60), self.duration.num_seconds()-(self.duration.num_minutes()*60))?;
-        }
-        if let Some(max_usage) = self.max_usage {
-            write!(f, "  Max Usage: {}", max_usage)?;
-        } else {
-            write!(f, "  Max Usage: Not set (always ask)")?;
-        }
-        Ok(())
+    pub fn to_opt(&self) -> Opt {
+        let mut res = Opt::default();
+        let (final_behavior, final_add, final_sub) = self.get_final_path();
+        res.path.as_mut().unwrap().default_behavior = final_behavior;
+        res.path.as_mut().unwrap().add = final_add.as_ref().borrow().clone();
+        res.path.as_mut().unwrap().sub = final_sub.as_ref().borrow().clone();
+        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
+        res.env.as_mut().unwrap().default_behavior = final_behavior;
+        res.env.as_mut().unwrap().keep = final_keep;
+        res.env.as_mut().unwrap().check = final_check;
+        res.env.as_mut().unwrap().delete = final_delete;
+        self.iter_in_options(|opt| {
+            if let Some(p) = opt.root.as_ref() {
+                res.root.as_ref().replace(p);
+            }
+            if let Some(p) = opt.bounding.as_ref() {
+                res.bounding.as_ref().replace(p);
+            }
+            if let Some(p) = opt.wildcard_denied.as_ref() {
+                res.wildcard_denied.as_ref().replace(p);
+            }
+            if let Some(p) = opt.timeout.as_ref() {
+                res.timeout.as_ref().replace(p);
+            }
+        });
+        res
     }
 }
 
@@ -938,10 +932,7 @@ mod tests {
     #[test]
     fn test_find_in_options() {
         let config = rc_refcell!(SConfig::default());
-        let role = rc_refcell!(SRole::new(
-            "test".to_string(),
-            Rc::downgrade(&config)
-        ));
+        let role = rc_refcell!(SRole::new("test".to_string(), Rc::downgrade(&config)));
         let mut global_path = SPathOptions::default();
         global_path.default_behavior = PathBehavior::Delete;
         global_path.add.insert("path1".to_string());
@@ -970,10 +961,7 @@ mod tests {
     #[test]
     fn test_get_path() {
         let config = rc_refcell!(SConfig::default());
-        let role = rc_refcell!(SRole::new(
-            "test".to_string(),
-            Rc::downgrade(&config)
-        ));
+        let role = rc_refcell!(SRole::new("test".to_string(), Rc::downgrade(&config)));
         let mut global_path = SPathOptions::default();
         global_path.default_behavior = PathBehavior::Delete;
         global_path.add.insert("path1".to_string());
@@ -993,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_description_inherited() {
+    fn test_get_path_delete() {
         let role = SRoleWrapper::default();
         as_borrow_mut!(role).name = "test".to_string();
         let mut path_options = SPathOptions::new(PathBehavior::Delete);
@@ -1005,15 +993,19 @@ mod tests {
         as_borrow_mut!(config).roles.push(role.clone());
         let mut global_options = Opt::new(Level::Global);
         global_options.path = Some(SPathOptions::new(PathBehavior::Delete));
-        global_options.path.as_mut().unwrap().add.insert("path1".to_string());
+        global_options
+            .path
+            .as_mut()
+            .unwrap()
+            .add
+            .insert("path1".to_string());
         as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
-        let options = OptStack::from_role(role);
-        let res = options.get_description(Level::Role, OptType::Path);
-        assert_eq!(res, " (Inherited from Global)\npath2:path1");
+        let options = OptStack::from_role(role).calculate_path();
+        assert_eq!(options, "path2");
     }
 
     #[test]
-    fn test_get_description() {
+    fn test_opt_add_sub() {
         let role = SRoleWrapper::default();
         as_borrow_mut!(role).name = "test".to_string();
         let mut path_options = SPathOptions::new(PathBehavior::Delete);
@@ -1029,13 +1021,12 @@ mod tests {
         as_borrow_mut!(config).roles.push(role.clone());
         as_borrow_mut!(config).options = Some(rc_refcell!(opt_global));
         as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
-        let options = OptStack::from_role(role);
-        let res = options.get_description(Level::Global, OptType::Path);
-        assert_eq!(res, "");
+        let options = OptStack::from_role(role).calculate_path();
+        assert_eq!(options, "");
     }
 
     #[test]
-    fn test_task_level() {
+    fn test_env_global_to_task() {
         let mut env_options = SEnvOptions::new(EnvBehavior::Delete);
         env_options.keep.insert("env1".into());
         let mut opt = Opt::new(Level::Task);
@@ -1051,7 +1042,7 @@ mod tests {
         opt.env = Some(env_options);
         as_borrow_mut!(role).options = Some(rc_refcell!(opt));
         as_borrow_mut!(task)._role = Some(Rc::downgrade(&role));
-        
+
         let mut env_options = SEnvOptions::new(EnvBehavior::Delete);
         env_options.keep.insert("env3".into());
 
@@ -1061,8 +1052,10 @@ mod tests {
         as_borrow_mut!(config).roles.push(role.clone());
         as_borrow_mut!(config).options = Some(rc_refcell!(opt));
         as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
-        let options = OptStack::from_task(task);
-        let res = options.get_description(Level::Task, OptType::Env);
-        assert_eq!(res, " (setted at this level)\nenv3,env2,env1");
+        let options = OptStack::from_task(task).to_opt();
+        let res = options.env.unwrap().keep;
+        assert!(res.contains(&EnvKey::from("env1")));
+        assert!(res.contains(&EnvKey::from("env2")));
+        assert!(res.contains(&EnvKey::from("env3")));
     }
 }

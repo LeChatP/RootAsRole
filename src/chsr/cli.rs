@@ -20,7 +20,7 @@ use crate::{
         config::Storage,
         database::{
             options::{
-                EnvBehavior, EnvKey, Level, Opt, OptStack, OptType, PathBehavior, SBounding,
+                EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SBounding,
                 SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
@@ -1318,11 +1318,30 @@ fn list_task(
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
-                let stack = OptStack::from_task(task.clone());
+                let opt = OptStack::from_task(task.clone()).to_opt();
                 if let Some(opttype) = options_type {
-                    println!("{}", stack.get_description(Level::Task, opttype));
+                    match opttype {
+                        OptType::Env => {
+                            println!("{}", serde_json::to_string_pretty(&opt.env).unwrap());
+                        }
+                        OptType::Path => {
+                            println!("{}", serde_json::to_string_pretty(&opt.path).unwrap());
+                        }
+                        OptType::Root => {
+                            println!("{}", serde_json::to_string_pretty(&opt.root).unwrap());
+                        }
+                        OptType::Bounding => {
+                            println!("{}", serde_json::to_string_pretty(&opt.bounding).unwrap());
+                        }
+                        OptType::Wildcard => {
+                            println!("{}", serde_json::to_string_pretty(&opt.wildcard_denied).unwrap());
+                        }
+                        OptType::Timeout => {
+                            println!("{}", serde_json::to_string_pretty(&opt.timeout).unwrap());
+                        }
+                    }
                 } else {
-                    println!("{}", stack);
+                    println!("{}", serde_json::to_string_pretty(&opt)?);
                 }
             } else {
                 print_task(task, task_type.unwrap_or(TaskType::All));
@@ -1332,7 +1351,7 @@ fn list_task(
         }
     } else {
         if options {
-            println!("{}", OptStack::from_role(role.clone()));
+            println!("{}", serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?);
         } else {
             print_role(&role, &role_type.unwrap_or(RoleType::All));
         }

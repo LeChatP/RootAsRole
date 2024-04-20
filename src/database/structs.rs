@@ -58,7 +58,6 @@ pub enum SActorType {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
-#[serde(rename_all = "kebab-case")]
 #[serde(untagged)]
 pub enum SGroups {
     Single(SActorType),
@@ -502,8 +501,8 @@ impl PartialEq<str> for SGroups {
     }
 }
 
-impl PartialEq<Vec<Group>> for SGroups {
-    fn eq(&self, other: &Vec<Group>) -> bool {
+impl PartialEq<Vec<SActorType>> for SGroups {
+    fn eq(&self, other: &Vec<SActorType>) -> bool {
         match self {
             SGroups::Single(actor) => {
                 if other.len() == 1 {
@@ -537,6 +536,15 @@ impl FromIterator<String> for SGroups {
     }
 }
 
+impl Into<Vec<SActorType>> for SGroups {
+    fn into(self) -> Vec<SActorType> {
+        match self {
+            SGroups::Single(group) => vec![group],
+            SGroups::Multiple(groups) => groups,
+        }
+    }
+}
+
 impl SActorType {
     pub fn into_group(&self) -> Result<Option<Group>,Errno> {
         match self {
@@ -554,13 +562,13 @@ impl SActorType {
 
 impl PartialOrd<SGroups> for SGroups {
     fn partial_cmp(&self, other: &SGroups) -> Option<std::cmp::Ordering> {
-        let other = Into::<Vec<Group>>::into(other.clone());
+        let other = Into::<Vec<SActorType>>::into(other.clone());
         self.partial_cmp(&other)
     }
 }
 
-impl PartialOrd<Vec<Group>> for SGroups {
-    fn partial_cmp(&self, other: &Vec<Group>) -> Option<std::cmp::Ordering> {
+impl PartialOrd<Vec<SActorType>> for SGroups {
+    fn partial_cmp(&self, other: &Vec<SActorType>) -> Option<std::cmp::Ordering> {
         match self {
             SGroups::Single(group) => {
                 if other.len() == 1 {
@@ -631,11 +639,11 @@ mod tests {
 
     use capctl::Cap;
     use chrono::Duration;
+    use tracing::debug;
 
     use crate::{as_borrow, common::database::options::{EnvBehavior, PathBehavior, TimestampType}};
 
     use super::*;
-    
 
     #[test]
     fn test_deserialize() {
@@ -672,7 +680,7 @@ mod tests {
                         },
                         {
                             "type":"group",
-                            "groups": ["group1",1000]
+                            "groups": ["group1","1000"]
                         }
                     ],
                     "tasks": [
@@ -735,7 +743,7 @@ mod tests {
                     _ => panic!("unexpected actor group type"),
                 }
             },
-            _ => panic!("unexpected actor type"),
+            _ => panic!("unexpected actor {:?}", actor1),
         }
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
@@ -802,8 +810,8 @@ mod tests {
                                 "setgid": "setgid1",
                                 "capabilities": {
                                     "default": "all",
-                                    "add": ["cap1"],
-                                    "sub": ["cap2"],
+                                    "add": ["cap_dac_override"],
+                                    "sub": ["cap_dac_override"],
                                     "unknown": "unknown"
                                 },
                                 "unknown": "unknown"
