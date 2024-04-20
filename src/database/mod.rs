@@ -42,6 +42,15 @@ fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
     Ok(())
 }
 
+pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
+    for role in &config.as_ref().borrow().roles {
+        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
+        for task in &role.as_ref().borrow().tasks {
+            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(&role));
+        }
+    }
+}
+
 pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote = RemoteStorageSettings::default();
     let file = std::fs::File::open(
@@ -56,6 +65,7 @@ pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box
     if Migration::migrate(&versionned_config.version, &mut *config.as_ref().borrow_mut(), version::JSON_MIGRATIONS)? {
         save_json(settings, config.clone())?;
     }
+    make_weak_config(&config);
     
     Ok(config.clone())
 }
@@ -155,8 +165,8 @@ fn deserialize_capset<'de, D>(deserializer: D) -> Result<capctl::CapSet, D::Erro
 where
     D: de::Deserializer<'de>,
 {
-    let s: Vec<&str> = Vec::deserialize(deserializer)?;
-    let res = parse_capset_iter(s.into_iter());
+    let s: Vec<String> = Vec::deserialize(deserializer)?;
+    let res = parse_capset_iter(s.iter().map(|s| s.as_ref()));
     match res {
         Ok(capset) => Ok(capset),
         Err(_) => Err(de::Error::custom("Invalid capset format"))

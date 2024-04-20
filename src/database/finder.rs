@@ -540,7 +540,7 @@ fn get_setuid_min(
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch, MatchError> {
-        let TaskMatch { mut score, .. } = self.as_ref().borrow().commands.matches(user, command)?;
+        let TaskMatch { mut score, mut settings} = self.as_ref().borrow().commands.matches(user, command)?;
         let capset = self.as_ref().borrow().cred.capabilities.as_ref().and_then(|caps| Some(caps.to_capset()));
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
@@ -551,7 +551,6 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             setgid.as_ref(),
             &score.security_min,
         );
-        let mut settings = ExecSettings::new();
         
         settings.setuid = setuid.clone();
         settings.setgroups = setgid.clone();

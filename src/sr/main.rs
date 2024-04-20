@@ -33,9 +33,19 @@ where users can be assigned to different roles,
 and each role has a set of rights to execute commands."
 )]
 struct Cli {
-    /// Role to select
+    /// Role option allows you to select a specific role to use.
     #[arg(short, long)]
     role: Option<String>,
+
+    /// Task option allows you to select a specific task to use in the selected role.
+    /// Note: You must specify a role to designate a task.
+    #[arg(short, long)]
+    task: Option<String>,
+
+    /// Prompt option allows you to override the default password prompt and use a custom one.
+    #[arg(short, long)]
+    prompt: Option<String>,
+
     /// Display rights of executor
     #[arg(short, long)]
     info: bool,
@@ -111,24 +121,31 @@ fn from_json_execution_settings(
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
 ) -> Result<ExecSettings, Box<dyn Error>> {
-    match &args.role {
-        None => match config.matches(&user, &args.command) {
-            Err(_) => {
-                error!("Permission Denied");
-                std::process::exit(1);
+    match (&args.role, &args.task) {
+        (None,None) => match config.matches(&user, &args.command) {
+            Err(e) => {
+                println!("Error : {}", e);
+                Err(e.into())
             }
             Ok(matching) => Ok(matching.settings),
         },
-        Some(role) => Ok(as_borrow!(config)
+        (Some(role),None) => Ok(as_borrow!(config)
             .role(&role)
             .expect("Permission Denied")
             .matches(&user, &args.command)
             .expect("Permission Denied")
             .settings),
+        (Some(role),Some(task)) => Ok(as_borrow!(config)
+            .task(&role, &common::database::structs::IdTask::Name(task.to_string()))
+            .expect("Permission Denied")
+            .matches(&user, &args.command)
+            .expect("Permission Denied")
+            .settings),
+        (None,Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     subsribe();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
@@ -179,8 +196,7 @@ fn main() {
             Storage::JSON(read_json_config(&settings).expect("Failed to read config"))
         }
         _ => {
-            error!("Unsupported storage method");
-            std::process::exit(1);
+            return Err("Unsupported storage method".into());
         }
     };
     let matching: ExecSettings = match config {
