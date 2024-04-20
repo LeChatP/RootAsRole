@@ -17,12 +17,6 @@ pub trait Plugin {
 }
 
 #[derive(Debug, PartialEq, Eq, EnumIs)]
-pub enum PluginPosition {
-    Beginning, // The plugin is inserted at the beginning of the plugin list
-    Ending, // The plugin is pushed at the end of the plugin list
-}
-
-#[derive(Debug, PartialEq, Eq, EnumIs)]
 pub enum PluginResultAction {
     Override, // The result of this plugin ends the algorithm to return the plugin result
     Edit, // The result of this plugin modify the result, algorithm continues
@@ -55,16 +49,9 @@ pub type ExecutionChecker = fn(user: &Cred, exec: &mut ExecSettings) -> PluginRe
 pub type ComplexCommandParser = fn(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn std::error::Error>>;
 
 macro_rules! plugin_subscribe {
-    ($plugin:ident, $position:ident, $plugin_type:ident, $plugin_function:ident) => {
+    ($plugin:ident, $plugin_type:ident, $plugin_function:ident) => {
         let mut api = API.lock().unwrap();
-        match $position {
-            PluginPosition::Beginning => {
-                api.$plugin.insert(0, $plugin_function);
-            },
-            PluginPosition::Ending => {
-                api.$plugin.push($plugin_function);
-            },
-        }
+        api.$plugin.push($plugin_function);
     };
 }
 
@@ -100,48 +87,48 @@ impl PluginManager {
         }
     }
 
-    pub fn subscribe_role_matcher(plugin: RoleMatcher, position: PluginPosition) {
-        plugin_subscribe!(role_matcher_plugins, position, RoleMatcher, plugin);
+    pub fn subscribe_role_matcher(plugin: RoleMatcher) {
+        plugin_subscribe!(role_matcher_plugins, RoleMatcher, plugin);
     }
 
-    pub fn subscribe_task_matcher(plugin: TaskMatcher, position: PluginPosition) {
-        plugin_subscribe!(task_matcher_plugins, position, TaskMatcher, plugin);
+    pub fn subscribe_task_matcher(plugin: TaskMatcher) {
+        plugin_subscribe!(task_matcher_plugins, TaskMatcher, plugin);
     }
 
-    pub fn subscribe_user_matcher(plugin: UserMatcher, position: PluginPosition) {
-        plugin_subscribe!(user_matcher_plugins, position, UserMatcher, plugin);
+    pub fn subscribe_user_matcher(plugin: UserMatcher) {
+        plugin_subscribe!(user_matcher_plugins, UserMatcher, plugin);
     }
     
-    pub fn subscribe_role_information(plugin: RoleInformation, position: PluginPosition) {
-        plugin_subscribe!(role_information_plugins, position, RoleInformation, plugin);
+    pub fn subscribe_role_information(plugin: RoleInformation) {
+        plugin_subscribe!(role_information_plugins, RoleInformation, plugin);
     }
 
-    pub fn subscribe_actor_information(plugin: ActorInformation, position: PluginPosition) {
-        plugin_subscribe!(actor_information_plugins, position, ActorInformation, plugin);
+    pub fn subscribe_actor_information(plugin: ActorInformation) {
+        plugin_subscribe!(actor_information_plugins, ActorInformation, plugin);
     }
 
-    pub fn subscribe_task_information(plugin: TaskInformation, position: PluginPosition) {
-        plugin_subscribe!(task_information_plugins, position, TaskInformation, plugin);
+    pub fn subscribe_task_information(plugin: TaskInformation) {
+        plugin_subscribe!(task_information_plugins, TaskInformation, plugin);
     }
 
-    pub fn subscribe_duty_separation(plugin: DutySeparation, position: PluginPosition) {
-        plugin_subscribe!(duty_separation_plugins, position, DutySeparation, plugin);
+    pub fn subscribe_duty_separation(plugin: DutySeparation) {
+        plugin_subscribe!(duty_separation_plugins, DutySeparation, plugin);
     }
 
-    pub fn subscribe_task_separation(plugin: TaskSeparation, position: PluginPosition) {
-        plugin_subscribe!(task_separation_plugins, position, TaskSeparation, plugin);
+    pub fn subscribe_task_separation(plugin: TaskSeparation) {
+        plugin_subscribe!(task_separation_plugins, TaskSeparation, plugin);
     }
 
-    pub fn subscribe_caps_filter(plugin: CapsFilter, position: PluginPosition) {
-        plugin_subscribe!(caps_filter_plugins, position, CapsFilter, plugin);
+    pub fn subscribe_caps_filter(plugin: CapsFilter) {
+        plugin_subscribe!(caps_filter_plugins, CapsFilter, plugin);
     }
 
-    pub fn subscribe_privilege_checker(plugin: ExecutionChecker, position: PluginPosition) {
-        plugin_subscribe!(execution_checker_plugins, position, ExecutionChecker, plugin);
+    pub fn subscribe_privilege_checker(plugin: ExecutionChecker) {
+        plugin_subscribe!(execution_checker_plugins, ExecutionChecker, plugin);
     }
 
-    pub fn subscribe_complex_command_parser(plugin: ComplexCommandParser, position: PluginPosition) {
-        plugin_subscribe!(complex_command_parsers, position, ComplexCommandParser, plugin);
+    pub fn subscribe_complex_command_parser(plugin: ComplexCommandParser) {
+        plugin_subscribe!(complex_command_parsers, ComplexCommandParser, plugin);
     }
 
     pub fn notify_role_matcher(role: &SRole, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction {
