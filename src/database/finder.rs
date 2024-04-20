@@ -409,7 +409,7 @@ fn get_cmd_min(
     commands: &[SCommand],
 ) -> CmdMin {
     let mut min_score: CmdMin = CmdMin::empty();
-    debug!("Commands : {:?}", commands);
+    debug!("Input {:?} matches with {:?}", input_command, commands);
     for command in commands {
         match parse_conf_command(command) {
             Ok(command) => {
@@ -514,8 +514,10 @@ fn get_setuid_min(
                 } else {
                     if groups_contains_root(setgid) {
                         SetuidMin::SetuidNotrootSetgidRoot(groups_len(setgid))
-                    } else {
+                    } else if setgid.is_none() || groups_len(setgid) == 0 {
                         SetuidMin::Setuid
+                    } else {
+                        SetuidMin::SetuidSetgid(groups_len(setgid))
                     }
                 }
             } else {
@@ -575,15 +577,18 @@ impl TaskMatcher<TaskMatch> for SCommands {
         // if the command is forbidden, we return NoMatch
         let is_forbidden = get_cmd_min(&input_command, &self.sub);
         if !is_forbidden.is_empty() {
+            debug!("Command is forbidden");
             return Err(MatchError::NoMatch);
         }
         // otherwise, we check if behavior is No command allowed by default
         if get_default_behavior(&self.default_behavior).is_none() {
             // if the behavior is No command by default, we check if the command is allowed explicitly.
             min_score = get_cmd_min(&input_command, &self.add);
+            
             if min_score.is_empty() {
                 return Err(MatchError::NoMatch);
             }
+            
         } else {
             min_score = CmdMin::all();
         }
@@ -745,9 +750,8 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
         let mut nmatch = 0;
         for task in self.iter() {
             match task.matches(user, command) {
-                Ok(task_match) => {
-                    if !min_task.is_matching() || task_match.score < min_task.score {
-                        let mut task_match = task_match;
+                Ok(mut task_match) => {
+                    if min_task.score.cmd_min.is_empty() || task_match.score < min_task.score {
                         task_match.score.user_min = min_task.score.user_min;
                         task_match.settings.task = Rc::downgrade(task);
                         min_task = task_match;
@@ -986,7 +990,7 @@ mod tests {
     #[test]
     fn test_get_security_min() {
         let mut opt = Opt::default();
-        opt.bounding = Some(SBounding::Ignore);
+        opt.bounding = Some(SBounding::Strict);
         opt.root = Some(SPrivileged::Privileged);
         assert_eq!(
             get_security_min(&Some(Rc::new(RefCell::new(opt)))),
@@ -1137,47 +1141,47 @@ mod tests {
     #[test]
     fn test_matcher_matches() {
         let config = setup_test_config(2);
-        let role1 = setup_test_role(2, Some(config.as_ref().borrow().roles[0].clone()), None);
-        let r1_task1 = role1.as_ref().borrow().tasks[0].clone();
-        let r1_task2 = role1.as_ref().borrow().tasks[1].clone();
-        let role2 = setup_test_role(2, Some(config.as_ref().borrow().roles[1].clone()), None);
-        let r2_task1 = role2.as_ref().borrow().tasks[0].clone();
-        let r2_task2 = role2.as_ref().borrow().tasks[1].clone();
+        let role0 = setup_test_role(2, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let r0_task0 = role0.as_ref().borrow().tasks[0].clone();
+        let r0_task1 = role0.as_ref().borrow().tasks[1].clone();
+        let role1 = setup_test_role(2, Some(config.as_ref().borrow().roles[1].clone()), None);
+        let r1_task0 = role1.as_ref().borrow().tasks[0].clone();
+        let r1_task1 = role1.as_ref().borrow().tasks[1].clone();
 
         // every tasks matches but not at the same score, so the least one is matched
+        role0.as_ref().borrow_mut().actors.push(SActor::from_user_string("root".into()));
         role1.as_ref().borrow_mut().actors.push(SActor::from_user_string("root".into()));
-        role2.as_ref().borrow_mut().actors.push(SActor::from_user_string("root".into()));
 
-        r1_task1
+        r0_task0
             .as_ref()
             .borrow_mut()
             .commands
             .add
             .push("/bin/ls -l -a".into()); // candidate
-        r1_task2
+        r0_task1
             .as_ref()
             .borrow_mut()
             .commands
             .add
             .push("/bin/ls .*".into()); // regex args > r1_task1
 
-        r2_task1
+        r1_task0
             .as_ref()
             .borrow_mut()
             .commands
             .add
             .push("/bin/ls -l -a".into()); //AllCaps > r1_task1
-        r2_task2
+        r1_task1
             .as_ref()
             .borrow_mut()
             .commands
             .add
             .push("/bin/ls -l -a".into()); //One Capability > r1_task1
 
-        r2_task1.as_ref().borrow_mut().cred.capabilities = Some((!CapSet::empty()).into());
+        r1_task0.as_ref().borrow_mut().cred.capabilities = Some((!CapSet::empty()).into());
         let mut capset = CapSet::empty();
         capset.add(Cap::SYS_ADMIN);
-        r2_task2.as_ref().borrow_mut().cred.capabilities = Some(capset.into());
+        r1_task1.as_ref().borrow_mut().cred.capabilities = Some(capset.into());
 
         let cred = Cred {
             user: User::from_name("root").unwrap().unwrap(),

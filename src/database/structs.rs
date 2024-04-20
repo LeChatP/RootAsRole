@@ -5,7 +5,7 @@ use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
-use std::{cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, rc::{Rc, Weak}};
+use std::{cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, path::Display, rc::{Rc, Weak}};
 
 use crate::common::database::is_default;
 
@@ -89,11 +89,20 @@ pub enum SActor
 
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),
     Number(usize),
+}
+
+impl std::fmt::Display for IdTask {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            IdTask::Name(name) => write!(f, "{}", name),
+            IdTask::Number(id) => write!(f, "{}", id),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Derivative)]

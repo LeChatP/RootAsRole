@@ -1,7 +1,7 @@
-cli  = { SOI ~ chsr ~ args ~ EOF }
+cli  = { SOI ~ chsr ~ args ~ EOI }
 args = { help | list | role | options_operations }
 
-chsr      = _{ NOT_ESCAPE_QUOTE ~ name }
+chsr      = _{ name }
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
 add       = { "add" | "create" }
@@ -16,7 +16,7 @@ checklist = { "checklist" | "cl" }
 
 all       = { "all" }
 
-name = @{ (!NOT_ESCAPE_QUOTE ~ ANY)+ }
+name = @{ (!WHITESPACE ~ ANY)+ }
 
 
 // ========================
@@ -24,7 +24,7 @@ name = @{ (!NOT_ESCAPE_QUOTE ~ ANY)+ }
 // ========================
 
 
-// chsr list (--all|--json)
+// chsr list
 // chsr r r1 create
 // chsr r r1 delete
 // chsr r r1 show (actors|tasks|all)
@@ -192,5 +192,4 @@ help = { "-h" | "--help" }
 
 NOT_ESCAPE_QUOTE = @{ !"\\" ~ "\"" }
 
-WHITESPACE = _{ NOT_ESCAPE_QUOTE~SEPARATOR~NOT_ESCAPE_QUOTE }
-EOF = @{ NOT_ESCAPE_QUOTE ~ EOI }
+WHITESPACE = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }

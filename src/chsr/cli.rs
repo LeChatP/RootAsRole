@@ -165,21 +165,21 @@ const RAR_USAGE_LISTING: &str = formatcp!(
     RST = RST
 );
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum RoleType {
     All,
     Actors,
     Tasks,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum TaskType {
     All,
     Commands,
     Credentials,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum InputAction {
     Help,
     List,
@@ -189,7 +189,7 @@ enum InputAction {
     Purge,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum SetListType {
     WhiteList,
     BlackList,
@@ -542,7 +542,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
 
 fn rule_to_string(rule: &Rule) -> String {
     match *rule {
-        Rule::EOF => "no more input",
+        Rule::EOI => "no more input",
         Rule::args => "role, options, timeout or --help",
         Rule::opt_timeout_operations => "timeout set/unset operations",
         Rule::opt_timeout_d_arg => "--duration (hh:mm:ss)",
@@ -563,7 +563,6 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
         Rule::cred_caps_operations => "caps",
-        Rule::EOI => "end of input",
         Rule::cli => "a command line",
         Rule::chsr => unreachable!(),
         Rule::list => "show, list, l",
@@ -666,12 +665,13 @@ fn usage_concat(usages: &[&'static str]) -> String {
 }
 
 pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
-    let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
+    /*let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
         s.push_str(&e);
         s.push_str("\" \"");
         s
-    });
-    let args = binding.trim_end_matches(" \"");
+    });*/
+    
+    let args = shell_words::join(std::env::args());
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {
         Ok(v) => v,
@@ -1363,19 +1363,84 @@ fn print_task(
     }
 }
 
-// Generate tests for all test cases in tests/pest/foo/ and all subdirectories. Since
-// `lazy_static = true`, a single `PestTester` is created and used by all tests; otherwise a new
-// `PestTester` would be created for each test.
-
 #[cfg(test)]
-mod cli_tests {
-    use pest_test_gen::pest_tests;
-    #[pest_tests(
-        super::super::Cli,
-        super::super::Rule,
-        "cli",
-        subdir = "chsr",
-        recursive = true
-    )]
-    mod grammar_tests {}
+mod tests {
+    use super::*;
+
+    fn make_args(args: &str) -> String {
+        shell_words::join(shell_words::split(args).unwrap())
+            
+    }
+
+    fn get_inputs(args: &str) -> Inputs {
+        let binding = make_args(args);
+        println!("{}", binding);
+        let args = Cli::parse(Rule::cli, &binding);
+        let args = match args {
+            Ok(v) => v,
+            Err(e) => {
+                println!(
+                    "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
+                    e.line(),
+                    underline(&e),
+                    e.variant.message(),
+                    RED = RED,
+                    BOLD = BOLD,
+                    RST = RST
+                );
+                panic!("Error parsing args");
+            }
+        };
+        let mut inputs = Inputs::default();
+        for pair in args {
+            recurse_pair(pair, &mut inputs);
+        }
+        inputs
+    }
+    
+    #[test]
+    fn test_grant() {
+        let inputs = get_inputs("chsr role r1 grant -u u1 -u u2 -g g1,g2");
+        assert_eq!(inputs.role_id, Some("r1".to_string()));
+        assert_eq!(inputs.action, InputAction::Add);
+        assert_eq!(inputs.actors, Some(vec![SActor::from_user_string("u1"), SActor::from_user_string("u2"), SActor::from_group_vec_string(vec!["g1", "g2"])]));
+    }
+
+    #[test]
+    fn test_list_roles() {
+        let inputs = get_inputs("chsr list");
+        assert_eq!(inputs.action, InputAction::List);
+    }
+
+    #[test]
+    fn test_list_role() {
+        let inputs = get_inputs("chsr role r1 show");
+        assert_eq!(inputs.action, InputAction::List);
+        assert_eq!(inputs.role_id, Some("r1".to_string()));
+    }
+
+    #[test]
+    fn test_list_role_actors() {
+        let inputs = get_inputs("chsr r r1 l actors");
+        assert_eq!(inputs.action, InputAction::List);
+        assert_eq!(inputs.role_id, Some("r1".to_string()));
+        assert_eq!(inputs.role_type, Some(RoleType::Actors));
+    }
+
+    #[test]
+    fn test_list_role_tasks() {
+        let inputs = get_inputs("chsr r r1 l tasks");
+        assert_eq!(inputs.action, InputAction::List);
+        assert_eq!(inputs.role_id, Some("r1".to_string()));
+        assert_eq!(inputs.role_type, Some(RoleType::Tasks));
+    }
+
+    #[test]
+    fn test_list_role_all() {
+        let inputs = get_inputs("chsr r r1 l all");
+        assert_eq!(inputs.action, InputAction::List);
+        assert_eq!(inputs.role_id, Some("r1".to_string()));
+        assert_eq!(inputs.role_type, Some(RoleType::All));
+    }
+
 }
