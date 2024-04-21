@@ -11,8 +11,10 @@ use nix::{
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
+use pam_client::ConversationHandler;
 use pam_client::{conv_cli::Conversation, Context, Flag};
 use pty_process::blocking::{Command, Pty};
+use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{
@@ -44,8 +46,8 @@ struct Cli {
     task: Option<String>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
-    #[arg(short, long)]
-    prompt: Option<String>,
+    #[arg(short, long, default_value = "Password: ")]
+    prompt: String,
 
     /// Display rights of executor
     #[arg(short, long)]
@@ -185,7 +187,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         matching.role().as_ref().borrow().name
     );
     let optstack = &matching.opt;
-    check_auth(optstack, config, user);
+    check_auth(optstack, config, user, &shell_words::quote(&args.prompt))?;
     dac_override_effective(false).expect("Failed to dac_override_effective");
 
     if args.info {
@@ -325,7 +327,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn check_auth(optstack: &OptStack, config: Storage, user: Cred) {
+fn check_auth(optstack: &OptStack, config: Storage, user: Cred, prompt: &str) -> Result<(), Box<dyn Error>> {
     let timeout = optstack.get_timeout().1;
     let is_valid = match config {
         Storage::JSON(_) => {
@@ -334,15 +336,20 @@ fn check_auth(optstack: &OptStack, config: Storage, user: Cred) {
     };
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
+        let mut conv = Conversation::new();
+        let res = conv.prompt_echo_on(&CString::new(prompt).unwrap());
+        if res.is_err() {
+            return Err("Failed to prompt".into());
+        }
         let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
             .expect("Failed to initialize PAM");
-        context.authenticate(Flag::NONE).expect("Permission Denied");
-        context.acct_mgmt(Flag::NONE).expect("Permission Denied");
+        context.authenticate(Flag::SILENT)?;
+        context.acct_mgmt(Flag::SILENT)?;
     }
     match config {
         Storage::JSON(_) => {
-            timeout::update_cookie(&user, &user, &timeout)
-                .expect("Failed to add cookie");
+            timeout::update_cookie(&user, &user, &timeout)?;
         }
     }
+    Ok(())
     }
