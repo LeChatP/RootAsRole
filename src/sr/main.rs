@@ -14,7 +14,7 @@ use nix::{
 use pam_client::ConversationHandler;
 use pam_client::{conv_cli::Conversation, Context, Flag};
 use pty_process::blocking::{Command, Pty};
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{

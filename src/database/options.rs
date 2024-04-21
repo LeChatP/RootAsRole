@@ -1,8 +1,8 @@
-use std::fmt;
+
 use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
-use ciborium::de;
+
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 use pcre2::bytes::Regex;
@@ -635,7 +635,7 @@ impl OptStack {
             .as_ref()
             .borrow()
             .difference(&final_sub.as_ref().borrow())
-            .fold("".to_string(), |mut acc, mut s| {
+            .fold("".to_string(), |mut acc, s| {
                 if !acc.is_empty() {
                     acc.insert(0, ':');
                 }

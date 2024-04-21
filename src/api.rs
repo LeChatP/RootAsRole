@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use capctl::CapSet;
-use ciborium::de;
+
 use serde_json::Value;
 use strum::EnumIs;
 use tracing::debug;

@@ -5,7 +5,7 @@ use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
-use std::{cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, path::Display, rc::{Rc, Weak}};
+use std::{cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, rc::{Rc, Weak}};
 
 use crate::common::database::is_default;
 
@@ -639,7 +639,7 @@ mod tests {
 
     use capctl::Cap;
     use chrono::Duration;
-    use tracing::debug;
+    
 
     use crate::{as_borrow, common::database::options::{EnvBehavior, PathBehavior, TimestampType}};
 
