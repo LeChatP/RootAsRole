@@ -118,7 +118,7 @@ fn from_json_execution_settings(
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    subsribe();
+    subsribe("sr");
     register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
@@ -187,7 +187,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         matching.role().as_ref().borrow().name
     );
     let optstack = &matching.opt;
-    check_auth(optstack, config, user, &shell_words::quote(&args.prompt))?;
+    check_auth(optstack, config, user, &args.prompt)?;
     dac_override_effective(false).expect("Failed to dac_override_effective");
 
     if args.info {

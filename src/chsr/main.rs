@@ -13,9 +13,9 @@ mod common;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
-    subsribe();
+    subsribe("chsr");
     register_plugins();
-    read_effective(true)?;
+    read_effective(true).expect("Operation not permitted");
     let settings = config::get_settings();
     let config = match settings.storage_method {
         config::StorageMethod::JSON => {
@@ -26,9 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             std::process::exit(1);
         }
     };
-    read_effective(false)?;
+    read_effective(false).expect("Operation not permitted");
 
-    if cli::main(&config)? {
+    if cli::main(&config).is_ok() {
         match config {
             Storage::JSON(config) => {
                 save_json(&settings, config)?;

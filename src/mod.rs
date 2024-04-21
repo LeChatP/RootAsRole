@@ -1,6 +1,7 @@
 use capctl::{prctl, Cap, CapState};
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
+use std::ffi::CString;
 
 pub mod util;
 pub mod version;
@@ -11,8 +12,8 @@ pub mod api;
 pub mod plugin;
 
 #[cfg(debug_assertions)]
-pub fn subsribe() {
-    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
+pub fn subsribe(tool: &str) {
+    let identity = CString::new(tool).unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
     let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
@@ -26,10 +27,10 @@ pub fn subsribe() {
 }
 
 #[cfg(not(debug_assertions))]
-pub fn subsribe() {
+pub fn subsribe(tool: &str) {
     use std::panic::set_hook;
 
-    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
+    let identity = CString::new(tool).unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
     let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
