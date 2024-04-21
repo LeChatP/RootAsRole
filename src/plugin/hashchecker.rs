@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 
-use crate::common::{database::finder::{find_executable_in_path, parse_conf_command}, api::{PluginManager, PluginPosition}, database::structs::SCommand};
+use crate::common::{database::finder::{find_executable_in_path, parse_conf_command}, api::PluginManager, database::structs::SCommand};
 
 use md5;
 
@@ -79,5 +79,5 @@ fn complex_command_parse(command: &serde_json::Value) -> Result<Vec<String>, Box
 }
 
 pub fn register() {
-    PluginManager::subscribe_complex_command_parser(complex_command_parse, PluginPosition::Beginning)
+    PluginManager::subscribe_complex_command_parser(complex_command_parse)
 }

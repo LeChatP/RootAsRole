@@ -1,7 +1,8 @@
 //extern crate sudoers_reader;
 
 
-use common::{config::{self, Storage}, database::{read_json_config, save_json}, read_effective};
+use common::{config::{self, Storage}, database::{read_json_config, save_json}, plugin::register_plugins, read_effective};
+use common::subsribe;
 use tracing::error;
 
 mod cli;
@@ -12,6 +13,8 @@ mod common;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
+    subsribe();
+    register_plugins();
     read_effective(true)?;
     let settings = config::get_settings();
     let config = match settings.storage_method {

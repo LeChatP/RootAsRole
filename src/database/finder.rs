@@ -134,12 +134,12 @@ bitflags! {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-struct Score {
-    user_min: UserMin,
-    cmd_min: CmdMin,
-    caps_min: CapsMin,
-    setuid_min: SetuidMin,
-    security_min: SecurityMin,
+pub struct Score {
+    pub user_min: UserMin,
+    pub cmd_min: CmdMin,
+    pub caps_min: CapsMin,
+    pub setuid_min: SetuidMin,
+    pub security_min: SecurityMin,
 }
 
 impl Score {
@@ -148,6 +148,18 @@ impl Score {
             "{:?}, {:?}, {:?}, {:?}, {:?}",
             self.user_min, self.cmd_min, self.caps_min, self.setuid_min, self.security_min
         )
+    }
+
+    pub fn user_cmp(&self, other: &Score) -> Ordering {
+        self.user_min.cmp(&other.user_min)
+    }
+
+    /// Compare the score of tasks results
+    pub fn cmd_cmp(&self, other: &Score) -> Ordering {
+        self.cmd_min.cmp(&other.cmd_min)
+            .then(self.caps_min.cmp(&other.caps_min))
+            .then(self.setuid_min.cmp(&other.setuid_min))
+            .then(self.security_min.cmp(&other.security_min))
     }
 }
 
@@ -159,12 +171,8 @@ impl PartialOrd for Score {
 
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.user_min
-            .cmp(&other.user_min)
-            .then(self.cmd_min.cmp(&other.cmd_min))
-            .then(self.caps_min.cmp(&other.caps_min))
-            .then(self.setuid_min.cmp(&other.setuid_min))
-            .then(self.security_min.cmp(&other.security_min))
+        self.user_cmp(other)
+            .then(self.cmd_cmp(other))
     }
 
     fn max(self, other: Self) -> Self {
@@ -191,15 +199,22 @@ pub struct Cred {
 
 #[derive(Clone, Debug)]
 pub struct TaskMatch {
-    score: Score,
+    pub score: Score,
     pub settings: ExecSettings,
 }
 
 impl TaskMatch {
 
-    pub fn is_matching(&self) -> bool {
+    pub fn fully_matching(&self) -> bool {
+        self.user_matching() && self.command_matching()
+    }
+
+    pub fn user_matching(&self) -> bool {
         self.score.user_min != UserMin::NoMatch
-            && !self.score.cmd_min.is_empty()
+    }
+
+    pub fn command_matching(&self) -> bool {
+        !self.score.cmd_min.is_empty()
     }
 
     pub fn file_exec_path(&self) -> &PathBuf {
@@ -258,7 +273,7 @@ pub trait TaskMatcher<T> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<T, MatchError>;
 }
 
-trait CredMatcher {
+pub trait CredMatcher {
     fn user_matches(&self, user: &Cred) -> UserMin;
 }
 
@@ -557,7 +572,6 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
         settings.caps = capset;
         let stack = OptStack::from_task(self.clone());
         settings.opt = stack;
-
         Ok(TaskMatch { score, settings })
     }
 }
@@ -583,7 +597,6 @@ impl TaskMatcher<TaskMatch> for SCommands {
         if get_default_behavior(&self.default_behavior).is_none() {
             // if the behavior is No command by default, we check if the command is allowed explicitly.
             min_score = get_cmd_min(&input_command, &self.add);
-            
             if min_score.is_empty() {
                 return Err(MatchError::NoMatch);
             }
@@ -667,82 +680,6 @@ impl CredMatcher for Rc<RefCell<SRole>> {
     }
 }
 
-// impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
-//     fn matches(
-//         &self,
-//         user: &Cred,
-//         command: &[String],
-//     ) -> Result<TaskMatch, MatchError> {
-//         let mut min_task = TaskMatch {
-//             score: Score {
-//                 user_min: self.user_matches(user),
-//                 cmd_min: CmdMin::empty(),
-//                 caps_min: CapsMin::Undefined,
-//                 setuid_min: SetuidMin::Undefined,
-//                 security_min: SecurityMin::empty(),
-//             },
-//             settings: ExecSettings::new(),
-//         };
-//         let mut nmatch = 0;
-//         let borrow = self.as_ref().borrow();
-//         for task in borrow.tasks.iter() {
-//             match task.matches(user, command) {
-//                 Ok(task_match) => {
-//                     debug!(
-//                         "if min_task.score.cmd_min.is_empty() : {}",
-//                         min_task.score.cmd_min.is_empty()
-//                     );
-//                     debug!(
-//                         "task_match.score < min_task.score : {:?} < {:?} -> {}",
-//                         task_match.score.prettyprint(),
-//                         min_task.score.prettyprint(),
-//                         task_match.score < min_task.score
-//                     );
-//                     if min_task.score.cmd_min.is_empty() || task_match.score < min_task.score {
-//                         debug!(
-//                             "Role {} : Match for task {}",
-//                             self.as_ref().borrow().name,
-//                             task.as_ref().borrow().id.to_string()
-//                         );
-//                         let mut task_match = task_match;
-//                         task_match.score.user_min = min_task.score.user_min;
-//                         task_match.settings.task = Rc::downgrade(task);
-//                         min_task = task_match;
-//                         nmatch = 1;
-//                     } else if task_match.score == min_task.score {
-//                         nmatch += 1;
-//                     }
-//                 }
-//                 Err(err) => match err {
-//                     MatchError::NoMatch => {
-//                         debug!(
-//                             "Role {} : No match for task {}",
-//                             self.as_ref().borrow().name,
-//                             task.as_ref().borrow().id.to_string()
-//                         );
-//                         continue;
-//                     }
-//                     MatchError::Conflict => {
-//                         debug!(
-//                             "Role {} : Conflict in task {}",
-//                             self.as_ref().borrow().name,
-//                             task.as_ref().borrow().id.to_string()
-//                         );
-//                         return Err(err);
-//                     }
-//                 },
-//             };
-//         }
-//         if nmatch == 1 {
-//             Ok(min_task)
-//         } else if nmatch > 1 {
-//             Err(MatchError::Conflict)
-//         } else {
-//             Err(MatchError::NoMatch)
-//         }
-//     }
-// }
-
 impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch, MatchError> {
         let mut min_task = TaskMatch::default();
@@ -750,7 +687,7 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
         for task in self.iter() {
             match task.matches(user, command) {
                 Ok(mut task_match) => {
-                    if min_task.score.cmd_min.is_empty() || task_match.score < min_task.score {
+                    if !min_task.command_matching() || task_match.score.cmd_cmp(&min_task.score) == Ordering::Less {
                         task_match.score.user_min = min_task.score.user_min;
                         task_match.settings.task = Rc::downgrade(task);
                         min_task = task_match;
@@ -823,40 +760,31 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch, MatchError> {
         let borrow = self.as_ref().borrow();
         let mut min_role = TaskMatch::default();
-        min_role.score.user_min = self.user_matches(user);
+        let user_min = self.user_matches(user);
         debug!(
             "==== Role {} ====\n score: {}",
             self.as_ref().borrow().name,
             min_role.score.prettyprint()
         );
         let mut nmatch = 0;
-        if min_role.score.user_min == UserMin::NoMatch {
-            return Err(MatchError::NoMatch);
-        }
-        let task_match = borrow.tasks.matches(user, command)?;
-        if !min_role.is_matching() || (task_match.is_matching() && task_match.score < min_role.score) {
-            min_role = task_match;
-            nmatch = 1;
-        }
-        let mut matcher = TaskMatch::default();
-        // notify plugins
-        match PluginManager::notify_role_matcher(&borrow, user, command, &mut matcher) {
-            PluginResultAction::Override => {
-                min_role = matcher;
-                nmatch = 1;
-            }
-            PluginResultAction::Edit => {
-                if  !min_role.is_matching() || (matcher.is_matching() && matcher.score < min_role.score) {
-                    min_role = matcher;
+        min_role.score.user_min = user_min;
+        match borrow.tasks.matches(user, command) {
+            Ok(task_match) => {
+                if !min_role.fully_matching() || (task_match.command_matching() && task_match.score < min_role.score) {
+                    min_role = task_match;
                     nmatch = 1;
-                } else if matcher.score == min_role.score {
-                    nmatch += 1;
                 }
             }
-            PluginResultAction::Ignore => {
-
+            Err(MatchError::NoMatch) => {
+                nmatch = 0;
+            }
+            Err(MatchError::Conflict) => {
+                return Err(MatchError::Conflict);
             }
         }
+        min_role.score.user_min = user_min;
+        plugin_role_match(user_min, borrow, user, command, &mut min_role, &mut nmatch);
+        
         if nmatch == 0 {
             Err(MatchError::NoMatch)
         } else if nmatch == 1 {
@@ -869,6 +797,32 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
             Ok(min_role)
         } else {
             Err(MatchError::Conflict)
+        }
+    }
+}
+
+fn plugin_role_match(user_min: UserMin, borrow: std::cell::Ref<'_, SRole>, user: &Cred, command: &[String], min_role: &mut TaskMatch, nmatch: &mut i32) {
+    let mut matcher = TaskMatch::default();
+    matcher.score.user_min = user_min;
+    // notify plugins
+    match PluginManager::notify_role_matcher(&borrow, user, command, &mut matcher) {
+        PluginResultAction::Override => {
+            *min_role = matcher;
+            *nmatch = if min_role.fully_matching() { 1 } else { 0 };
+        }
+        PluginResultAction::Edit => {
+            debug!("Plugin edit");
+            if  !min_role.fully_matching() || (matcher.fully_matching() && matcher.score < min_role.score) {
+                *min_role = matcher;
+                *nmatch = 1;
+            } else if matcher.score == min_role.score {
+                *nmatch += 1;
+            } else if !matcher.fully_matching() {
+                *nmatch = 0;
+            }
+        }
+        PluginResultAction::Ignore => {
+
         }
     }
 }

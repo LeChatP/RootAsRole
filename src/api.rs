@@ -1,8 +1,10 @@
 use std::sync::Mutex;
 
 use capctl::CapSet;
+use ciborium::de;
 use serde_json::Value;
 use strum::EnumIs;
+use tracing::debug;
 
 use crate::common::database::finder::{Cred, ExecSettings, TaskMatch, UserMin};
 
@@ -132,8 +134,10 @@ impl PluginManager {
     }
 
     pub fn notify_role_matcher(role: &SRole, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction {
+        debug!("Notifying role matchers");
         let api = API.lock().unwrap();
         for plugin in api.role_matcher_plugins.iter() {
+            debug!("Calling role matcher plugin");
             match plugin(role, user, command, matcher) {
                 PluginResultAction::Override => return PluginResultAction::Override,
                 PluginResultAction::Edit => continue,

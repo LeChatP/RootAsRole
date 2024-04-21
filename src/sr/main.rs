@@ -19,9 +19,10 @@ use std::{
     cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd,
     rc::Rc,
 };
-use tracing::{debug, error, Level};
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing::{debug, error};
 
+use crate::common::plugin::register_plugins;
+use crate::common::subsribe;
 use crate::common::{activates_no_new_privs, config::{self, Storage}, dac_override_effective, database::{read_json_config, structs::SGroups}, read_effective, setgid_effective, setpcap_effective, setuid_effective};
 
 #[derive(Parser, Debug)]
@@ -54,38 +55,7 @@ struct Cli {
 }
 
 
-#[cfg(debug_assertions)]
-fn subsribe() {
-    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
-    let options = syslog_tracing::Options::LOG_PID;
-    let facility = syslog_tracing::Facility::Auth;
-    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_file(true)
-        .with_line_number(true)
-        .with_writer(syslog)
-        .finish()
-        .init();
-}
 
-#[cfg(not(debug_assertions))]
-fn subsribe() {
-    let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
-    let options = syslog_tracing::Options::LOG_PID;
-    let facility = syslog_tracing::Facility::Auth;
-    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
-    tracing_subscriber::fmt()
-        .with_max_level(Level::ERROR)
-        .with_writer(syslog)
-        .finish()
-        .init();
-    set_hook(Box::new(|info| {
-        if let Some(s) = info.payload().downcast_ref::<String>() {
-            println!("{}", s);
-        }
-    }));
-}
 
 fn add_dashes() -> Vec<String> {
     //get current argv
@@ -147,6 +117,7 @@ fn from_json_execution_settings(
 
 fn main() -> Result<(), Box<dyn Error>> {
     subsribe();
+    register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
     read_effective(true).expect("Failed to read_effective");

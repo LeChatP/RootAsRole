@@ -1,7 +1,9 @@
 mod hashchecker;
 mod ssd;
+mod hierarchy;
 
-pub fn register_plugins() {
+pub(crate) fn register_plugins() {
     hashchecker::register();
     ssd::register();
+    hierarchy::register();
 }
