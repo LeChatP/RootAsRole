@@ -62,9 +62,6 @@ pub struct PluginManager {
     role_matcher_plugins: Vec<RoleMatcher>,
     task_matcher_plugins: Vec<TaskMatcher>,
     user_matcher_plugins: Vec<UserMatcher>,
-    role_information_plugins: Vec<RoleInformation>,
-    actor_information_plugins: Vec<ActorInformation>,
-    task_information_plugins: Vec<TaskInformation>,
     duty_separation_plugins: Vec<DutySeparation>,
     task_separation_plugins: Vec<TaskSeparation>,
     caps_filter_plugins: Vec<CapsFilter>,
@@ -78,9 +75,6 @@ impl PluginManager {
             role_matcher_plugins: Vec::new(),
             task_matcher_plugins: Vec::new(),
             user_matcher_plugins: Vec::new(),
-            role_information_plugins: Vec::new(),
-            actor_information_plugins: Vec::new(),
-            task_information_plugins: Vec::new(),
             duty_separation_plugins: Vec::new(),
             task_separation_plugins: Vec::new(),
             caps_filter_plugins: Vec::new(),
@@ -99,18 +93,6 @@ impl PluginManager {
 
     pub fn subscribe_user_matcher(plugin: UserMatcher) {
         plugin_subscribe!(user_matcher_plugins, UserMatcher, plugin);
-    }
-    
-    pub fn subscribe_role_information(plugin: RoleInformation) {
-        plugin_subscribe!(role_information_plugins, RoleInformation, plugin);
-    }
-
-    pub fn subscribe_actor_information(plugin: ActorInformation) {
-        plugin_subscribe!(actor_information_plugins, ActorInformation, plugin);
-    }
-
-    pub fn subscribe_task_information(plugin: TaskInformation) {
-        plugin_subscribe!(task_information_plugins, TaskInformation, plugin);
     }
 
     pub fn subscribe_duty_separation(plugin: DutySeparation) {
@@ -168,36 +150,6 @@ impl PluginManager {
             }
         }
         UserMin::NoMatch
-    }
-
-    pub fn notify_role_information(role: &SRole) -> Option<String> {
-        let api = API.lock().unwrap();
-        for plugin in api.role_information_plugins.iter() {
-            if let Some(info) = plugin(role) {
-                return Some(info);
-            }
-        }
-        None
-    }
-
-    pub fn notify_actor_information(actor: &SActor) -> Option<String> {
-        let api = API.lock().unwrap();
-        for plugin in api.actor_information_plugins.iter() {
-            if let Some(info) = plugin(actor) {
-                return Some(info);
-            }
-        }
-        None
-    }
-
-    pub fn notify_task_information(task: &STask) -> Option<String> {
-        let api = API.lock().unwrap();
-        for plugin in api.task_information_plugins.iter() {
-            if let Some(info) = plugin(task) {
-                return Some(info);
-            }
-        }
-        None
     }
 
     pub fn notify_duty_separation(role: &SRole, actor: &Cred) -> PluginResult {
