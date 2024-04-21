@@ -8,6 +8,7 @@
 *.elf
 *.ll
 *.pyc
+*.profraw
 
 # Linker output
 *.ilk
