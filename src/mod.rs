@@ -27,6 +27,8 @@ pub fn subsribe() {
 
 #[cfg(not(debug_assertions))]
 pub fn subsribe() {
+    use std::panic::set_hook;
+
     let identity = std::ffi::CStr::from_bytes_with_nul(b"sr\0").unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
