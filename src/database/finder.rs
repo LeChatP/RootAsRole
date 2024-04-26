@@ -336,6 +336,7 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     None
 }
 
+
 fn final_path(path: &String) -> PathBuf {
     let result;
     if let Ok(cannon_path) = std::fs::canonicalize(path){
@@ -605,8 +606,15 @@ impl TaskMatcher<TaskMatch> for SCommands {
             min_score = CmdMin::all();
         }
         
-        settings.exec_path = final_path(&input_command[0]);
-        settings.exec_args = input_command[1..].to_vec();
+        if let Some(program) = find_from_envpath(&input_command[0].parse().expect("The path is not valid")) {
+            settings.exec_path = program;
+            settings.exec_args = input_command[1..].to_vec();
+        } else {
+            // encapsulate the command in sh command
+            settings.exec_path = PathBuf::from("/bin/sh");
+            settings.exec_args = vec!["-c".to_string(), shell_words::join(input_command)];
+        }
+        
         
         Ok(TaskMatch {
             score: Score {
