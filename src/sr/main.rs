@@ -4,28 +4,32 @@ mod timeout;
 
 use capctl::CapState;
 use clap::Parser;
-use common::database::{options::OptStack, structs::SConfig};
 use common::database::finder::{Cred, ExecSettings, TaskMatcher};
+use common::database::{options::OptStack, structs::SConfig};
 use nix::{
     libc::dev_t,
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
-use pam_client::ConversationHandler;
-use pam_client::{conv_cli::Conversation, Context, Flag};
+use pam_client::{Context, Flag};
+use pam_client::{ConversationHandler, ErrorCode};
+use pcre2::bytes::RegexBuilder;
 use pty_process::blocking::{Command, Pty};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
-use std::{
-    cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd,
-    rc::Rc,
-};
-use tracing::{debug, error};
+use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
+use tracing::{debug, error, info};
 
 use crate::common::plugin::register_plugins;
 use crate::common::subsribe;
-use crate::common::{activates_no_new_privs, config::{self, Storage}, dac_override_effective, database::{read_json_config, structs::SGroups}, read_effective, setgid_effective, setpcap_effective, setuid_effective};
+use crate::common::{
+    activates_no_new_privs,
+    config::{self, Storage},
+    dac_override_effective,
+    database::{read_json_config, structs::SGroups},
+    read_effective, setgid_effective, setpcap_effective, setuid_effective,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -57,7 +61,66 @@ struct Cli {
 }
 
 
+struct SrConversationHandler {
+    username: Option<String>,
+    prompt: String,
+}
 
+impl SrConversationHandler {
+    fn new(prompt: &str) -> Self {
+        SrConversationHandler {
+            prompt: prompt.to_string(),
+            username: None,
+        }
+    }
+    fn is_pam_password_prompt(&self, prompt: &CStr) -> bool {
+        let pam_prompt = prompt.to_string_lossy();
+        RegexBuilder::new().build("^Password: ?$").unwrap().is_match(pam_prompt.as_bytes()).is_ok_and(|f| f)
+            || self.username.as_ref().is_some_and(|username| {
+                RegexBuilder::new()
+                    .build(&format!("^{}'s Password: ?$", username))
+                    .unwrap()
+                    .is_match(pam_prompt.as_bytes())
+                    .is_ok_and(|f| f)
+            })
+    }
+}
+
+impl Default for SrConversationHandler {
+    fn default() -> Self {
+        SrConversationHandler {
+            prompt: "Password: ".to_string(),
+            username: None,
+        }
+    }
+}
+
+impl ConversationHandler for SrConversationHandler {
+    fn prompt_echo_on(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
+        self.prompt_echo_off(prompt)
+    }
+
+    fn prompt_echo_off(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
+        let pam_prompt = prompt.to_string_lossy();
+        if self.prompt == Self::default().prompt && !self.is_pam_password_prompt(prompt) {
+            self.prompt = pam_prompt.to_string()
+        }
+        match rpassword::prompt_password(&self.prompt) {
+            Err(_) => Err(ErrorCode::CONV_ERR),
+            Ok(password) => CString::new(password).map_err(|_| ErrorCode::CONV_ERR),
+        }
+    }
+
+    fn text_info(&mut self, msg: &CStr) {
+        info!("{}", msg.to_string_lossy());
+        println!("{}", msg.to_string_lossy());
+    }
+
+    fn error_msg(&mut self, msg: &CStr) {
+        error!("{}", msg.to_string_lossy());
+        eprintln!("{}", msg.to_string_lossy());
+    }
+}
 
 fn add_dashes() -> Vec<String> {
     //get current argv
@@ -86,34 +149,35 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
-
-
 fn from_json_execution_settings(
     args: &Cli,
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
 ) -> Result<ExecSettings, Box<dyn Error>> {
     match (&args.role, &args.task) {
-        (None,None) => match config.matches(&user, &args.command) {
+        (None, None) => match config.matches(&user, &args.command) {
             Err(e) => {
                 println!("Error : {}", e);
                 Err(e.into())
             }
             Ok(matching) => Ok(matching.settings),
         },
-        (Some(role),None) => Ok(as_borrow!(config)
+        (Some(role), None) => Ok(as_borrow!(config)
             .role(&role)
             .expect("Permission Denied")
             .matches(&user, &args.command)
             .expect("Permission Denied")
             .settings),
-        (Some(role),Some(task)) => Ok(as_borrow!(config)
-            .task(&role, &common::database::structs::IdTask::Name(task.to_string()))
+        (Some(role), Some(task)) => Ok(as_borrow!(config)
+            .task(
+                &role,
+                &common::database::structs::IdTask::Name(task.to_string()),
+            )
             .expect("Permission Denied")
             .matches(&user, &args.command)
             .expect("Permission Denied")
             .settings),
-        (None,Some(_)) => Err("You must specify a role to designate a task".into()),
+        (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
 
@@ -207,8 +271,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(0);
     }
 
-    
-
     // disable root
     if !optstack.get_root_behavior().1.is_privileged() {
         activates_no_new_privs().expect("Failed to activate no new privs");
@@ -242,26 +304,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     });
-    let groups = matching.setgroups.as_ref().and_then(|g| {
-        match g {
-            SGroups::Single(g) => {
-                let res = g.into_group().unwrap_or(None);
-                if let Some(group) = res {
-                    Some(vec![group.gid.as_raw()])
-                } else {
-                    None
+    let groups = matching.setgroups.as_ref().and_then(|g| match g {
+        SGroups::Single(g) => {
+            let res = g.into_group().unwrap_or(None);
+            if let Some(group) = res {
+                Some(vec![group.gid.as_raw()])
+            } else {
+                None
+            }
+        }
+        SGroups::Multiple(g) => {
+            let res = g.iter().map(|g| g.into_group().unwrap_or(None));
+            let mut groups = Vec::new();
+            for group in res {
+                if let Some(group) = group {
+                    groups.push(group.gid.as_raw());
                 }
             }
-            SGroups::Multiple(g) => {
-                let res = g.iter().map(|g| g.into_group().unwrap_or(None));
-                let mut groups = Vec::new();
-                for group in res {
-                    if let Some(group) = group {
-                        groups.push(group.gid.as_raw());
-                    }
-                }
-                Some(groups)
-            }
+            Some(groups)
         }
     });
 
@@ -299,7 +359,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     //execute command
-    let envset = optstack.calculate_filtered_env().expect("Failed to calculate env");
+    let envset = optstack
+        .calculate_filtered_env()
+        .expect("Failed to calculate env");
     let pty = Pty::new().expect("Failed to create pty");
 
     let command = Command::new(&matching.exec_path)
@@ -311,15 +373,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         .spawn(&pty.pts().expect("Failed to get pts"));
     let mut command = match command {
         Ok(command) => command,
-        Err(_) => {
-            error!(
+        Err(e) => {
+            error!("{}", e);
+            /*error!(
                 "{} : command not found",
                 matching.exec_path.display()
-            );
-            eprintln!(
-                "sr: {} : command not found",
-                matching.exec_path.display()
-            );
+            );*/
+            eprintln!("sr: {} : command not found", matching.exec_path.display());
             std::process::exit(1);
         }
     };
@@ -327,22 +387,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn check_auth(optstack: &OptStack, config: Storage, user: Cred, prompt: &str) -> Result<(), Box<dyn Error>> {
+fn check_auth(
+    optstack: &OptStack,
+    config: Storage,
+    user: Cred,
+    prompt: &str,
+) -> Result<(), Box<dyn Error>> {
     let timeout = optstack.get_timeout().1;
     let is_valid = match config {
-        Storage::JSON(_) => {
-            timeout::is_valid(&user, &user, &timeout)
-        }
+        Storage::JSON(_) => timeout::is_valid(&user, &user, &timeout),
     };
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
-        let mut conv = Conversation::new();
-        let res = conv.prompt_echo_on(&CString::new(prompt).unwrap());
-        if res.is_err() {
-            return Err("Failed to prompt".into());
-        }
-        let mut context = Context::new("sr", Some(&user.user.name), Conversation::new())
-            .expect("Failed to initialize PAM");
+        let mut context = Context::new(
+            "sr",
+            Some(&user.user.name),
+            SrConversationHandler::new(prompt),
+        )
+        .expect("Failed to initialize PAM");
         context.authenticate(Flag::SILENT)?;
         context.acct_mgmt(Flag::SILENT)?;
     }
@@ -352,4 +414,4 @@ fn check_auth(optstack: &OptStack, config: Storage, user: Cred, prompt: &str) ->
         }
     }
     Ok(())
-    }
+}
