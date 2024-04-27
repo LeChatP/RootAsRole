@@ -22,7 +22,7 @@ name = "chsr"
 path = "src/chsr/main.rs"
 
 [build-dependencies]
-reqwest = { version = "0.11.18", features = ["blocking", "json"] }
+reqwest = { version = "0.12.4", features = ["blocking", "json"] }
 pcre2 = "0.2.4"
 regex = "1.9.1"
 serde = { version = "1.0.185" }
@@ -55,7 +55,6 @@ md5 = "0.7.0"
 chrono = "0.4.37"
 pty-process = "0.4.0"
 once_cell = "1.19.0"
-ratatui = "0.26.1"
 crossterm = "0.27.0"
 pest = "2.7.8"
 pest_derive = "2.7.8"
