@@ -20,6 +20,7 @@ pub fn subsribe(tool: &str) {
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_file(true)
+        
         .with_line_number(true)
         .with_writer(syslog)
         .finish()
@@ -35,7 +36,13 @@ pub fn subsribe(tool: &str) {
     let facility = syslog_tracing::Facility::Auth;
     let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
     tracing_subscriber::fmt()
-        .with_max_level(Level::ERROR)
+        .compact()
+        .with_max_level(Level::WARN)
+        .with_file(false)
+        .with_timer(false)
+        .with_line_number(false)
+        .with_target(false)
+        .without_time()
         .with_writer(syslog)
         .finish()
         .init();

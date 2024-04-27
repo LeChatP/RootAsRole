@@ -6,6 +6,7 @@ use chrono::Duration;
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
+use tracing::warn;
 use crate::rc_refcell;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
@@ -51,8 +52,21 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
+fn warn_if_mutable(file: &File) -> Result<(), Box<dyn Error>> {
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if val & FS_IMMUTABLE_FL == 0 {
+        warn!("Config file is not immutable, think about setting the immutable flag");
+    }
+    Ok(())
+}
+
 pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote = RemoteStorageSettings::default();
+    
     let file = std::fs::File::open(
         settings
             .remote_storage_settings.as_ref()
@@ -60,6 +74,7 @@ pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box
             .path.as_ref()
             .unwrap_or(&ROOTASROLE.into()),
     )?;
+    warn_if_mutable(&file)?;
     let versionned_config :  Versioning<SConfig>= serde_json::from_reader(file)?;
     let config = rc_refcell!(versionned_config.data);
     if Migration::migrate(&versionned_config.version, &mut *config.as_ref().borrow_mut(), version::JSON_MIGRATIONS)? {
