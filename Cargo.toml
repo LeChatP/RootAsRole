@@ -4,9 +4,19 @@ members = ["xtask", "capable", "capable-common"]
 [package]
 name = "RootAsRole"
 version = "3.0.0-alpha.4"
+rust-version = "1.74.1"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
 default-run = "sr"
+description = "RootAsRole is an alternative to sudo that uses Linux capabilities and RBAC for scalability."
+license-file = "LICENSE"
+repository = "https://github.com/LeChatP/RootAsRole"
+keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
+categories = ["command-line-utilities", "os::linux-apis", "config"]
+
+[badges]
+maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/badge/maintenance-actively%20maintained-brightgreen.svg" }
+
 
 #[features]
 #cursive_lib = [ "cursive" ]

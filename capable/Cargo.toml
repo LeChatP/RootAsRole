@@ -18,6 +18,7 @@ unshare = "0.7.0"
 tabled = "0.14.0"
 capctl = "0.2.3"
 nix = { version = "0.27.1", features = ["user", "signal"] }
+shell-words = "1.1.0"
 
 [[bin]]
 name = "capable"
