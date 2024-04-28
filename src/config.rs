@@ -47,13 +47,13 @@
 //     }
 //   }
 
-const FILEPATH : &str = "/etc/security/rootasrole_storage.json";
 pub const ROOTASROLE : &str = "/etc/security/rootasrole.json";
 
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
 use super::database::structs::SConfig;
 
@@ -73,16 +73,25 @@ pub enum Storage {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct SettingsFile {
+    pub storage: Settings,
+    #[serde(default, flatten, skip)]
+    pub _extra_fields: Map<String,Value>,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Settings {
-    pub storage_method: StorageMethod,
+    pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub remote_storage_settings: Option<RemoteStorageSettings>,
+    pub settings: Option<RemoteStorageSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ldap: Option<LdapSettings>,
+
 }
 
 #[derive(Deserialize, Debug)]
 pub struct RemoteStorageSettings {
+    pub immutable: Option<bool>,
     pub path: Option<PathBuf>,
     pub host: Option<String>,
     pub port: Option<u16>,
@@ -128,12 +137,21 @@ pub struct LdapSettings {
     pub group_filter: String,
 }
 
+impl Default for SettingsFile {
+    fn default() -> Self {
+        Self {
+            storage: Settings::default(),
+            _extra_fields: Map::new(),
+        }
+    }
+}
+
 // Default implementation for Settings
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            storage_method: StorageMethod::JSON,
-            remote_storage_settings: Some(RemoteStorageSettings::default()),
+            method: StorageMethod::JSON,
+            settings: Some(RemoteStorageSettings::default()),
             ldap: None,
         }
     }
@@ -142,6 +160,7 @@ impl Default for Settings {
 impl Default for RemoteStorageSettings {
     fn default() -> Self {
         Self {
+            immutable: None,
             path: Some(ROOTASROLE.into()),
             host: None,
             port: None,
@@ -156,9 +175,10 @@ impl Default for RemoteStorageSettings {
 
 pub fn get_settings() -> Settings {
     // if file does not exist, return default settings
-    if !std::path::Path::new(FILEPATH).exists() {
+    if !std::path::Path::new(ROOTASROLE).exists() {
         return Settings::default();
     }
-    let file = std::fs::File::open(FILEPATH).expect("Failed to open file");
-    serde_json::from_reader(file).unwrap_or_default()
+    let file = std::fs::File::open(ROOTASROLE).expect("Failed to open file");
+    let value : SettingsFile = serde_json::from_reader(file).unwrap_or_default();
+    value.storage
 }

@@ -1,5 +1,12 @@
 {
     "version": "3.0.0-alpha.4",
+    "storage": {
+        "method": "json",
+        "settings": {
+            "immutable": true,
+            "path": "/etc/security/rootasrole.json"
+        }
+    },
     "options": {
         "timeout": {
             "type": "ppid",

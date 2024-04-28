@@ -25,14 +25,17 @@ By using a role-based access control model, this project allows us to better man
 
 ## Installation
 
-### How to Build
+### Prerequisites
 
-Requirement: rustc >= 1.70.0
+Install git
 
-  1. git clone <https://github.com/SamerW/RootAsRole>
-  2. cd RootAsRole
-  3. sudo sh ./configure.sh
-  4. sudo make install
+### How to build
+
+  1. git clone <https://github.com/LeChatP/RootAsRole>
+  1. cd RootAsRole
+  1. sudo ./dependencies.sh
+  1. sudo ./configure.sh
+  1. sudo make install
 
 > [!WARNING]
 > **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
@@ -49,6 +52,8 @@ Execute privileged commands with a role-based access control system
 
 <u><b>Options</b></u>:
   <b>-r, --role</b> &lt;ROLE&gt;  Role to select
+  <b>-t, --task</b> &lt;TASK&gt;  Task to select (--role required)
+  <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
   <b>-i, --info</b>         Display rights of executor
   <b>-h, --help</b>         Print help (see more with '--help')
   <b>-V, --version</b>      Print version
@@ -58,38 +63,6 @@ If you're used to using the sudo tool, and you can't change your habit, you coul
 ```sh
 alias sudo="sr"
 ```
-
-### How to Configure
-
-To configure this program you could use the `chsr` command.
-
-<pre>
-Configure Roles for RootAsRole
-
-<u><b>Usage</b></u>: <b>chsr</b> [COMMAND]
-
-<u><b>Commands</b></u>:
-  <b>list</b>     List all roles
-  <b>newrole</b>  Create a new role, you can add users, groups, tasks. You can assign tasks through the command "addtask"
-  <b>grant</b>    You can grant users/groups to role
-  <b>revoke</b>   You can revoke users/groups from role
-  <b>addtask</b>  Add a task to a role, you can add commands and capabilities
-  <b>deltask</b>  Delete a task from a role
-  <b>delrole</b>  Delete a role, this is not reversible
-  <b>config</b>   You could configure options for all roles, specific role, or specific task
-  <b>import</b>   NOT IMPLEMENTED: Import sudoers file
-  <b>help</b>     Print this message or the help of the given subcommand(s)
-
-<u><b>Options</b></u>:
-  <b>-h, --help</b>     Print help (see more with '--help')
-  <b>-V, --version</b>  Print version
-</pre>
-
-You could also use the fancy TUI configuration manager : 
-
-![Chsr TUI](assets/chsr-tui.png)
-
-This role manager is currently under development and does not provide entire configuration edition. So you can manually execute these commands :
 
 ```sh
 sr chattr -i /etc/security/rootasrole.xml
@@ -146,8 +119,6 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
 
 After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
-
-Regarding the (vii),(viii), and (ix) points, the insecure criteria is somewhat arbitrary. We are working on a explaination on a paper.
 
 ## Tested Platforms
 

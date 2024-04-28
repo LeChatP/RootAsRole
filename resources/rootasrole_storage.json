@@ -1,6 +1,0 @@
-{
-    "storage_method": "json",
-    "storage_settings": {
-        "path": "/etc/security/rootasrole.json"
-    }
-}

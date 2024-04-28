@@ -218,7 +218,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     dac_override_effective(true).expect("Failed to dac_override_effective");
-    let config = match settings.storage_method {
+    let config = match settings.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(&settings).expect("Failed to read config"))
         }

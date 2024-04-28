@@ -5,8 +5,7 @@
 # User Guide
 
 - [Installation](guide/installation.md)
-- [Use RootAsRole](guide/use.md)
-- [Configure RootAsRole](guide/configure.md)
+- [Configure RootAsRole](chsr/README.md)
 
 # Knowledge Guide
 
@@ -20,19 +19,11 @@
 # Reference Guide
 
 - [`sr` Command Line Tool](sr/README.md)
-- [`chsr` Terminal User Interface](chsr/tui.md)
 - [`chsr` Command Line Tool](chsr/README.md)
-    - [newrole](chsr/newrole.md)
-    - [grant](chsr/grant.md)
-    - [revoke](chsr/revoke.md)
-    - [addtask](chsr/addtask.md)
-    - [deltask](chsr/deltask.md)
-    - [delrole](chsr/delrole.md)
-    - [config](chsr/config.md)
-    - [import](chsr/import.md)
 
 - [Continuous Integration](continuous-integration.md)
 - [How to contribute](dev/CONTRIBUTE.md)
+- [Code of Conduct](dev/CODE_OF_CONDUCT.md)
 
 -----------
 

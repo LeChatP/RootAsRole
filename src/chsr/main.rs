@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     register_plugins();
     read_effective(true).expect("Operation not permitted");
     let settings = config::get_settings();
-    let config = match settings.storage_method {
+    let config = match settings.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(&settings)?)
         }

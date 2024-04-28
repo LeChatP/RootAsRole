@@ -20,6 +20,8 @@ pub struct SConfig
     pub options: OptWrapper,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
+    #[serde(skip)]
+    storage: (),
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String,Value>,
@@ -191,6 +193,7 @@ impl Default for SConfig
         SConfig {
             options: Some(Rc::new(RefCell::new(Opt::default()))),
             roles: Vec::new(),
+            storage: (),
             _extra_fields: Map::default(),
         }
     }

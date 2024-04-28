@@ -11,6 +11,10 @@ while getopts "yd" opt; do
 	esac
 done
 
+if [ `id -u` -eq 0 ]; then 
+	echo "You need to run this script as root"
+fi
+
 echo "Install Rust Cargo compiler"
 if [ $(which cargo &>/dev/null ; echo $?) -eq 0 ]; then 
 	echo "Cargo is installed"
