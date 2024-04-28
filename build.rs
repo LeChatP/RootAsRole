@@ -103,6 +103,9 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
 }"#
         .as_bytes(),
     )?;
+    Command::new("rustfmt")
+        .arg("src/descriptions.rs")
+        .output()?;
     Ok(())
 }
 
