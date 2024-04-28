@@ -235,12 +235,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
     let optstack = &execcfg.opt;
-    check_auth(optstack, config, user, &args.prompt)?;
+    check_auth(optstack, &config, &user, &args.prompt)?;
     dac_override_effective(false).expect("Failed to dac_override_effective");
 
     if !taskmatch.fully_matching() {
-        error!("You are not allowed to execute this command");
-        error!("This error is reported to the administrator");
+        println!("You are not allowed to execute this command, this incident will be reported.");
+        error!("User {} tried to execute command : {:?} without the permission.", &user.user.name, args.command);
         std::process::exit(1);
     }
 
@@ -379,8 +379,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn check_auth(
     optstack: &OptStack,
-    config: Storage,
-    user: Cred,
+    config: &Storage,
+    user: &Cred,
     prompt: &str,
 ) -> Result<(), Box<dyn Error>> {
     let timeout = optstack.get_timeout().1;
