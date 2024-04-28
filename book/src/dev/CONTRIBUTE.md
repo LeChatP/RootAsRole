@@ -81,7 +81,7 @@ A good bug report shouldn't leave others needing to chase you up for more inform
 - Also make sure to search the internet (including Stack Overflow) to see if users outside of the GitHub community have discussed the issue.
 - Collect information about the bug:
 - Stack trace (Traceback)
-- OS, Platform and Version (Windows, Linux, macOS, x86, ARM)
+- OS, Platform and Version (Ubuntu 20.04, Debian 10, RedHat 8, etc.)
 - Version of the interpreter, compiler, SDK, runtime environment, package manager, depending on what seems relevant.
 - Possibly your input and the output
 - Can you reliably reproduce the issue? And can you also reproduce it with older versions?
@@ -89,7 +89,62 @@ A good bug report shouldn't leave others needing to chase you up for more inform
 <!-- omit in toc -->
 #### How Do I Submit a Good Bug Report?
 
-> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to .
+> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to <lechatp@outlook.fr> using the PGP key below 
+    
+```pgp
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+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
+=K6/W
+-----END PGP PUBLIC KEY BLOCK-----
+```
+
 <!-- You may add a PGP key to allow the messages to be sent encrypted as well. -->
 
 We use GitHub issues to track bugs and errors. If you run into an issue with the project:
@@ -128,31 +183,20 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/LeChat
 - Use a **clear and descriptive title** for the issue to identify the suggestion.
 - Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
 - **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives do not work for you.
-- You may want to **include screenshots and animated GIFs** which help you demonstrate the steps or point out the part which the suggestion is related to. You can use [this tool](https://www.cockos.com/licecap/) to record GIFs on macOS and Windows, and [this tool](https://github.com/colinkeenan/silentcast) or [this tool](https://github.com/GNOME/byzanz) on Linux. <!-- this should only be included if the project has a GUI -->
 - **Explain why this enhancement would be useful** to most RootAsRole users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
 
 <!-- You might want to create an issue template for enhancement suggestions that can be used as a guide and that defines the structure of the information to be included. If you do so, reference it here in the description. -->
 
 ### Your First Code Contribution
-<!-- TODO
-include Setup of env, IDE and typical getting started instructions?
 
--->
+
 
 ### Improving The Documentation
-<!-- TODO
-Updating, improving and correcting the documentation
 
--->
+The documentation needs to be improved. If you find a typo, error, or something that is not clear, please help us by correcting it. If you have a suggestion for improving the documentation, please follow the steps below:
 
-## Styleguides
-### Commit Messages
-<!-- TODO
-
--->
-
-## Join The Project Team
-<!-- TODO -->
+- Open an [Issue](https://github.com/LeChatP/RootAsRole/issues)
+- If you want to make the change yourself, fork the repository and make the changes in your fork. Then open a pull request with the changes. We will review the changes and merge them if they are good.
 
 <!-- omit in toc -->
 ## Attribution
