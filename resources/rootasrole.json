@@ -54,7 +54,7 @@
             "actors": [
                 {
                     "type": "user",
-                    "name": "root"
+                    "name": "ROOTADMINISTRATOR"
                 }
             ],
             "tasks": [
@@ -69,47 +69,7 @@
                         }
                     },
                     "commands": {
-                        "default": "all",
-                        "sub": [
-                            "cap_sys_admin"
-                        ]
-                    }
-                }
-            ]
-        },
-        {
-            "name": "functionnal",
-            "tasks": [
-                {
-                    "name": "facl",
-                    "purpose": "File Access Control Managament",
-                    "cred": {
-                        "capabilities": {
-                            "default": "none",
-                            "add": [
-                                "cap_dac_override"
-                            ]
-                        }
-                    },
-                    "commands": {
-                        "default": "none",
-                        "add": [
-                            "/usr/bin/chmod ([ugoa]*([-+=]([rwxXt]+|[ugo]))+|[-+=][0-7]{0,4})(,(?1))* /home/[^. ]+"
-                        ]
-                    }
-                },
-                {
-                    "name": "softs",
-                    "purpose": "Install and update Softwares",
-                    "cred": {
-                        "setuid": "root",
-                        "setgid": "root"
-                    },
-                    "commands": {
-                        "default": "none",
-                        "add": [
-                            "/usr/bin/apt install .*"
-                        ]
+                        "default": "all"
                     }
                 }
             ]
