@@ -4,7 +4,7 @@ mod timeout;
 
 use capctl::CapState;
 use clap::Parser;
-use common::database::finder::{Cred, ExecSettings, TaskMatcher};
+use common::database::finder::{Cred, TaskMatch, TaskMatcher};
 use common::database::{options::OptStack, structs::SConfig};
 use nix::{
     libc::dev_t,
@@ -153,30 +153,20 @@ fn from_json_execution_settings(
     args: &Cli,
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
-) -> Result<ExecSettings, Box<dyn Error>> {
+) -> Result<TaskMatch, Box<dyn Error>> {
     match (&args.role, &args.task) {
-        (None, None) => match config.matches(&user, &args.command) {
-            Err(e) => {
-                println!("Error : {}", e);
-                Err(e.into())
-            }
-            Ok(matching) => Ok(matching.settings),
-        },
-        (Some(role), None) => Ok(as_borrow!(config)
+        (None, None) => config.matches(&user, &args.command).map_err(|m| m.into()),
+        (Some(role), None) => as_borrow!(config)
             .role(&role)
             .expect("Permission Denied")
-            .matches(&user, &args.command)
-            .expect("Permission Denied")
-            .settings),
-        (Some(role), Some(task)) => Ok(as_borrow!(config)
+            .matches(&user, &args.command).map_err(|m| m.into()),
+        (Some(role), Some(task)) => as_borrow!(config)
             .task(
                 &role,
                 &common::database::structs::IdTask::Name(task.to_string()),
             )
             .expect("Permission Denied")
-            .matches(&user, &args.command)
-            .expect("Permission Denied")
-            .settings),
+            .matches(&user, &args.command).map_err(|m| m.into()),
         (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
@@ -236,33 +226,33 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err("Unsupported storage method".into());
         }
     };
-    let matching: ExecSettings = match config {
+    let taskmatch = match config {
         Storage::JSON(ref config) => {
-            let result =
-                from_json_execution_settings(&args, config, &user).expect("Failed to get settings");
-
-            result
+            from_json_execution_settings(&args, config, &user).unwrap_or_default()
         }
     };
-    debug!(
-        "Config : Matched user {}\n - with task {}\n - with role {}",
-        user.user.name,
-        matching.task().as_ref().borrow().name.to_string(),
-        matching.role().as_ref().borrow().name
-    );
-    let optstack = &matching.opt;
+    let execcfg = &taskmatch.settings;
+
+
+    let optstack = &execcfg.opt;
     check_auth(optstack, config, user, &args.prompt)?;
     dac_override_effective(false).expect("Failed to dac_override_effective");
 
+    if !taskmatch.fully_matching() {
+        error!("You are not allowed to execute this command");
+        error!("This error is reported to the administrator");
+        std::process::exit(1);
+    }
+
     if args.info {
-        println!("Role: {}", matching.role().as_ref().borrow().name);
+        println!("Role: {}", execcfg.role().as_ref().borrow().name);
         println!(
             "Task: {}",
-            matching.task().as_ref().borrow().name.to_string()
+            execcfg.task().as_ref().borrow().name.to_string()
         );
         println!(
             "With capabilities: {}",
-            matching
+            execcfg
                 .caps
                 .unwrap_or_default()
                 .into_iter()
@@ -276,9 +266,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
-    debug!("setuid : {:?}", matching.setuid);
+    debug!("setuid : {:?}", execcfg.setuid);
 
-    let uid = matching.setuid.and_then(|u| {
+    let uid = execcfg.setuid.as_ref().and_then(|u| {
         let res = u.into_user().unwrap_or(None);
         if let Some(user) = res {
             Some(user.uid.as_raw())
@@ -286,7 +276,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         }
     });
-    let gid = matching.setgroups.as_ref().and_then(|g| match g {
+    let gid = execcfg.setgroups.as_ref().and_then(|g| match g {
         SGroups::Single(g) => {
             let res = g.into_group().unwrap_or(None);
             if let Some(group) = res {
@@ -304,7 +294,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     });
-    let groups = matching.setgroups.as_ref().and_then(|g| match g {
+    let groups = execcfg.setgroups.as_ref().and_then(|g| match g {
         SGroups::Single(g) => {
             let res = g.into_group().unwrap_or(None);
             if let Some(group) = res {
@@ -333,7 +323,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     setuid_effective(false).expect("Failed to setuid_effective");
 
     //set capabilities
-    if let Some(caps) = matching.caps {
+    if let Some(caps) = execcfg.caps {
         setpcap_effective(true).expect("Failed to setpcap_effective");
         let mut capstate = CapState::empty();
         if !optstack.get_bounding().1.is_ignore() {
@@ -364,8 +354,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("Failed to calculate env");
     let pty = Pty::new().expect("Failed to create pty");
 
-    let command = Command::new(&matching.exec_path)
-        .args(matching.exec_args)
+    let command = Command::new(&execcfg.exec_path)
+        .args(execcfg.exec_args.iter())
         .envs(envset)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -379,7 +369,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 "{} : command not found",
                 matching.exec_path.display()
             );*/
-            eprintln!("sr: {} : command not found", matching.exec_path.display());
+            eprintln!("sr: {} : command not found", execcfg.exec_path.display());
             std::process::exit(1);
         }
     };

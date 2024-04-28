@@ -844,16 +844,18 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
         let mut tasks: Vec<TaskMatch> = Vec::new();
         for role in self.as_ref().borrow().roles.iter() {
             if let Ok(matched) = role.matches(user, command) {
-                if tasks.is_empty() || matched.score < tasks[0].score {
-                    tasks.clear();
-                    tasks.push(matched);
-                } else if matched.score == tasks[0].score
-                    && !Rc::ptr_eq(
-                        &matched.settings.task.upgrade().unwrap(),
-                        &tasks[0].settings.task.upgrade().unwrap(),
-                    )
-                {
-                    tasks.push(matched);
+                if matched.fully_matching() {
+                    if tasks.is_empty() ||  matched.score < tasks[0].score {
+                        tasks.clear();
+                        tasks.push(matched);
+                    } else if matched.score == tasks[0].score
+                        && !Rc::ptr_eq(
+                            &matched.settings.task.upgrade().unwrap(),
+                            &tasks[0].settings.task.upgrade().unwrap(),
+                        )
+                    {
+                        tasks.push(matched);
+                    }
                 }
             } // we ignore error, because it's not a match
         }
