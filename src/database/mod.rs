@@ -1,11 +1,14 @@
 use std::{cell::RefCell, error::Error, fs::File, os::fd::AsRawFd, path::PathBuf, rc::Rc};
 
+use crate::common::version::PACKAGE_VERSION;
 use crate::rc_refcell;
+use capctl::CapState;
 use chrono::Duration;
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::warn;
+use tracing::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
@@ -108,7 +111,9 @@ pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box
 }
 
 pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
+    debug!("Setting immutable privilege");
     immutable_effective(true)?;
+    debug!("Setting dac privilege");
     dac_override_effective(true)?;
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
@@ -120,17 +125,26 @@ pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<()
         .path
         .as_ref()
         .unwrap_or(&into);
-    toggle_lock_config(path, false)?;
-    write_json_config(&settings, config)?;
+    debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
+    debug!("Writing config file");
+    let versionned : Versioning<Rc<RefCell<SConfig>>> = Versioning {
+        version: PACKAGE_VERSION.to_owned().parse()?,
+        data: config,
+    };
+    write_json_config(&settings, versionned)?;
+    debug!("Toggling immutable off for config file");
+    toggle_lock_config(path, false)?;
+    debug!("Resetting dac privilege");
     dac_override_effective(false)?;
+    debug!("Resetting immutable privilege");
     immutable_effective(false)?;
     Ok(())
 }
 
 fn write_json_config(
     settings: &Settings,
-    config: Rc<RefCell<SConfig>>,
+    config: Versioning<Rc<RefCell<SConfig>>>,
 ) -> Result<(), Box<dyn Error>> {
     let default_remote = RemoteStorageSettings::default();
     let file = std::fs::File::create(
@@ -142,7 +156,7 @@ fn write_json_config(
             .as_ref()
             .unwrap_or(&ROOTASROLE.into()),
     )?;
-    serde_json::to_writer_pretty(file, &*config.borrow())?;
+    serde_json::to_writer_pretty(file, &config)?;
     Ok(())
 }
 

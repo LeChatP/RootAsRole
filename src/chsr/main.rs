@@ -1,9 +1,9 @@
 //extern crate sudoers_reader;
 
 
-use common::{config::{self, Storage}, database::{read_json_config, save_json}, plugin::register_plugins, read_effective};
+use common::{config::{self, Storage}, database::{read_json_config, save_json}, drop_effective, plugin::register_plugins, read_effective};
 use common::subsribe;
-use tracing::error;
+use tracing::{debug, error};
 
 mod cli;
 #[path = "../mod.rs"]
@@ -14,6 +14,7 @@ mod common;
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     subsribe("chsr");
+    drop_effective()?;
     register_plugins();
     read_effective(true).expect("Operation not permitted");
     let settings = config::get_settings();
@@ -31,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     if cli::main(&config).is_ok() {
         match config {
             Storage::JSON(config) => {
+                debug!("Saving configuration");
                 save_json(&settings, config)?;
                 Ok(())
             }

@@ -22,7 +22,7 @@ use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use tracing::{debug, error, info};
 
 use crate::common::plugin::register_plugins;
-use crate::common::subsribe;
+use crate::common::{drop_effective, subsribe};
 use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
@@ -173,6 +173,7 @@ fn from_json_execution_settings(
 
 fn main() -> Result<(), Box<dyn Error>> {
     subsribe("sr");
+    drop_effective()?;
     register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());

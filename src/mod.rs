@@ -13,6 +13,7 @@ pub mod plugin;
 
 #[cfg(debug_assertions)]
 pub fn subsribe(tool: &str) {
+    use std::io;
     let identity = CString::new(tool).unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
@@ -22,7 +23,7 @@ pub fn subsribe(tool: &str) {
         .with_file(true)
         
         .with_line_number(true)
-        .with_writer(syslog)
+        .with_writer(io::stdout)
         .finish()
         .init();
 }
@@ -51,6 +52,12 @@ pub fn subsribe(tool: &str) {
             println!("{}", s);
         }
     }));
+}
+
+pub fn drop_effective() -> Result<(), capctl::Error> {
+    let mut current = CapState::get_current()?;
+    current.effective.clear();
+    current.set_current()
 }
 
 pub fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
