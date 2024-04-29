@@ -33,6 +33,10 @@ if [ -e "/etc/security/rootasrole.json" ];then
 			sed -i "s/ROOTADMINISTRATOR/$INSTALL_USER/g" /etc/security/rootasrole.json
 			;;
 	esac
+else 
+	cp resources/rootasrole.json /etc/security || exit
+	echo "Define root role for the user $INSTALL_USER"
+	sed -i "s/ROOTADMINISTRATOR/$INSTALL_USER/g" /etc/security/rootasrole.json
 fi
 chmod 0644 /etc/pam.d/sr || exit
 chmod 0640 /etc/security/rootasrole.json || exit
