@@ -1,0 +1,195 @@
+cli  = { SOI ~ chsr ~ args ~ EOI }
+args = { help | list | role | options_operations }
+
+chsr      = _{ name }
+list      = { ("show" | "list" | "l") }
+set       = { "set" | "s" }
+add       = { "add" | "create" }
+del       = { "del" | "delete" | "unset" | "d" | "rm"}
+purge     = { "purge" }
+grant     = { "grant" }
+revoke    = { "revoke" }
+setpolicy = { "setpolicy" }
+whitelist = { "whitelist" | "wl" }
+blacklist = { "blacklist" | "bl" }
+checklist = { "checklist" | "cl" }
+
+all       = { "all" }
+
+name = @{ (!WHITESPACE ~ ANY)+ }
+
+
+// ========================
+// role
+// ========================
+
+
+// chsr list
+// chsr r r1 create
+// chsr r r1 delete
+// chsr r r1 show (actors|tasks|all)
+// chsr r r1 purge (actors|tasks|all)
+// chsr r r1 grant -u user1 -g group1 group2&group3
+// chsr r r1 revoke -u user1 -g group1 group2&group3
+
+role         = { ("role" | "r") ~ roles_operations }
+roles_operations = { purge | role_operations }
+
+role_operations = { role_id ~ ( add | del | role_show_purge | role_grant_revoke | tasks_operations | options_operations) }
+role_id         = @{ name }
+role_grant_revoke  = { (grant | revoke) ~ user_or_groups }
+role_show_purge    = { (list|purge) ~ role_type_arg? }
+role_type_arg = @{ "actors" | "tasks" | all }
+
+
+user_or_groups   =  { (user | group)+ }
+user             = ${ ("--user" ~ assignment? | "-u" ~ WHITESPACE) ~ actor_name }
+group            = ${ ("--group" ~ assignment? | "-g" ~ WHITESPACE) ~ name_combination }
+name_combination =  _{ actor_name ~ (("&" | ",") ~ name_combination) | actor_name }
+actor_name             = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$" | (CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31}) | ASCII_DIGIT+ }
+
+// ========================
+// task
+// ========================
+
+// chsr r r1 task t1 show (all|cmd|cred)
+// chsr r r1 task t1 purge (all|cmd|cred)
+// chsr r r1 t t1 add
+// chsr r r1 t t1 del
+
+tasks_operations        = { task_spec ~ (task_operations | options_operations) }
+task_operations = { task_show_purge | add | del | command_operations | credentials_operations }
+task_show_purge = { (list | purge) ~ task_type_arg? }
+task_type_arg = { all | cmd_keyword | cred_keyword }
+
+task_spec = { task_keyword ~ task_id }
+task_keyword        = { ("task" | "t") }
+task_id           = @{ name }
+
+// ========================
+// command
+// ========================
+
+// chsr r r1 t t1 commands show
+// chsr r r1 t t1 cmd setpolicy (deny-all|allow-all)
+// chsr r r1 t t1 cmd (whitelist|blacklist) (add|del) c1
+
+cmd_keyword = { ("command" | "cmd") }
+command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
+cmd_setpolicy = { setpolicy ~ cmd_policy }
+cmd_policy    =  { "allow-all" | "deny-all" }
+
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
+cmd         = @{ name }
+
+// ========================
+// credentials
+// ========================
+
+// chsr r r1 t t1 credentials show
+// chsr r r1 t t1 cred (unset|set) --caps cap1,cap2,cap3 --setuid user1 --setgid group1,group2
+
+cred_keyword = { ("credentials" | "cred") }
+credentials_operations  = _{ cred_keyword ~ (cred_set_operations | cred_caps_operations | list) }
+cred_set_operations     = _{ (set | del) ~ cred_set_args }
+cred_set_args = _{
+    (cred_c | cred_u | cred_g)+
+  | help
+}
+cred_c       =  { ("--caps" ~ assignment? | "-c" ~ WHITESPACE) ~ capabilities? }
+cred_u       =  { ("--setuid" ~ assignment? | "-u" ~ WHITESPACE) ~ actor_name }
+cred_g       =  { ("--setgid" ~ assignment? | "-g" ~ WHITESPACE) ~ name_combination }
+
+capabilities = _{ capability ~ ("," | WHITESPACE) ~ capabilities | capability}
+capability   =  { "CAP_"? ~ (LETTER | "_")+ }
+
+
+// chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
+// chsr r r1 t t1 cred caps (whitelist|blacklist) (add|del) cap1 cap2 cap3
+cred_caps_operations      = _{ "caps" ~ (caps_setpolicy | caps_listing) }
+caps_setpolicy = _{ setpolicy ~ caps_policy }
+caps_policy    =  @{ cmd_policy }
+caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities | purge)}
+
+// ========================
+// options
+// ========================
+
+// chsr (r r1) (t t1) options show (all|path|env|root|bounding|wildcard-denied)
+// chsr o path set /usr/bin:/bin this regroups setpolicy delete and whitelist set
+// chsr o path setpolicy (delete-all|keep-all|inherit)
+// chsr o path (whitelist|blacklist) (add|del|set|purge) /usr/bin:/bin
+
+// chsr o env set MYVAR=1 VAR2=2 //this regroups setpolicy delete and whitelist set
+// chsr o env setpolicy (delete-all|keep-all|inherit)
+// chsr o env (whitelist|blacklist|checklist) (add|del|set|purge) MYVAR=1
+
+// chsr o root (privileged|user|inherit)
+// chsr o bounding (strict|ignore|inherit)
+// chsr o wildcard-denied (set|add|del) *
+
+// chsr o timeout set --type tty --duration 5:00 --max_usage 1
+// chsr o t unset --type --duration --max_usage
+
+options_operations  = { ("options" | "o") ~ opt_args }
+opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout }
+
+opt_show     = _{ list ~ opt_show_arg? }
+opt_show_arg = { "all" | "cmd" | "cred" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout" }
+
+opt_path           = { "path" ~ (opt_path_args | help) }
+opt_path_args      = _{ opt_path_set | opt_path_setpolicy | opt_path_listing }
+opt_path_set       = _{ set ~ path }
+opt_path_setpolicy = _{ setpolicy ~ path_policy }
+path_policy        =  { "delete-all" | "keep-safe" | "keep-unsafe" | "inherit" }
+opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
+path               =  @{ name }
+
+opt_env         = { "env" ~ (opt_env_args | help) }
+opt_env_args    = _{ opt_env_set | opt_env_setpolicy | opt_env_listing }
+opt_env_setpolicy = { setpolicy ~ env_policy }
+env_policy      =  { "delete-all" | "keep-all" | "inherit" }
+opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_list) | purge) }
+opt_env_set     = _{ set ~ env_list }
+env_list        = _{ env_key ~ (("," | WHITESPACE) ~ env_list) | env_key }
+
+env_key   = { (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
+
+opt_root      = { "root" ~ (opt_root_args | help) }
+opt_root_args = { "privileged" | "user" | "inherit" }
+
+opt_bounding      = { "bounding" ~ (opt_bounding_args | help) }
+opt_bounding_args = { "strict" | "ignore" | "inherit" }
+
+opt_wildcard      = { "wildcard-denied" ~ (opt_wildcard_args | help) }
+opt_wildcard_args = _{ (add | del | set) ~ wildcard_value }
+wildcard_value    = { name }
+
+
+
+opt_timeout = { ("timeout" | "t") ~ opt_timeout_operations }
+opt_timeout_operations = { (set | del) ~ opt_timeout_args }
+
+opt_timeout_args  =  _{
+    opt_timeout_t_arg ~ (opt_timeout_d_arg ~ opt_timeout_m_arg? | opt_timeout_m_arg ~ opt_timeout_d_arg?)?
+  | opt_timeout_d_arg ~ (opt_timeout_t_arg ~ opt_timeout_m_arg? | opt_timeout_m_arg ~ opt_timeout_t_arg?)?
+  | opt_timeout_m_arg ~ (opt_timeout_t_arg ~ opt_timeout_d_arg? | opt_timeout_d_arg ~ opt_timeout_t_arg?)?
+}
+opt_timeout_t_arg    = ${ ("--type" ~ assignment? | "-t" ~ WHITESPACE*) ~ opt_timeout_type? }
+opt_timeout_type =  { "tty" | "ppid" | "uid" }
+opt_timeout_d_arg    =  { ("--duration" ~ assignment? | "-d" ~ WHITESPACE*) ~ time? }
+time         =  _{ (hours~colon)? ~ minutes ~ colon ~ seconds | (minutes~colon)? ~ seconds }
+colon       =  _{ ":"}
+hours       =  { ASCII_DIGIT+ }
+minutes     =  { ASCII_DIGIT+ }
+seconds     =  { ASCII_DIGIT+ }
+opt_timeout_m_arg    =  { ("--max-usage" ~ assignment? | "-m" ~ WHITESPACE*) ~ opt_timeout_max_usage? }
+opt_timeout_max_usage    =  { ASCII_DIGIT+ }
+
+
+assignment   =  _{ "=" | WHITESPACE }
+help = { "-h" | "--help" }
+
+NOT_ESCAPE_QUOTE = @{ !"\\" ~ "\"" }
+
+WHITESPACE = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }

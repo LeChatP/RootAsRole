@@ -1,74 +1,43 @@
 //extern crate sudoers_reader;
 
-mod checklist;
+use common::subsribe;
+use common::{
+    config::{self, Storage},
+    database::{read_json_config, save_json},
+    drop_effective,
+    plugin::register_plugins,
+    read_effective,
+};
+use tracing::{debug, error};
+
 mod cli;
-#[path = "../config/mod.rs"]
-mod config;
-mod rolemanager;
-mod state;
-#[path = "../util.rs"]
-mod util;
-#[path = "../xml_version.rs"]
-mod xml_version;
+#[path = "../mod.rs"]
+mod common;
 
-use cli::parse_args;
-use config::FILENAME;
-use cursive::Cursive;
-use rolemanager::RoleContext;
-use state::{role::SelectRoleState, InitState};
-use tracing_subscriber::FmtSubscriber;
-
-pub enum ActorType {
-    User,
-    Group,
-}
-
-pub struct RoleManagerApp {
-    manager: RoleContext,
-    state: Box<dyn state::State>,
-}
-
-fn main() {
-    let roles = config::load::load_config(&FILENAME);
-    if let Err(err) = roles {
-        eprintln!("{}", err);
-        std::process::exit(1);
-    }
-    let roles = roles.unwrap();
-    let mut rc_role_manager = RoleContext::new(roles);
-    match parse_args(&mut rc_role_manager) {
-        Ok(value) => {
-            if value {
-                std::process::exit(0);
-            }
-        }
-        Err(err) => {
-            eprintln!("{}", err);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    subsribe("chsr");
+    drop_effective()?;
+    register_plugins();
+    read_effective(true).expect("Operation not permitted");
+    let settings = config::get_settings().expect("Failed to get settings");
+    let config = match settings.clone().as_ref().borrow().storage.method {
+        config::StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone())?),
+        _ => {
+            error!("Unsupported storage method");
             std::process::exit(1);
         }
-    }
-    // a builder for `FmtSubscriber`.
-    let subscriber = FmtSubscriber::builder()
-        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-        // will be written to stdout.
-        .with_max_level(tracing::Level::TRACE)
-        // completes the builder.
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-
-    let mut siv = cursive::default();
-    //let caps = rc_role_manager.as_ref().borrow().selected_command_group().as_ref().borrow().get_capabilities();
-    //siv.add_layer(select_capabilities(rc_role_manager.to_owned(), caps.into()));
-
-    siv.add_layer(SelectRoleState.init(&mut rc_role_manager));
-    SelectRoleState.config_cursive(&mut siv);
-
-    let app = RoleManagerApp {
-        manager: rc_role_manager,
-        state: Box::new(SelectRoleState),
     };
+    read_effective(false).expect("Operation not permitted");
 
-    siv.set_user_data(app);
-    siv.run();
+    if cli::main(&config).is_ok_and(|b| b) {
+        match config {
+            Storage::JSON(config) => {
+                debug!("Saving configuration");
+                save_json(settings, config)?;
+                Ok(())
+            }
+        }
+    } else {
+        Ok(())
+    }
 }

@@ -38,8 +38,11 @@ jobs:
           toolchain: stable
           components: clippy
           override: true
-      
+
       - name: Install Dependencies
+        run: sudo ./dependencies.sh -yd
+      
+      - name: Configure
         run: sudo ./configure.sh -yd
 
       # if pull request review only

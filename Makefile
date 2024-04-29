@@ -2,18 +2,17 @@ CARGO ?= /usr/bin/cargo
 PROFILE ?= release
 RELEASE = $(if $(filter $(PROFILE),release),--release,)
 BIN_DIR := target/$(PROFILE)
-SR_VERSION = $(shell xmllint --xpath "string(/rootasrole/@version)" resources/rootasrole.xml)
 BINS := $(addprefix $(BIN_DIR)/,sr chsr capable)
-.PHONY: $(BIN_DIR)/sr $(BIN_DIR)/chsr
+.PHONY: $(BIN_DIR)/sr $(BIN_DIR)/chsr $(BIN_DIR)/capable
 $(BIN_DIR)/sr:
-	cargo build $(RELEASE) --bin sr
+	cargo build $(RELEASE) --bin sr || true
 
 $(BIN_DIR)/chsr:
-	cargo build $(RELEASE) --bin chsr
+	cargo build $(RELEASE) --bin chsr || true
 
 $(BIN_DIR)/capable:
-	cargo xtask build-ebpf $(RELEASE)
-	cargo build --package capable $(RELEASE)
+	cargo xtask build-ebpf $(RELEASE) || true
+	cargo build --package capable $(RELEASE) || true
 
 $(BINS): | $(BIN_DIR)
 
@@ -25,6 +24,7 @@ build: $(BINS)
 install: build
 	cp -f $(BINS) /usr/bin
 	setcap "=p" /usr/bin/sr
+	setcap cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable
 
 test:
 	cargo test

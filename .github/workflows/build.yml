@@ -16,6 +16,7 @@ jobs:
       run: sudo apt-get update
     - name: Install Dependencies
       run: |
+        sudo ./dependencies.sh -yd
         sudo ./configure.sh -yd
         echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
     - name: Configure PAM
@@ -31,14 +32,14 @@ jobs:
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
     - name: Add read access on config on rootasrole... Because Github Actions...
-      run: sudo chmod a+r /etc/security/rootasrole.xml
+      run: sudo chmod a+r /etc/security/rootasrole.json
     - name: print config
-      run: cat /etc/security/rootasrole.xml
+      run: cat /etc/security/rootasrole.json
     - name: getenv
       run: env
     - name: Install Project
       run: sudo -E make -e install
     - name: Run Sr
       run: /usr/bin/sr -h
-    - name: Run Chsr
-      run: /usr/bin/chsr -h
+    - name: Run Chsr with sr
+      run: sr /usr/bin/chsr -h

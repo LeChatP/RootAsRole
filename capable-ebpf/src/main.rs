@@ -17,15 +17,15 @@ type Key = i32;
 type TaskStructPtr = *mut task_struct;
 
 #[map]
-static KALLSYMS_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
+static mut KALLSYMS_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
 #[map]
-static CAPABILITIES_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
+static mut CAPABILITIES_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
 #[map]
-static UID_GID_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
+static mut UID_GID_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
 #[map]
-static PPID_MAP: HashMap<Key, i32> = HashMap::with_max_entries(MAX_PID,0);
+static mut PPID_MAP: HashMap<Key, i32> = HashMap::with_max_entries(MAX_PID,0);
 #[map]
-static PNSID_NSID_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
+static mut PNSID_NSID_MAP: HashMap<Key, u64> = HashMap::with_max_entries(MAX_PID,0);
 
 #[kprobe]
 pub fn capable(ctx: ProbeContext) -> u32 {
@@ -41,17 +41,18 @@ fn try_capable(ctx: ProbeContext) -> Result<u32, i64> {
         let task = bpf_probe_read_kernel(&task)?;
         let ppid: i32 = get_ppid(task)?;
         let pid: i32 = bpf_probe_read_kernel(&(*task).pid)?;
-        let cap: u64 = ctx.arg(3).unwrap();
+        let cap: u64 = (1 << ctx.arg::<u8>(2).expect("failed to get arg")) as u64;
         let uid: u64 = bpf_get_current_uid_gid();
-        let capval = CAPABILITIES_MAP.get_ptr_mut(&pid).unwrap_or(&mut 0);
+        let zero = 0;
+        let capval: u64 = *CAPABILITIES_MAP.get(&pid).unwrap_or(&zero);
         let pinum_inum :u64 = Into::<u64>::into(get_parent_ns_inode(task)?)<<32 | Into::<u64>::into(get_ns_inode(task)?);
         UID_GID_MAP.insert(&pid, &uid,0).expect("failed to insert uid");
         PNSID_NSID_MAP.insert(&pid, &pinum_inum,0).expect("failed to insert pnsid");
         PPID_MAP.insert(&pid, &ppid,0).expect("failed to insert ppid");
-        *capval |= cap;
-        CAPABILITIES_MAP.insert(&pid, &*capval,0).expect("failed to insert cap");
+        CAPABILITIES_MAP.insert(&pid, &(capval|cap),0).expect("failed to insert cap");
     }
     Ok(0)
+   
 }
 
 unsafe fn get_ppid(task : TaskStructPtr) -> Result<i32, i64> {

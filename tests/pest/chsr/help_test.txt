@@ -1,0 +1,12 @@
+Chsr help test
+=======
+
+"chsr" "--help"
+
+=======
+
+(cli
+  (args
+    (help: "--help")
+  )
+)

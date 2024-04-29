@@ -27,7 +27,7 @@
         "typeinfo": "c"
     },
     "rust-analyzer.linkedProjects": [
-        "sudoers-reader/Cargo.toml",
+        //"sudoers-reader/Cargo.toml",
         "Cargo.toml",
         "./capable/Cargo.toml"
     ],

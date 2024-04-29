@@ -1,5 +1,76 @@
+use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf};
+
 use capctl::{Cap, CapSet, ParseCapError};
+use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use tracing::warn;
+
+#[macro_export]
+macro_rules! upweak {
+    ($e:expr) => {
+        $e.upgrade().unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! as_borrow {
+    ($e:expr) => {
+        $e.as_ref().borrow()
+    };
+}
+
+#[macro_export]
+macro_rules! as_borrow_mut {
+    ($e:expr) => {
+        $e.as_ref().borrow_mut()
+    };
+}
+
+#[macro_export]
+macro_rules! rc_refcell {
+    ($e:expr) => {
+        std::rc::Rc::new(std::cell::RefCell::new($e))
+    };
+}
+
+const FS_IMMUTABLE_FL: u32 = 0x00000010;
+
+pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
+    let file = match File::open(file) {
+        Err(e) => return Err(e.to_string()),
+        Ok(f) => f,
+    };
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    if lock {
+        val &= !(FS_IMMUTABLE_FL);
+    } else {
+        val |= FS_IMMUTABLE_FL;
+    }
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Error>> {
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if val & FS_IMMUTABLE_FL == 0 {
+        if return_err {
+            return Err(
+                "Config file is not immutable, ask your administrator to solve this issue".into(),
+            );
+        }
+        warn!("Config file is not immutable, think about setting the immutable flag.");
+    }
+    Ok(())
+}
 
 pub fn capset_to_string(set: &CapSet) -> String {
     set.iter()
@@ -11,7 +82,7 @@ pub fn capset_to_string(set: &CapSet) -> String {
         .to_string()
 }
 
-pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
+pub fn capset_to_vec(set: &capctl::CapSet) -> Vec<String> {
     set.iter().map(|cap| cap.to_string()).collect()
 }
 
@@ -31,14 +102,6 @@ where
         }
     }
     Ok(res)
-}
-
-pub fn parse_capset(s: &str) -> Result<CapSet, ParseCapError> {
-    if s.is_empty() || s.eq_ignore_ascii_case("all") {
-        return Ok(!CapSet::empty() & capctl::bounding::probe());
-    }
-
-    parse_capset_iter(s.split(' '))
 }
 
 /// Reference every capabilities that lead to almost a direct privilege escalation

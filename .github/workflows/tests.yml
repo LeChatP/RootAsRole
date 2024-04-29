@@ -26,6 +26,9 @@ jobs:
       run: cargo install grcov
     
     - name: Install Dependencies
+      run: sudo ./dependencies.sh -yd
+    
+    - name: Install file configuration
       run: sudo ./configure.sh -yd
     
     - name: run tests with coverage

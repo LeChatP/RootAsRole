@@ -1,0 +1,85 @@
+{
+    "version": "3.0.0-alpha.4",
+    "storage": {
+        "method": "json",
+        "settings": {
+            "immutable": true,
+            "path": "/etc/security/rootasrole.json"
+        }
+    },
+    "options": {
+        "timeout": {
+            "type": "ppid",
+            "duration": "00:05:00"
+        },
+        "path": {
+            "default": "delete",
+            "add": [
+                "/usr/local/sbin",
+                "/usr/local/bin",
+                "/usr/sbin",
+                "/usr/bin",
+                "/sbin",
+                "/bin",
+                "/snap/bin"
+            ]
+        },
+        "env": {
+            "default": "delete",
+            "keep": [
+                "HOME",
+                "USER",
+                "LOGNAME",
+                "COLORS",
+                "DISPLAY",
+                "HOSTNAME",
+                "KRB5CCNAME",
+                "LS_COLORS",
+                "PS1",
+                "PS2",
+                "XAUTHORY",
+                "XAUTHORIZATION",
+                "XDG_CURRENT_DESKTOP"
+            ],
+            "check": [
+                "COLORTERM",
+                "LANG",
+                "LANGUAGE",
+                "LC_*",
+                "LINGUAS",
+                "TERM",
+                "TZ"
+            ]
+        },
+        "allow-root": false,
+        "allow-bounding": false,
+        "wildcard-denied": ";&|"
+    },
+    "roles": [
+        {
+            "name": "t_root",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "ROOTADMINISTRATOR"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "t_root",
+                    "purpose": "access to every commands",
+                    "cred": {
+                        "setuid": "root",
+                        "setgid": "root",
+                        "capabilities": {
+                            "default": "all"
+                        }
+                    },
+                    "commands": {
+                        "default": "all"
+                    }
+                }
+            ]
+        }
+    ]
+}
