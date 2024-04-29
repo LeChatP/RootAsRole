@@ -1,52 +1,30 @@
-use std::{cell::RefCell, error::Error, fs::File, os::fd::AsRawFd, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, rc::Rc};
 
+use crate::common::config::save_settings;
+use crate::common::util::toggle_lock_config;
 use crate::common::version::PACKAGE_VERSION;
 use crate::rc_refcell;
-use capctl::CapState;
 use chrono::Duration;
-use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
-use tracing::warn;
 use tracing::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
+use super::config::SettingsFile;
+use super::util::warn_if_mutable;
 use super::{
-    config::{RemoteStorageSettings, Settings, ROOTASROLE},
+    config::{RemoteStorageSettings, ROOTASROLE},
     dac_override_effective, immutable_effective,
     util::parse_capset_iter,
 };
 
 pub mod finder;
-mod migration;
+pub mod migration;
 pub mod options;
 pub mod structs;
-mod version;
+pub mod version;
 pub mod wrapper;
-
-const FS_IMMUTABLE_FL: u32 = 0x00000010;
-
-fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
-    let file = match File::open(file) {
-        Err(e) => return Err(e.to_string()),
-        Ok(f) => f,
-    };
-    let mut val = 0;
-    let fd = file.as_raw_fd();
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    if lock {
-        val &= !(FS_IMMUTABLE_FL);
-    } else {
-        val |= FS_IMMUTABLE_FL;
-    }
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    Ok(())
-}
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     for role in &config.as_ref().borrow().roles {
@@ -57,74 +35,68 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Error>> {
-    let mut val = 0;
-    let fd = file.as_raw_fd();
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    if val & FS_IMMUTABLE_FL == 0 {
-        if return_err {
-            return Err(
-                "Config file is not immutable, ask your administrator to solve this issue".into(),
-            );
-        }
-        warn!("Config file is not immutable, think about setting the immutable flag.");
-    }
-    Ok(())
-}
-
-pub fn read_json_config(settings: &Settings) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+pub fn read_json_config(settings: Rc<RefCell<SettingsFile>>) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-
-    let file = std::fs::File::open(
-        settings
-            .settings
-            .as_ref()
-            .unwrap_or(&default_remote)
-            .path
-            .as_ref()
-            .unwrap_or(&ROOTASROLE.into()),
-    )?;
-    warn_if_mutable(
-        &file,
-        settings
-            .settings
-            .as_ref()
-            .unwrap_or(&default_remote)
-            .immutable
-            .unwrap_or(true),
-    )?;
-
-    let versionned_config: Versioning<SConfig> = serde_json::from_reader(file)?;
-    let config = rc_refcell!(versionned_config.data);
-    if Migration::migrate(
-        &versionned_config.version,
-        &mut *config.as_ref().borrow_mut(),
-        version::JSON_MIGRATIONS,
-    )? {
-        save_json(settings, config.clone())?;
+    let default = &ROOTASROLE.into();
+    let binding = settings.as_ref().borrow();
+    let path = binding
+        .storage
+        .settings
+        .as_ref()
+        .unwrap_or(&default_remote)
+        .path.as_ref()
+        .unwrap_or(default);
+    if path == default {
+        make_weak_config(&settings.as_ref().borrow().config);
+        Ok(settings.as_ref().borrow().config.clone())
+    } else {
+        let file = std::fs::File::open(
+            path
+        )?;
+        warn_if_mutable(
+            &file,
+            settings.as_ref().borrow()
+                .storage
+                .settings
+                .as_ref()
+                .unwrap_or(&default_remote)
+                .immutable
+                .unwrap_or(true),
+        )?;
+        let versionned_config: Versioning<Rc<RefCell<SConfig>>> = serde_json::from_reader(file)?;
+        let config = versionned_config.data;
+        if Migration::migrate(
+            &versionned_config.version,
+            &mut *config.as_ref().borrow_mut(),
+            version::JSON_MIGRATIONS,
+        )? {
+            save_json(settings.clone(), config.clone())?;
+        }
+        make_weak_config(&config);
+        Ok(config)
     }
-    make_weak_config(&config);
-
-    Ok(config.clone())
 }
 
-pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
-    debug!("Setting immutable privilege");
-    immutable_effective(true)?;
-    debug!("Setting dac privilege");
-    dac_override_effective(true)?;
+pub fn save_json(settings: Rc<RefCell<SettingsFile>>, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
-    let path = settings
+    let binding = settings.as_ref().borrow();
+    let path = binding
+        .storage
         .settings
         .as_ref()
         .unwrap_or(&default_remote)
         .path
         .as_ref()
         .unwrap_or(&into);
+    if path == &into { // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
+        return save_settings(settings.clone());
+    }
+    debug!("Setting immutable privilege");
+    immutable_effective(true)?;
+    debug!("Setting dac privilege");
+    dac_override_effective(true)?;
     debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
     debug!("Writing config file");
@@ -132,7 +104,7 @@ pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<()
         version: PACKAGE_VERSION.to_owned().parse()?,
         data: config,
     };
-    write_json_config(&settings, versionned)?;
+    write_json_config(&settings.as_ref().borrow(), versionned)?;
     debug!("Toggling immutable off for config file");
     toggle_lock_config(path, false)?;
     debug!("Resetting dac privilege");
@@ -143,12 +115,13 @@ pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<()
 }
 
 fn write_json_config(
-    settings: &Settings,
+    settings: &SettingsFile,
     config: Versioning<Rc<RefCell<SConfig>>>,
 ) -> Result<(), Box<dyn Error>> {
     let default_remote = RemoteStorageSettings::default();
     let file = std::fs::File::create(
         settings
+            .storage
             .settings
             .as_ref()
             .unwrap_or(&default_remote)

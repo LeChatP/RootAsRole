@@ -343,23 +343,6 @@ impl SPathOptions {
         res.default_behavior = behavior;
         res
     }
-    pub fn get_description(&self) -> String {
-        let mut description = String::new();
-        description.push_str(format!("Default behavior: {}\n", self.default_behavior).as_str());
-        if !self.add.is_empty() {
-            description.push_str("Add:\n");
-            for s in self.add.iter() {
-                description.push_str(format!("{}\n", s).as_str());
-            }
-        }
-        if !self.sub.is_empty() {
-            description.push_str("Sub:\n");
-            for s in self.sub.iter() {
-                description.push_str(format!("{}\n", s).as_str());
-            }
-        }
-        description
-    }
 }
 
 impl Default for SEnvOptions {
@@ -379,48 +362,6 @@ impl SEnvOptions {
         let mut res = SEnvOptions::default();
         res.default_behavior = behavior;
         res
-    }
-    pub fn get_description(&self) -> String {
-        let mut description = String::new();
-        description.push_str(format!("Default behavior: {}\n", self.default_behavior).as_str());
-        if !self.keep.is_empty() {
-            description.push_str("Keep:\n");
-            for s in self.keep.iter() {
-                description.push_str(format!("{}\n", s.value).as_str());
-            }
-        }
-        if !self.check.is_empty() {
-            description.push_str("Check:\n");
-            for s in self.check.iter() {
-                description.push_str(format!("{}\n", s.value).as_str());
-            }
-        }
-        if !self.delete.is_empty() {
-            description.push_str("Delete:\n");
-            for s in self.delete.iter() {
-                description.push_str(format!("{}\n", s.value).as_str());
-            }
-        }
-        description
-    }
-}
-
-impl Opt {
-    pub fn get_description(&self) -> String {
-        let mut description = String::new();
-        if let Some(path) = &self.path {
-            description.push_str(format!("{}\n", path.get_description()).as_str());
-        }
-        if let Some(env) = &self.env {
-            description.push_str(format!("{}\n", env.get_description()).as_str());
-        }
-        if let Some(no_root) = &self.root {
-            description.push_str(format!("Root type: {}\n", no_root).as_str());
-        }
-        if let Some(bounding) = &self.bounding {
-            description.push_str(format!("Bounding enforcement: {}\n", bounding).as_str());
-        }
-        description
     }
 }
 

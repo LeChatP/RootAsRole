@@ -183,9 +183,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
     read_effective(true).expect(&cap_effective_error("dac_read"));
-    let settings = config::get_settings();
+    let settings = config::get_settings().expect("Failed to get settings");
     read_effective(false).expect(&cap_effective_error("dac_read"));
-    debug!("loaded config : {:#?}", settings);
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
         .expect("Failed to get user");
@@ -224,9 +223,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     dac_override_effective(true).expect(&cap_effective_error("dac_override"));
-    let config = match settings.method {
+    let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
-            Storage::JSON(read_json_config(&settings).expect("Failed to read config"))
+            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
         }
         _ => {
             return Err("Unsupported storage method".into());

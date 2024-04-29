@@ -9,7 +9,6 @@ use nix::{
     unistd::{Group, Pid, User},
 };
 use pcre2::bytes::RegexBuilder;
-use shell_words::ParseError;
 use strum::EnumIs;
 use tracing::{debug, warn};
 
@@ -86,7 +85,7 @@ pub enum UserMin {
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
 #[repr(u32)]
-enum SetuidMin {
+pub enum SetuidMin {
     Undefined,
     NoSetuidNoSetgid,
     Setgid(usize),
@@ -114,7 +113,7 @@ bitflags! {
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
-enum CapsMin {
+pub enum CapsMin {
     Undefined,
     NoCaps,
     CapsNoAdmin(usize),
@@ -217,30 +216,6 @@ impl TaskMatch {
         !self.score.cmd_min.is_empty()
     }
 
-    pub fn file_exec_path(&self) -> &PathBuf {
-        &self.settings.exec_path
-    }
-
-    pub fn exec_args(&self) -> &Vec<String> {
-        &self.settings.exec_args
-    }
-
-    pub fn opt(&self) -> &OptStack {
-        &self.settings.opt
-    }
-
-    pub fn setuid(&self) -> &Option<SActorType> {
-        &self.settings.setuid
-    }
-
-    pub fn setgroups(&self) -> &Option<SGroups> {
-        &self.settings.setgroups
-    }
-
-    pub fn caps(&self) -> &Option<CapSet> {
-        &self.settings.caps
-    }
-
     pub fn task(&self) -> Rc<RefCell<STask>> {
         self.settings.task.upgrade().expect("Internal Error")
     }
@@ -275,10 +250,6 @@ pub trait TaskMatcher<T> {
 
 pub trait CredMatcher {
     fn user_matches(&self, user: &Cred) -> UserMin;
-}
-
-fn get_command_abspath_and_args(content: &str) -> Result<Vec<String>, ParseError> {
-    shell_words::split(content)
 }
 
 pub fn find_executable_in_path(executable: &str) -> Option<PathBuf> {

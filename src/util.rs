@@ -1,4 +1,8 @@
+use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf};
+
 use capctl::{Cap, CapSet, ParseCapError};
+use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use tracing::warn;
 
 #[macro_export]
 macro_rules! upweak {
@@ -26,6 +30,46 @@ macro_rules! rc_refcell {
     ($e:expr) => {
         std::rc::Rc::new(std::cell::RefCell::new($e))
     };
+}
+
+const FS_IMMUTABLE_FL: u32 = 0x00000010;
+
+pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
+    let file = match File::open(file) {
+        Err(e) => return Err(e.to_string()),
+        Ok(f) => f,
+    };
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    if lock {
+        val &= !(FS_IMMUTABLE_FL);
+    } else {
+        val |= FS_IMMUTABLE_FL;
+    }
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Error>> {
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if val & FS_IMMUTABLE_FL == 0 {
+        if return_err {
+            return Err(
+                "Config file is not immutable, ask your administrator to solve this issue".into(),
+            );
+        }
+        warn!("Config file is not immutable, think about setting the immutable flag.");
+    }
+    Ok(())
 }
 
 pub fn capset_to_string(set: &CapSet) -> String {

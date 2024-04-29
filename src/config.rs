@@ -50,14 +50,17 @@
 pub const ROOTASROLE : &str = "/etc/security/rootasrole.json";
 
 
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
 
-use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use tracing::debug;
 
-use super::database::structs::SConfig;
+use crate::{common::{dac_override_effective, immutable_effective, util::toggle_lock_config}, rc_refcell};
 
-#[derive(Deserialize, Debug)]
+use super::database::{migration::Migration, structs::SConfig, version::{self, Versioning}};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum StorageMethod {
     JSON,
 //    SQLite,
@@ -72,15 +75,16 @@ pub enum Storage {
     JSON(Rc<RefCell<SConfig>>),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SettingsFile {
     pub storage: Settings,
-    #[serde(default, flatten, skip)]
-    pub _extra_fields: Map<String,Value>,
+    #[serde(flatten)]
+    pub config: Rc<RefCell<SConfig>>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
+
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
@@ -89,46 +93,61 @@ pub struct Settings {
 
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RemoteStorageSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub immutable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<ConnectionAuth>,
-    
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Properties>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConnectionAuth {
     pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub client_ssl: Option<ClientSsl>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientSsl {
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_cert: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub client_cert: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub client_key: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Properties {
     pub use_unicode: bool,
     pub character_encoding: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LdapSettings {
     pub enabled: bool,
     pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<ConnectionAuth>,
     pub base_dn: String,
     pub user_dn: String,
@@ -141,7 +160,7 @@ impl Default for SettingsFile {
     fn default() -> Self {
         Self {
             storage: Settings::default(),
-            _extra_fields: Map::new(),
+            config: Rc::new(RefCell::new(SConfig::default())),
         }
     }
 }
@@ -173,12 +192,65 @@ impl Default for RemoteStorageSettings {
     }
 }
 
-pub fn get_settings() -> Settings {
+fn write_json_config(
+    settings: &Versioning<Rc<RefCell<SettingsFile>>>,
+) -> Result<(), Box<dyn Error>> {
+    let file = std::fs::File::create(ROOTASROLE)?;
+    serde_json::to_writer_pretty(file, &settings)?;
+    Ok(())
+}
+
+pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
+    debug!("Setting immutable privilege");
+    immutable_effective(true)?;
+    debug!("Setting dac privilege");
+    dac_override_effective(true)?;
+    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
+    // remove immutable flag
+    let into = ROOTASROLE.into();
+    let binding = settings.as_ref().borrow();
+    let path = binding
+        .storage
+        .settings
+        .as_ref()
+        .unwrap_or(&default_remote)
+        .path
+        .as_ref()
+        .unwrap_or(&into);
+    debug!("Toggling immutable on for config file");
+    toggle_lock_config(path, true)?;
+    debug!("Writing config file");
+    let versionned : Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    write_json_config(&versionned)?;
+    debug!("Toggling immutable off for config file");
+    toggle_lock_config(path, false)?;
+    debug!("Resetting dac privilege");
+    dac_override_effective(false)?;
+    debug!("Resetting immutable privilege");
+    immutable_effective(false)?;
+    Ok(())
+}
+
+pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>{
     // if file does not exist, return default settings
     if !std::path::Path::new(ROOTASROLE).exists() {
-        return Settings::default();
+        return Ok(rc_refcell!(SettingsFile::default()));
     }
     let file = std::fs::File::open(ROOTASROLE).expect("Failed to open file");
-    let value : SettingsFile = serde_json::from_reader(file).unwrap_or_default();
-    value.storage
+    let value : Versioning<SettingsFile> = serde_json::from_reader(file).unwrap_or_default();
+    debug!("{}", serde_json::to_string_pretty(&value)?);
+    let settingsfile = rc_refcell!(value.data);
+    if Migration::migrate(
+        &value.version,
+        &mut *settingsfile.as_ref().borrow_mut(),
+        version::SETTINGS_MIGRATIONS,
+    )? {
+        Migration::migrate(
+            &value.version,
+            &mut *settingsfile.as_ref().borrow_mut().config.as_ref().borrow_mut(),
+            version::JSON_MIGRATIONS,
+        )?;
+        save_settings(settingsfile.clone())?;
+    }
+    Ok(settingsfile)
 }
