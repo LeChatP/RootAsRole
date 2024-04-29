@@ -25,11 +25,9 @@ By using a role-based access control model, this project allows us to better man
 
 ## Installation
 
-### Prerequisites
+### How to Build
 
-Install git
-
-### How to build
+Requirement: rustc >= 1.70.0
 
   1. git clone <https://github.com/LeChatP/RootAsRole>
   1. cd RootAsRole
@@ -37,8 +35,11 @@ Install git
   1. sudo ./configure.sh
   1. sudo make install
 
+Note: The `configure.sh` installs `cargo` and `bpf-linker` rust programs manually into `/usr/local/bin`. You can refuse to install it this way, but these are mandatory to build the program. Depending on your distribution or how you want to install this software, you may know that most rust binaries are installed to `$HOME/.cargo/bin`. When you use sudo to configure, these binaries are installed in the effective user home directory. You may need to move these binaries to a known-user path. 
+
 > [!WARNING]
 > **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
+
 
 ### Usage
 
@@ -59,7 +60,7 @@ Execute privileged commands with a role-based access control system
   <b>-V, --version</b>      Print version
 </pre>
 
-If you're used to using the sudo tool, and you can't change your habit, you could perform an alias : 
+If you're accustomed to utilizing the sudo tool and find it difficult to break that habit, consider creating an alias : 
 ```sh
 alias sudo="sr"
 ```

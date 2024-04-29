@@ -57,20 +57,9 @@ where
             }
         }
     }
-
     Ok(res)
 }
 
-pub fn parse_capset(s: &String) -> Result<CapSet, ParseCapError> {
-    let init = CapSet::empty();
-    if s.to_lowercase().replace(" ", "").starts_with("all-") {
-        parse_capset_iter(s.replace('-', "").split_at(3).1.split(' ')).and(Ok(!init))
-    } else {
-        parse_capset_iter(s.split(' '))
-    }
-
-    
-}
 
 /// Reference every capabilities that lead to almost a direct privilege escalation
 pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {

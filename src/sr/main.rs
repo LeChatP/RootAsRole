@@ -149,6 +149,11 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
+const CAPABILITIES_ERROR : &str = "You need at least dac_override, setpcap, setuid capabilities to run sr";
+fn cap_effective_error(caplist : &str) -> String {
+    format!("Unable to toggle {} privilege. {}",caplist, CAPABILITIES_ERROR)
+}
+
 fn from_json_execution_settings(
     args: &Cli,
     config: &Rc<RefCell<SConfig>>,
@@ -177,9 +182,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
-    read_effective(true).expect("Failed to read_effective");
+    read_effective(true).expect(&cap_effective_error("dac_read"));
     let settings = config::get_settings();
-    read_effective(false).expect("Failed to read_effective");
+    read_effective(false).expect(&cap_effective_error("dac_read"));
     debug!("loaded config : {:#?}", settings);
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
@@ -218,7 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ppid,
     };
 
-    dac_override_effective(true).expect("Failed to dac_override_effective");
+    dac_override_effective(true).expect(&cap_effective_error("dac_override"));
     let config = match settings.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(&settings).expect("Failed to read config"))
@@ -237,7 +242,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let optstack = &execcfg.opt;
     check_auth(optstack, &config, &user, &args.prompt)?;
-    dac_override_effective(false).expect("Failed to dac_override_effective");
+    dac_override_effective(false).expect(&cap_effective_error("dac_override"));
 
     if !taskmatch.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -316,16 +321,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    setgid_effective(true).expect("Failed to setgid_effective");
-    setuid_effective(true).expect("Failed to setuid_effective");
+    setgid_effective(true).expect(&cap_effective_error("setgid"));
+    setuid_effective(true).expect(&cap_effective_error("setuid"));
     capctl::cap_set_ids(uid, gid, groups.as_ref().map(|g| g.as_slice()))
         .expect("Failed to set ids");
-    setgid_effective(false).expect("Failed to setgid_effective");
-    setuid_effective(false).expect("Failed to setuid_effective");
+    setgid_effective(false).expect(&cap_effective_error("setgid"));
+    setuid_effective(false).expect(&cap_effective_error("setuid"));
 
     //set capabilities
     if let Some(caps) = execcfg.caps {
-        setpcap_effective(true).expect("Failed to setpcap_effective");
+        setpcap_effective(true).expect(&cap_effective_error("setpcap"));
         let mut capstate = CapState::empty();
         if !optstack.get_bounding().1.is_ignore() {
             for cap in (!caps).iter() {
@@ -338,15 +343,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
         }
-        setpcap_effective(false).expect("Failed to setpcap_effective");
+        setpcap_effective(false).expect(&cap_effective_error("setpcap"));
     } else {
-        setpcap_effective(true).expect("Failed to setpcap_effective");
+        setpcap_effective(true).expect(&cap_effective_error("setpcap"));
         if !optstack.get_bounding().1.is_ignore() {
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
         capstate.set_current().expect("Failed to set current cap");
-        setpcap_effective(false).expect("Failed to setpcap_effective");
+        setpcap_effective(false).expect(&cap_effective_error("setpcap"));
     }
 
     //execute command
