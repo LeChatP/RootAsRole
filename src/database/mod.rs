@@ -7,8 +7,8 @@ use chrono::Duration;
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
-use tracing::warn;
 use tracing::debug;
+use tracing::warn;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
@@ -128,7 +128,7 @@ pub fn save_json(settings: &Settings, config: Rc<RefCell<SConfig>>) -> Result<()
     debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
     debug!("Writing config file");
-    let versionned : Versioning<Rc<RefCell<SConfig>>> = Versioning {
+    let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
         version: PACKAGE_VERSION.to_owned().parse()?,
         data: config,
     };
@@ -225,7 +225,9 @@ where
         let hours: i64 = hours.parse().map_err(de::Error::custom)?;
         let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
         let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
-        return Ok(Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds));
+        return Ok(Duration::hours(hours)
+            + Duration::minutes(minutes)
+            + Duration::seconds(seconds));
     }
     Err(de::Error::custom("Invalid duration format"))
 }

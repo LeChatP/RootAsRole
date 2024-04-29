@@ -16,12 +16,12 @@
 //         }
 //       },
 //       // when using rdbms as storage method
-//       "database": "database", 
-//       "schema": "schema",    
+//       "database": "database",
+//       "schema": "schema",
 //       "table_prefix": "rar_",
-//       "properties": { 
-//         "use_unicode": true,  
-//         "character_encoding": "utf8"  
+//       "properties": {
+//         "use_unicode": true,
+//         "character_encoding": "utf8"
 //       },
 //       // when using ldap as storage method
 //       "role_dn": "ou=roles",
@@ -47,8 +47,7 @@
 //     }
 //   }
 
-pub const ROOTASROLE : &str = "/etc/security/rootasrole.json";
-
+pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
@@ -60,10 +59,10 @@ use super::database::structs::SConfig;
 #[derive(Deserialize, Debug)]
 pub enum StorageMethod {
     JSON,
-//    SQLite,
-//    PostgreSQL,
-//    MySQL,
-//    LDAP,
+    //    SQLite,
+    //    PostgreSQL,
+    //    MySQL,
+    //    LDAP,
     #[serde(other)]
     Unknown,
 }
@@ -76,7 +75,7 @@ pub enum Storage {
 pub struct SettingsFile {
     pub storage: Settings,
     #[serde(default, flatten, skip)]
-    pub _extra_fields: Map<String,Value>,
+    pub _extra_fields: Map<String, Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -86,7 +85,6 @@ pub struct Settings {
     pub settings: Option<RemoteStorageSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ldap: Option<LdapSettings>,
-
 }
 
 #[derive(Deserialize, Debug)]
@@ -96,7 +94,7 @@ pub struct RemoteStorageSettings {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub auth: Option<ConnectionAuth>,
-    
+
     pub database: Option<String>,
     pub schema: Option<String>,
     pub table_prefix: Option<String>,
@@ -179,6 +177,6 @@ pub fn get_settings() -> Settings {
         return Settings::default();
     }
     let file = std::fs::File::open(ROOTASROLE).expect("Failed to open file");
-    let value : SettingsFile = serde_json::from_reader(file).unwrap_or_default();
+    let value: SettingsFile = serde_json::from_reader(file).unwrap_or_default();
     value.storage
 }

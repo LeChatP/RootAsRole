@@ -22,7 +22,6 @@ use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use tracing::{debug, error, info};
 
 use crate::common::plugin::register_plugins;
-use crate::common::{drop_effective, subsribe};
 use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
@@ -30,6 +29,7 @@ use crate::common::{
     database::{read_json_config, structs::SGroups},
     read_effective, setgid_effective, setpcap_effective, setuid_effective,
 };
+use crate::common::{drop_effective, subsribe};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -60,7 +60,6 @@ struct Cli {
     command: Vec<String>,
 }
 
-
 struct SrConversationHandler {
     username: Option<String>,
     prompt: String,
@@ -75,7 +74,11 @@ impl SrConversationHandler {
     }
     fn is_pam_password_prompt(&self, prompt: &CStr) -> bool {
         let pam_prompt = prompt.to_string_lossy();
-        RegexBuilder::new().build("^Password: ?$").unwrap().is_match(pam_prompt.as_bytes()).is_ok_and(|f| f)
+        RegexBuilder::new()
+            .build("^Password: ?$")
+            .unwrap()
+            .is_match(pam_prompt.as_bytes())
+            .is_ok_and(|f| f)
             || self.username.as_ref().is_some_and(|username| {
                 RegexBuilder::new()
                     .build(&format!("^{}'s Password: ?$", username))
@@ -149,9 +152,13 @@ fn add_dashes() -> Vec<String> {
     args
 }
 
-const CAPABILITIES_ERROR : &str = "You need at least dac_override, setpcap, setuid capabilities to run sr";
-fn cap_effective_error(caplist : &str) -> String {
-    format!("Unable to toggle {} privilege. {}",caplist, CAPABILITIES_ERROR)
+const CAPABILITIES_ERROR: &str =
+    "You need at least dac_override, setpcap, setuid capabilities to run sr";
+fn cap_effective_error(caplist: &str) -> String {
+    format!(
+        "Unable to toggle {} privilege. {}",
+        caplist, CAPABILITIES_ERROR
+    )
 }
 
 fn from_json_execution_settings(
@@ -164,14 +171,16 @@ fn from_json_execution_settings(
         (Some(role), None) => as_borrow!(config)
             .role(&role)
             .expect("Permission Denied")
-            .matches(&user, &args.command).map_err(|m| m.into()),
+            .matches(&user, &args.command)
+            .map_err(|m| m.into()),
         (Some(role), Some(task)) => as_borrow!(config)
             .task(
                 &role,
                 &common::database::structs::IdTask::Name(task.to_string()),
             )
             .expect("Permission Denied")
-            .matches(&user, &args.command).map_err(|m| m.into()),
+            .matches(&user, &args.command)
+            .map_err(|m| m.into()),
         (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
@@ -239,14 +248,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let execcfg = &taskmatch.settings;
 
-
     let optstack = &execcfg.opt;
     check_auth(optstack, &config, &user, &args.prompt)?;
     dac_override_effective(false).expect(&cap_effective_error("dac_override"));
 
     if !taskmatch.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
-        error!("User {} tried to execute command : {:?} without the permission.", &user.user.name, args.command);
+        error!(
+            "User {} tried to execute command : {:?} without the permission.",
+            &user.user.name, args.command
+        );
         std::process::exit(1);
     }
 

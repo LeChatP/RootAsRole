@@ -162,7 +162,6 @@ fn caps_from_u64(caps: u64) -> CapSet {
     capset
 }
 
-
 fn union_all_childs(
     nsinode: u32,
     graph: &std::collections::HashMap<u32, Vec<(u32, CapSet)>>,
@@ -189,19 +188,20 @@ where
     let mut init = CapSet::empty();
     for key in capabilities_map.keys() {
         let pid = key?;
-        
+
         let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
         let child = pinum_inum as u32;
         let parent = (pinum_inum >> 32) as u32;
-        graph.entry(parent).or_insert_with(Vec::new).push((child,caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0))));
+        graph.entry(parent).or_insert_with(Vec::new).push((
+            child,
+            caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0)),
+        ));
         if child == *nsinode {
             init = caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0));
         }
-        
     }
     let result = init.union(union_all_childs(*nsinode, &graph));
-    
-    
+
     println!("Here's all capabilities intercepted for this program :\n{}\nWARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\nWARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant",
     capset_to_string(&result));
     Ok(())
@@ -233,58 +233,67 @@ fn get_exec_and_args(command: &mut Vec<String>) -> (PathBuf, Vec<String>) {
         exec_args = command[1..].to_vec();
     } else {
         // encapsulate the command in sh command
-        command[0] = canonicalize(exec_path.clone()).unwrap_or(exec_path).to_str().unwrap().to_string();
+        command[0] = canonicalize(exec_path.clone())
+            .unwrap_or(exec_path)
+            .to_str()
+            .unwrap()
+            .to_string();
         exec_path = PathBuf::from("/bin/sh");
         exec_args = vec!["-c".to_string(), shell_words::join(command)];
     }
     (exec_path, exec_args)
 }
 
-fn print_all<T>( capabilities_map: &HashMap<T, Key, u64>, pnsid_nsid_map: &HashMap<T, Key, u64>, uid_gid_map: &HashMap<T, Key, u64>, ppid_map: &HashMap<T, Key, i32>) -> Result<(), anyhow::Error>
+fn print_all<T>(
+    capabilities_map: &HashMap<T, Key, u64>,
+    pnsid_nsid_map: &HashMap<T, Key, u64>,
+    uid_gid_map: &HashMap<T, Key, u64>,
+    ppid_map: &HashMap<T, Key, i32>,
+) -> Result<(), anyhow::Error>
 where
-    T: Borrow<MapData>
-    {
+    T: Borrow<MapData>,
+{
     let mut capabilities_table = Vec::new();
-        for key in capabilities_map.keys() {
-            let pid = key?;
-            let uid_gid = uid_gid_map.get(&pid, 0).unwrap_or(0);
-            let ppid = ppid_map.get(&pid, 0).unwrap_or(0);
-            let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
-            let ns = (pinum_inum & 0xffffffff) as u32;
-            let parent_ns = (pinum_inum >> 32) as u32;
-            let exe = std::fs::read_link(format!("/proc/{}/exe", pid))
-                .unwrap_or(std::path::PathBuf::from(""));
-            let name: &str = exe.to_str().unwrap_or("");
-            let capabilities = capabilities_map.get(&pid, 0).unwrap_or(0);
-            let capabilities = caps_from_u64(capabilities);
-            let uid = (uid_gid & 0xffffffff) as u32;
-            //find username from uid
-            let username = nix::unistd::User::from_uid(Uid::from_raw(uid))
-                .map_or(uid.to_string(), |u| u.map_or(uid.to_string(), |u| u.name));
-            let gid = (uid_gid >> 32) as u32;
-            let groupname = nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
-                .map_or(gid.to_string(), |g| g.map_or(gid.to_string(), |g| g.name));
-            capabilities_table.push(CapabilitiesTable {
-                pid: pid as u32,
-                ppid: ppid as u32,
-                uid: username,
-                gid: groupname,
-                ns,
-                parent_ns,
-                name: String::from(name),
-                capabilities: capset_to_string(&capabilities),
-            });
-        }
-        println!(
-            "\n{}",
-            Table::new(&capabilities_table)
-                .with(Style::modern())
-                .with(Modify::new(Columns::single(3)).with(Width::wrap(10).keep_words()))
-                .with(Modify::new(Columns::single(2)).with(Width::wrap(10).keep_words()))
-                .with(Modify::new(Columns::single(6)).with(Width::wrap(10).keep_words()))
-                .with(Modify::new(Columns::last()).with(Width::wrap(52).keep_words()))
-        );
-        Ok(())
+    for key in capabilities_map.keys() {
+        let pid = key?;
+        let uid_gid = uid_gid_map.get(&pid, 0).unwrap_or(0);
+        let ppid = ppid_map.get(&pid, 0).unwrap_or(0);
+        let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
+        let ns = (pinum_inum & 0xffffffff) as u32;
+        let parent_ns = (pinum_inum >> 32) as u32;
+        let exe = std::fs::read_link(format!("/proc/{}/exe", pid))
+            .unwrap_or(std::path::PathBuf::from(""));
+        let name: &str = exe.to_str().unwrap_or("");
+        let capabilities = capabilities_map.get(&pid, 0).unwrap_or(0);
+        let capabilities = caps_from_u64(capabilities);
+        let uid = (uid_gid & 0xffffffff) as u32;
+        //find username from uid
+        let username = nix::unistd::User::from_uid(Uid::from_raw(uid))
+            .map_or(uid.to_string(), |u| u.map_or(uid.to_string(), |u| u.name));
+        let gid = (uid_gid >> 32) as u32;
+        let groupname = nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
+            .map_or(gid.to_string(), |g| g.map_or(gid.to_string(), |g| g.name));
+        capabilities_table.push(CapabilitiesTable {
+            pid: pid as u32,
+            ppid: ppid as u32,
+            uid: username,
+            gid: groupname,
+            ns,
+            parent_ns,
+            name: String::from(name),
+            capabilities: capset_to_string(&capabilities),
+        });
+    }
+    println!(
+        "\n{}",
+        Table::new(&capabilities_table)
+            .with(Style::modern())
+            .with(Modify::new(Columns::single(3)).with(Width::wrap(10).keep_words()))
+            .with(Modify::new(Columns::single(2)).with(Width::wrap(10).keep_words()))
+            .with(Modify::new(Columns::single(6)).with(Width::wrap(10).keep_words()))
+            .with(Modify::new(Columns::last()).with(Width::wrap(52).keep_words()))
+    );
+    Ok(())
 }
 
 #[tokio::main]
@@ -336,7 +345,7 @@ async fn main() -> Result<(), anyhow::Error> {
         print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
     } else {
         let (path, args) = get_exec_and_args(&mut args.command);
-        
+
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
         let child = Arc::new(Mutex::new(
@@ -344,8 +353,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 .args(&args)
                 .unshare(vec![unshare::Namespace::Pid].iter())
                 .before_unfreeze(move |id| {
-                    let fnspid = metadata(format!("/proc/{}/ns/pid", id))
-                            .expect("failed to open pid ns");
+                    let fnspid =
+                        metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
                     nsclone.as_ref().replace(fnspid.ino() as u32);
                     Ok(())
                 })
@@ -354,7 +363,7 @@ async fn main() -> Result<(), anyhow::Error> {
         ));
         let cloned = child.clone();
         let pid = child.try_lock().unwrap().pid();
-        
+
         thread::spawn(move || {
             let rt = Runtime::new().unwrap();
             rt.block_on(signal::ctrl_c())
@@ -393,15 +402,19 @@ async fn main() -> Result<(), anyhow::Error> {
             }
             Ok::<(), ()>(())
         });
-        
+
         cloned
             .try_lock()
             .unwrap()
             .wait()
             .expect("failed to wait on child");
         //print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
-        print_program_capabilities(&nsinode.as_ref().borrow(), &capabilities_map, &pnsid_nsid_map)
-            .expect("failed to print capabilities");
+        print_program_capabilities(
+            &nsinode.as_ref().borrow(),
+            &capabilities_map,
+            &pnsid_nsid_map,
+        )
+        .expect("failed to print capabilities");
     }
 
     Ok(())

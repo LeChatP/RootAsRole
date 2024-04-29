@@ -21,20 +21,30 @@ pub trait Plugin {
 #[derive(Debug, PartialEq, Eq, EnumIs)]
 pub enum PluginResultAction {
     Override, // The result of this plugin ends the algorithm to return the plugin result
-    Edit, // The result of this plugin modify the result, algorithm continues
-    Ignore, // The result of this plugin is ignored, algorithm continues
+    Edit,     // The result of this plugin modify the result, algorithm continues
+    Ignore,   // The result of this plugin is ignored, algorithm continues
 }
 
 #[derive(Debug, PartialEq, Eq, EnumIs)]
 pub enum PluginResult {
-    Deny, // The plugin denies the action
+    Deny,    // The plugin denies the action
     Neutral, // The plugin has no opinion on the action
 }
 
 pub type ConfigLoaded = fn(config: &SConfig);
 
-pub type RoleMatcher = fn(role: &SRole, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction;
-pub type TaskMatcher = fn(task: &STask, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction;
+pub type RoleMatcher = fn(
+    role: &SRole,
+    user: &Cred,
+    command: &[String],
+    matcher: &mut TaskMatch,
+) -> PluginResultAction;
+pub type TaskMatcher = fn(
+    task: &STask,
+    user: &Cred,
+    command: &[String],
+    matcher: &mut TaskMatch,
+) -> PluginResultAction;
 
 pub type UserMatcher = fn(role: &SRole, user: &Cred, user_struct: &Value) -> UserMin;
 
@@ -48,7 +58,8 @@ pub type TaskSeparation = fn(task: &STask, actor: &Cred) -> PluginResult;
 pub type CapsFilter = fn(task: &STask, capabilities: &mut CapSet) -> PluginResultAction;
 pub type ExecutionChecker = fn(user: &Cred, exec: &mut ExecSettings) -> PluginResult;
 
-pub type ComplexCommandParser = fn(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+pub type ComplexCommandParser =
+    fn(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn std::error::Error>>;
 
 macro_rules! plugin_subscribe {
     ($plugin:ident, $plugin_type:ident, $plugin_function:ident) => {
@@ -115,7 +126,12 @@ impl PluginManager {
         plugin_subscribe!(complex_command_parsers, ComplexCommandParser, plugin);
     }
 
-    pub fn notify_role_matcher(role: &SRole, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction {
+    pub fn notify_role_matcher(
+        role: &SRole,
+        user: &Cred,
+        command: &[String],
+        matcher: &mut TaskMatch,
+    ) -> PluginResultAction {
         debug!("Notifying role matchers");
         let api = API.lock().unwrap();
         for plugin in api.role_matcher_plugins.iter() {
@@ -129,7 +145,12 @@ impl PluginManager {
         PluginResultAction::Ignore
     }
 
-    pub fn notify_task_matcher(task: &STask, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction {
+    pub fn notify_task_matcher(
+        task: &STask,
+        user: &Cred,
+        command: &[String],
+        matcher: &mut TaskMatch,
+    ) -> PluginResultAction {
         let api = API.lock().unwrap();
         for plugin in api.task_matcher_plugins.iter() {
             match plugin(task, user, command, matcher) {
@@ -145,7 +166,7 @@ impl PluginManager {
         let api = API.lock().unwrap();
         for plugin in api.user_matcher_plugins.iter() {
             let res = plugin(role, user, user_struct);
-            if ! res.is_no_match() {
+            if !res.is_no_match() {
                 return res;
             }
         }
@@ -197,7 +218,9 @@ impl PluginManager {
         PluginResult::Neutral
     }
 
-    pub fn notify_complex_command_parser(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    pub fn notify_complex_command_parser(
+        command: &serde_json::Value,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let api = API.lock().unwrap();
         for plugin in api.complex_command_parsers.iter() {
             match plugin(command) {
@@ -207,6 +230,4 @@ impl PluginManager {
         }
         Err("No complex command parser found".into())
     }
-    
 }
-

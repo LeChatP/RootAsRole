@@ -60,7 +60,6 @@ where
     Ok(res)
 }
 
-
 /// Reference every capabilities that lead to almost a direct privilege escalation
 pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
     caps.has(Cap::SYS_ADMIN)
@@ -79,7 +78,6 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::SYS_BOOT)
         || caps.has(Cap::MKNOD)
 }
-
 
 #[cfg(test)]
 pub(super) mod test {

@@ -1,5 +1,11 @@
 use std::{
-    cell::RefCell, cmp::Ordering, env::var, error::Error, fmt::{Display, Formatter}, path::{Path, PathBuf}, rc::{Rc, Weak}
+    cell::RefCell,
+    cmp::Ordering,
+    env::var,
+    error::Error,
+    fmt::{Display, Formatter},
+    path::{Path, PathBuf},
+    rc::{Rc, Weak},
 };
 
 use capctl::CapSet;
@@ -13,9 +19,20 @@ use shell_words::ParseError;
 use strum::EnumIs;
 use tracing::{debug, warn};
 
-use crate::{as_borrow, common::{
-    api::{PluginManager, PluginResultAction}, database::{options::{Opt, OptStack}, structs::{SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask, SetBehavior}}, util::capabilities_are_exploitable
-}};
+use crate::{
+    as_borrow,
+    common::{
+        api::{PluginManager, PluginResultAction},
+        database::{
+            options::{Opt, OptStack},
+            structs::{
+                SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask,
+                SetBehavior,
+            },
+        },
+        util::capabilities_are_exploitable,
+    },
+};
 use bitflags::bitflags;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -41,7 +58,6 @@ impl Error for MatchError {
         }
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct ExecSettings {
@@ -72,7 +88,11 @@ impl ExecSettings {
     }
 
     pub fn role(&self) -> Rc<RefCell<SRole>> {
-        self.task().as_ref().borrow().role().expect("Internal Error")
+        self.task()
+            .as_ref()
+            .borrow()
+            .role()
+            .expect("Internal Error")
     }
 }
 
@@ -156,7 +176,8 @@ impl Score {
 
     /// Compare the score of tasks results
     pub fn cmd_cmp(&self, other: &Score) -> Ordering {
-        self.cmd_min.cmp(&other.cmd_min)
+        self.cmd_min
+            .cmp(&other.cmd_min)
             .then(self.caps_min.cmp(&other.caps_min))
             .then(self.setuid_min.cmp(&other.setuid_min))
             .then(self.security_min.cmp(&other.security_min))
@@ -171,8 +192,7 @@ impl PartialOrd for Score {
 
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.user_cmp(other)
-            .then(self.cmd_cmp(other))
+        self.user_cmp(other).then(self.cmd_cmp(other))
     }
 
     fn max(self, other: Self) -> Self {
@@ -196,7 +216,6 @@ pub struct Cred {
     pub ppid: Pid,
 }
 
-
 #[derive(Clone, Debug)]
 pub struct TaskMatch {
     pub score: Score,
@@ -204,7 +223,6 @@ pub struct TaskMatch {
 }
 
 impl TaskMatch {
-
     pub fn fully_matching(&self) -> bool {
         self.user_matching() && self.command_matching()
     }
@@ -299,19 +317,19 @@ pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Err
                 return Ok(vec!["**".to_string(), ".*".to_string()]);
             }
             Ok(shell_words::split(command)?)
-        },
+        }
         SCommand::Complex(command) => {
             if let Some(array) = command.as_array() {
                 let mut result = Vec::new();
-                if ! array.iter().all(|item| {
+                if !array.iter().all(|item| {
                     // if it is a string
                     item.is_string() && {
                         //add to result
                         result.push(item.as_str().unwrap().to_string());
                         true // continue
                     }
-                    
-                }) { // if any of the items is not a string
+                }) {
+                    // if any of the items is not a string
                     return Err("Invalid command".into());
                 }
                 Ok(result)
@@ -319,10 +337,8 @@ pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Err
                 // call PluginManager
                 PluginManager::notify_complex_command_parser(command)
             }
-
         }
     }
-    
 }
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
@@ -336,10 +352,9 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     None
 }
 
-
 fn final_path(path: &String) -> PathBuf {
     let result;
-    if let Ok(cannon_path) = std::fs::canonicalize(path){
+    if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;
     } else {
         if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid")) {
@@ -348,13 +363,14 @@ fn final_path(path: &String) -> PathBuf {
             result = path.parse().expect("The path is not valid");
         }
     }
-    result.to_str().expect("The path is not valid").parse().expect("The path is not valid")
+    result
+        .to_str()
+        .expect("The path is not valid")
+        .parse()
+        .expect("The path is not valid")
 }
 
-fn match_path(
-    input_path: &String,
-    role_path: &String,
-) -> CmdMin {
+fn match_path(input_path: &String, role_path: &String) -> CmdMin {
     if role_path == "**" {
         return CmdMin::FullWildcardPath;
     }
@@ -368,7 +384,12 @@ fn match_path(
             match_status |= CmdMin::WildcardPath;
         }
     }
-    if match_status.is_empty() { debug!("No match for path ``{:?}`` for evaluated path : ``{:?}``", new_path, role_path); }
+    if match_status.is_empty() {
+        debug!(
+            "No match for path ``{:?}`` for evaluated path : ``{:?}``",
+            new_path, role_path
+        );
+    }
     match_status
 }
 
@@ -396,10 +417,7 @@ fn match_args(input_args: &[String], role_args: &[String]) -> Result<CmdMin, Box
 }
 
 /// Check if input command line is matching with role command line and return the score
-fn match_command_line(
-    input_command: &[String],
-    role_command: &[String],
-) -> CmdMin {
+fn match_command_line(input_command: &[String], role_command: &[String]) -> CmdMin {
     let mut result = CmdMin::empty();
     if !input_command.is_empty() {
         result = match_path(&input_command[0], &role_command[0]);
@@ -420,10 +438,7 @@ fn match_command_line(
 }
 
 /// Find the minimum score for all commands that match the input command line
-fn get_cmd_min(
-    input_command: &[String],
-    commands: &[SCommand],
-) -> CmdMin {
+fn get_cmd_min(input_command: &[String], commands: &[SCommand]) -> CmdMin {
     let mut min_score: CmdMin = CmdMin::empty();
     debug!("Input {:?} matches with {:?}", input_command, commands);
     for command in commands {
@@ -540,12 +555,13 @@ fn get_setuid_min(
                 // root is a user
                 SetuidMin::SetuidSetgid(groups_len(setgid))
             }
-        },
+        }
         (None, setgid) => {
             let len = groups_len(setgid);
             if len == 0 {
                 SetuidMin::NoSetuidNoSetgid
-            } else if security_min.contains(SecurityMin::EnableRoot) && groups_contains_root(setgid) {
+            } else if security_min.contains(SecurityMin::EnableRoot) && groups_contains_root(setgid)
+            {
                 SetuidMin::SetgidRoot(len)
             } else {
                 SetuidMin::Setgid(len)
@@ -556,18 +572,23 @@ fn get_setuid_min(
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch, MatchError> {
-        let TaskMatch { mut score, mut settings} = self.as_ref().borrow().commands.matches(user, command)?;
-        let capset = self.as_ref().borrow().cred.capabilities.as_ref().and_then(|caps| Some(caps.to_capset()));
+        let TaskMatch {
+            mut score,
+            mut settings,
+        } = self.as_ref().borrow().commands.matches(user, command)?;
+        let capset = self
+            .as_ref()
+            .borrow()
+            .cred
+            .capabilities
+            .as_ref()
+            .and_then(|caps| Some(caps.to_capset()));
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
         let setuid = &self.as_ref().borrow().cred.setuid;
         let setgid = &self.as_ref().borrow().cred.setgid;
-        score.setuid_min = get_setuid_min(
-            setuid.as_ref(),
-            setgid.as_ref(),
-            &score.security_min,
-        );
-        
+        score.setuid_min = get_setuid_min(setuid.as_ref(), setgid.as_ref(), &score.security_min);
+
         settings.setuid = setuid.clone();
         settings.setgroups = setgid.clone();
         settings.caps = capset;
@@ -601,12 +622,13 @@ impl TaskMatcher<TaskMatch> for SCommands {
             if min_score.is_empty() {
                 return Err(MatchError::NoMatch);
             }
-            
         } else {
             min_score = CmdMin::all();
         }
-        
-        if let Some(program) = find_from_envpath(&input_command[0].parse().expect("The path is not valid")) {
+
+        if let Some(program) =
+            find_from_envpath(&input_command[0].parse().expect("The path is not valid"))
+        {
             settings.exec_path = program;
             settings.exec_args = input_command[1..].to_vec();
         } else {
@@ -614,8 +636,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
             settings.exec_path = PathBuf::from("/bin/sh");
             settings.exec_args = vec!["-c".to_string(), shell_words::join(input_command)];
         }
-        
-        
+
         Ok(TaskMatch {
             score: Score {
                 user_min: UserMin::NoMatch,
@@ -643,29 +664,29 @@ fn match_groups(groups: &[Group], role_groups: &Vec<SGroups>) -> bool {
 impl CredMatcher for Rc<RefCell<SRole>> {
     fn user_matches(&self, user: &Cred) -> UserMin {
         let borrow = self.as_ref().borrow();
-        if PluginManager::notify_duty_separation(&self.as_ref().borrow(),user).is_deny() {
+        if PluginManager::notify_duty_separation(&self.as_ref().borrow(), user).is_deny() {
             warn!("You are forbidden to use a role due to a conflict of interest, please contact your administrator");
             return UserMin::NoMatch;
         }
-        let mut matches = borrow.actors.iter().filter_map(|actor| { 
+        let mut matches = borrow.actors.iter().filter_map(|actor| {
             match actor {
-                SActor::User { id , .. } => {
+                SActor::User { id, .. } => {
                     if let Some(id) = id {
                         if *id == user.user {
                             return Some(UserMin::UserMatch);
                         }
                     }
-                },
+                }
                 SActor::Group { groups, .. } => {
                     if let Some(groups) = groups.as_ref() {
                         if match_groups(&user.groups, &vec![groups.clone()]) {
                             return Some(UserMin::GroupMatch(user.groups.len()));
                         }
                     }
-                },
+                }
                 SActor::Unknown(element) => {
                     let min = PluginManager::notify_user_matcher(&as_borrow!(self), user, element);
-                    if ! min.is_no_match() {
+                    if !min.is_no_match() {
                         return Some(min);
                     }
                 }
@@ -695,7 +716,9 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
         for task in self.iter() {
             match task.matches(user, command) {
                 Ok(mut task_match) => {
-                    if !min_task.command_matching() || task_match.score.cmd_cmp(&min_task.score) == Ordering::Less {
+                    if !min_task.command_matching()
+                        || task_match.score.cmd_cmp(&min_task.score) == Ordering::Less
+                    {
                         task_match.score.user_min = min_task.score.user_min;
                         task_match.settings.task = Rc::downgrade(task);
                         min_task = task_match;
@@ -761,7 +784,6 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<SRole>>> {
             Err(MatchError::Conflict)
         }
     }
-
 }
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
@@ -778,7 +800,9 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
         min_role.score.user_min = user_min;
         match borrow.tasks.matches(user, command) {
             Ok(task_match) => {
-                if !min_role.fully_matching() || (task_match.command_matching() && task_match.score < min_role.score) {
+                if !min_role.fully_matching()
+                    || (task_match.command_matching() && task_match.score < min_role.score)
+                {
                     min_role = task_match;
                     nmatch = 1;
                 }
@@ -792,7 +816,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
         }
         min_role.score.user_min = user_min;
         plugin_role_match(user_min, borrow, user, command, &mut min_role, &mut nmatch);
-        
+
         if nmatch == 0 {
             Err(MatchError::NoMatch)
         } else if nmatch == 1 {
@@ -809,7 +833,14 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
     }
 }
 
-fn plugin_role_match(user_min: UserMin, borrow: std::cell::Ref<'_, SRole>, user: &Cred, command: &[String], min_role: &mut TaskMatch, nmatch: &mut i32) {
+fn plugin_role_match(
+    user_min: UserMin,
+    borrow: std::cell::Ref<'_, SRole>,
+    user: &Cred,
+    command: &[String],
+    min_role: &mut TaskMatch,
+    nmatch: &mut i32,
+) {
     let mut matcher = TaskMatch::default();
     matcher.score.user_min = user_min;
     // notify plugins
@@ -820,7 +851,9 @@ fn plugin_role_match(user_min: UserMin, borrow: std::cell::Ref<'_, SRole>, user:
         }
         PluginResultAction::Edit => {
             debug!("Plugin edit");
-            if  !min_role.fully_matching() || (matcher.fully_matching() && matcher.score < min_role.score) {
+            if !min_role.fully_matching()
+                || (matcher.fully_matching() && matcher.score < min_role.score)
+            {
                 *min_role = matcher;
                 *nmatch = 1;
             } else if matcher.score == min_role.score {
@@ -829,9 +862,7 @@ fn plugin_role_match(user_min: UserMin, borrow: std::cell::Ref<'_, SRole>, user:
                 *nmatch = 0;
             }
         }
-        PluginResultAction::Ignore => {
-
-        }
+        PluginResultAction::Ignore => {}
     }
 }
 
@@ -845,7 +876,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
         for role in self.as_ref().borrow().roles.iter() {
             if let Ok(matched) = role.matches(user, command) {
                 if matched.fully_matching() {
-                    if tasks.is_empty() ||  matched.score < tasks[0].score {
+                    if tasks.is_empty() || matched.score < tasks[0].score {
                         tasks.clear();
                         tasks.push(matched);
                     } else if matched.score == tasks[0].score
@@ -882,8 +913,13 @@ mod tests {
     use capctl::Cap;
     use test_log::test;
 
-
-    use crate::{common::database::{options::{SBounding, SPrivileged}, structs::IdTask}, rc_refcell};
+    use crate::{
+        common::database::{
+            options::{SBounding, SPrivileged},
+            structs::IdTask,
+        },
+        rc_refcell,
+    };
 
     use super::*;
 
@@ -1086,7 +1122,7 @@ mod tests {
         role: Option<Rc<RefCell<SRole>>>,
         with_config: Option<Rc<RefCell<SConfig>>>,
     ) -> Rc<RefCell<SRole>> {
-        let role = role.unwrap_or_else( || {
+        let role = role.unwrap_or_else(|| {
             let mut role = SRole::default();
             role.name = "test".to_string();
             role._config = with_config.map(|config| Rc::downgrade(&config));
@@ -1112,8 +1148,16 @@ mod tests {
         let r1_task1 = role1.as_ref().borrow().tasks[1].clone();
 
         // every tasks matches but not at the same score, so the least one is matched
-        role0.as_ref().borrow_mut().actors.push(SActor::from_user_string("root".into()));
-        role1.as_ref().borrow_mut().actors.push(SActor::from_user_string("root".into()));
+        role0
+            .as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_string("root".into()));
+        role1
+            .as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_string("root".into()));
 
         r0_task0
             .as_ref()

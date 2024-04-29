@@ -1,13 +1,13 @@
 use capctl::{prctl, Cap, CapState};
+use std::ffi::CString;
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
-use std::ffi::CString;
 
+pub mod api;
+pub mod config;
+pub mod database;
 pub mod util;
 pub mod version;
-pub mod database;
-pub mod config;
-pub mod api;
 
 pub mod plugin;
 
@@ -21,7 +21,6 @@ pub fn subsribe(tool: &str) {
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_file(true)
-        
         .with_line_number(true)
         .with_writer(io::stdout)
         .finish()

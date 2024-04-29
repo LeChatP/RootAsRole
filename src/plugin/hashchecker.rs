@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
 
-use crate::common::{database::finder::{find_executable_in_path, parse_conf_command}, api::PluginManager, database::structs::SCommand};
+use crate::common::{
+    api::PluginManager,
+    database::finder::{find_executable_in_path, parse_conf_command},
+    database::structs::SCommand,
+};
 
 use md5;
 
@@ -22,40 +26,42 @@ struct HashChecker {
     command: SCommand,
 }
 
-fn compute(hashtype : &HashType, hash: &str) -> Vec<u8> {
+fn compute(hashtype: &HashType, hash: &str) -> Vec<u8> {
     match hashtype {
         HashType::MD5 => md5::compute(hash).0.to_vec(),
         HashType::SHA1 => {
             let mut hasher = sha1::Sha1::new();
             hasher.update(hash);
             hasher.finalize().to_vec()
-        },
+        }
         HashType::SHA224 => {
             let mut hasher = sha2::Sha224::new();
             hasher.update(hash);
             hasher.finalize().to_vec()
-        },
+        }
         HashType::SHA256 => {
             let mut hasher = sha2::Sha256::new();
             hasher.update(hash);
             hasher.finalize().to_vec()
-        },
+        }
         HashType::SHA384 => {
             let mut hasher = sha2::Sha384::new();
             hasher.update(hash);
             hasher.finalize().to_vec()
-        },
+        }
         HashType::SHA512 => {
             let mut hasher = sha2::Sha512::new();
             hasher.update(hash);
             hasher.finalize().to_vec()
-        },
+        }
     }
 }
 
-fn complex_command_parse(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn complex_command_parse(
+    command: &serde_json::Value,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let checker = serde_json::from_value::<HashChecker>(command.clone());
-    
+
     match checker {
         Ok(checker) => {
             let path;
@@ -68,13 +74,17 @@ fn complex_command_parse(command: &serde_json::Value) -> Result<Vec<String>, Box
             } else {
                 return Err("Invalid command".into());
             }
-            return if compute(&checker.hash_type, &String::from_utf8(std::fs::read(&path)?)?) == compute(&checker.hash_type, &checker.hash) {
+            return if compute(
+                &checker.hash_type,
+                &String::from_utf8(std::fs::read(&path)?)?,
+            ) == compute(&checker.hash_type, &checker.hash)
+            {
                 parse_conf_command(&checker.command)
             } else {
                 Err("Hashes do not match".into())
             };
-        },
-        Err(e) => Err(Box::new(e))
+        }
+        Err(e) => Err(Box::new(e)),
     }
 }
 

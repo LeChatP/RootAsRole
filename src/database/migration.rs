@@ -5,7 +5,6 @@ use tracing::debug;
 
 use crate::common::version::PACKAGE_VERSION;
 
-
 pub struct Migration<T> {
     pub from: fn() -> Version,
     pub to: fn() -> Version,
@@ -76,7 +75,12 @@ impl<T> Migration<T> {
         }
     }
 
-    pub fn migrate_from(from: &Version, to: &Version, doc: &mut T, migrations : &[Self]) -> Result<bool, Box<dyn Error>> {
+    pub fn migrate_from(
+        from: &Version,
+        to: &Version,
+        doc: &mut T,
+        migrations: &[Self],
+    ) -> Result<bool, Box<dyn Error>> {
         let mut from = from.clone();
         let to = to.clone();
         debug!("===== Migrating from {} to {} =====", from, to);
@@ -112,14 +116,17 @@ impl<T> Migration<T> {
         }
         Ok(false)
     }
-    
+
     /// Migrate the database schema to the current version.
     /// If the version is already the current version, nothing is done.
     /// If the version is older, the database is upgraded.
     /// If the version is newer, the database is downgraded.
-    pub fn migrate(version: &Version, doc: &mut T, migrations : &[Self]) -> Result<bool, Box<dyn Error>>
-    where
-     {
+    pub fn migrate(
+        version: &Version,
+        doc: &mut T,
+        migrations: &[Self],
+    ) -> Result<bool, Box<dyn Error>>
+where {
         Self::migrate_from(
             &version,
             &Version::parse(PACKAGE_VERSION).unwrap(),

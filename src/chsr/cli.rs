@@ -20,8 +20,8 @@ use crate::{
         config::Storage,
         database::{
             options::{
-                EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SBounding,
-                SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType,
+                EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SBounding, SEnvOptions,
+                SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
                 IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
@@ -670,7 +670,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
         s.push_str("\" \"");
         s
     });*/
-    
+
     let args = shell_words::join(std::env::args());
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {
@@ -1334,7 +1334,10 @@ fn list_task(
                             println!("{}", serde_json::to_string_pretty(&opt.bounding).unwrap());
                         }
                         OptType::Wildcard => {
-                            println!("{}", serde_json::to_string_pretty(&opt.wildcard_denied).unwrap());
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.wildcard_denied).unwrap()
+                            );
                         }
                         OptType::Timeout => {
                             println!("{}", serde_json::to_string_pretty(&opt.timeout).unwrap());
@@ -1351,7 +1354,10 @@ fn list_task(
         }
     } else {
         if options {
-            println!("{}", serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?
+            );
         } else {
             print_role(&role, &role_type.unwrap_or(RoleType::All));
         }
@@ -1388,7 +1394,6 @@ mod tests {
 
     fn make_args(args: &str) -> String {
         shell_words::join(shell_words::split(args).unwrap())
-            
     }
 
     fn get_inputs(args: &str) -> Inputs {
@@ -1416,13 +1421,20 @@ mod tests {
         }
         inputs
     }
-    
+
     #[test]
     fn test_grant() {
         let inputs = get_inputs("chsr role r1 grant -u u1 -u u2 -g g1,g2");
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.action, InputAction::Add);
-        assert_eq!(inputs.actors, Some(vec![SActor::from_user_string("u1"), SActor::from_user_string("u2"), SActor::from_group_vec_string(vec!["g1", "g2"])]));
+        assert_eq!(
+            inputs.actors,
+            Some(vec![
+                SActor::from_user_string("u1"),
+                SActor::from_user_string("u2"),
+                SActor::from_group_vec_string(vec!["g1", "g2"])
+            ])
+        );
     }
 
     #[test]
@@ -1461,5 +1473,4 @@ mod tests {
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::All));
     }
-
 }

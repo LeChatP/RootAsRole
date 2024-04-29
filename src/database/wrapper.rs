@@ -1,6 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use super::{options::Opt, structs::{SConfig,SRole, STask}};
+use super::{
+    options::Opt,
+    structs::{SConfig, SRole, STask},
+};
 pub type RcRefCell<T> = Rc<RefCell<T>>;
 
 pub type SConfigWrapper = RcRefCell<SConfig>;
