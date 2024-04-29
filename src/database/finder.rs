@@ -619,7 +619,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
 }
 
 /// Check if user's groups is matching with any of the role's groups
-fn match_groups(groups: &[Group], role_groups: &Vec<SGroups>) -> bool {
+fn match_groups(groups: &[Group], role_groups: &[SGroups]) -> bool {
     let str_groups: SGroups = groups.iter().map(|g| g.name.to_string()).collect();
     for role_group in role_groups {
         if *role_group <= str_groups {
@@ -647,7 +647,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
                 }
                 SActor::Group { groups, .. } => {
                     if let Some(groups) = groups.as_ref() {
-                        if match_groups(&user.groups, &vec![groups.clone()]) {
+                        if match_groups(&user.groups, &[groups.clone()]) {
                             return Some(UserMin::GroupMatch(user.groups.len()));
                         }
                     }

@@ -171,7 +171,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     Ok(res)
 }
 
-fn save_cookies(user: &Cred, cookies: &Vec<CookieVersion>) -> Result<(), Box<dyn Error>> {
+fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(&user.user.name);
     fs::create_dir_all(path.parent().unwrap())?;
     let lockpath = Path::new(TS_LOCATION)

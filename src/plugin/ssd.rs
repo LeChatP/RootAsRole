@@ -16,9 +16,9 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-pub struct SSD(Vec<String>);
+pub struct Ssd(Vec<String>);
 
-fn user_contained_in(user: &User, actors: &Vec<SActor>) -> bool {
+fn user_contained_in(user: &User, actors: &[SActor]) -> bool {
     for actor in actors.iter() {
         if let SActor::User { id, .. } = actor {
             if let Some(id) = id {
@@ -34,18 +34,18 @@ fn user_contained_in(user: &User, actors: &Vec<SActor>) -> bool {
     false
 }
 
-fn group_contained_in(group: &Group, actors: &Vec<SActor>) -> bool {
+fn group_contained_in(pgroup: &Group, actors: &[SActor]) -> bool {
     for actor in actors.iter() {
         if let SActor::Group { groups, .. } = actor {
             if let Some(groups) = groups {
                 match groups {
                     SGroups::Single(group) => {
-                        if group == group {
+                        if group == pgroup {
                             return true;
                         }
                     }
                     SGroups::Multiple(groups) => {
-                        if groups.iter().any(|x| x == group) {
+                        if groups.iter().any(|x| x == pgroup) {
                             return true;
                         }
                     }
@@ -59,7 +59,7 @@ fn group_contained_in(group: &Group, actors: &Vec<SActor>) -> bool {
     false
 }
 
-fn groups_subset_of(groups: &Vec<Group>, actors: &Vec<SActor>) -> bool {
+fn groups_subset_of(groups: &[Group], actors: &[SActor]) -> bool {
     for group in groups.iter() {
         if !group_contained_in(group, actors) {
             return false;
@@ -69,7 +69,7 @@ fn groups_subset_of(groups: &Vec<Group>, actors: &Vec<SActor>) -> bool {
 }
 
 // Check if user and its related groups are forbidden to use the role
-fn user_is_forbidden(user: &User, ssd_roles: &Vec<String>, sconfig: &SConfig) -> bool {
+fn user_is_forbidden(user: &User, ssd_roles: &[String], sconfig: &SConfig) -> bool {
     let mut groups_to_check = Vec::new();
     if let Ok(groups) = getgrouplist(
         CString::new(user.name.as_str()).unwrap().as_c_str(),
@@ -94,7 +94,7 @@ fn user_is_forbidden(user: &User, ssd_roles: &Vec<String>, sconfig: &SConfig) ->
     false
 }
 
-fn groups_are_forbidden(groups: &Vec<Group>, ssd_roles: &Vec<String>, sconfig: &SConfig) -> bool {
+fn groups_are_forbidden(groups: &[Group], ssd_roles: &[String], sconfig: &SConfig) -> bool {
     for role in ssd_roles.iter() {
         if let Some(role) = sconfig.role(role) {
             if groups_subset_of(groups, &as_borrow!(role).actors) {
@@ -130,10 +130,10 @@ fn check_separation_of_duty(role: &SRole, actor: &Cred) -> PluginResult {
     }
 }
 
-fn get_ssd_entry(role: &SRole) -> Option<Result<SSD, Error>> {
+fn get_ssd_entry(role: &SRole) -> Option<Result<Ssd, Error>> {
     role._extra_fields
         .get("ssd")
-        .map(|ssd| serde_json::from_value::<SSD>(ssd.clone()))
+        .map(|ssd| serde_json::from_value::<Ssd>(ssd.clone()))
 }
 
 pub fn register() {

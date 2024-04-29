@@ -70,7 +70,8 @@ fn write_doc(f: &mut File) -> Result<(), Box<dyn Error>> {
         .as_bytes(),
     )?;
     f.write_all(
-        r#"#[rustfmt::skip] 
+        r#"#[rustfmt::skip]
+#[allow(clippy::all)] 
 pub fn get_capability_description(cap : &Cap) -> &'static str {
     match *cap {
 "#
@@ -89,9 +90,9 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
         let desc = desc.trim().to_string();
         f.write_all(
             format!(
-                "        Cap::{} => r#\"{}\"#,\n",
+                "        Cap::{} => r#{:#?}#,\n",
                 name.replace("CAP_", ""),
-                desc
+                desc.replace('\n', "")
             )
             .as_bytes(),
         )?;
@@ -102,9 +103,6 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
 }"#
         .as_bytes(),
     )?;
-    Command::new("rustfmt")
-        .arg("src/descriptions.rs")
-        .output()?;
     Ok(())
 }
 
