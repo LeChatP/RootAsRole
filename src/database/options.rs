@@ -19,8 +19,7 @@ use super::{
     structs::{SConfig, SRole, STask},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Level {
     None,
     #[default]
@@ -60,8 +59,6 @@ pub enum TimestampType {
     TTY,
     UID,
 }
-
-
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct STimeout {
@@ -208,16 +205,6 @@ pub struct Opt {
     #[serde(skip)]
     pub level: Level,
 }
-
-
-
-
-
-
-
-
-
-
 
 impl Opt {
     pub fn new(level: Level) -> Self {
@@ -876,9 +863,8 @@ mod tests {
         as_borrow_mut!(config).roles.push(role);
         let options = OptStack::from_role(config.as_ref().borrow().roles[0].clone());
 
-        let res: Option<(Level, SPathOptions)> = options.find_in_options(|opt| {
-            opt.path.clone().map(|value| (opt.level, value))
-        });
+        let res: Option<(Level, SPathOptions)> =
+            options.find_in_options(|opt| opt.path.clone().map(|value| (opt.level, value)));
         assert_eq!(res, Some((Level::Role, role_path)));
     }
 

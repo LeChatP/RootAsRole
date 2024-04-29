@@ -259,8 +259,6 @@ impl Default for SCommands {
     }
 }
 
-
-
 impl Default for SCapabilities {
     fn default() -> Self {
         SCapabilities {
@@ -472,9 +470,7 @@ impl PartialEq<str> for SActorType {
     fn eq(&self, other: &str) -> bool {
         match self {
             SActorType::Name(name) => name == other,
-            SActorType::Id(id) => other
-                .parse().map(|oid: u32| oid == *id)
-                .unwrap_or(false),
+            SActorType::Id(id) => other.parse().map(|oid: u32| oid == *id).unwrap_or(false),
         }
     }
 }

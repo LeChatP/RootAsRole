@@ -9,7 +9,6 @@ use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
 
-
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
 use super::config::SettingsFile;

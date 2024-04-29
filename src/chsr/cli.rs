@@ -894,9 +894,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                         }
                         Ok(true)
                     }
-                    Err(e) => {
-                        Err(e)
-                    }
+                    Err(e) => Err(e),
                 }
             }
         },

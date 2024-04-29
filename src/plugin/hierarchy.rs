@@ -16,7 +16,8 @@ pub struct Parents(Vec<String>);
 
 fn get_parents(role: &SRole) -> Option<Result<Parents, serde_json::Error>> {
     role._extra_fields
-        .get("parents").map(|parents| serde_json::from_value::<Parents>(parents.clone()))
+        .get("parents")
+        .map(|parents| serde_json::from_value::<Parents>(parents.clone()))
 }
 
 fn find_in_parents(

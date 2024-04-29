@@ -132,7 +132,8 @@ fn check_separation_of_duty(role: &SRole, actor: &Cred) -> PluginResult {
 
 fn get_ssd_entry(role: &SRole) -> Option<Result<SSD, Error>> {
     role._extra_fields
-        .get("ssd").map(|ssd| serde_json::from_value::<SSD>(ssd.clone()))
+        .get("ssd")
+        .map(|ssd| serde_json::from_value::<SSD>(ssd.clone()))
 }
 
 pub fn register() {

@@ -191,9 +191,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
-    read_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("dac_read")) });
+    read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
-    read_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("dac_read")) });
+    read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
         .expect("Failed to get user");
@@ -231,7 +231,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         ppid,
     };
 
-    dac_override_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("dac_override")) });
+    dac_override_effective(true)
+        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_override")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
@@ -249,7 +250,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let optstack = &execcfg.opt;
     check_auth(optstack, &config, &user, &args.prompt)?;
-    dac_override_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("dac_override")) });
+    dac_override_effective(false)
+        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_override")));
 
     if !taskmatch.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -262,10 +264,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if args.info {
         println!("Role: {}", execcfg.role().as_ref().borrow().name);
-        println!(
-            "Task: {}",
-            execcfg.task().as_ref().borrow().name
-        );
+        println!("Task: {}", execcfg.task().as_ref().borrow().name);
         println!(
             "With capabilities: {}",
             execcfg
@@ -331,16 +330,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    setgid_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setgid")) });
-    setuid_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setuid")) });
-    capctl::cap_set_ids(uid, gid, groups.as_deref())
-        .expect("Failed to set ids");
-    setgid_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setgid")) });
-    setuid_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setuid")) });
+    setgid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
+    setuid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
+    capctl::cap_set_ids(uid, gid, groups.as_deref()).expect("Failed to set ids");
+    setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
+    setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
 
     //set capabilities
     if let Some(caps) = execcfg.caps {
-        setpcap_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setpcap")) });
+        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
         if !optstack.get_bounding().1.is_ignore() {
             for cap in (!caps).iter() {
@@ -353,15 +351,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
         }
-        setpcap_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setpcap")) });
+        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     } else {
-        setpcap_effective(true).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setpcap")) });
+        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         if !optstack.get_bounding().1.is_ignore() {
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
         capstate.set_current().expect("Failed to set current cap");
-        setpcap_effective(false).unwrap_or_else(|_| { panic!("{}", cap_effective_error("setpcap")) });
+        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     }
 
     //execute command

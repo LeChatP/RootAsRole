@@ -327,7 +327,8 @@ fn final_path(path: &String) -> PathBuf {
     let result;
     if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;
-    } else if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid")) {
+    } else if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid"))
+    {
         result = env_path
     } else {
         result = path.parse().expect("The path is not valid");
@@ -548,7 +549,8 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .borrow()
             .cred
             .capabilities
-            .as_ref().map(|caps| caps.to_capset());
+            .as_ref()
+            .map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
         let setuid = &self.as_ref().borrow().cred.setuid;
@@ -918,9 +920,11 @@ mod tests {
     fn test_get_cmd_min() {
         let result = get_cmd_min(
             &["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
-            &["/bin/l*".into(),
+            &[
+                "/bin/l*".into(),
                 "/bin/ls .*".into(),
-                "/bin/ls -l -a".into()],
+                "/bin/ls -l -a".into(),
+            ],
         );
         assert_eq!(result, CmdMin::Match);
     }
