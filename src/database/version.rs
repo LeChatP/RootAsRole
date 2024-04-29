@@ -6,7 +6,6 @@ use tracing::debug;
 use super::migration::Migration;
 use crate::common::config::SettingsFile;
 use crate::common::version;
-use crate::common::version;
 
 use super::structs::*;
 
