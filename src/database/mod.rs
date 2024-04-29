@@ -3,12 +3,12 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 use crate::common::config::save_settings;
 use crate::common::util::toggle_lock_config;
 use crate::common::version::PACKAGE_VERSION;
-use crate::rc_refcell;
+
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
-use tracing::warn;
+
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
@@ -29,9 +29,9 @@ pub mod wrapper;
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     for role in &config.as_ref().borrow().roles {
-        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
+        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(config));
         for task in &role.as_ref().borrow().tasks {
-            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(&role));
+            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(role));
         }
     }
 }

@@ -20,8 +20,10 @@ use super::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum Level {
     None,
+    #[default]
     Default,
     Global,
     Role,
@@ -40,26 +42,26 @@ pub enum OptType {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PathBehavior {
     Delete,
     KeepSafe,
     KeepUnsafe,
+    #[default]
     Inherit,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TimestampType {
+    #[default]
     PPID,
     TTY,
     UID,
 }
 
-impl Default for TimestampType {
-    fn default() -> Self {
-        TimestampType::PPID
-    }
-}
+
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct STimeout {
@@ -113,9 +115,11 @@ pub struct SPathOptions {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum EnvBehavior {
     Delete,
     Keep,
+    #[default]
     Inherit,
 }
 
@@ -164,16 +168,20 @@ pub struct SEnvOptions {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SBounding {
     Strict,
     Ignore,
+    #[default]
     Inherit,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum SPrivileged {
     Privileged,
+    #[default]
     User,
     Inherit,
 }
@@ -201,35 +209,15 @@ pub struct Opt {
     pub level: Level,
 }
 
-impl Default for Level {
-    fn default() -> Self {
-        Level::Default
-    }
-}
 
-impl Default for EnvBehavior {
-    fn default() -> Self {
-        EnvBehavior::Inherit
-    }
-}
 
-impl Default for SBounding {
-    fn default() -> Self {
-        SBounding::Inherit
-    }
-}
 
-impl Default for SPrivileged {
-    fn default() -> Self {
-        SPrivileged::User
-    }
-}
 
-impl Default for PathBehavior {
-    fn default() -> Self {
-        PathBehavior::Inherit
-    }
-}
+
+
+
+
+
 
 impl Opt {
     pub fn new(level: Level) -> Self {
@@ -308,9 +296,9 @@ impl PartialEq<str> for EnvKey {
     }
 }
 
-impl Into<String> for EnvKey {
-    fn into(self) -> String {
-        self.value
+impl From<EnvKey> for String {
+    fn from(val: EnvKey) -> Self {
+        val.value
     }
 }
 
@@ -376,7 +364,7 @@ impl EnvSet for LinkedHashSet<EnvKey> {
                 self.iter().any(|s| {
                     Regex::new(&format!(
                         "^{}$",
-                        wildcarded.value.replace("*", ".*").replace("?", ".")
+                        wildcarded.value.replace('*', ".*").replace('?', ".")
                     )) // convert to regex
                     .unwrap()
                     .is_match(s.value.as_bytes())
@@ -501,7 +489,7 @@ impl OptStack {
         opt.root = Some(SPrivileged::User);
         opt.bounding = Some(SBounding::Strict);
         let mut env = SEnvOptions::new(EnvBehavior::Delete);
-        env.check = vec!["TZ".into(), "LOGNAME".into(), "LOGIN".into(), "USER".into()]
+        env.check = ["TZ".into(), "LOGNAME".into(), "LOGIN".into(), "USER".into()]
             .iter()
             .cloned()
             .collect();
@@ -587,7 +575,7 @@ impl OptStack {
             is_safe => std::env::vars()
                 .find_map(|(key, value)| if key == "PATH" { Some(value) } else { None })
                 .unwrap_or(String::new())
-                .split(":")
+                .split(':')
                 .filter(|s| {
                     !final_sub.as_ref().borrow().contains(*s)
                         && (!is_safe.is_keep_safe() || PathBuf::from(s).exists())
@@ -725,12 +713,12 @@ impl OptStack {
                         // policy is to delete, so we add whitelist and remove blacklist
                         final_keep = final_keep
                             .union(&p.keep)
-                            .filter(|e| !p.check.env_matches(&e) || !p.delete.env_matches(e))
+                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = final_check
                             .union(&p.check)
-                            .filter(|e| !p.delete.env_matches(&e))
+                            .filter(|e| !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         p.default_behavior
@@ -739,12 +727,12 @@ impl OptStack {
                         //policy is to keep, so we remove blacklist and add whitelist
                         final_delete = final_delete
                             .union(&p.delete)
-                            .filter(|e| !p.keep.env_matches(&e) || !p.check.env_matches(&e))
+                            .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = final_check
                             .union(&p.check)
-                            .filter(|e| !p.keep.env_matches(&e))
+                            .filter(|e| !p.keep.env_matches(e))
                             .cloned()
                             .collect();
                         p.default_behavior
@@ -753,23 +741,23 @@ impl OptStack {
                         if final_behavior.is_delete() {
                             final_keep = final_keep
                                 .union(&p.keep)
-                                .filter(|e| !p.delete.env_matches(&e) || !p.check.env_matches(&e))
+                                .filter(|e| !p.delete.env_matches(e) || !p.check.env_matches(e))
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.delete.env_matches(&e))
+                                .filter(|e| !p.delete.env_matches(e))
                                 .cloned()
                                 .collect();
                         } else {
                             final_delete = final_delete
                                 .union(&p.delete)
-                                .filter(|e| !p.keep.env_matches(&e) || !p.check.env_matches(&e))
+                                .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.keep.env_matches(&e))
+                                .filter(|e| !p.keep.env_matches(e))
                                 .cloned()
                                 .collect();
                         }
@@ -889,11 +877,7 @@ mod tests {
         let options = OptStack::from_role(config.as_ref().borrow().roles[0].clone());
 
         let res: Option<(Level, SPathOptions)> = options.find_in_options(|opt| {
-            if let Some(value) = opt.path.clone() {
-                Some((opt.level, value))
-            } else {
-                None
-            }
+            opt.path.clone().map(|value| (opt.level, value))
         });
         assert_eq!(res, Some((Level::Role, role_path)));
     }
@@ -915,7 +899,7 @@ mod tests {
         config_role.path = Some(role_path);
         as_borrow_mut!(role).options = Some(rc_refcell!(config_role));
         as_borrow_mut!(config).roles.push(role);
-        let options = OptStack::from_role(config.as_ref().borrow().roles.get(0).unwrap().clone());
+        let options = OptStack::from_role(config.as_ref().borrow().roles.first().unwrap().clone());
         let res = options.calculate_path();
         assert_eq!(res, "path2:path1");
     }

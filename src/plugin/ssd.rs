@@ -132,8 +132,7 @@ fn check_separation_of_duty(role: &SRole, actor: &Cred) -> PluginResult {
 
 fn get_ssd_entry(role: &SRole) -> Option<Result<SSD, Error>> {
     role._extra_fields
-        .get("ssd")
-        .and_then(|ssd| Some(serde_json::from_value::<SSD>(ssd.clone())))
+        .get("ssd").map(|ssd| serde_json::from_value::<SSD>(ssd.clone()))
 }
 
 pub fn register() {
@@ -156,21 +155,21 @@ mod tests {
     fn test_user_contained_in() {
         let user = User::from_uid(0.into()).unwrap().unwrap();
         let actors = vec![SActor::from_user_id(0)];
-        assert_eq!(user_contained_in(&user, &actors), true);
+        assert!(user_contained_in(&user, &actors));
     }
 
     #[test]
     fn test_group_contained_in() {
         let group = Group::from_gid(0.into()).unwrap().unwrap();
         let actors = vec![SActor::from_group_id(0)];
-        assert_eq!(group_contained_in(&group, &actors), true);
+        assert!(group_contained_in(&group, &actors));
     }
 
     #[test]
     fn test_groups_subset_of() {
         let groups = vec![Group::from_gid(0.into()).unwrap().unwrap()];
         let actors = vec![SActor::from_group_id(0)];
-        assert_eq!(groups_subset_of(&groups, &actors), true);
+        assert!(groups_subset_of(&groups, &actors));
     }
 
     #[test]
@@ -178,7 +177,7 @@ mod tests {
         let user = User::from_uid(0.into()).unwrap().unwrap();
         let sconfig = SConfig::default();
         let roles = vec!["role1".to_string()];
-        assert_eq!(user_is_forbidden(&user, &roles, &sconfig), false);
+        assert!(!user_is_forbidden(&user, &roles, &sconfig));
     }
 
     #[test]
@@ -190,7 +189,7 @@ mod tests {
         role.actors.push(SActor::from_group_id(0));
         sconfig.roles.push(rc_refcell!(role));
         let roles = vec!["role1".to_string()];
-        assert_eq!(groups_are_forbidden(&groups, &roles, &sconfig), true);
+        assert!(groups_are_forbidden(&groups, &roles, &sconfig));
     }
 
     #[test]

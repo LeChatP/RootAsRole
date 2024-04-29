@@ -115,7 +115,7 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     let mut readme = File::create(std::path::Path::new(file)).expect("README.md not found");
     for line in lines {
         if line.starts_with("# RootAsRole (V") {
-            let mut s = line.split("(V").nth(0).unwrap().to_string();
+            let mut s = line.split("(V").next().unwrap().to_string();
             let end = line.split(')').nth(1).unwrap();
             s.push_str(&format!("(V{}){}", package_version, end));
             writeln!(readme, "{}", s)?;

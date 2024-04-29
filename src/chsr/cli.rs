@@ -340,7 +340,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         Rule::opt_timeout_d_arg => {
             let mut reversed = pair.as_str().split(':').rev();
             let mut duration: Duration =
-                Duration::try_seconds(reversed.nth(0).unwrap().parse::<i64>().unwrap_or(0))
+                Duration::try_seconds(reversed.next().unwrap().parse::<i64>().unwrap_or(0))
                     .unwrap_or_default();
             if let Some(mins) = reversed.nth(1) {
                 duration = duration
@@ -398,7 +398,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 .as_mut()
                 .unwrap()
                 .push(SActor::from_user_string(
-                    pair.clone().into_inner().nth(0).unwrap().as_str(),
+                    pair.clone().into_inner().next().unwrap().as_str(),
                 ));
         }
         Rule::group => {
@@ -892,10 +892,10 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                         if let Some(setgid) = cred_setgid {
                             task.as_ref().borrow_mut().cred.setgid = Some(setgid);
                         }
-                        return Ok(true);
+                        Ok(true)
                     }
                     Err(e) => {
-                        return Err(e);
+                        Err(e)
                     }
                 }
             }
@@ -1125,7 +1125,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
         } => match storage {
             Storage::JSON(rconfig) => {
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-                    opt.as_ref().borrow_mut().bounding = Some(options_bounding.clone());
+                    opt.as_ref().borrow_mut().bounding = Some(options_bounding);
                     Ok(())
                 })?;
                 Ok(true)
@@ -1164,10 +1164,10 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                     let path = binding.path.as_mut().unwrap_or(&mut default_path);
                     match setlist_type {
                         Some(SetListType::WhiteList) => {
-                            path.add = options_path.split(":").map(|s| s.to_string()).collect();
+                            path.add = options_path.split(':').map(|s| s.to_string()).collect();
                         }
                         Some(SetListType::BlackList) => {
-                            path.sub = options_path.split(":").map(|s| s.to_string()).collect();
+                            path.sub = options_path.split(':').map(|s| s.to_string()).collect();
                         }
                         _ => {
                             return Err("Unknown setlist type".into());
@@ -1257,28 +1257,26 @@ fn perform_on_target_opt(
             if let Some(task_id) = task_id {
                 if let Some(task) = role.as_ref().borrow().task(&task_id) {
                     if let Some(options) = &task.as_ref().borrow_mut().options {
-                        return exec_on_opt(options.clone());
+                        exec_on_opt(options.clone())
                     } else {
                         let options = Rc::new(RefCell::new(Opt::default()));
                         let ret = exec_on_opt(options.clone());
                         task.as_ref().borrow_mut().options = Some(options);
-                        return ret;
+                        ret
                     }
                 } else {
-                    return Err("Task not found".into());
+                    Err("Task not found".into())
                 }
+            } else if let Some(options) = &role.as_ref().borrow_mut().options {
+                exec_on_opt(options.clone())
             } else {
-                if let Some(options) = &role.as_ref().borrow_mut().options {
-                    return exec_on_opt(options.clone());
-                } else {
-                    let options = Rc::new(RefCell::new(Opt::default()));
-                    let ret = exec_on_opt(options.clone());
-                    role.as_ref().borrow_mut().options = Some(options);
-                    return ret;
-                }
+                let options = Rc::new(RefCell::new(Opt::default()));
+                let ret = exec_on_opt(options.clone());
+                role.as_ref().borrow_mut().options = Some(options);
+                ret
             }
         } else {
-            return Err("Role not found".into());
+            Err("Role not found".into())
         }
     } else {
         return exec_on_opt(config.options.as_ref().unwrap().clone());
@@ -1352,15 +1350,13 @@ fn list_task(
         } else {
             return Err("Task not found".into());
         }
+    } else if options {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?
+        );
     } else {
-        if options {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?
-            );
-        } else {
-            print_role(&role, &role_type.unwrap_or(RoleType::All));
-        }
+        print_role(role, &role_type.unwrap_or(RoleType::All));
     }
     Ok(())
 }

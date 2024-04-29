@@ -66,7 +66,7 @@ fn complex_command_parse(
         Ok(checker) => {
             let path;
             if let SCommand::Simple(command) = &checker.command {
-                let opath = find_executable_in_path(&command);
+                let opath = find_executable_in_path(command);
                 if opath.is_none() {
                     return Err("Command not found".into());
                 }
@@ -74,15 +74,15 @@ fn complex_command_parse(
             } else {
                 return Err("Invalid command".into());
             }
-            return if compute(
+            if compute(
                 &checker.hash_type,
-                &String::from_utf8(std::fs::read(&path)?)?,
+                &String::from_utf8(std::fs::read(path)?)?,
             ) == compute(&checker.hash_type, &checker.hash)
             {
                 parse_conf_command(&checker.command)
             } else {
                 Err("Hashes do not match".into())
-            };
+            }
         }
         Err(e) => Err(Box::new(e)),
     }

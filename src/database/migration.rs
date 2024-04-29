@@ -128,7 +128,7 @@ impl<T> Migration<T> {
     ) -> Result<bool, Box<dyn Error>>
 where {
         Self::migrate_from(
-            &version,
+            version,
             &Version::parse(PACKAGE_VERSION).unwrap(),
             doc,
             migrations,

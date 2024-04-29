@@ -146,8 +146,10 @@ pub struct SCredentials {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SetBehavior {
     All,
+    #[default]
     None,
 }
 
@@ -257,11 +259,7 @@ impl Default for SCommands {
     }
 }
 
-impl Default for SetBehavior {
-    fn default() -> Self {
-        SetBehavior::None
-    }
-}
+
 
 impl Default for SCapabilities {
     fn default() -> Self {
@@ -475,8 +473,7 @@ impl PartialEq<str> for SActorType {
         match self {
             SActorType::Name(name) => name == other,
             SActorType::Id(id) => other
-                .parse()
-                .and_then(|oid: u32| Ok(oid == *id))
+                .parse().map(|oid: u32| oid == *id)
                 .unwrap_or(false),
         }
     }
@@ -543,9 +540,9 @@ impl FromIterator<String> for SGroups {
     }
 }
 
-impl Into<Vec<SActorType>> for SGroups {
-    fn into(self) -> Vec<SActorType> {
-        match self {
+impl From<SGroups> for Vec<SActorType> {
+    fn from(val: SGroups) -> Self {
+        match val {
             SGroups::Single(group) => vec![group],
             SGroups::Multiple(groups) => groups,
         }
@@ -555,13 +552,13 @@ impl Into<Vec<SActorType>> for SGroups {
 impl SActorType {
     pub fn into_group(&self) -> Result<Option<Group>, Errno> {
         match self {
-            SActorType::Name(name) => Group::from_name(&name),
+            SActorType::Name(name) => Group::from_name(name),
             SActorType::Id(id) => Group::from_gid(id.to_owned().into()),
         }
     }
     pub fn into_user(&self) -> Result<Option<User>, Errno> {
         match self {
-            SActorType::Name(name) => User::from_name(&name),
+            SActorType::Name(name) => User::from_name(name),
             SActorType::Id(id) => User::from_uid(id.to_owned().into()),
         }
     }
@@ -582,10 +579,8 @@ impl PartialOrd<Vec<SActorType>> for SGroups {
                     if group == &other[0] {
                         return Some(Ordering::Equal);
                     }
-                } else {
-                    if other.iter().any(|x| group == x) {
-                        return Some(Ordering::Less);
-                    }
+                } else if other.iter().any(|x| group == x) {
+                    return Some(Ordering::Less);
                 }
             }
             SGroups::Multiple(groups) => {
@@ -597,10 +592,8 @@ impl PartialOrd<Vec<SActorType>> for SGroups {
                     if groups.iter().all(|x| other.iter().any(|y| x == y)) {
                         return Some(Ordering::Less);
                     }
-                } else {
-                    if other.iter().all(|x| groups.iter().any(|y| y == x)) {
-                        return Some(Ordering::Greater);
-                    }
+                } else if other.iter().all(|x| groups.iter().any(|y| y == x)) {
+                    return Some(Ordering::Greater);
                 }
             }
         }
@@ -608,9 +601,9 @@ impl PartialOrd<Vec<SActorType>> for SGroups {
     }
 }
 
-impl Into<Vec<Group>> for SGroups {
-    fn into(self) -> Vec<Group> {
-        match self {
+impl From<SGroups> for Vec<Group> {
+    fn from(val: SGroups) -> Self {
+        match val {
             SGroups::Single(group) => vec![group.into_group().unwrap().unwrap()],
             SGroups::Multiple(groups) => groups
                 .into_iter()

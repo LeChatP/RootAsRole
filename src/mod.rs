@@ -17,7 +17,7 @@ pub fn subsribe(tool: &str) {
     let identity = CString::new(tool).unwrap();
     let options = syslog_tracing::Options::LOG_PID;
     let facility = syslog_tracing::Facility::Auth;
-    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
+    let _syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_file(true)

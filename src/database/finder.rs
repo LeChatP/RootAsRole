@@ -327,12 +327,10 @@ fn final_path(path: &String) -> PathBuf {
     let result;
     if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;
+    } else if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid")) {
+        result = env_path
     } else {
-        if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid")) {
-            result = env_path
-        } else {
-            result = path.parse().expect("The path is not valid");
-        }
+        result = path.parse().expect("The path is not valid");
     }
     result
         .to_str()
@@ -513,14 +511,12 @@ fn get_setuid_min(
                     } else {
                         SetuidMin::SetuidRootSetgid(groups_len(setgid))
                     }
+                } else if groups_contains_root(setgid) {
+                    SetuidMin::SetuidNotrootSetgidRoot(groups_len(setgid))
+                } else if setgid.is_none() || groups_len(setgid) == 0 {
+                    SetuidMin::Setuid
                 } else {
-                    if groups_contains_root(setgid) {
-                        SetuidMin::SetuidNotrootSetgidRoot(groups_len(setgid))
-                    } else if setgid.is_none() || groups_len(setgid) == 0 {
-                        SetuidMin::Setuid
-                    } else {
-                        SetuidMin::SetuidSetgid(groups_len(setgid))
-                    }
+                    SetuidMin::SetuidSetgid(groups_len(setgid))
                 }
             } else {
                 // root is a user
@@ -552,8 +548,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .borrow()
             .cred
             .capabilities
-            .as_ref()
-            .and_then(|caps| Some(caps.to_capset()));
+            .as_ref().map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
         let setuid = &self.as_ref().borrow().cred.setuid;
@@ -581,7 +576,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
         let min_score: CmdMin;
         let mut settings = ExecSettings::new();
         // if the command is forbidden, we return NoMatch
-        let is_forbidden = get_cmd_min(&input_command, &self.sub);
+        let is_forbidden = get_cmd_min(input_command, &self.sub);
         if !is_forbidden.is_empty() {
             debug!("Command is forbidden");
             return Err(MatchError::NoMatch);
@@ -589,7 +584,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
         // otherwise, we check if behavior is No command allowed by default
         if get_default_behavior(&self.default_behavior).is_none() {
             // if the behavior is No command by default, we check if the command is allowed explicitly.
-            min_score = get_cmd_min(&input_command, &self.add);
+            min_score = get_cmd_min(input_command, &self.add);
             if min_score.is_empty() {
                 return Err(MatchError::NoMatch);
             }
@@ -903,8 +898,8 @@ mod tests {
     #[test]
     fn test_match_args() {
         let result = match_args(
-            &vec!["-l".to_string(), "-a".to_string()],
-            &vec!["-l".to_string(), "-a".to_string()],
+            &["-l".to_string(), "-a".to_string()],
+            &["-l".to_string(), "-a".to_string()],
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::Match);
@@ -913,8 +908,8 @@ mod tests {
     #[test]
     fn test_match_command_line() {
         let result = match_command_line(
-            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
-            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
         );
         assert_eq!(result, CmdMin::Match);
     }
@@ -922,12 +917,10 @@ mod tests {
     #[test]
     fn test_get_cmd_min() {
         let result = get_cmd_min(
-            &vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
-            &vec![
-                "/bin/l*".into(),
+            &["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()],
+            &["/bin/l*".into(),
                 "/bin/ls .*".into(),
-                "/bin/ls -l -a".into(),
-            ],
+                "/bin/ls -l -a".into()],
         );
         assert_eq!(result, CmdMin::Match);
     }
@@ -1123,12 +1116,12 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_string("root".into()));
+            .push(SActor::from_user_string("root"));
         role1
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_string("root".into()));
+            .push(SActor::from_user_string("root"));
 
         r0_task0
             .as_ref()
