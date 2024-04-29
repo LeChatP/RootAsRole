@@ -16,9 +16,10 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::common::database::{options::{STimeout, TimestampType}, finder::Cred};
-
-
+use crate::common::database::{
+    finder::Cred,
+    options::{STimeout, TimestampType},
+};
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
@@ -209,8 +210,9 @@ fn find_valid_cookie(
                 let max_usage_ok =
                     constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
                 debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.duration.num_seconds(), Utc::now().timestamp() + constraint.duration.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.duration.num_seconds());
-                let timeofuse: bool =
-                    cookie.timestamp - Utc::now().timestamp() + constraint.duration.num_seconds() > 0;
+                let timeofuse: bool = cookie.timestamp - Utc::now().timestamp()
+                    + constraint.duration.num_seconds()
+                    > 0;
                 debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
                 if timeofuse && max_usage_ok && res.is_none() {
                     editcookie(cookiev);

@@ -6,48 +6,69 @@ use capctl::Cap;
 pub fn get_capability_description(cap : &Cap) -> &'static str {
     match *cap {
         Cap::AUDIT_CONTROL => r#"(since Linux 2.6.11)
- Enable and disable kernel auditing; change auditing filter rules; retrieve auditing status and filtering rules."#,
+ Enable and disable kernel auditing; change auditing filter
+ rules; retrieve auditing status and filtering rules."#,
         Cap::AUDIT_READ => r#"(since Linux 3.16)
  Allow reading the audit log via a multicast netlink socket."#,
         Cap::AUDIT_WRITE => r#"(since Linux 2.6.11)
  Write records to kernel auditing log."#,
         Cap::BLOCK_SUSPEND => r#"(since Linux 3.5)
- Employ features that can block system suspend (epoll(7) EPOLLWAKEUP, /proc/sys/wake_lock)."#,
+ Employ features that can block system suspend (epoll(7)
+ EPOLLWAKEUP, /proc/sys/wake_lock)."#,
         Cap::BPF => r#"(since Linux 5.8)
  Employ privileged BPF operations; see bpf(2) and bpf-helpers(7).
 
- This capability was added in Linux 5.8 to separate out BPF functionality from the overloaded CAP_SYS_ADMIN capability."#,
+ This capability was added in Linux 5.8 to separate out BPF
+ functionality from the overloaded CAP_SYS_ADMIN capability."#,
         Cap::CHECKPOINT_RESTORE => r#"(since Linux 5.9)
  • Update /proc/sys/kernel/ns_last_pid (see pid_namespaces(7));
  • employ the set_tid feature of clone3(2);
- • read the contents of the symbolic links in /proc/pid/map_files for other processes.
+ • read the contents of the symbolic links in
+ /proc/pid/map_files for other processes.
 
- This capability was added in Linux 5.9 to separate out checkpoint/restore functionality from the overloaded CAP_SYS_ADMIN capability."#,
+ This capability was added in Linux 5.9 to separate out
+ checkpoint/restore functionality from the overloaded
+ CAP_SYS_ADMIN capability."#,
         Cap::CHOWN => r#"Make arbitrary changes to file UIDs and GIDs (see chown(2))."#,
-        Cap::DAC_OVERRIDE => r#"Bypass file read, write, and execute permission checks. (DAC is an abbreviation of "discretionary access control".)"#,
-        Cap::DAC_READ_SEARCH => r#"• Bypass file read permission checks and directory read and execute permission checks;
+        Cap::DAC_OVERRIDE => r#"Bypass file read, write, and execute permission checks. (DAC is
+ an abbreviation of "discretionary access control".)"#,
+        Cap::DAC_READ_SEARCH => r#"• Bypass file read permission checks and directory read and
+ execute permission checks;
  • invoke open_by_handle_at(2);
- • use the linkat(2) AT_EMPTY_PATH flag to create a link to a file referred to by a file descriptor."#,
-        Cap::FOWNER => r#"• Bypass permission checks on operations that normally require the filesystem UID of the process to match the UID of the file (e.g., chmod(2), utime(2)), excluding
- those operations covered by CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH;
+ • use the linkat(2) AT_EMPTY_PATH flag to create a link to a
+ file referred to by a file descriptor."#,
+        Cap::FOWNER => r#"• Bypass permission checks on operations that normally require
+ the filesystem UID of the process to match the UID of the
+ file (e.g., chmod(2), utime(2)), excluding those operations
+ covered by CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH;
  • set inode flags (see ioctl_iflags(2)) on arbitrary files;
  • set Access Control Lists (ACLs) on arbitrary files;
  • ignore directory sticky bit on file deletion;
- • modify user extended attributes on sticky directory owned by any user;
- • specify O_NOATIME for arbitrary files in open(2) and fcntl(2)."#,
-        Cap::FSETID => r#"• Don't clear set-user-ID and set-group-ID mode bits when a file is modified;
- • set the set-group-ID bit for a file whose GID does not match the filesystem or any of the supplementary GIDs of the calling process."#,
+ • modify user extended attributes on sticky directory owned by
+ any user;
+ • specify O_NOATIME for arbitrary files in open(2) and
+ fcntl(2)."#,
+        Cap::FSETID => r#"• Don't clear set-user-ID and set-group-ID mode bits when a
+ file is modified;
+ • set the set-group-ID bit for a file whose GID does not match
+ the filesystem or any of the supplementary GIDs of the
+ calling process."#,
         Cap::IPC_LOCK => r#"• Lock memory (mlock(2), mlockall(2), mmap(2), shmctl(2));
- • Allocate memory using huge pages (memfd_create(2), mmap(2), shmctl(2))."#,
+ • Allocate memory using huge pages (memfd_create(2), mmap(2),
+ shmctl(2))."#,
         Cap::IPC_OWNER => r#"Bypass permission checks for operations on System V IPC objects."#,
-        Cap::KILL => r#"Bypass permission checks for sending signals (see kill(2)). This includes use of the ioctl(2) KDSIGACCEPT operation."#,
+        Cap::KILL => r#"Bypass permission checks for sending signals (see kill(2)).
+ This includes use of the ioctl(2) KDSIGACCEPT operation."#,
         Cap::LEASE => r#"(since Linux 2.4)
  Establish leases on arbitrary files (see fcntl(2))."#,
-        Cap::LINUX_IMMUTABLE => r#"Set the FS_APPEND_FL and FS_IMMUTABLE_FL inode flags (see ioctl_iflags(2))."#,
+        Cap::LINUX_IMMUTABLE => r#"Set the FS_APPEND_FL and FS_IMMUTABLE_FL inode flags (see
+ ioctl_iflags(2))."#,
         Cap::MAC_ADMIN => r#"(since Linux 2.6.25)
- Allow MAC configuration or state changes. Implemented for the Smack Linux Security Module (LSM)."#,
+ Allow MAC configuration or state changes. Implemented for the
+ Smack Linux Security Module (LSM)."#,
         Cap::MAC_OVERRIDE => r#"(since Linux 2.6.25)
- Override Mandatory Access Control (MAC). Implemented for the Smack LSM."#,
+ Override Mandatory Access Control (MAC). Implemented for the
+ Smack LSM."#,
         Cap::MKNOD => r#"(since Linux 2.4)
  Create special files using mknod(2)."#,
         Cap::NET_ADMIN => r#"Perform various network-related operations:
@@ -59,9 +80,11 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
  • clear driver statistics;
  • set promiscuous mode;
  • enabling multicasting;
- • use setsockopt(2) to set the following socket options: SO_DEBUG, SO_MARK, SO_PRIORITY (for a priority outside the range 0 to 6), SO_RCVBUFFORCE, and
- SO_SNDBUFFORCE."#,
-        Cap::NET_BIND_SERVICE => r#"Bind a socket to Internet domain privileged ports (port numbers less than 1024)."#,
+ • use setsockopt(2) to set the following socket options:
+ SO_DEBUG, SO_MARK, SO_PRIORITY (for a priority outside the
+ range 0 to 6), SO_RCVBUFFORCE, and SO_SNDBUFFORCE."#,
+        Cap::NET_BIND_SERVICE => r#"Bind a socket to Internet domain privileged ports (port numbers
+ less than 1024)."#,
         Cap::NET_BROADCAST => r#"(Unused) Make socket broadcasts, and listen to multicasts."#,
         Cap::NET_RAW => r#"• Use RAW and PACKET sockets;
  • bind to any address for transparent proxying."#,
@@ -69,90 +92,144 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
  Employ various performance-monitoring mechanisms, including:
 
  • call perf_event_open(2);
- • employ various BPF operations that have performance implications.
+ • employ various BPF operations that have performance
+ implications.
 
- This capability was added in Linux 5.8 to separate out performance monitoring functionality from the overloaded CAP_SYS_ADMIN capability. See also the kernel source
- file Documentation/admin-guide/perf-security.rst."#,
-        Cap::SETGID => r#"• Make arbitrary manipulations of process GIDs and supplementary GID list;
- • forge GID when passing socket credentials via UNIX domain sockets;
- • write a group ID mapping in a user namespace (see user_namespaces(7))."#,
+ This capability was added in Linux 5.8 to separate out
+ performance monitoring functionality from the overloaded
+ CAP_SYS_ADMIN capability. See also the kernel source file
+ Documentation/admin-guide/perf-security.rst."#,
+        Cap::SETGID => r#"• Make arbitrary manipulations of process GIDs and
+ supplementary GID list;
+ • forge GID when passing socket credentials via UNIX domain
+ sockets;
+ • write a group ID mapping in a user namespace (see
+ user_namespaces(7))."#,
         Cap::SETFCAP => r#"(since Linux 2.6.24)
  Set arbitrary capabilities on a file.
 
- Since Linux 5.12, this capability is also needed to map user ID 0 in a new user namespace; see user_namespaces(7) for details."#,
-        Cap::SETPCAP => r#"If file capabilities are supported (i.e., since Linux 2.6.24): add any capability from the calling thread's bounding set to its inheritable set; drop capabilities
- from the bounding set (via prctl(2) PR_CAPBSET_DROP); make changes to the securebits flags.
+ Since Linux 5.12, this capability is also needed to map user ID
+ 0 in a new user namespace; see user_namespaces(7) for details."#,
+        Cap::SETPCAP => r#"If file capabilities are supported (i.e., since Linux 2.6.24):
+ add any capability from the calling thread's bounding set to its
+ inheritable set; drop capabilities from the bounding set (via
+ prctl(2) PR_CAPBSET_DROP); make changes to the securebits flags.
 
- If file capabilities are not supported (i.e., before Linux 2.6.24): grant or remove any capability in the caller's permitted capability set to or from any other
- process. (This property of CAP_SETPCAP is not available when the kernel is configured to support file capabilities, since CAP_SETPCAP has entirely different
- semantics for such kernels.)"#,
-        Cap::SETUID => r#"• Make arbitrary manipulations of process UIDs (setuid(2), setreuid(2), setresuid(2), setfsuid(2));
- • forge UID when passing socket credentials via UNIX domain sockets;
- • write a user ID mapping in a user namespace (see user_namespaces(7))."#,
-        Cap::SYS_ADMIN => r#"Note: this capability is overloaded; see Notes to kernel developers below.
+ If file capabilities are not supported (i.e., before Linux
+ 2.6.24): grant or remove any capability in the caller's
+ permitted capability set to or from any other process. (This
+ property of CAP_SETPCAP is not available when the kernel is
+ configured to support file capabilities, since CAP_SETPCAP has
+ entirely different semantics for such kernels.)"#,
+        Cap::SETUID => r#"• Make arbitrary manipulations of process UIDs (setuid(2),
+ setreuid(2), setresuid(2), setfsuid(2));
+ • forge UID when passing socket credentials via UNIX domain
+ sockets;
+ • write a user ID mapping in a user namespace (see
+ user_namespaces(7))."#,
+        Cap::SYS_ADMIN => r#"Note: this capability is overloaded; see Notes to kernel
+ developers below.
 
- • Perform a range of system administration operations including: quotactl(2), mount(2), umount(2), pivot_root(2), swapon(2), swapoff(2), sethostname(2), and
- setdomainname(2);
- • perform privileged syslog(2) operations (since Linux 2.6.37, CAP_SYSLOG should be used to permit such operations);
+ • Perform a range of system administration operations
+ including: quotactl(2), mount(2), umount(2), pivot_root(2),
+ swapon(2), swapoff(2), sethostname(2), and setdomainname(2);
+ • perform privileged syslog(2) operations (since Linux 2.6.37,
+ CAP_SYSLOG should be used to permit such operations);
  • perform VM86_REQUEST_IRQ vm86(2) command;
- • access the same checkpoint/restore functionality that is governed by CAP_CHECKPOINT_RESTORE (but the latter, weaker capability is preferred for accessing that
- functionality).
- • perform the same BPF operations as are governed by CAP_BPF (but the latter, weaker capability is preferred for accessing that functionality).
- • employ the same performance monitoring mechanisms as are governed by CAP_PERFMON (but the latter, weaker capability is preferred for accessing that functionality).
- • perform IPC_SET and IPC_RMID operations on arbitrary System V IPC objects;
+ • access the same checkpoint/restore functionality that is
+ governed by CAP_CHECKPOINT_RESTORE (but the latter, weaker
+ capability is preferred for accessing that functionality).
+ • perform the same BPF operations as are governed by CAP_BPF
+ (but the latter, weaker capability is preferred for accessing
+ that functionality).
+ • employ the same performance monitoring mechanisms as are
+ governed by CAP_PERFMON (but the latter, weaker capability is
+ preferred for accessing that functionality).
+ • perform IPC_SET and IPC_RMID operations on arbitrary System V
+ IPC objects;
  • override RLIMIT_NPROC resource limit;
- • perform operations on trusted and security extended attributes (see xattr(7));
+ • perform operations on trusted and security extended
+ attributes (see xattr(7));
  • use lookup_dcookie(2);
- • use ioprio_set(2) to assign IOPRIO_CLASS_RT and (before Linux 2.6.25) IOPRIO_CLASS_IDLE I/O scheduling classes;
- • forge PID when passing socket credentials via UNIX domain sockets;
- • exceed /proc/sys/fs/file-max, the system-wide limit on the number of open files, in system calls that open files (e.g., accept(2), execve(2), open(2), pipe(2));
- • employ CLONE_* flags that create new namespaces with clone(2) and unshare(2) (but, since Linux 3.8, creating user namespaces does not require any capability);
+ • use ioprio_set(2) to assign IOPRIO_CLASS_RT and (before Linux
+ 2.6.25) IOPRIO_CLASS_IDLE I/O scheduling classes;
+ • forge PID when passing socket credentials via UNIX domain
+ sockets;
+ • exceed /proc/sys/fs/file-max, the system-wide limit on the
+ number of open files, in system calls that open files (e.g.,
+ accept(2), execve(2), open(2), pipe(2));
+ • employ CLONE_* flags that create new namespaces with clone(2)
+ and unshare(2) (but, since Linux 3.8, creating user
+ namespaces does not require any capability);
  • access privileged perf event information;
- • call setns(2) (requires CAP_SYS_ADMIN in the target namespace);
+ • call setns(2) (requires CAP_SYS_ADMIN in the target
+ namespace);
  • call fanotify_init(2);
- • perform privileged KEYCTL_CHOWN and KEYCTL_SETPERM keyctl(2) operations;
+ • perform privileged KEYCTL_CHOWN and KEYCTL_SETPERM keyctl(2)
+ operations;
  • perform madvise(2) MADV_HWPOISON operation;
- • employ the TIOCSTI ioctl(2) to insert characters into the input queue of a terminal other than the caller's controlling terminal;
+ • employ the TIOCSTI ioctl(2) to insert characters into the
+ input queue of a terminal other than the caller's controlling
+ terminal;
  • employ the obsolete nfsservctl(2) system call;
  • employ the obsolete bdflush(2) system call;
  • perform various privileged block-device ioctl(2) operations;
  • perform various privileged filesystem ioctl(2) operations;
- • perform privileged ioctl(2) operations on the /dev/random device (see random(4));
- • install a seccomp(2) filter without first having to set the no_new_privs thread attribute;
+ • perform privileged ioctl(2) operations on the /dev/random
+ device (see random(4));
+ • install a seccomp(2) filter without first having to set the
+ no_new_privs thread attribute;
  • modify allow/deny rules for device control groups;
- • employ the ptrace(2) PTRACE_SECCOMP_GET_FILTER operation to dump tracee's seccomp filters;
- • employ the ptrace(2) PTRACE_SETOPTIONS operation to suspend the tracee's seccomp protections (i.e., the PTRACE_O_SUSPEND_SECCOMP flag);
+ • employ the ptrace(2) PTRACE_SECCOMP_GET_FILTER operation to
+ dump tracee's seccomp filters;
+ • employ the ptrace(2) PTRACE_SETOPTIONS operation to suspend
+ the tracee's seccomp protections (i.e., the
+ PTRACE_O_SUSPEND_SECCOMP flag);
  • perform administrative operations on many device drivers;
- • modify autogroup nice values by writing to /proc/pid/autogroup (see sched(7))."#,
+ • modify autogroup nice values by writing to
+ /proc/pid/autogroup (see sched(7))."#,
         Cap::SYS_BOOT => r#"Use reboot(2) and kexec_load(2)."#,
         Cap::SYS_CHROOT => r#"• Use chroot(2);
  • change mount namespaces using setns(2)."#,
-        Cap::SYS_MODULE => r#"• Load and unload kernel modules (see init_module(2) and delete_module(2));
- • before Linux 2.6.25: drop capabilities from the system-wide capability bounding set."#,
-        Cap::SYS_NICE => r#"• Lower the process nice value (nice(2), setpriority(2)) and change the nice value for arbitrary processes;
- • set real-time scheduling policies for calling process, and set scheduling policies and priorities for arbitrary processes (sched_setscheduler(2),
- sched_setparam(2), sched_setattr(2));
- • set CPU affinity for arbitrary processes (sched_setaffinity(2));
- • set I/O scheduling class and priority for arbitrary processes (ioprio_set(2));
- • apply migrate_pages(2) to arbitrary processes and allow processes to be migrated to arbitrary nodes;
+        Cap::SYS_MODULE => r#"• Load and unload kernel modules (see init_module(2) and
+ delete_module(2));
+ • before Linux 2.6.25: drop capabilities from the system-wide
+ capability bounding set."#,
+        Cap::SYS_NICE => r#"• Lower the process nice value (nice(2), setpriority(2)) and
+ change the nice value for arbitrary processes;
+ • set real-time scheduling policies for calling process, and
+ set scheduling policies and priorities for arbitrary
+ processes (sched_setscheduler(2), sched_setparam(2),
+ sched_setattr(2));
+ • set CPU affinity for arbitrary processes
+ (sched_setaffinity(2));
+ • set I/O scheduling class and priority for arbitrary processes
+ (ioprio_set(2));
+ • apply migrate_pages(2) to arbitrary processes and allow
+ processes to be migrated to arbitrary nodes;
  • apply move_pages(2) to arbitrary processes;
- • use the MPOL_MF_MOVE_ALL flag with mbind(2) and move_pages(2)."#,
+ • use the MPOL_MF_MOVE_ALL flag with mbind(2) and
+ move_pages(2)."#,
         Cap::SYS_PACCT => r#"Use acct(2)."#,
         Cap::SYS_PTRACE => r#"• Trace arbitrary processes using ptrace(2);
  • apply get_robust_list(2) to arbitrary processes;
- • transfer data to or from the memory of arbitrary processes using process_vm_readv(2) and process_vm_writev(2);
+ • transfer data to or from the memory of arbitrary processes
+ using process_vm_readv(2) and process_vm_writev(2);
  • inspect processes using kcmp(2)."#,
         Cap::SYS_RAWIO => r#"• Perform I/O port operations (iopl(2) and ioperm(2));
  • access /proc/kcore;
  • employ the FIBMAP ioctl(2) operation;
- • open devices for accessing x86 model-specific registers (MSRs, see msr(4));
+ • open devices for accessing x86 model-specific registers
+ (MSRs, see msr(4));
  • update /proc/sys/vm/mmap_min_addr;
- • create memory mappings at addresses below the value specified by /proc/sys/vm/mmap_min_addr;
+ • create memory mappings at addresses below the value specified
+ by /proc/sys/vm/mmap_min_addr;
  • map files in /proc/bus/pci;
  • open /dev/mem and /dev/kmem;
  • perform various SCSI device commands;
  • perform certain operations on hpsa(4) and cciss(4) devices;
- • perform a range of device-specific operations on other devices."#,
+ • perform a range of device-specific operations on other
+ devices."#,
         Cap::SYS_RESOURCE => r#"• Use reserved space on ext2 filesystems;
  • make ioctl(2) calls controlling ext3 journaling;
  • override disk quota limits;
@@ -161,170 +238,38 @@ pub fn get_capability_description(cap : &Cap) -> &'static str {
  • override maximum number of consoles on console allocation;
  • override maximum number of keymaps;
  • allow more than 64hz interrupts from the real-time clock;
- • raise msg_qbytes limit for a System V message queue above the limit in /proc/sys/kernel/msgmnb (see msgop(2) and msgctl(2));
- • allow the RLIMIT_NOFILE resource limit on the number of "in-flight" file descriptors to be bypassed when passing file descriptors to another process via a UNIX
- domain socket (see unix(7));
- • override the /proc/sys/fs/pipe-size-max limit when setting the capacity of a pipe using the F_SETPIPE_SZ fcntl(2) command;
- • use F_SETPIPE_SZ to increase the capacity of a pipe above the limit specified by /proc/sys/fs/pipe-max-size;
- • override /proc/sys/fs/mqueue/queues_max, /proc/sys/fs/mqueue/msg_max, and /proc/sys/fs/mqueue/msgsize_max limits when creating POSIX message queues (see
- mq_overview(7));
+ • raise msg_qbytes limit for a System V message queue above the
+ limit in /proc/sys/kernel/msgmnb (see msgop(2) and
+ msgctl(2));
+ • allow the RLIMIT_NOFILE resource limit on the number of "in-
+ flight" file descriptors to be bypassed when passing file
+ descriptors to another process via a UNIX domain socket (see
+ unix(7));
+ • override the /proc/sys/fs/pipe-size-max limit when setting
+ the capacity of a pipe using the F_SETPIPE_SZ fcntl(2)
+ command;
+ • use F_SETPIPE_SZ to increase the capacity of a pipe above the
+ limit specified by /proc/sys/fs/pipe-max-size;
+ • override /proc/sys/fs/mqueue/queues_max,
+ /proc/sys/fs/mqueue/msg_max, and
+ /proc/sys/fs/mqueue/msgsize_max limits when creating POSIX
+ message queues (see mq_overview(7));
  • employ the prctl(2) PR_SET_MM operation;
- • set /proc/pid/oom_score_adj to a value lower than the value last set by a process with CAP_SYS_RESOURCE."#,
-        Cap::SYS_TIME => r#"Set system clock (settimeofday(2), stime(2), adjtimex(2)); set real-time (hardware) clock."#,
-        Cap::SYS_TTY_CONFIG => r#"Use vhangup(2); employ various privileged ioctl(2) operations on virtual terminals."#,
+ • set /proc/pid/oom_score_adj to a value lower than the value
+ last set by a process with CAP_SYS_RESOURCE."#,
+        Cap::SYS_TIME => r#"Set system clock (settimeofday(2), stime(2), adjtimex(2)); set
+ real-time (hardware) clock."#,
+        Cap::SYS_TTY_CONFIG => r#"Use vhangup(2); employ various privileged ioctl(2) operations on
+ virtual terminals."#,
         Cap::SYSLOG => r#"(since Linux 2.6.37)
- • Perform privileged syslog(2) operations. See syslog(2) for information on which operations require privilege.
- • View kernel addresses exposed via /proc and other interfaces when /proc/sys/kernel/kptr_restrict has the value 1. (See the discussion of the kptr_restrict in
- proc(5).)"#,
+ • Perform privileged syslog(2) operations. See syslog(2) for
+ information on which operations require privilege.
+ • View kernel addresses exposed via /proc and other interfaces
+ when /proc/sys/kernel/kptr_restrict has the value 1. (See
+ the discussion of the kptr_restrict in proc(5).)"#,
         Cap::WAKE_ALARM => r#"(since Linux 3.0)
- Trigger something that will wake up the system (set CLOCK_REALTIME_ALARM and CLOCK_BOOTTIME_ALARM timers)."#,
-        Cap::INIT_EFF_SET => r#"in include/linux/capability.h and rebuild the kernel.
-
- The system-wide capability bounding set feature was added to Linux 2.2.11.
-
- Effect of user ID changes on capabilities
- To preserve the traditional semantics for transitions between 0 and nonzero user IDs, the kernel makes the following changes to a thread's capability sets on changes to the
- thread's real, effective, saved set, and filesystem user IDs (using setuid(2), setresuid(2), or similar):
-
- • If one or more of the real, effective, or saved set user IDs was previously 0, and as a result of the UID changes all of these IDs have a nonzero value, then all
- capabilities are cleared from the permitted, effective, and ambient capability sets.
-
- • If the effective user ID is changed from 0 to nonzero, then all capabilities are cleared from the effective set.
-
- • If the effective user ID is changed from nonzero to 0, then the permitted set is copied to the effective set.
-
- • If the filesystem user ID is changed from 0 to nonzero (see setfsuid(2)), then the following capabilities are cleared from the effective set: CAP_CHOWN, CAP_DAC_OVERRIDE,
- CAP_DAC_READ_SEARCH, CAP_FOWNER, CAP_FSETID, CAP_LINUX_IMMUTABLE (since Linux 2.6.30), CAP_MAC_OVERRIDE, and CAP_MKNOD (since Linux 2.6.30). If the filesystem UID is
- changed from nonzero to 0, then any of these capabilities that are enabled in the permitted set are enabled in the effective set.
-
- If a thread that has a 0 value for one or more of its user IDs wants to prevent its permitted capability set being cleared when it resets all of its user IDs to nonzero
- values, it can do so using the SECBIT_KEEP_CAPS securebits flag described below.
-
- Programmatically adjusting capability sets
- A thread can retrieve and change its permitted, effective, and inheritable capability sets using the capget(2) and capset(2) system calls. However, the use of
- cap_get_proc(3) and cap_set_proc(3), both provided in the libcap package, is preferred for this purpose. The following rules govern changes to the thread capability sets:
-
- • If the caller does not have the CAP_SETPCAP capability, the new inheritable set must be a subset of the combination of the existing inheritable and permitted sets.
-
- • (Since Linux 2.6.25) The new inheritable set must be a subset of the combination of the existing inheritable set and the capability bounding set.
-
- • The new permitted set must be a subset of the existing permitted set (i.e., it is not possible to acquire permitted capabilities that the thread does not currently have).
-
- • The new effective set must be a subset of the new permitted set.
-
- The securebits flags: establishing a capabilities-only environment
- Starting with Linux 2.6.26, and with a kernel in which file capabilities are enabled, Linux implements a set of per-thread securebits flags that can be used to disable
- special handling of capabilities for UID 0 (root). These flags are as follows:
-
- SECBIT_KEEP_CAPS
- Setting this flag allows a thread that has one or more 0 UIDs to retain capabilities in its permitted set when it switches all of its UIDs to nonzero values. If this
- flag is not set, then such a UID switch causes the thread to lose all permitted capabilities. This flag is always cleared on an execve(2).
-
- Note that even with the SECBIT_KEEP_CAPS flag set, the effective capabilities of a thread are cleared when it switches its effective UID to a nonzero value. However,
- if the thread has set this flag and its effective UID is already nonzero, and the thread subsequently switches all other UIDs to nonzero values, then the effective
- capabilities will not be cleared.
-
- The setting of the SECBIT_KEEP_CAPS flag is ignored if the SECBIT_NO_SETUID_FIXUP flag is set. (The latter flag provides a superset of the effect of the former
- flag.)
-
- This flag provides the same functionality as the older prctl(2) PR_SET_KEEPCAPS operation.
-
- SECBIT_NO_SETUID_FIXUP
- Setting this flag stops the kernel from adjusting the process's permitted, effective, and ambient capability sets when the thread's effective and filesystem UIDs are
- switched between zero and nonzero values. See Effect of user ID changes on capabilities above.
-
- SECBIT_NOROOT
- If this bit is set, then the kernel does not grant capabilities when a set-user-ID-root program is executed, or when a process with an effective or real UID of 0
- calls execve(2). (See Capabilities and execution of programs by root above.)
-
- SECBIT_NO_CAP_AMBIENT_RAISE
- Setting this flag disallows raising ambient capabilities via the prctl(2) PR_CAP_AMBIENT_RAISE operation.
-
- Each of the above "base" flags has a companion "locked" flag. Setting any of the "locked" flags is irreversible, and has the effect of preventing further changes to the
- corresponding "base" flag. The locked flags are: SECBIT_KEEP_CAPS_LOCKED, SECBIT_NO_SETUID_FIXUP_LOCKED, SECBIT_NOROOT_LOCKED, and SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED.
-
- The securebits flags can be modified and retrieved using the prctl(2) PR_SET_SECUREBITS and PR_GET_SECUREBITS operations. The CAP_SETPCAP capability is required to modify
- the flags. Note that the SECBIT_* constants are available only after including the <linux/securebits.h> header file.
-
- The securebits flags are inherited by child processes. During an execve(2), all of the flags are preserved, except SECBIT_KEEP_CAPS which is always cleared.
-
- An application can use the following call to lock itself, and all of its descendants, into an environment where the only way of gaining capabilities is by executing a
- program with associated file capabilities:
-
- prctl(PR_SET_SECUREBITS,
- /* SECBIT_KEEP_CAPS off */
- SECBIT_KEEP_CAPS_LOCKED |
- SECBIT_NO_SETUID_FIXUP |
- SECBIT_NO_SETUID_FIXUP_LOCKED |
- SECBIT_NOROOT |
- SECBIT_NOROOT_LOCKED);
- /* Setting/locking SECBIT_NO_CAP_AMBIENT_RAISE
- is not required */
-
- Per-user-namespace "set-user-ID-root" programs
- A set-user-ID program whose UID matches the UID that created a user namespace will confer capabilities in the process's permitted and effective sets when executed by any
- process inside that namespace or any descendant user namespace.
-
- The rules about the transformation of the process's capabilities during the execve(2) are exactly as described in Transformation of capabilities during execve() and
- Capabilities and execution of programs by root above, with the difference that, in the latter subsection, "root" is the UID of the creator of the user namespace.
-
- Namespaced file capabilities
- Traditional (i.e., version 2) file capabilities associate only a set of capability masks with a binary executable file. When a process executes a binary with such
- capabilities, it gains the associated capabilities (within its user namespace) as per the rules described in Transformation of capabilities during execve() above.
-
- Because version 2 file capabilities confer capabilities to the executing process regardless of which user namespace it resides in, only privileged processes are permitted to
- associate capabilities with a file. Here, "privileged" means a process that has the CAP_SETFCAP capability in the user namespace where the filesystem was mounted (normally
- the initial user namespace). This limitation renders file capabilities useless for certain use cases. For example, in user-namespaced containers, it can be desirable to be
- able to create a binary that confers capabilities only to processes executed inside that container, but not to processes that are executed outside the container.
-
- Linux 4.14 added so-called namespaced file capabilities to support such use cases. Namespaced file capabilities are recorded as version 3 (i.e., VFS_CAP_REVISION_3)
- security.capability extended attributes. Such an attribute is automatically created in the circumstances described in File capability extended attribute versioning above.
- When a version 3 security.capability extended attribute is created, the kernel records not just the capability masks in the extended attribute, but also the namespace root
- user ID.
-
- As with a binary that has VFS_CAP_REVISION_2 file capabilities, a binary with VFS_CAP_REVISION_3 file capabilities confers capabilities to a process during execve().
- However, capabilities are conferred only if the binary is executed by a process that resides in a user namespace whose UID 0 maps to the root user ID that is saved in the
- extended attribute, or when executed by a process that resides in a descendant of such a namespace.
-
- Interaction with user namespaces
- For further information on the interaction of capabilities and user namespaces, see user_namespaces(7).
-
-STANDARDS
- No standards govern capabilities, but the Linux capability implementation is based on the withdrawn POSIX.1e draft standard ⟨https://archive.org/details
- /posix_1003.1e-990310⟩.
-
-NOTES
- When attempting to strace(1) binaries that have capabilities (or set-user-ID-root binaries), you may find the -u <username> option useful. Something like:
-
- $ sudo strace -o trace.log -u ceci ./myprivprog
-
- From Linux 2.5.27 to Linux 2.6.26, capabilities were an optional kernel component, and could be enabled/disabled via the CONFIG_SECURITY_CAPABILITIES kernel configuration
- option.
-
- The /proc/pid/task/TID/status file can be used to view the capability sets of a thread. The /proc/pid/status file shows the capability sets of a process's main thread.
- Before Linux 3.8, nonexistent capabilities were shown as being enabled (1) in these sets. Since Linux 3.8, all nonexistent capabilities (above CAP_LAST_CAP) are shown as
- disabled (0).
-
- The libcap package provides a suite of routines for setting and getting capabilities that is more comfortable and less likely to change than the interface provided by
- capset(2) and capget(2). This package also provides the setcap(8) and getcap(8) programs. It can be found at
- ⟨https://git.kernel.org/pub/scm/libs/libcap/libcap.git/refs/⟩.
-
- Before Linux 2.6.24, and from Linux 2.6.24 to Linux 2.6.32 if file capabilities are not enabled, a thread with the CAP_SETPCAP capability can manipulate the capabilities of
- threads other than itself. However, this is only theoretically possible, since no thread ever has CAP_SETPCAP in either of these cases:
-
- • In the pre-2.6.25 implementation the system-wide capability bounding set, /proc/sys/kernel/cap-bound, always masks out the CAP_SETPCAP capability, and this can not be
- changed without modifying the kernel source and rebuilding the kernel.
-
- • If file capabilities are disabled (i.e., the kernel CONFIG_SECURITY_FILE_CAPABILITIES option is disabled), then init starts out with the CAP_SETPCAP capability removed
- from its per-process bounding set, and that bounding set is inherited by all other processes created on the system.
-
-SEE ALSO
- capsh(1), setpriv(1), prctl(2), setfsuid(2), cap_clear(3), cap_copy_ext(3), cap_from_text(3), cap_get_file(3), cap_get_proc(3), cap_init(3), capgetp(3), capsetp(3),
- libcap(3), proc(5), credentials(7), pthreads(7), user_namespaces(7), captest(8), filecap(8), getcap(8), getpcaps(8), netcap(8), pscap(8), setcap(8)
-
- include/linux/capability.h in the Linux kernel source tree
-
-Linux man-pages (unreleased) (date) Capabilities(7)"#,
+ Trigger something that will wake up the system (set
+ CLOCK_REALTIME_ALARM and CLOCK_BOOTTIME_ALARM timers)."#,
        _ => "Unknown capability",
     }
 }

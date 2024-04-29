@@ -1,6 +1,12 @@
 use std::cmp::Ordering;
 
-use crate::common::{api::{PluginManager, PluginResultAction}, database::{finder::{Cred, TaskMatch, TaskMatcher}, structs::SRole}};
+use crate::common::{
+    api::{PluginManager, PluginResultAction},
+    database::{
+        finder::{Cred, TaskMatch, TaskMatcher},
+        structs::SRole,
+    },
+};
 
 use serde::Deserialize;
 use tracing::{debug, warn};
@@ -8,11 +14,18 @@ use tracing::{debug, warn};
 #[derive(Deserialize)]
 pub struct Parents(Vec<String>);
 
-fn get_parents(role: &SRole) -> Option<Result<Parents, serde_json::Error>>{
-    role._extra_fields.get("parents").and_then(|parents| Some(serde_json::from_value::<Parents>(parents.clone())))
+fn get_parents(role: &SRole) -> Option<Result<Parents, serde_json::Error>> {
+    role._extra_fields
+        .get("parents")
+        .and_then(|parents| Some(serde_json::from_value::<Parents>(parents.clone())))
 }
 
-fn find_in_parents(role: &SRole, user: &Cred, command: &[String], matcher: &mut TaskMatch) -> PluginResultAction {
+fn find_in_parents(
+    role: &SRole,
+    user: &Cred,
+    command: &[String],
+    matcher: &mut TaskMatch,
+) -> PluginResultAction {
     //precondition matcher user matches
     if !matcher.user_matching() {
         return PluginResultAction::Ignore;
@@ -27,22 +40,24 @@ fn find_in_parents(role: &SRole, user: &Cred, command: &[String], matcher: &mut 
                     debug!("Checking parent role {}", parent);
                     match role.as_ref().borrow().tasks.matches(user, command) {
                         Ok(matches) => {
-                            if !matcher.command_matching() || (matches.command_matching() && matches.score.cmd_cmp(&matcher.score) == Ordering::Less) {
+                            if !matcher.command_matching()
+                                || (matches.command_matching()
+                                    && matches.score.cmd_cmp(&matcher.score) == Ordering::Less)
+                            {
                                 matcher.score = matches.score;
                                 matcher.settings = matches.settings;
                                 result = PluginResultAction::Edit;
                             }
-                        },
+                        }
                         Err(e) => {
                             warn!("Failed to match parent role {}", e);
                         }
                     }
-                    
                 } else {
                     warn!("Parent role {} not found", parent);
                 }
             }
-        },
+        }
         _ => {
             warn!("No parents found for role {}", role.name);
             return PluginResultAction::Ignore;
@@ -62,7 +77,13 @@ mod tests {
     use nix::unistd::{Pid, User};
 
     use super::*;
-    use crate::{common::database::{finder::UserMin, structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask}}, rc_refcell};
+    use crate::{
+        common::database::{
+            finder::UserMin,
+            structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask},
+        },
+        rc_refcell,
+    };
 
     #[test]
     fn test_find_in_parents() {
@@ -77,15 +98,22 @@ mod tests {
         command.add.push(SCommand::Simple("ls".to_string()));
         task1.as_ref().borrow_mut().commands = command;
         role1.as_ref().borrow_mut().tasks.push(task1);
-        
+
         config.as_ref().borrow_mut().roles.push(role1);
         let role1 = rc_refcell!(SRole::default());
         let task1 = rc_refcell!(STask::default());
         task1.as_ref().borrow_mut()._role = Some(Rc::downgrade(&role1));
         role1.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
         role1.as_ref().borrow_mut().name = "role2".to_string();
-        role1.as_ref().borrow_mut().actors.push(SActor::from_user_id(0));
-        role1.as_ref().borrow_mut()._extra_fields.insert("parents".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]));
+        role1
+            .as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_id(0));
+        role1.as_ref().borrow_mut()._extra_fields.insert(
+            "parents".to_string(),
+            serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
+        );
         task1.as_ref().borrow_mut().name = IdTask::Name("task2".to_string());
         role1.as_ref().borrow_mut().tasks.push(task1);
         config.as_ref().borrow_mut().roles.push(role1);
@@ -98,7 +126,12 @@ mod tests {
         };
         let mut matcher = TaskMatch::default();
         matcher.score.user_min = UserMin::UserMatch;
-        let res = find_in_parents(&config.as_ref().borrow().roles[1].as_ref().borrow(), &cred, &["ls".to_string()], &mut matcher);
+        let res = find_in_parents(
+            &config.as_ref().borrow().roles[1].as_ref().borrow(),
+            &cred,
+            &["ls".to_string()],
+            &mut matcher,
+        );
         assert_eq!(res, PluginResultAction::Edit);
     }
 
@@ -116,15 +149,22 @@ mod tests {
         command.add.push(SCommand::Simple("ls".to_string()));
         task1.as_ref().borrow_mut().commands = command;
         role1.as_ref().borrow_mut().tasks.push(task1);
-        
+
         config.as_ref().borrow_mut().roles.push(role1);
         let role1 = rc_refcell!(SRole::default());
         let task1 = rc_refcell!(STask::default());
         task1.as_ref().borrow_mut()._role = Some(Rc::downgrade(&role1));
         role1.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
         role1.as_ref().borrow_mut().name = "role2".to_string();
-        role1.as_ref().borrow_mut().actors.push(SActor::from_user_id(0));
-        role1.as_ref().borrow_mut()._extra_fields.insert("parents".to_string(), serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]));
+        role1
+            .as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_id(0));
+        role1.as_ref().borrow_mut()._extra_fields.insert(
+            "parents".to_string(),
+            serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
+        );
         task1.as_ref().borrow_mut().name = IdTask::Name("task2".to_string());
         role1.as_ref().borrow_mut().tasks.push(task1);
         config.as_ref().borrow_mut().roles.push(role1);
@@ -138,9 +178,9 @@ mod tests {
         let mut matcher = TaskMatch::default();
         matcher.score.user_min = UserMin::UserMatch;
         let matches = config.matches(&cred, &["ls".to_string()]).unwrap();
-        assert_eq!(matches.settings.task.upgrade().unwrap(), config.as_ref().borrow().roles[0].as_ref().borrow().tasks[0].clone());
+        assert_eq!(
+            matches.settings.task.upgrade().unwrap(),
+            config.as_ref().borrow().roles[0].as_ref().borrow().tasks[0].clone()
+        );
     }
 }
-
-
-        

@@ -8,8 +8,10 @@ use crate::{
     as_borrow,
     common::{
         api::{PluginManager, PluginResult},
-        database::{structs::{SActor, SConfig, SGroups, SRole},
-                    finder::Cred},
+        database::{
+            finder::Cred,
+            structs::{SActor, SConfig, SGroups, SRole},
+        },
     },
 };
 
@@ -41,12 +43,12 @@ fn group_contained_in(group: &Group, actors: &Vec<SActor>) -> bool {
                         if group == group {
                             return true;
                         }
-                    },
+                    }
                     SGroups::Multiple(groups) => {
-                        if groups.iter().any(|x| x == group){
+                        if groups.iter().any(|x| x == group) {
                             return true;
                         }
-                    },
+                    }
                 }
             } else {
                 //TODO API call to verify if group is the described actor
@@ -68,7 +70,6 @@ fn groups_subset_of(groups: &Vec<Group>, actors: &Vec<SActor>) -> bool {
 
 // Check if user and its related groups are forbidden to use the role
 fn user_is_forbidden(user: &User, ssd_roles: &Vec<String>, sconfig: &SConfig) -> bool {
-    
     let mut groups_to_check = Vec::new();
     if let Ok(groups) = getgrouplist(
         CString::new(user.name.as_str()).unwrap().as_c_str(),
@@ -82,10 +83,8 @@ fn user_is_forbidden(user: &User, ssd_roles: &Vec<String>, sconfig: &SConfig) ->
         }
     }
     for role in ssd_roles.iter() {
-
         if let Some(role) = sconfig.role(role) {
-            if user_contained_in(user, &as_borrow!(role)
-                .actors)
+            if user_contained_in(user, &as_borrow!(role).actors)
                 || groups_subset_of(&groups_to_check, &as_borrow!(role).actors)
             {
                 return true;
@@ -122,16 +121,19 @@ fn check_separation_of_duty(role: &SRole, actor: &Cred) -> PluginResult {
         return PluginResult::Neutral;
     }
     let roles = roles.unwrap().0;
-    if user_is_forbidden(&actor.user, &roles, &as_borrow!(sconfig)) ||
-        groups_are_forbidden(&actor.groups, &roles, &as_borrow!(sconfig)){
+    if user_is_forbidden(&actor.user, &roles, &as_borrow!(sconfig))
+        || groups_are_forbidden(&actor.groups, &roles, &as_borrow!(sconfig))
+    {
         PluginResult::Deny
     } else {
         PluginResult::Neutral
     }
 }
 
-fn get_ssd_entry(role: &SRole) -> Option<Result<SSD,Error>> {
-    role._extra_fields.get("ssd").and_then(|ssd| Some(serde_json::from_value::<SSD>(ssd.clone())))
+fn get_ssd_entry(role: &SRole) -> Option<Result<SSD, Error>> {
+    role._extra_fields
+        .get("ssd")
+        .and_then(|ssd| Some(serde_json::from_value::<SSD>(ssd.clone())))
 }
 
 pub fn register() {
@@ -143,7 +145,10 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::{common::database::structs::{SActor, SConfig, SRole}, rc_refcell};
+    use crate::{
+        common::database::structs::{SActor, SConfig, SRole},
+        rc_refcell,
+    };
     use nix::unistd::{Group, Pid};
     use serde_json::Value;
 
@@ -194,10 +199,24 @@ mod tests {
         let role = rc_refcell!(SRole::default());
         role.as_ref().borrow_mut()._config = Some(Rc::downgrade(&sconfig));
         role.as_ref().borrow_mut().name = "role1".to_string();
-        role.as_ref().borrow_mut().actors.push(SActor::from_group_id(0));
-        role.as_ref().borrow_mut()._extra_fields.insert("ssd".to_string(), serde_json::Value::Array(vec![Value::String("role1".to_string())]));
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_group_id(0));
+        role.as_ref().borrow_mut()._extra_fields.insert(
+            "ssd".to_string(),
+            serde_json::Value::Array(vec![Value::String("role1".to_string())]),
+        );
         sconfig.as_ref().borrow_mut().roles.push(role.clone());
-        let actor = Cred { user: User::from_uid(0.into()).unwrap().unwrap(), groups: vec![Group::from_gid(0.into()).unwrap().unwrap()], tty: None, ppid: Pid::parent() };
-        assert_eq!(check_separation_of_duty(&role.as_ref().borrow(), &actor), PluginResult::Deny);
+        let actor = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            groups: vec![Group::from_gid(0.into()).unwrap().unwrap()],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        assert_eq!(
+            check_separation_of_duty(&role.as_ref().borrow(), &actor),
+            PluginResult::Deny
+        );
     }
 }

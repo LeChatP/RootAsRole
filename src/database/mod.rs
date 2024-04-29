@@ -8,6 +8,7 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
+use tracing::warn;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
 
@@ -35,7 +36,9 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn read_json_config(settings: Rc<RefCell<SettingsFile>>) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+pub fn read_json_config(
+    settings: Rc<RefCell<SettingsFile>>,
+) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     let default = &ROOTASROLE.into();
     let binding = settings.as_ref().borrow();
@@ -44,18 +47,19 @@ pub fn read_json_config(settings: Rc<RefCell<SettingsFile>>) -> Result<Rc<RefCel
         .settings
         .as_ref()
         .unwrap_or(&default_remote)
-        .path.as_ref()
+        .path
+        .as_ref()
         .unwrap_or(default);
     if path == default {
         make_weak_config(&settings.as_ref().borrow().config);
         Ok(settings.as_ref().borrow().config.clone())
     } else {
-        let file = std::fs::File::open(
-            path
-        )?;
+        let file = std::fs::File::open(path)?;
         warn_if_mutable(
             &file,
-            settings.as_ref().borrow()
+            settings
+                .as_ref()
+                .borrow()
                 .storage
                 .settings
                 .as_ref()
@@ -77,7 +81,10 @@ pub fn read_json_config(settings: Rc<RefCell<SettingsFile>>) -> Result<Rc<RefCel
     }
 }
 
-pub fn save_json(settings: Rc<RefCell<SettingsFile>>, config: Rc<RefCell<SConfig>>) -> Result<(), Box<dyn Error>> {
+pub fn save_json(
+    settings: Rc<RefCell<SettingsFile>>,
+    config: Rc<RefCell<SConfig>>,
+) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
@@ -90,7 +97,8 @@ pub fn save_json(settings: Rc<RefCell<SettingsFile>>, config: Rc<RefCell<SConfig
         .path
         .as_ref()
         .unwrap_or(&into);
-    if path == &into { // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
+    if path == &into {
+        // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
         return save_settings(settings.clone());
     }
     debug!("Setting immutable privilege");
@@ -100,7 +108,7 @@ pub fn save_json(settings: Rc<RefCell<SettingsFile>>, config: Rc<RefCell<SConfig
     debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
     debug!("Writing config file");
-    let versionned : Versioning<Rc<RefCell<SConfig>>> = Versioning {
+    let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
         version: PACKAGE_VERSION.to_owned().parse()?,
         data: config,
     };
@@ -198,7 +206,9 @@ where
         let hours: i64 = hours.parse().map_err(de::Error::custom)?;
         let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
         let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
-        return Ok(Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds));
+        return Ok(Duration::hours(hours)
+            + Duration::minutes(minutes)
+            + Duration::seconds(seconds));
     }
     Err(de::Error::custom("Invalid duration format"))
 }

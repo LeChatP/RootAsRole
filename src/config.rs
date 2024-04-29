@@ -16,12 +16,12 @@
 //         }
 //       },
 //       // when using rdbms as storage method
-//       "database": "database", 
-//       "schema": "schema",    
+//       "database": "database",
+//       "schema": "schema",
 //       "table_prefix": "rar_",
-//       "properties": { 
-//         "use_unicode": true,  
-//         "character_encoding": "utf8"  
+//       "properties": {
+//         "use_unicode": true,
+//         "character_encoding": "utf8"
 //       },
 //       // when using ldap as storage method
 //       "role_dn": "ou=roles",
@@ -47,26 +47,32 @@
 //     }
 //   }
 
-pub const ROOTASROLE : &str = "/etc/security/rootasrole.json";
-
+pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 
 use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::{common::{dac_override_effective, immutable_effective, util::toggle_lock_config}, rc_refcell};
+use crate::{
+    common::{dac_override_effective, immutable_effective, util::toggle_lock_config},
+    rc_refcell,
+};
 
-use super::database::{migration::Migration, structs::SConfig, version::{self, Versioning}};
+use super::database::{
+    migration::Migration,
+    structs::SConfig,
+    version::{self, Versioning},
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageMethod {
     JSON,
-//    SQLite,
-//    PostgreSQL,
-//    MySQL,
-//    LDAP,
+    //    SQLite,
+    //    PostgreSQL,
+    //    MySQL,
+    //    LDAP,
     #[serde(other)]
     Unknown,
 }
@@ -84,13 +90,11 @@ pub struct SettingsFile {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
-
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ldap: Option<LdapSettings>,
-
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -220,7 +224,7 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
     debug!("Writing config file");
-    let versionned : Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
     write_json_config(&versionned)?;
     debug!("Toggling immutable off for config file");
     toggle_lock_config(path, false)?;
@@ -231,13 +235,13 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     Ok(())
 }
 
-pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>{
+pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
     // if file does not exist, return default settings
     if !std::path::Path::new(ROOTASROLE).exists() {
         return Ok(rc_refcell!(SettingsFile::default()));
     }
     let file = std::fs::File::open(ROOTASROLE).expect("Failed to open file");
-    let value : Versioning<SettingsFile> = serde_json::from_reader(file).unwrap_or_default();
+    let value: Versioning<SettingsFile> = serde_json::from_reader(file).unwrap_or_default();
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
     if Migration::migrate(
@@ -247,7 +251,12 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>{
     )? {
         Migration::migrate(
             &value.version,
-            &mut *settingsfile.as_ref().borrow_mut().config.as_ref().borrow_mut(),
+            &mut *settingsfile
+                .as_ref()
+                .borrow_mut()
+                .config
+                .as_ref()
+                .borrow_mut(),
             version::JSON_MIGRATIONS,
         )?;
         save_settings(settingsfile.clone())?;
