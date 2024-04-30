@@ -34,35 +34,6 @@ impl<T: Default + Debug> Default for Versioning<T> {
     }
 }
 
-impl Versioning<SConfig> {
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<SConfig, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize into the intermediate representation
-        let mut intermediate: Versioning<SConfig> =
-            <Self as Deserialize>::deserialize(deserializer)?;
-        // Check version and perform migrations if necessary
-        if Migration::migrate(
-            &intermediate.version,
-            &mut intermediate.data,
-            JSON_MIGRATIONS,
-        )
-        .and_then(|b| {
-            intermediate.version = version::PACKAGE_VERSION.to_owned().parse()?;
-            debug!("Migrated from {}", intermediate.version);
-            Ok(b)
-        })
-        .is_err()
-        {
-            return Err(serde::de::Error::custom("Failed to migrate data"));
-        }
-
-        // Return the migrated data
-        Ok(intermediate.data)
-    }
-}
-
 pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[];
 
 pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[];

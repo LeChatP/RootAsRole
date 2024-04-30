@@ -433,7 +433,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         }
         // === commands ===
         Rule::cmd => {
-            inputs.cmd_id = Some(pair.as_str().to_string());
+            inputs.cmd_id = Some(pair.as_str().to_string().trim_matches('\'').to_string());
         }
         // === credentials ===
         Rule::capability => {

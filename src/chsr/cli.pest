@@ -79,8 +79,9 @@ command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
 cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
-cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
-cmd         = @{ name }
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ quoted_cmd | purge) }
+quoted_cmd  = _{ NOT_ESCAPE_QUOTE ~ cmd ~ NOT_ESCAPE_QUOTE | cmd }
+cmd         = @{ ANY+ }
 
 // ========================
 // credentials
@@ -190,6 +191,6 @@ opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 assignment   =  _{ "=" | WHITESPACE }
 help = { "-h" | "--help" }
 
-NOT_ESCAPE_QUOTE = @{ !"\\" ~ "\"" }
+NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\""|"'") }
 
 WHITESPACE = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }

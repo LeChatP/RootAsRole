@@ -72,20 +72,6 @@ pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-pub fn capset_to_string(set: &CapSet) -> String {
-    set.iter()
-        .fold(String::new(), |mut acc, cap| {
-            acc.push_str(&format!("CAP_{:?} ", cap));
-            acc
-        })
-        .trim_end()
-        .to_string()
-}
-
-pub fn capset_to_vec(set: &capctl::CapSet) -> Vec<String> {
-    set.iter().map(|cap| cap.to_string()).collect()
-}
-
 //parse string iterator to capset
 pub fn parse_capset_iter<'a, I>(iter: I) -> Result<CapSet, ParseCapError>
 where
