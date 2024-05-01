@@ -14,6 +14,7 @@ use linked_hash_set::LinkedHashSet;
 use pest::{error::LineColLocation, iterators::Pair, Parser};
 use pest_derive::Parser;
 use tracing::{debug, warn};
+use tracing_subscriber::field::debug;
 
 use crate::{
     common::{
@@ -27,7 +28,7 @@ use crate::{
                 IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
                 SetBehavior,
             },
-        },
+        }, util::escape_parser_string,
     },
     rc_refcell,
 };
@@ -224,6 +225,8 @@ struct Inputs {
     options_bounding: Option<SBounding>,
     options_wildcard: Option<String>,
 }
+
+
 
 impl Default for Inputs {
     fn default() -> Self {
@@ -432,8 +435,8 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         // === commands ===
-        Rule::cmd => {
-            inputs.cmd_id = Some(pair.as_str().to_string().trim_matches('\'').to_string());
+        Rule::inner => {
+            inputs.cmd_id = Some(pair.as_str().to_string());
         }
         // === credentials ===
         Rule::capability => {
@@ -558,7 +561,7 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::credentials_operations => "cred",
         Rule::cmd_checklisting => "whitelist, blacklist",
         Rule::cmd_policy => "allow-all or deny-all",
-        Rule::cmd => "a command line",
+        Rule::cmd | Rule::inner => "a command line",
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
@@ -664,6 +667,7 @@ fn usage_concat(usages: &[&'static str]) -> String {
     usage
 }
 
+
 pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
     /*let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
         s.push_str(&e);
@@ -671,7 +675,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
         s
     });*/
 
-    let args = shell_words::join(std::env::args());
+    let args = escape_parser_string(std::env::args());
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {
         Ok(v) => v,
@@ -788,15 +792,23 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 add|del");
                 let mut config = rconfig.as_ref().borrow_mut();
                 match action {
                     InputAction::Add => {
+                        //verify if role exists
+                        if config.role(&role_id).is_some() {
+                            return Err("Role already exists".into());
+                        }
                         config
                             .roles
                             .push(rc_refcell!(SRole::new(role_id, Weak::new())));
                         Ok(true)
                     }
                     InputAction::Del => {
+                        if config.role(&role_id).is_none() {
+                            return Err("Role do not exists".into());
+                        }
                         config.roles.retain(|r| r.as_ref().borrow().name != role_id);
                         Ok(true)
                     }
@@ -808,19 +820,34 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             // chsr role r1 grant|revoke -u u1 -u u2 -g g1,g2
             action,
             role_id: Some(role_id),
-            actors: Some(actors),
+            actors: Some(mut actors),
             options: false,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 grant|revoke");
                 let config = rconfig.as_ref().borrow_mut();
                 let role = config.role(&role_id).ok_or("Role not found")?;
                 match action {
                     InputAction::Add => {
+                        //verify if actor is already in role
+                        //remove already existing actors
+                        actors.retain(|a| {
+                            if role.as_ref().borrow().actors.contains(a) {
+                                println!("Actor {} already in role", a);
+                                false
+                            } else {
+                                true
+                            }
+                        });
                         role.as_ref().borrow_mut().actors.extend(actors);
                         Ok(true)
                     }
                     InputAction::Del => {
+                        //if actor is not in role, warns
+                        if !role.as_ref().borrow().actors.contains(&actors[0]) {
+                            println!("Actor {} not in role", actors[0]);
+                        }
                         role.as_ref()
                             .borrow_mut()
                             .actors
@@ -846,10 +873,16 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 add|del");
                 let config = rconfig.as_ref().borrow_mut();
                 let role = config.role(&role_id).ok_or("Role not found")?;
                 match action {
                     InputAction::Add => {
+                        //verify if task exists
+                        if role.as_ref().borrow().tasks.iter().any(|t| t.as_ref().borrow().name == task_id)
+                        {
+                            return Err("Task already exists".into());
+                        }
                         role.as_ref()
                             .borrow_mut()
                             .tasks
@@ -857,6 +890,10 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                         Ok(true)
                     }
                     InputAction::Del => {
+                        if role.as_ref().borrow().tasks.iter().all(|t| t.as_ref().borrow().name != task_id)
+                        {
+                            return Err("Task do not exists".into());
+                        }
                         role.as_ref()
                             .borrow_mut()
                             .tasks
@@ -879,6 +916,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 cred");
                 let config = rconfig.as_ref().borrow_mut();
                 match config.task(&role_id, &task_id) {
                     Ok(task) => {
@@ -907,6 +945,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 cred caps");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
                 match setlist_type {
@@ -982,6 +1021,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 cred setpolicy");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
                 if task.as_ref().borrow_mut().cred.capabilities.is_none() {
@@ -1011,11 +1051,16 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 command whitelist add c1");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
                 match setlist_type {
                     SetListType::WhiteList => match action {
                         InputAction::Add => {
+                            //verify if command exists
+                            if task.as_ref().borrow().commands.add.contains(&SCommand::Simple(cmd_id.clone())) {
+                                return Err("Command already exists".into());
+                            }
                             task.as_ref()
                                 .borrow_mut()
                                 .commands
@@ -1023,11 +1068,18 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                                 .push(SCommand::Simple(cmd_id));
                         }
                         InputAction::Del => {
+                            //if command is not in task, warns
+                            if !task.as_ref().borrow().commands.add.contains(&SCommand::Simple(cmd_id.clone())) {
+                                println!("Command {} not in task", cmd_id);
+                            }
                             task.as_ref()
                                 .borrow_mut()
                                 .commands
                                 .add
-                                .retain(|c| c != &SCommand::Simple(cmd_id.clone()));
+                                .retain(|c| {
+                                    debug!("'{:?}' != '{:?}' : {}", c, &SCommand::Simple(cmd_id.clone()), *c != SCommand::Simple(cmd_id.clone()));
+                                    *c != SCommand::Simple(cmd_id.clone())
+                                });
                         }
                         _ => {
                             return Err("Unknown action".into());
@@ -1035,6 +1087,10 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                     },
                     SetListType::BlackList => match action {
                         InputAction::Add => {
+                            //verify if command exists
+                            if task.as_ref().borrow().commands.sub.contains(&SCommand::Simple(cmd_id.clone())) {
+                                return Err("Command already exists".into());
+                            }
                             task.as_ref()
                                 .borrow_mut()
                                 .commands
@@ -1042,6 +1098,10 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                                 .push(SCommand::Simple(cmd_id));
                         }
                         InputAction::Del => {
+                            //if command is not in task, warns
+                            if !task.as_ref().borrow().commands.sub.contains(&SCommand::Simple(cmd_id.clone())) {
+                                println!("Command {} not in task", cmd_id);
+                            }
                             task.as_ref()
                                 .borrow_mut()
                                 .commands
@@ -1066,6 +1126,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 command setpolicy");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
                 task.as_ref()
@@ -1106,6 +1167,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
+                debug!("chsr o root set privileged");
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
                     opt.as_ref().borrow_mut().root = Some(options_root);
                     Ok(())
@@ -1240,6 +1302,61 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                 Ok(true)
             }
         },
+        Inputs {
+            // chsr o path whitelist add path1:path2:path3
+            action,
+            role_id,
+            task_id,
+            options_path: Some(options_path),
+            options_type: Some(OptType::Path),
+            setlist_type,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut default_path = SPathOptions::default();
+                    let mut binding = opt.as_ref().borrow_mut();
+                    let path = binding.path.as_mut().unwrap_or(&mut default_path);
+                    match setlist_type {
+                        Some(SetListType::WhiteList) => {
+                            match action {
+                                InputAction::Add => {
+                                    path.add.extend(options_path.split(':').map(|s| s.to_string()));
+                                }
+                                InputAction::Del => {
+                                    let hashset  = options_path.split(':').map(|s| s.to_string()).collect::<LinkedHashSet<String>>();
+                                    path.add = path.add.difference(&hashset).cloned().collect::<LinkedHashSet<String>>();
+                                }
+                                _ => {
+                                    return Err("Unknown action".into());
+                                }
+                            }
+                        }
+                        Some(SetListType::BlackList) => {
+                            match action {
+                                InputAction::Add => {
+                                    path.sub.extend(options_path.split(':').map(|s| s.to_string()));
+                                }
+                                InputAction::Del => {
+                                    let hashset  = options_path.split(':').map(|s| s.to_string()).collect::<LinkedHashSet<String>>();
+                                    path.sub = path.sub.difference(&hashset).cloned().collect::<LinkedHashSet<String>>();
+                                }
+                                _ => {
+                                    return Err("Unknown action".into());
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err("Unknown setlist type".into());
+                        }
+                    }
+                    opt.as_ref().borrow_mut().path.as_mut().replace(path);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        //TODO: implement option env whitelist/blacklist add/delete
         _ => Err("Unknown action".into()),
     }
 }

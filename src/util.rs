@@ -109,6 +109,22 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
+
+pub fn escape_parser_string<S,I>(s: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    s.into_iter().map(|s| {
+        let s = s.as_ref();
+        if s.contains(' ') {
+            format!("\"{}\"", s.replace("\"", "\\\""))
+        } else {
+            s.to_string()
+        }
+    }).collect::<Vec<String>>().join(" ")
+}
+
 #[cfg(test)]
 pub(super) mod test {
     pub fn test_resources_folder() -> std::path::PathBuf {

@@ -80,8 +80,13 @@ cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
 cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ quoted_cmd | purge) }
-quoted_cmd  = _{ NOT_ESCAPE_QUOTE ~ cmd ~ NOT_ESCAPE_QUOTE | cmd }
-cmd         = @{ ANY+ }
+quoted_cmd  = _{ ("'"|"\"")~ cmd ~ ("'"|"\"") | cmd }
+cmd = ${  inner  }
+inner = @{ char* }
+char = _{
+    !("\"" | "'" | "\\") ~ ANY
+    | "\\" ~ ("'" | "\"" | "\\" | "/")
+}
 
 // ========================
 // credentials
