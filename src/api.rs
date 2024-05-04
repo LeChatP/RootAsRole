@@ -228,8 +228,8 @@ impl PluginManager {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     //debug!("Error parsing command {:?}", e);
-                    continue
-                },
+                    continue;
+                }
             }
         }
         Err("No complex command parser found".into())

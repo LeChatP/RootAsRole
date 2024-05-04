@@ -101,8 +101,7 @@ pub fn save_json(
         // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
         return save_settings(settings.clone());
     }
-    
-    
+
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
         version: PACKAGE_VERSION.to_owned().parse()?,

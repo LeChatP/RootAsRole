@@ -4,7 +4,10 @@ use tracing_subscriber::field::debug;
 
 use crate::common::{
     api::PluginManager,
-    database::{finder::{final_path, find_executable_in_path, parse_conf_command}, structs::SCommand},
+    database::{
+        finder::{final_path, find_executable_in_path, parse_conf_command},
+        structs::SCommand,
+    },
 };
 
 use sha2::Digest;
@@ -60,15 +63,11 @@ fn complex_command_parse(
             let cmd = parse_conf_command(&checker.command)?;
             let path = final_path(&cmd[0]);
             debug!("Checking path {:?}", path);
-            let hash = compute(
-                &checker.hash_type,
-                &std::fs::read(path)?,
-            );
+            let hash = compute(&checker.hash_type, &std::fs::read(path)?);
             let config_hash = hex::decode(checker.hash.as_bytes())?;
-            if hash == config_hash
-            {
+            if hash == config_hash {
                 debug!("Hashes match");
-                parse_conf_command(&checker.command) 
+                parse_conf_command(&checker.command)
             } else {
                 debug!("Hashes do not match");
                 Err("Hashes do not match".into())
@@ -77,14 +76,13 @@ fn complex_command_parse(
         Err(e) => {
             debug!("Error parsing command {:?}", e);
             Err(Box::new(e))
-        },
+        }
     }
 }
 
 pub fn register() {
     PluginManager::subscribe_complex_command_parser(complex_command_parse)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -95,9 +93,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::{database::{
-            finder::{Cred, TaskMatcher}, structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask}
-        }},
+        common::database::{
+            finder::{Cred, TaskMatcher},
+            structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
+        },
         rc_refcell,
     };
 
@@ -112,13 +111,11 @@ mod tests {
         task1.as_ref().borrow_mut()._role = Some(Rc::downgrade(&role1));
         task1.as_ref().borrow_mut().name = IdTask::Name("task1".to_string());
         let mut command = SCommands::default();
-        command.add.push(SCommand::Complex(
-            serde_json::json!({
-                "hash_type": "sha256",
-                "hash": "3b77deacba25588129debfb3b9603d7e7187c29d7f6c14bdb667426b7be91761",
-                "command": "/usr/bin/cat /etc/passwd"
-            }) 
-        ));
+        command.add.push(SCommand::Complex(serde_json::json!({
+            "hash_type": "sha256",
+            "hash": "3b77deacba25588129debfb3b9603d7e7187c29d7f6c14bdb667426b7be91761",
+            "command": "/usr/bin/cat /etc/passwd"
+        })));
         task1.as_ref().borrow_mut().commands = command;
         role1.as_ref().borrow_mut().tasks.push(task1);
         role1
@@ -136,9 +133,12 @@ mod tests {
             tty: None,
         };
 
-        let matching =  config.matches(&cred, &vec!["/usr/bin/cat".to_string(),"/etc/passwd".to_string()]).unwrap();
+        let matching = config
+            .matches(
+                &cred,
+                &vec!["/usr/bin/cat".to_string(), "/etc/passwd".to_string()],
+            )
+            .unwrap();
         assert!(matching.fully_matching())
-
-
     }
 }

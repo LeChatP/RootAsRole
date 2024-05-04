@@ -204,7 +204,6 @@ impl Default for RemoteStorageSettings {
 }
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
-    
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
@@ -244,7 +243,7 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
     }
     // if user does not have read permission, try to enable privilege
     let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
-        debug!( 
+        debug!(
             "Error opening file without privilege, trying with privileges: {}",
             e
         );
