@@ -64,7 +64,11 @@ fn complex_command_parse(
             let path = final_path(&cmd[0]);
             let hash = compute(&checker.hash_type, &std::fs::read(path)?);
             let config_hash = hex::decode(checker.hash.as_bytes())?;
-            debug!("Hash: {:?}, Config Hash: {:?}", hex::encode(&hash), hex::encode(&config_hash));
+            debug!(
+                "Hash: {:?}, Config Hash: {:?}",
+                hex::encode(&hash),
+                hex::encode(&config_hash)
+            );
             if hash == config_hash {
                 debug!("Hashes match");
                 parse_conf_command(&checker.command)
@@ -139,10 +143,7 @@ mod tests {
         };
 
         let matching = config
-            .matches(
-                &cred,
-                &vec!["/tmp/hashchecker".to_string()],
-            )
+            .matches(&cred, &vec!["/tmp/hashchecker".to_string()])
             .unwrap();
         assert!(matching.fully_matching());
         std::fs::remove_file("/tmp/hashchecker").unwrap();
