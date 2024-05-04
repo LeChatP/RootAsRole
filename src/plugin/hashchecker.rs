@@ -62,9 +62,9 @@ fn complex_command_parse(
         Ok(checker) => {
             let cmd = parse_conf_command(&checker.command)?;
             let path = final_path(&cmd[0]);
-            debug!("Checking path {:?}", path);
             let hash = compute(&checker.hash_type, &std::fs::read(path)?);
             let config_hash = hex::decode(checker.hash.as_bytes())?;
+            debug!("Hash: {:?}, Config Hash: {:?}", hex::encode(&hash), hex::encode(&config_hash));
             if hash == config_hash {
                 debug!("Hashes match");
                 parse_conf_command(&checker.command)
@@ -87,7 +87,7 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
 
-    use std::rc::Rc;
+    use std::{io::Write, rc::Rc};
 
     use nix::unistd::{Pid, User};
 
@@ -103,6 +103,11 @@ mod tests {
     #[test]
     fn test_plugin_implemented() {
         register();
+        // create a file in /tmp
+        let mut file = std::fs::File::create("/tmp/hashchecker").unwrap();
+        file.write("test".as_bytes()).unwrap();
+        file.sync_all().unwrap();
+
         let config = rc_refcell!(SConfig::default());
         let role1 = rc_refcell!(SRole::default());
         role1.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
@@ -113,8 +118,8 @@ mod tests {
         let mut command = SCommands::default();
         command.add.push(SCommand::Complex(serde_json::json!({
             "hash_type": "sha256",
-            "hash": "3b77deacba25588129debfb3b9603d7e7187c29d7f6c14bdb667426b7be91761",
-            "command": "/usr/bin/cat /etc/passwd"
+            "hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "command": "/tmp/hashchecker"
         })));
         task1.as_ref().borrow_mut().commands = command;
         role1.as_ref().borrow_mut().tasks.push(task1);
@@ -136,9 +141,10 @@ mod tests {
         let matching = config
             .matches(
                 &cred,
-                &vec!["/usr/bin/cat".to_string(), "/etc/passwd".to_string()],
+                &vec!["/tmp/hashchecker".to_string()],
             )
             .unwrap();
-        assert!(matching.fully_matching())
+        assert!(matching.fully_matching());
+        std::fs::remove_file("/tmp/hashchecker").unwrap();
     }
 }
