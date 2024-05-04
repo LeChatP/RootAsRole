@@ -26,6 +26,7 @@ fi
 
 if [ ! -f "/usr/bin/cargo" ]; then
 	cp ~/.cargo/bin/cargo /usr/bin
+    ln -s /usr/local/bin/cargo /bin/cargo
 	echo "as $HOME/.cargo/bin/cargo cargo program is copied to /usr/bin"
 fi
 
@@ -59,19 +60,6 @@ else
     exit 2
 fi
 
-echo "Install Rust Cargo compiler"
-if [ "$(which cargo &>/dev/null ; echo $?)" -eq "0" ]; then
-    echo "Cargo is installed"
-else
-    curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly ${YES}
-fi
-
-if [ ! -f "/usr/bin/cargo" ]; then
-    mv -f ~/.cargo/bin/cargo /usr/local/bin
-    ln -s /usr/local/bin/cargo /bin/cargo
-    echo "$HOME/.cargo/bin/cargo program is copied to /usr/local/bin"
-fi
-
 # ask for user to install bpf-linker
 if [ "${YES}" == "-y" ]; then
     echo "cargo install bpf-linker into /usr/local/bin"
@@ -90,21 +78,4 @@ else
     esac
 fi
 
-export $(grep -h '^ID' /etc/*-release)
-
-echo "Configuration files installation"
-echo "id : ${ID}"
-if [ "${ID}" == "arch" ]; then
-    cp resources/arch_sr_pam.conf /etc/pam.d/sr || exit;
-    elif [ "${ID}" == "ubuntu" ] || [ "${ID}" == "debian" ]; then
-    cp resources/deb_sr_pam.conf /etc/pam.d/sr || exit;
-    elif [ "${ID}" == "centos" ] || [ "${ID}" == "fedora" ] || [[ "${ID}" == *"rhel"* ]]; then
-    cp resources/rh_sr_pam.conf /etc/pam.d/sr || exit;
-else
-    echo "Unable to find a supported distribution, exiting..."
-    exit 3
-fi
-
-
-
-echo "configuration done. Ready to compile."
+echo "dependencies installed. Ready to compile."

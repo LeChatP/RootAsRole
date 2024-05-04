@@ -51,13 +51,13 @@
                 "TZ"
             ]
         },
-        "allow-root": false,
-        "allow-bounding": false,
+        "root": "user",
+        "bounding": "strict",
         "wildcard-denied": ";&|"
     },
     "roles": [
         {
-            "name": "t_root",
+            "name": "r_root",
             "actors": [
                 {
                     "type": "user",
@@ -72,11 +72,30 @@
                         "setuid": "root",
                         "setgid": "root",
                         "capabilities": {
-                            "default": "all"
+                            "default": "all",
+                            "sub": ["CAP_LINUX_IMMUTABLE"]
                         }
                     },
                     "commands": {
                         "default": "all"
+                    }
+                },
+                {
+                    "name": "t_chsr",
+                    "purpose": "Configure RootAsRole",
+                    "cred": {
+                        "setuid": "root",
+                        "setgid": "root",
+                        "capabilities": {
+                            "default": "none",
+                            "add": ["CAP_LINUX_IMMUTABLE"]
+                        }
+                    },
+                    "commands": {
+                        "default": "none",
+                        "add": [
+                            "/usr/bin/chsr .*"
+                        ]
                     }
                 }
             ]

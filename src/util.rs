@@ -72,20 +72,6 @@ pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-pub fn capset_to_string(set: &CapSet) -> String {
-    set.iter()
-        .fold(String::new(), |mut acc, cap| {
-            acc.push_str(&format!("CAP_{:?} ", cap));
-            acc
-        })
-        .trim_end()
-        .to_string()
-}
-
-pub fn capset_to_vec(set: &capctl::CapSet) -> Vec<String> {
-    set.iter().map(|cap| cap.to_string()).collect()
-}
-
 //parse string iterator to capset
 pub fn parse_capset_iter<'a, I>(iter: I) -> Result<CapSet, ParseCapError>
 where
@@ -121,6 +107,24 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::SYS_CHROOT)
         || caps.has(Cap::SYS_BOOT)
         || caps.has(Cap::MKNOD)
+}
+
+pub fn escape_parser_string<S, I>(s: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    s.into_iter()
+        .map(|s| {
+            let s = s.as_ref();
+            if s.contains(' ') {
+                format!("\"{}\"", s.replace("\"", "\\\""))
+            } else {
+                s.to_string()
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 #[cfg(test)]

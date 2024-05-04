@@ -2,6 +2,7 @@ use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
 
+use ciborium::de;
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 use pcre2::bytes::Regex;
@@ -134,7 +135,7 @@ pub struct EnvKey {
     value: String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: EnvBehavior,
@@ -183,7 +184,7 @@ pub enum SPrivileged {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -253,6 +254,7 @@ impl Default for SPathOptions {
 
 impl EnvKey {
     pub fn new(s: String) -> Result<Self, String> {
+        debug!("Creating env key: {}", s);
         if Regex::new("^[a-zA-Z_]+[a-zA-Z0-9_]*$") // check if it is a valid env name
             .unwrap()
             .is_match(s.as_bytes())
