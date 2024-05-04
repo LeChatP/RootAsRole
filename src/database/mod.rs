@@ -14,7 +14,7 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Ver
 
 use super::config::SettingsFile;
 use super::util::warn_if_mutable;
-use super::write_json_config;
+use super::{open_with_privileges, write_json_config};
 use super::{
     config::{RemoteStorageSettings, ROOTASROLE},
     dac_override_effective, immutable_effective,
@@ -55,7 +55,7 @@ pub fn read_json_config(
         make_weak_config(&settings.as_ref().borrow().config);
         Ok(settings.as_ref().borrow().config.clone())
     } else {
-        let file = std::fs::File::open(path)?;
+        let file = open_with_privileges(path)?;
         warn_if_mutable(
             &file,
             settings

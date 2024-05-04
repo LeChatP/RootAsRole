@@ -16,10 +16,10 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::common::database::{
+use crate::common::{database::{
     finder::Cred,
     options::{STimeout, TimestampType},
-};
+}, open_with_privileges};
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
@@ -90,7 +90,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
     let retry_interval = time::Duration::from_secs(1);
     let pid_contents: pid_t;
     if lockfile_path.exists() {
-        if let Ok(mut lockfile) = File::open(lockfile_path) {
+        if let Ok(mut lockfile) = open_with_privileges(lockfile_path) {
             let mut be: [u8; 4] = [u8::MAX; 4];
             if lockfile.read_exact(&mut be).is_err() {
                 debug!(
@@ -165,7 +165,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     }
     wait_for_lockfile(&lockpath)?;
     write_lockfile(&lockpath);
-    let mut file = File::open(&path)?;
+    let mut file = open_with_privileges(&path)?;
     let reader = BufReader::new(&mut file);
     let res = ciborium::de::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
     Ok(res)

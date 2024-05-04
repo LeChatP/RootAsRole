@@ -52,7 +52,7 @@ pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 #[cfg(test)]
 pub const ROOTASROLE: &str = "target/rootasrole.json";
 
-use std::{cell::RefCell, error::Error, fs::File, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, fs::File, path::{Path, PathBuf}, rc::Rc};
 
 use ciborium::de;
 use serde::{Deserialize, Serialize};
@@ -60,8 +60,7 @@ use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, immutable_effective, read_effective, util::toggle_lock_config,
-        write_json_config,
+        dac_override_effective, immutable_effective, open_with_privileges, read_effective, util::toggle_lock_config, write_json_config
     },
     rc_refcell,
 };
@@ -242,14 +241,7 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
         return Ok(rc_refcell!(SettingsFile::default()));
     }
     // if user does not have read permission, try to enable privilege
-    let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
-        debug!(
-            "Error opening file without privilege, trying with privileges: {}",
-            e
-        );
-        read_effective(true).or(dac_override_effective(true))?;
-        std::fs::File::open(ROOTASROLE)
-    })?;
+    let file = open_with_privileges(ROOTASROLE)?;
     let value: Versioning<SettingsFile> = serde_json::from_reader(file)
         .inspect_err(|e| {
             debug!("Error reading file: {}", e);

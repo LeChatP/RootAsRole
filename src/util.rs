@@ -4,7 +4,7 @@ use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use tracing::{debug, warn};
 
-use crate::common::immutable_effective;
+use crate::common::{immutable_effective, open_with_privileges};
 
 #[macro_export]
 macro_rules! upweak {
@@ -37,7 +37,7 @@ macro_rules! rc_refcell {
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
 pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
-    let file = match File::open(file) {
+    let file = match open_with_privileges(file) {
         Err(e) => return Err(e.to_string()),
         Ok(f) => f,
     };
