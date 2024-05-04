@@ -96,12 +96,15 @@ pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }
 
-pub fn write_json_config<T:Serialize,S:std::convert::AsRef<std::path::Path>>(
+pub fn write_json_config<T: Serialize, S: std::convert::AsRef<std::path::Path>>(
     settings: &T,
     path: S,
 ) -> Result<(), Box<dyn Error>> {
     let file = std::fs::File::create(path).or_else(|e| {
-        debug!("Error creating file without privilege, trying with privileges: {}", e);
+        debug!(
+            "Error creating file without privilege, trying with privileges: {}",
+            e
+        );
         read_effective(true).or(dac_override_effective(true))?;
         std::fs::File::create(ROOTASROLE)
     })?;

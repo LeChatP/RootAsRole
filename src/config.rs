@@ -59,7 +59,10 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
-    common::{dac_override_effective, immutable_effective, read_effective, util::toggle_lock_config, write_json_config},
+    common::{
+        dac_override_effective, immutable_effective, read_effective, util::toggle_lock_config,
+        write_json_config,
+    },
     rc_refcell,
 };
 
@@ -200,8 +203,6 @@ impl Default for RemoteStorageSettings {
     }
 }
 
-
-
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
     debug!("Setting immutable privilege");
     immutable_effective(true)?;
@@ -238,13 +239,18 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
     }
     // if user does not have read permission, try to enable privilege
     let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
-        debug!("Error opening file without privilege, trying with privileges: {}", e);
+        debug!(
+            "Error opening file without privilege, trying with privileges: {}",
+            e
+        );
         read_effective(true).or(dac_override_effective(true))?;
         std::fs::File::open(ROOTASROLE)
     })?;
-    let value: Versioning<SettingsFile> = serde_json::from_reader(file).inspect_err(|e| {
-        debug!("Error reading file: {}", e);
-    }).unwrap_or_default();
+    let value: Versioning<SettingsFile> = serde_json::from_reader(file)
+        .inspect_err(|e| {
+            debug!("Error reading file: {}", e);
+        })
+        .unwrap_or_default();
     read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);

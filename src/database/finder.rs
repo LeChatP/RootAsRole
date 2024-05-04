@@ -829,7 +829,6 @@ fn plugin_role_match(
             } else if !matcher.fully_matching() {
                 *nmatch = 0;
             }
-            
         }
         PluginResultAction::Ignore => {}
     }

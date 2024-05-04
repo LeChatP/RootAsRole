@@ -116,7 +116,7 @@ pub fn save_json(
     debug!("Toggling immutable off for config file");
     immutable_effective(true)?;
     toggle_lock_config(path, false)?;
-    
+
     debug!("Resetting immutable privilege");
     immutable_effective(false)?;
     Ok(())

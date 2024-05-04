@@ -45,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use std::{io::Write, rc::Rc};
 
-    use self::common::{config::{RemoteStorageSettings, SettingsFile, ROOTASROLE}, database::{options::*, structs::*, version::Versioning}};
+    use self::common::{
+        config::{RemoteStorageSettings, SettingsFile, ROOTASROLE},
+        database::{options::*, structs::*, version::Versioning},
+    };
 
     use super::*;
     use capctl::Cap;
@@ -65,13 +68,21 @@ mod tests {
 
         opt.timeout = Some(STimeout::default());
         opt.timeout.as_mut().unwrap().type_field = TimestampType::PPID;
-        opt.timeout.as_mut().unwrap().duration = TimeDelta::hours(15).checked_add(&TimeDelta::minutes(30)).unwrap().checked_add(&TimeDelta::seconds(30)).unwrap();
+        opt.timeout.as_mut().unwrap().duration = TimeDelta::hours(15)
+            .checked_add(&TimeDelta::minutes(30))
+            .unwrap()
+            .checked_add(&TimeDelta::seconds(30))
+            .unwrap();
         opt.timeout.as_mut().unwrap().max_usage = Some(1);
 
         opt.path = Some(SPathOptions::default());
         opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
-        opt.path.as_mut().unwrap().add = vec!["path1".to_string(), "path2".to_string()].into_iter().collect();
-        opt.path.as_mut().unwrap().sub = vec!["path3".to_string(), "path4".to_string()].into_iter().collect();
+        opt.path.as_mut().unwrap().add = vec!["path1".to_string(), "path2".to_string()]
+            .into_iter()
+            .collect();
+        opt.path.as_mut().unwrap().sub = vec!["path3".to_string(), "path4".to_string()]
+            .into_iter()
+            .collect();
 
         opt.env = Some(SEnvOptions::default());
         opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Delete;
@@ -89,10 +100,14 @@ mod tests {
 
         let mut role = SRole::default();
         role.name = "complete".to_string();
-        role.actors = vec![SActor::from_user_id(0),SActor::from_group_id(0),SActor::from_group_vec_string(vec!["groupA","groupB"])];
+        role.actors = vec![
+            SActor::from_user_id(0),
+            SActor::from_group_id(0),
+            SActor::from_group_vec_string(vec!["groupA", "groupB"]),
+        ];
         role.options = Some(rc_refcell!(opt.clone()));
         let role = rc_refcell!(role);
-        
+
         let mut task = STask::new(IdTask::Name("t_complete".to_string()), Rc::downgrade(&role));
         task.purpose = Some("complete".to_string());
         task.commands = SCommands::default();
@@ -104,13 +119,36 @@ mod tests {
 
         task.cred = SCredentials::default();
         task.cred.setuid = Some(SActorType::Name("user1".to_string()));
-        task.cred.setgid = Some(SGroups::Multiple(vec![SActorType::Name("group1".to_string()),SActorType::Name("group2".to_string())]));
+        task.cred.setgid = Some(SGroups::Multiple(vec![
+            SActorType::Name("group1".to_string()),
+            SActorType::Name("group2".to_string()),
+        ]));
         task.cred.capabilities = Some(SCapabilities::default());
         task.cred.capabilities.as_mut().unwrap().default_behavior = SetBehavior::All;
-        task.cred.capabilities.as_mut().unwrap().add.add(Cap::LINUX_IMMUTABLE);
-        task.cred.capabilities.as_mut().unwrap().add.add(Cap::NET_BIND_SERVICE);
-        task.cred.capabilities.as_mut().unwrap().sub.add(Cap::SYS_ADMIN);
-        task.cred.capabilities.as_mut().unwrap().sub.add(Cap::SYS_BOOT);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .add
+            .add(Cap::LINUX_IMMUTABLE);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .add
+            .add(Cap::NET_BIND_SERVICE);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .sub
+            .add(Cap::SYS_ADMIN);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .sub
+            .add(Cap::SYS_BOOT);
 
         task.options = Some(rc_refcell!(opt.clone()));
 
@@ -119,7 +157,12 @@ mod tests {
 
         let versionned = Versioning::new(settings.clone());
 
-        file.write_all(serde_json::to_string_pretty(&versionned).unwrap().as_bytes()).unwrap();
+        file.write_all(
+            serde_json::to_string_pretty(&versionned)
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
 
         file.flush().unwrap();
     }
@@ -166,7 +209,7 @@ mod tests {
     #[test]
     fn test_main_1() {
         setup();
-        
+
         // lets test every commands
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
@@ -177,7 +220,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         assert!(cli::main(
@@ -188,7 +231,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -200,7 +243,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -211,7 +254,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -222,7 +265,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -233,7 +276,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -245,7 +288,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -257,7 +300,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -280,7 +323,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -303,7 +346,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -315,7 +358,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -326,53 +369,85 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "show", "cred"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "show",
+                "cred"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "purge", "all"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "all"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "purge", "cmd"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "cmd"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "purge", "cred"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "cred"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -384,7 +459,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         assert!(cli::main(
@@ -395,19 +470,28 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "cmd", "setpolicy", "deny-all"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "setpolicy",
+                "deny-all"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -428,7 +512,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -450,7 +534,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -475,7 +559,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -497,7 +581,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -519,7 +603,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         // let settings = config::get_settings().expect("Failed to get settings");
@@ -557,7 +641,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -583,7 +667,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -605,7 +689,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -627,7 +711,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -652,7 +736,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -677,7 +761,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -702,7 +786,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -727,7 +811,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -739,7 +823,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -750,7 +834,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -761,41 +845,68 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "options", "show", "env"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "env"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "options", "show", "root"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "root"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "options", "show", "bounding"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "bounding"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -815,7 +926,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| !b));
         assert!(cli::main(
@@ -836,7 +947,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -858,7 +969,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -880,7 +991,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -902,7 +1013,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -925,7 +1036,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -948,7 +1059,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -971,7 +1082,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -993,7 +1104,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1016,7 +1127,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1039,7 +1150,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1062,7 +1173,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1084,7 +1195,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1106,7 +1217,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1128,7 +1239,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1150,7 +1261,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1172,7 +1283,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1195,7 +1306,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1218,7 +1329,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1241,7 +1352,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1263,7 +1374,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1286,7 +1397,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1309,7 +1420,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1332,7 +1443,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1354,7 +1465,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1377,7 +1488,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1400,7 +1511,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1423,7 +1534,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1445,79 +1556,133 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "root", "privileged"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "privileged"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "root", "user"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "user"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "root", "inherit"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "inherit"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "bounding", "strict"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "strict"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "bounding", "ignore"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "ignore"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t_complete", "o", "bounding", "inherit"],
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "inherit"
+            ],
         )
         .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1539,7 +1704,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1561,7 +1726,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1583,7 +1748,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
@@ -1606,15 +1771,15 @@ mod tests {
                 "1"
             ],
         )
-        .inspect_err(|e| { 
+        .inspect_err(|e| {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         let settings = config::get_settings().expect("Failed to get settings");
-        assert!(cli::main( 
+        assert!(cli::main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
                 "chsr",
@@ -1634,7 +1799,7 @@ mod tests {
             error!("{}", e);
         })
         .inspect(|e| {
-            debug!("{}",e);
+            debug!("{}", e);
         })
         .is_ok_and(|b| b));
         teardown();

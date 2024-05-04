@@ -24,9 +24,11 @@ use crate::{
                 SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
-                IdTask, SActor, SActorType, SCapabilities, SCommand, SCommands, SGroups, SRole, STask, SetBehavior
+                IdTask, SActor, SActorType, SCapabilities, SCommand, SCommands, SGroups, SRole,
+                STask, SetBehavior,
             },
-        }, util::escape_parser_string,
+        },
+        util::escape_parser_string,
     },
     rc_refcell,
 };
@@ -224,8 +226,6 @@ struct Inputs {
     options_bounding: Option<SBounding>,
     options_wildcard: Option<String>,
 }
-
-
 
 impl Default for Inputs {
     fn default() -> Self {
@@ -679,8 +679,7 @@ fn usage_concat(usages: &[&'static str]) -> String {
     usage
 }
 
-
-pub fn main<I,S>(storage: &Storage, args : I) -> Result<bool, Box<dyn Error>>
+pub fn main<I, S>(storage: &Storage, args: I) -> Result<bool, Box<dyn Error>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -807,7 +806,7 @@ where
                         Err(e)
                     }
                 };
-            },
+            }
         },
         Inputs {
             // chsr role r1 add|del
@@ -840,7 +839,7 @@ where
                         }
                         config.roles.retain(|r| r.as_ref().borrow().name != role_id);
                         Ok(true)
-                    },
+                    }
                     InputAction::Purge => {
                         if config.role(&role_id).is_none() {
                             return Err("Role do not exists".into());
@@ -930,7 +929,12 @@ where
                 match action {
                     InputAction::Add => {
                         //verify if task exists
-                        if role.as_ref().borrow().tasks.iter().any(|t| t.as_ref().borrow().name == task_id)
+                        if role
+                            .as_ref()
+                            .borrow()
+                            .tasks
+                            .iter()
+                            .any(|t| t.as_ref().borrow().name == task_id)
                         {
                             return Err("Task already exists".into());
                         }
@@ -941,7 +945,12 @@ where
                         Ok(true)
                     }
                     InputAction::Del => {
-                        if role.as_ref().borrow().tasks.iter().all(|t| t.as_ref().borrow().name != task_id)
+                        if role
+                            .as_ref()
+                            .borrow()
+                            .tasks
+                            .iter()
+                            .all(|t| t.as_ref().borrow().name != task_id)
                         {
                             return Err("Task do not exists".into());
                         }
@@ -1033,7 +1042,9 @@ where
                         if let Some(caps) = cred_caps {
                             if caps.is_empty() {
                                 task.as_ref().borrow_mut().cred.capabilities = None;
-                            } else if let Some(ccaps) = task.as_ref().borrow_mut().cred.capabilities.as_mut() {
+                            } else if let Some(ccaps) =
+                                task.as_ref().borrow_mut().cred.capabilities.as_mut()
+                            {
                                 ccaps.add.drop_all(caps);
                             } else {
                                 return Err("No capabilities to remove".into());
@@ -1168,10 +1179,12 @@ where
                 debug!("chsr role r1 task t1 cmd setpolicy");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
-               
+
                 task.as_ref()
                     .borrow_mut()
-                    .commands.default_behavior.replace(cmd_policy);
+                    .commands
+                    .default_behavior
+                    .replace(cmd_policy);
                 Ok(true)
             }
         },
@@ -1192,7 +1205,13 @@ where
                     SetListType::WhiteList => match action {
                         InputAction::Add => {
                             //verify if command exists
-                            if task.as_ref().borrow().commands.add.contains(&SCommand::Simple(cmd_id.clone())) {
+                            if task
+                                .as_ref()
+                                .borrow()
+                                .commands
+                                .add
+                                .contains(&SCommand::Simple(cmd_id.clone()))
+                            {
                                 return Err("Command already exists".into());
                             }
                             task.as_ref()
@@ -1203,17 +1222,24 @@ where
                         }
                         InputAction::Del => {
                             //if command is not in task, warns
-                            if !task.as_ref().borrow().commands.add.contains(&SCommand::Simple(cmd_id.clone())) {
-                                println!("Command {} not in task", cmd_id);
-                            }
-                            task.as_ref()
-                                .borrow_mut()
+                            if !task
+                                .as_ref()
+                                .borrow()
                                 .commands
                                 .add
-                                .retain(|c| {
-                                    debug!("'{:?}' != '{:?}' : {}", c, &SCommand::Simple(cmd_id.clone()), *c != SCommand::Simple(cmd_id.clone()));
+                                .contains(&SCommand::Simple(cmd_id.clone()))
+                            {
+                                println!("Command {} not in task", cmd_id);
+                            }
+                            task.as_ref().borrow_mut().commands.add.retain(|c| {
+                                debug!(
+                                    "'{:?}' != '{:?}' : {}",
+                                    c,
+                                    &SCommand::Simple(cmd_id.clone()),
                                     *c != SCommand::Simple(cmd_id.clone())
-                                });
+                                );
+                                *c != SCommand::Simple(cmd_id.clone())
+                            });
                         }
                         _ => {
                             return Err("Unknown action".into());
@@ -1222,7 +1248,13 @@ where
                     SetListType::BlackList => match action {
                         InputAction::Add => {
                             //verify if command exists
-                            if task.as_ref().borrow().commands.sub.contains(&SCommand::Simple(cmd_id.clone())) {
+                            if task
+                                .as_ref()
+                                .borrow()
+                                .commands
+                                .sub
+                                .contains(&SCommand::Simple(cmd_id.clone()))
+                            {
                                 return Err("Command already exists".into());
                             }
                             task.as_ref()
@@ -1233,7 +1265,13 @@ where
                         }
                         InputAction::Del => {
                             //if command is not in task, warns
-                            if !task.as_ref().borrow().commands.sub.contains(&SCommand::Simple(cmd_id.clone())) {
+                            if !task
+                                .as_ref()
+                                .borrow()
+                                .commands
+                                .sub
+                                .contains(&SCommand::Simple(cmd_id.clone()))
+                            {
                                 println!("Command {} not in task", cmd_id);
                             }
                             task.as_ref()
@@ -1337,10 +1375,16 @@ where
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
                     match action {
                         InputAction::Set => {
-                            opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
+                            opt.as_ref().borrow_mut().wildcard_denied =
+                                Some(options_wildcard.clone());
                         }
                         InputAction::Add => {
-                            let mut default_wildcard = opt.as_ref().borrow().wildcard_denied.clone().unwrap_or_default();
+                            let mut default_wildcard = opt
+                                .as_ref()
+                                .borrow()
+                                .wildcard_denied
+                                .clone()
+                                .unwrap_or_default();
                             default_wildcard.extend(options_wildcard.chars());
                             opt.as_ref().borrow_mut().wildcard_denied = Some(default_wildcard);
                         }
@@ -1362,7 +1406,7 @@ where
                             return Err("Unknown action".into());
                         }
                     }
-                    
+
                     Ok(())
                 })?;
                 Ok(true)
@@ -1508,34 +1552,46 @@ where
                     let mut binding = opt.as_ref().borrow_mut();
                     let path = binding.path.as_mut().unwrap_or(&mut default_path);
                     match setlist_type {
-                        Some(SetListType::WhiteList) => {
-                            match action {
-                                InputAction::Add => {
-                                    path.add.extend(options_path.split(':').map(|s| s.to_string()));
-                                }
-                                InputAction::Del => {
-                                    let hashset  = options_path.split(':').map(|s| s.to_string()).collect::<LinkedHashSet<String>>();
-                                    path.add = path.add.difference(&hashset).cloned().collect::<LinkedHashSet<String>>();
-                                }
-                                _ => {
-                                    return Err("Unknown action".into());
-                                }
+                        Some(SetListType::WhiteList) => match action {
+                            InputAction::Add => {
+                                path.add
+                                    .extend(options_path.split(':').map(|s| s.to_string()));
                             }
-                        }
-                        Some(SetListType::BlackList) => {
-                            match action {
-                                InputAction::Add => {
-                                    path.sub.extend(options_path.split(':').map(|s| s.to_string()));
-                                }
-                                InputAction::Del => {
-                                    let hashset  = options_path.split(':').map(|s| s.to_string()).collect::<LinkedHashSet<String>>();
-                                    path.sub = path.sub.difference(&hashset).cloned().collect::<LinkedHashSet<String>>();
-                                }
-                                _ => {
-                                    return Err("Unknown action".into());
-                                }
+                            InputAction::Del => {
+                                let hashset = options_path
+                                    .split(':')
+                                    .map(|s| s.to_string())
+                                    .collect::<LinkedHashSet<String>>();
+                                path.add = path
+                                    .add
+                                    .difference(&hashset)
+                                    .cloned()
+                                    .collect::<LinkedHashSet<String>>();
                             }
-                        }
+                            _ => {
+                                return Err("Unknown action".into());
+                            }
+                        },
+                        Some(SetListType::BlackList) => match action {
+                            InputAction::Add => {
+                                path.sub
+                                    .extend(options_path.split(':').map(|s| s.to_string()));
+                            }
+                            InputAction::Del => {
+                                let hashset = options_path
+                                    .split(':')
+                                    .map(|s| s.to_string())
+                                    .collect::<LinkedHashSet<String>>();
+                                path.sub = path
+                                    .sub
+                                    .difference(&hashset)
+                                    .cloned()
+                                    .collect::<LinkedHashSet<String>>();
+                            }
+                            _ => {
+                                return Err("Unknown action".into());
+                            }
+                        },
                         _ => {
                             return Err("Unknown setlist type".into());
                         }
@@ -1556,77 +1612,90 @@ where
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
-                perform_on_target_opt(rconfig, role_id, task_id,  move |opt: Rc<RefCell<Opt>>| {
+                perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
                     let mut default_env = SEnvOptions::default();
                     let mut binding = opt.as_ref().borrow_mut();
                     let env = binding.env.as_mut().unwrap_or(&mut default_env);
                     match setlist_type {
-                        SetListType::WhiteList => {
-                            match action {
-                                InputAction::Add => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.keep.extend(options_env.as_ref().unwrap().clone());
+                        SetListType::WhiteList => match action {
+                            InputAction::Add => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
                                 }
-                                InputAction::Del => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.keep = env.keep.difference(&options_env.as_ref().unwrap().iter().cloned().collect::<LinkedHashSet<EnvKey>>()).cloned().collect::<LinkedHashSet<EnvKey>>();
-                                }
-                                InputAction::Purge => {
-                                    env.keep = LinkedHashSet::new();
-                                }
-                                _ => {
-                                    return Err("Unknown action".into());
-                                }
+                                env.keep.extend(options_env.as_ref().unwrap().clone());
                             }
-                        }
-                        SetListType::BlackList => {
-                            match action {
-                                InputAction::Add => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.delete.extend(options_env.as_ref().unwrap().clone());
+                            InputAction::Del => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
                                 }
-                                InputAction::Del => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.delete = env.delete.difference(options_env.as_ref().unwrap()).cloned().collect::<LinkedHashSet<EnvKey>>();
-                                }
-                                InputAction::Purge => {
-                                    env.delete = LinkedHashSet::new();
-                                }
-                                _ => {
-                                    return Err("Unknown action".into());
-                                }
+                                env.keep = env
+                                    .keep
+                                    .difference(
+                                        &options_env
+                                            .as_ref()
+                                            .unwrap()
+                                            .iter()
+                                            .cloned()
+                                            .collect::<LinkedHashSet<EnvKey>>(),
+                                    )
+                                    .cloned()
+                                    .collect::<LinkedHashSet<EnvKey>>();
                             }
-                        }
-                        SetListType::CheckList => {
-                            match action {
-                                InputAction::Add => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.check.extend(options_env.as_ref().unwrap().clone());
-                                }
-                                InputAction::Del => {
-                                    if options_env.is_none() {
-                                        return Err("Empty list".into());
-                                    }
-                                    env.check = env.check.difference(options_env.as_ref().unwrap()).cloned().collect::<LinkedHashSet<EnvKey>>();
-                                }
-                                InputAction::Purge => {
-                                    env.check = LinkedHashSet::new();
-                                }
-                                _ => {
-                                    return Err("Unknown action".into());
-                                }
+                            InputAction::Purge => {
+                                env.keep = LinkedHashSet::new();
                             }
-                        }
+                            _ => {
+                                return Err("Unknown action".into());
+                            }
+                        },
+                        SetListType::BlackList => match action {
+                            InputAction::Add => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
+                                }
+                                env.delete.extend(options_env.as_ref().unwrap().clone());
+                            }
+                            InputAction::Del => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
+                                }
+                                env.delete = env
+                                    .delete
+                                    .difference(options_env.as_ref().unwrap())
+                                    .cloned()
+                                    .collect::<LinkedHashSet<EnvKey>>();
+                            }
+                            InputAction::Purge => {
+                                env.delete = LinkedHashSet::new();
+                            }
+                            _ => {
+                                return Err("Unknown action".into());
+                            }
+                        },
+                        SetListType::CheckList => match action {
+                            InputAction::Add => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
+                                }
+                                env.check.extend(options_env.as_ref().unwrap().clone());
+                            }
+                            InputAction::Del => {
+                                if options_env.is_none() {
+                                    return Err("Empty list".into());
+                                }
+                                env.check = env
+                                    .check
+                                    .difference(options_env.as_ref().unwrap())
+                                    .cloned()
+                                    .collect::<LinkedHashSet<EnvKey>>();
+                            }
+                            InputAction::Purge => {
+                                env.check = LinkedHashSet::new();
+                            }
+                            _ => {
+                                return Err("Unknown action".into());
+                            }
+                        },
                     }
                     Ok(())
                 })?;
@@ -1635,7 +1704,6 @@ where
         },
         _ => Err("Unknown action".into()),
     }
-    
 }
 fn perform_on_target_opt(
     rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
@@ -1781,8 +1849,6 @@ fn print_task(
 mod tests {
     use super::*;
 
-    
-
     fn make_args(args: &str) -> String {
         shell_words::join(shell_words::split(args).unwrap())
     }
@@ -1864,6 +1930,4 @@ mod tests {
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::All));
     }
-
-
 }
