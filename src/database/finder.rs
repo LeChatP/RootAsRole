@@ -306,7 +306,9 @@ pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Err
                 Ok(result)
             } else {
                 // call PluginManager
-                PluginManager::notify_complex_command_parser(command)
+                let res = PluginManager::notify_complex_command_parser(command);
+                debug!("Parsed command {:?}", res);
+                res
             }
         }
     }
@@ -323,7 +325,7 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     None
 }
 
-fn final_path(path: &String) -> PathBuf {
+pub fn final_path(path: &String) -> PathBuf {
     let result;
     if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;

@@ -96,17 +96,19 @@ pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }
 
-pub fn write_json_config<T: Serialize, S: std::convert::AsRef<std::path::Path>>(
+pub fn write_json_config<T: Serialize, S>(
     settings: &T,
     path: S,
-) -> Result<(), Box<dyn Error>> {
-    let file = std::fs::File::create(path).or_else(|e| {
+) -> Result<(), Box<dyn Error>> 
+where 
+S: std::convert::AsRef<std::path::Path>+Clone {
+    let file = std::fs::File::create(path.clone()).or_else(|e| {
         debug!(
             "Error creating file without privilege, trying with privileges: {}",
             e
         );
         read_effective(true).or(dac_override_effective(true))?;
-        std::fs::File::create(ROOTASROLE)
+        std::fs::File::create(path)
     })?;
     serde_json::to_writer_pretty(file, &settings)?;
     Ok(())

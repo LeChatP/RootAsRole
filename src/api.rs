@@ -226,7 +226,10 @@ impl PluginManager {
         for plugin in api.complex_command_parsers.iter() {
             match plugin(command) {
                 Ok(result) => return Ok(result),
-                Err(_) => continue,
+                Err(e) => {
+                    //debug!("Error parsing command {:?}", e);
+                    continue
+                },
             }
         }
         Err("No complex command parser found".into())

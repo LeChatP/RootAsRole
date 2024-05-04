@@ -204,8 +204,7 @@ impl Default for RemoteStorageSettings {
 }
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
-    debug!("Setting immutable privilege");
-    immutable_effective(true)?;
+    
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
@@ -218,17 +217,23 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
         .path
         .as_ref()
         .unwrap_or(&into);
-    debug!("Toggling immutable on for config file");
-    toggle_lock_config(path, true)?;
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable on for config file");
+            toggle_lock_config(path, true)?;
+        }
+    }
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
     write_json_config(&versionned, ROOTASROLE)?;
-    debug!("Toggling immutable off for config file");
-    toggle_lock_config(path, false)?;
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable off for config file");
+            toggle_lock_config(path, false)?;
+        }
+    }
     debug!("Resetting dac privilege");
     dac_override_effective(false)?;
-    debug!("Resetting immutable privilege");
-    immutable_effective(false)?;
     Ok(())
 }
 
@@ -239,7 +244,7 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
     }
     // if user does not have read permission, try to enable privilege
     let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
-        debug!(
+        debug!( 
             "Error opening file without privilege, trying with privileges: {}",
             e
         );
