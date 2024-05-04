@@ -47,15 +47,19 @@
 //     }
 //   }
 
+#[cfg(not(test))]
 pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+#[cfg(test)]
+pub const ROOTASROLE: &str = "target/rootasrole.json";
 
-use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, fs::File, path::PathBuf, rc::Rc};
 
+use ciborium::de;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
-    common::{dac_override_effective, immutable_effective, util::toggle_lock_config},
+    common::{dac_override_effective, immutable_effective, read_effective, util::toggle_lock_config, write_json_config},
     rc_refcell,
 };
 
@@ -196,19 +200,11 @@ impl Default for RemoteStorageSettings {
     }
 }
 
-fn write_json_config(
-    settings: &Versioning<Rc<RefCell<SettingsFile>>>,
-) -> Result<(), Box<dyn Error>> {
-    let file = std::fs::File::create(ROOTASROLE)?;
-    serde_json::to_writer_pretty(file, &settings)?;
-    Ok(())
-}
+
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
     debug!("Setting immutable privilege");
     immutable_effective(true)?;
-    debug!("Setting dac privilege");
-    dac_override_effective(true)?;
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
@@ -225,7 +221,7 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     toggle_lock_config(path, true)?;
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
-    write_json_config(&versionned)?;
+    write_json_config(&versionned, ROOTASROLE)?;
     debug!("Toggling immutable off for config file");
     toggle_lock_config(path, false)?;
     debug!("Resetting dac privilege");
@@ -240,8 +236,16 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
     if !std::path::Path::new(ROOTASROLE).exists() {
         return Ok(rc_refcell!(SettingsFile::default()));
     }
-    let file = std::fs::File::open(ROOTASROLE).expect("Failed to open file");
-    let value: Versioning<SettingsFile> = serde_json::from_reader(file).unwrap_or_default();
+    // if user does not have read permission, try to enable privilege
+    let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
+        debug!("Error opening file without privilege, trying with privileges: {}", e);
+        read_effective(true).or(dac_override_effective(true))?;
+        std::fs::File::open(ROOTASROLE)
+    })?;
+    let value: Versioning<SettingsFile> = serde_json::from_reader(file).inspect_err(|e| {
+        debug!("Error reading file: {}", e);
+    }).unwrap_or_default();
+    read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
     if Migration::migrate(

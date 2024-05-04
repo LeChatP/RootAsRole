@@ -819,8 +819,8 @@ fn plugin_role_match(
         }
         PluginResultAction::Edit => {
             debug!("Plugin edit");
-            if !min_role.fully_matching()
-                || (matcher.fully_matching() && matcher.score < min_role.score)
+            if !min_role.command_matching()
+                || (matcher.command_matching() && matcher.score.cmd_min < min_role.score.cmd_min)
             {
                 *min_role = matcher;
                 *nmatch = 1;
@@ -829,9 +829,11 @@ fn plugin_role_match(
             } else if !matcher.fully_matching() {
                 *nmatch = 0;
             }
+            
         }
         PluginResultAction::Ignore => {}
     }
+    debug!("nmatch = {}", nmatch);
 }
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {

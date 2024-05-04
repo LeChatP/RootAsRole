@@ -5,7 +5,7 @@ chsr      = _{ name }
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
 add       = { "add" | "create" }
-del       = { "del" | "delete" | "unset" | "d" | "rm"}
+del       = { "delete" | "del" | "unset" | "d" | "rm"}
 purge     = { "purge" }
 grant     = { "grant" }
 revoke    = { "revoke" }
@@ -141,10 +141,10 @@ options_operations  = { ("options" | "o") ~ opt_args }
 opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout }
 
 opt_show     = _{ list ~ opt_show_arg? }
-opt_show_arg = { "all" | "cmd" | "cred" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout" }
+opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout" }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
-opt_path_args      = _{ opt_path_set | opt_path_setpolicy | opt_path_listing }
+opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }
 opt_path_set       = _{ set ~ path }
 opt_path_setpolicy = _{ setpolicy ~ path_policy }
 path_policy        =  { "delete-all" | "keep-safe" | "keep-unsafe" | "inherit" }
@@ -152,7 +152,7 @@ opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | 
 path               =  @{ name }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
-opt_env_args    = _{ opt_env_set | opt_env_setpolicy | opt_env_listing }
+opt_env_args    = _{ opt_env_setpolicy | opt_env_set | opt_env_listing }
 opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
 opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_list) | purge) }

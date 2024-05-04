@@ -8,6 +8,7 @@ use crate::common::{
     },
 };
 
+use ciborium::de;
 use serde::Deserialize;
 use tracing::{debug, warn};
 
@@ -40,11 +41,13 @@ fn find_in_parents(
                     debug!("Checking parent role {}", parent);
                     match role.as_ref().borrow().tasks.matches(user, command) {
                         Ok(matches) => {
+                            debug!("Parent role {} matched", parent);
                             if !matcher.command_matching()
                                 || (matches.command_matching()
                                     && matches.score.cmd_cmp(&matcher.score) == Ordering::Less)
                             {
-                                matcher.score = matches.score;
+                                debug!("Parent role {} is better", parent);
+                                matcher.score.cmd_min = matches.score.cmd_min;
                                 matcher.settings = matches.settings;
                                 result = PluginResultAction::Edit;
                             }

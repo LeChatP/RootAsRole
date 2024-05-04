@@ -14,7 +14,6 @@ use linked_hash_set::LinkedHashSet;
 use pest::{error::LineColLocation, iterators::Pair, Parser};
 use pest_derive::Parser;
 use tracing::{debug, warn};
-use tracing_subscriber::field::debug;
 
 use crate::{
     common::{
@@ -25,8 +24,7 @@ use crate::{
                 SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
-                IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
-                SetBehavior,
+                IdTask, SActor, SActorType, SCapabilities, SCommand, SCommands, SGroups, SRole, STask, SetBehavior
             },
         }, util::escape_parser_string,
     },
@@ -188,6 +186,7 @@ enum InputAction {
     Add,
     Del,
     Purge,
+    None,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -231,7 +230,7 @@ struct Inputs {
 impl Default for Inputs {
     fn default() -> Self {
         Inputs {
-            action: InputAction::Help,
+            action: InputAction::None,
             setlist_type: None,
             timeout_type: None,
             timeout_duration: None,
@@ -298,6 +297,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         }
         // === setpolicies ===
         Rule::cmd_policy => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "deny-all" {
                 inputs.cmd_policy = Some(SetBehavior::None);
             } else if pair.as_str() == "allow-all" {
@@ -307,6 +307,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         Rule::caps_policy => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "deny-all" {
                 inputs.cred_policy = Some(SetBehavior::None);
             } else if pair.as_str() == "allow-all" {
@@ -316,6 +317,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         Rule::path_policy => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "delete-all" {
                 inputs.options_path_policy = Some(PathBehavior::Delete);
             } else if pair.as_str() == "keep-safe" {
@@ -329,6 +331,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         Rule::env_policy => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "delete-all" {
                 inputs.options_env_policy = Some(EnvBehavior::Delete);
             } else if pair.as_str() == "keep-all" {
@@ -340,7 +343,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         // === timeout ===
-        Rule::opt_timeout_d_arg => {
+        Rule::time => {
             let mut reversed = pair.as_str().split(':').rev();
             let mut duration: Duration =
                 Duration::try_seconds(reversed.next().unwrap().parse::<i64>().unwrap_or(0))
@@ -362,7 +365,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
             inputs.timeout_duration = Some(duration);
         }
-        Rule::opt_timeout_t_arg => {
+        Rule::opt_timeout_type => {
             if pair.as_str() == "tty" {
                 inputs.timeout_type = Some(TimestampType::TTY);
             } else if pair.as_str() == "ppid" {
@@ -373,7 +376,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 warn!("Unknown timeout type: {}", pair.as_str())
             }
         }
-        Rule::opt_timeout_m_arg => {
+        Rule::opt_timeout_max_usage => {
             inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>().unwrap());
         }
         // === roles ===
@@ -513,6 +516,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 .insert_if_absent(pair.as_str().into());
         }
         Rule::opt_root_args => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "privileged" {
                 inputs.options_root = Some(SPrivileged::Privileged);
             } else if pair.as_str() == "user" {
@@ -524,6 +528,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         Rule::opt_bounding_args => {
+            inputs.action = InputAction::Set;
             if pair.as_str() == "strict" {
                 inputs.options_bounding = Some(SBounding::Strict);
             } else if pair.as_str() == "ignore" {
@@ -536,6 +541,13 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         }
         Rule::wildcard_value => {
             inputs.options_wildcard = Some(pair.as_str().to_string());
+        }
+        Rule::all => {
+            if inputs.role_id.is_some() && !inputs.task_id.is_some() {
+                inputs.role_type = Some(RoleType::All);
+            } else if inputs.task_id.is_some() {
+                inputs.task_type = Some(TaskType::All);
+            }
         }
         _ => {
             debug!("Unmatched rule: {:?}", pair.as_rule());
@@ -668,14 +680,18 @@ fn usage_concat(usages: &[&'static str]) -> String {
 }
 
 
-pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
+pub fn main<I,S>(storage: &Storage, args : I) -> Result<bool, Box<dyn Error>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     /*let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
         s.push_str(&e);
         s.push_str("\" \"");
         s
     });*/
 
-    let args = escape_parser_string(std::env::args());
+    let args = escape_parser_string(args);
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {
         Ok(v) => v,
@@ -750,12 +766,13 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
     for pair in args {
         recurse_pair(pair, &mut inputs);
     }
-
+    debug!("Inputs : {:?}", inputs);
     match inputs {
         Inputs {
             action: InputAction::Help,
             ..
         } => {
+            debug!("chsr help");
             println!("{}", LONG_ABOUT);
             println!("{}", RAR_USAGE_GENERAL);
             Ok(false)
@@ -770,16 +787,27 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             options_type, // in json
             ..
         } => match storage {
-            Storage::JSON(rconfig) => list_json(
-                rconfig,
-                role_id,
-                task_id,
-                options,
-                options_type,
-                task_type,
-                role_type,
-            )
-            .and(Ok(false)),
+            Storage::JSON(rconfig) => {
+                debug!("chsr list");
+                return match list_json(
+                    rconfig,
+                    role_id,
+                    task_id,
+                    options,
+                    options_type,
+                    task_type,
+                    role_type,
+                ) {
+                    Ok(_) => {
+                        debug!("chsr list ok");
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        debug!("chsr list err {:?}", e);
+                        Err(e)
+                    }
+                };
+            },
         },
         Inputs {
             // chsr role r1 add|del
@@ -789,6 +817,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             setlist_type: None,
             options: false,
             actors: None,
+            role_type,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -810,6 +839,25 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                             return Err("Role do not exists".into());
                         }
                         config.roles.retain(|r| r.as_ref().borrow().name != role_id);
+                        Ok(true)
+                    },
+                    InputAction::Purge => {
+                        if config.role(&role_id).is_none() {
+                            return Err("Role do not exists".into());
+                        }
+                        let role = config.role(&role_id).unwrap();
+                        match role_type {
+                            Some(RoleType::Actors) => {
+                                role.as_ref().borrow_mut().actors.clear();
+                            }
+                            Some(RoleType::Tasks) => {
+                                role.as_ref().borrow_mut().tasks.clear();
+                            }
+                            None | Some(RoleType::All) => {
+                                role.as_ref().borrow_mut().actors.clear();
+                                role.as_ref().borrow_mut().tasks.clear();
+                            }
+                        }
                         Ok(true)
                     }
                     _ => Ok(false),
@@ -870,6 +918,9 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             cred_caps: None,
             cred_setuid: None,
             cred_setgid: None,
+            task_type,
+            cmd_policy: None,
+            cred_policy: None,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -900,12 +951,37 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                             .retain(|t| t.as_ref().borrow().name != task_id);
                         Ok(true)
                     }
+                    InputAction::Purge => {
+                        let borrow = &role.as_ref().borrow();
+                        let task = borrow.task(&task_id).expect("Task do not exists".into());
+                        match task_type {
+                            Some(TaskType::Commands) => {
+                                task.as_ref().borrow_mut().commands.add.clear();
+                                task.as_ref().borrow_mut().commands.sub.clear();
+                                task.as_ref().borrow_mut().commands.default_behavior = None;
+                            }
+                            Some(TaskType::Credentials) => {
+                                task.as_ref().borrow_mut().cred.capabilities = None;
+                                task.as_ref().borrow_mut().cred.setuid = None;
+                                task.as_ref().borrow_mut().cred.setgid = None;
+                            }
+                            None | Some(TaskType::All) => {
+                                task.as_ref().borrow_mut().commands.add.clear();
+                                task.as_ref().borrow_mut().commands.sub.clear();
+                                task.as_ref().borrow_mut().commands.default_behavior = None;
+                                task.as_ref().borrow_mut().cred.capabilities = None;
+                                task.as_ref().borrow_mut().cred.setuid = None;
+                                task.as_ref().borrow_mut().cred.setgid = None;
+                            }
+                        }
+                        Ok(true)
+                    }
                     _ => Ok(false),
                 }
             }
         },
         Inputs {
-            //chsr role r1 task t1 cred --caps "cap_net_raw,cap_sys_admin"
+            //chsr role r1 task t1 cred set --caps "cap_net_raw,cap_sys_admin"
             action: InputAction::Set,
             role_id: Some(role_id),
             task_id: Some(task_id),
@@ -913,6 +989,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             cred_setuid,
             cred_setgid,
             cmd_id: None,
+            cmd_policy: None,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -937,11 +1014,50 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
             }
         },
         Inputs {
+            //chsr role r1 task t1 cred unset --caps "cap_net_raw,cap_sys_admin"
+            action: InputAction::Del,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cred_caps,
+            cred_setuid,
+            cred_setgid,
+            cmd_id: None,
+            cmd_policy: None,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 cred unset");
+                let config = rconfig.as_ref().borrow_mut();
+                match config.task(&role_id, &task_id) {
+                    Ok(task) => {
+                        if let Some(caps) = cred_caps {
+                            if caps.is_empty() {
+                                task.as_ref().borrow_mut().cred.capabilities = None;
+                            } else if let Some(ccaps) = task.as_ref().borrow_mut().cred.capabilities.as_mut() {
+                                ccaps.add.drop_all(caps);
+                            } else {
+                                return Err("No capabilities to remove".into());
+                            }
+                        }
+                        if let Some(_) = cred_setuid {
+                            task.as_ref().borrow_mut().cred.setuid = None;
+                        }
+                        if let Some(_) = cred_setgid {
+                            task.as_ref().borrow_mut().cred.setgid = None;
+                        }
+                        Ok(true)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        },
+        Inputs {
             action,
             role_id: Some(role_id),
             task_id: Some(task_id),
             setlist_type: Some(setlist_type),
             cred_caps: Some(cred_caps),
+            cmd_policy: None,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -1038,6 +1154,24 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                     .as_mut()
                     .unwrap()
                     .default_behavior = cred_policy;
+                Ok(true)
+            }
+        },
+        Inputs {
+            action: InputAction::Set,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            cmd_policy: Some(cmd_policy),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                debug!("chsr role r1 task t1 cmd setpolicy");
+                let config = rconfig.as_ref().borrow_mut();
+                let task = config.task(&role_id, &task_id)?;
+               
+                task.as_ref()
+                    .borrow_mut()
+                    .commands.default_behavior.replace(cmd_policy);
                 Ok(true)
             }
         },
@@ -1193,7 +1327,7 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
         },
         Inputs {
             // chsr o wildcard-denied set ";&*$"
-            action: InputAction::Set,
+            action,
             role_id,
             task_id,
             options_wildcard: Some(options_wildcard),
@@ -1201,7 +1335,34 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
         } => match storage {
             Storage::JSON(rconfig) => {
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-                    opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
+                    match action {
+                        InputAction::Set => {
+                            opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
+                        }
+                        InputAction::Add => {
+                            let mut default_wildcard = opt.as_ref().borrow().wildcard_denied.clone().unwrap_or_default();
+                            default_wildcard.extend(options_wildcard.chars());
+                            opt.as_ref().borrow_mut().wildcard_denied = Some(default_wildcard);
+                        }
+                        InputAction::Del => {
+                            if opt.as_ref().borrow().wildcard_denied.is_none() {
+                                println!("No wildcard denied configured");
+                                return Ok(());
+                            }
+                            opt.as_ref().borrow_mut().wildcard_denied.as_mut().map(|w| {
+                                w.retain(|c| !options_wildcard.contains(c));
+                            });
+                            return Ok(());
+                        }
+                        InputAction::Purge => {
+                            opt.as_ref().borrow_mut().wildcard_denied = None;
+                            return Ok(());
+                        }
+                        _ => {
+                            return Err("Unknown action".into());
+                        }
+                    }
+                    
                     Ok(())
                 })?;
                 Ok(true)
@@ -1233,7 +1394,37 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                             return Err("Unknown setlist type".into());
                         }
                     }
-                    opt.as_ref().borrow_mut().path.as_mut().replace(path);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o path whitelist set a:b:c
+            action: InputAction::Purge,
+            role_id,
+            task_id,
+            options_path: None,
+            options_type: Some(OptType::Path),
+            setlist_type,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut default_path = SPathOptions::default();
+                    let mut binding = opt.as_ref().borrow_mut();
+                    let path = binding.path.as_mut().unwrap_or(&mut default_path);
+                    match setlist_type {
+                        Some(SetListType::WhiteList) => {
+                            path.add.clear();
+                        }
+                        Some(SetListType::BlackList) => {
+                            path.sub.clear();
+                        }
+                        _ => {
+                            return Err("Unknown setlist type".into());
+                        }
+                    }
                     Ok(())
                 })?;
                 Ok(true)
@@ -1268,7 +1459,6 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                             return Err("Internal Error: setlist type not found".into());
                         }
                     }
-                    opt.as_ref().borrow_mut().env.as_mut().replace(env);
                     Ok(())
                 })?;
                 Ok(true)
@@ -1350,15 +1540,102 @@ pub fn main(storage: &Storage) -> Result<bool, Box<dyn Error>> {
                             return Err("Unknown setlist type".into());
                         }
                     }
-                    opt.as_ref().borrow_mut().path.as_mut().replace(path);
                     Ok(())
                 })?;
                 Ok(true)
             }
         },
-        //TODO: implement option env whitelist/blacklist add/delete
+        Inputs {
+            // chsr o path whitelist add path1:path2:path3
+            action,
+            role_id,
+            task_id,
+            options_env,
+            options_type: Some(OptType::Env),
+            setlist_type: Some(setlist_type),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id,  move |opt: Rc<RefCell<Opt>>| {
+                    let mut default_env = SEnvOptions::default();
+                    let mut binding = opt.as_ref().borrow_mut();
+                    let env = binding.env.as_mut().unwrap_or(&mut default_env);
+                    match setlist_type {
+                        SetListType::WhiteList => {
+                            match action {
+                                InputAction::Add => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.keep.extend(options_env.as_ref().unwrap().clone());
+                                }
+                                InputAction::Del => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.keep = env.keep.difference(&options_env.as_ref().unwrap().iter().cloned().collect::<LinkedHashSet<EnvKey>>()).cloned().collect::<LinkedHashSet<EnvKey>>();
+                                }
+                                InputAction::Purge => {
+                                    env.keep = LinkedHashSet::new();
+                                }
+                                _ => {
+                                    return Err("Unknown action".into());
+                                }
+                            }
+                        }
+                        SetListType::BlackList => {
+                            match action {
+                                InputAction::Add => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.delete.extend(options_env.as_ref().unwrap().clone());
+                                }
+                                InputAction::Del => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.delete = env.delete.difference(options_env.as_ref().unwrap()).cloned().collect::<LinkedHashSet<EnvKey>>();
+                                }
+                                InputAction::Purge => {
+                                    env.delete = LinkedHashSet::new();
+                                }
+                                _ => {
+                                    return Err("Unknown action".into());
+                                }
+                            }
+                        }
+                        SetListType::CheckList => {
+                            match action {
+                                InputAction::Add => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.check.extend(options_env.as_ref().unwrap().clone());
+                                }
+                                InputAction::Del => {
+                                    if options_env.is_none() {
+                                        return Err("Empty list".into());
+                                    }
+                                    env.check = env.check.difference(options_env.as_ref().unwrap()).cloned().collect::<LinkedHashSet<EnvKey>>();
+                                }
+                                InputAction::Purge => {
+                                    env.check = LinkedHashSet::new();
+                                }
+                                _ => {
+                                    return Err("Unknown action".into());
+                                }
+                            }
+                        }
+                    }
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
         _ => Err("Unknown action".into()),
     }
+    
 }
 fn perform_on_target_opt(
     rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
@@ -1408,6 +1685,7 @@ fn list_json(
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
     let config = rconfig.as_ref().borrow();
+    debug!("list_json {:?}", config);
     if let Some(role_id) = role_id {
         if let Some(role) = config.role(&role_id) {
             list_task(task_id, role, options, options_type, task_type, role_type)
@@ -1503,6 +1781,8 @@ fn print_task(
 mod tests {
     use super::*;
 
+    
+
     fn make_args(args: &str) -> String {
         shell_words::join(shell_words::split(args).unwrap())
     }
@@ -1584,4 +1864,6 @@ mod tests {
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::All));
     }
+
+
 }

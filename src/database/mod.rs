@@ -1,6 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::common::config::save_settings;
+use crate::common::read_effective;
 use crate::common::util::toggle_lock_config;
 use crate::common::version::PACKAGE_VERSION;
 
@@ -13,6 +14,7 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Ver
 
 use super::config::SettingsFile;
 use super::util::warn_if_mutable;
+use super::write_json_config;
 use super::{
     config::{RemoteStorageSettings, ROOTASROLE},
     dac_override_effective, immutable_effective,
@@ -102,41 +104,39 @@ pub fn save_json(
     }
     debug!("Setting immutable privilege");
     immutable_effective(true)?;
-    debug!("Setting dac privilege");
-    dac_override_effective(true)?;
     debug!("Toggling immutable on for config file");
     toggle_lock_config(path, true)?;
+    immutable_effective(false)?;
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
         version: PACKAGE_VERSION.to_owned().parse()?,
         data: config,
     };
-    write_json_config(&settings.as_ref().borrow(), versionned)?;
+    write_sconfig(&settings.as_ref().borrow(), versionned)?;
     debug!("Toggling immutable off for config file");
+    immutable_effective(true)?;
     toggle_lock_config(path, false)?;
-    debug!("Resetting dac privilege");
-    dac_override_effective(false)?;
+    
     debug!("Resetting immutable privilege");
     immutable_effective(false)?;
     Ok(())
 }
 
-fn write_json_config(
+fn write_sconfig(
     settings: &SettingsFile,
     config: Versioning<Rc<RefCell<SConfig>>>,
 ) -> Result<(), Box<dyn Error>> {
     let default_remote = RemoteStorageSettings::default();
-    let file = std::fs::File::create(
-        settings
-            .storage
-            .settings
-            .as_ref()
-            .unwrap_or(&default_remote)
-            .path
-            .as_ref()
-            .unwrap_or(&ROOTASROLE.into()),
-    )?;
-    serde_json::to_writer_pretty(file, &config)?;
+    let binding = ROOTASROLE.into();
+    let path = settings
+        .storage
+        .settings
+        .as_ref()
+        .unwrap_or(&default_remote)
+        .path
+        .as_ref()
+        .unwrap_or(&binding);
+    write_json_config(&config, path);
     Ok(())
 }
 

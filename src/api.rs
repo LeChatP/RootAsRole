@@ -134,15 +134,16 @@ impl PluginManager {
     ) -> PluginResultAction {
         debug!("Notifying role matchers");
         let api = API.lock().unwrap();
+        let mut result = PluginResultAction::Ignore;
         for plugin in api.role_matcher_plugins.iter() {
             debug!("Calling role matcher plugin");
             match plugin(role, user, command, matcher) {
                 PluginResultAction::Override => return PluginResultAction::Override,
-                PluginResultAction::Edit => continue,
+                PluginResultAction::Edit => result = PluginResultAction::Edit,
                 PluginResultAction::Ignore => continue,
             }
         }
-        PluginResultAction::Ignore
+        result
     }
 
     pub fn notify_task_matcher(

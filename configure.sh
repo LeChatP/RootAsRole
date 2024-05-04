@@ -18,6 +18,23 @@ if [ $(capsh --has-p=CAP_DAC_OVERRIDE; echo $?) != 0 ] || [ $(capsh --has-p=CAP_
     exit 1
 fi
 
+export $(grep -h '^ID' /etc/*-release)
+
+echo "Configuration files installation"
+echo "id : ${ID}"
+if [ "${ID}" == "arch" ]; then
+    cp resources/arch_sr_pam.conf /etc/pam.d/sr || exit;
+elif [ "${ID}" == "ubuntu" ] || [ "${ID}" == "debian" ]; then
+    cp resources/deb_sr_pam.conf /etc/pam.d/sr || exit;
+elif [ "${ID}" == "centos" ] || [ "${ID}" == "fedora" ] || [[ "${ID}" == *"rhel"* ]]; then
+    cp resources/rh_sr_pam.conf /etc/pam.d/sr || exit;
+else
+    echo "Unable to find a supported distribution, exiting..."
+    exit 3
+fi
+
+
+
 if [ -e "/etc/security/rootasrole.json" ];then
 	if [ $INSTALL_USER == "0" ]; then
 		echo "Warning: You run this script as real root, so the administator role is defined for the root user"
@@ -43,3 +60,5 @@ chmod 0640 /etc/security/rootasrole.json || exit
 if [  $DOCKER -eq 0 ]; then
 	chattr +i /etc/security/rootasrole.json || exit
 fi
+
+echo "Configuration done, Ready to compile."
