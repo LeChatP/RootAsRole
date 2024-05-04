@@ -16,9 +16,322 @@ Next, the configuration is divided into roles, tasks, commands, credentials, and
 
 ## How configuration work with examples
 
-### Role example
+### A complete Config example
 
+The following example shows a RootAsRole config without plugins when almost every field is modified with comments.
 
+```json
+{
+  "version": "3.0.0-alpha.4", // Version of the configuration file
+  "storage": { // Storage settings, where the Roles and Execution options are stored
+    "method": "json", // Storage method
+    "settings": { // Storage settings
+      "immutable": false, // Program return error if the file is not immutable, default is true
+      "path": "target/rootasrole.json" // Path to the storage file
+    }
+  },
+  "options": {
+    "path": { // Path options
+      "default": "delete", // Default policy for path, delete-all, keep-safe, keep-unsafe, inherit
+      "add": [ // Paths to add to the whitelist
+        "path1",
+        "path2"
+      ],
+      "sub": [ // Paths to remove from the whitelist
+        "path3",
+        "path4"
+      ]
+    },
+    "env": { // Environment options
+      "default": "delete", // Default policy for environment, delete-all, keep-all, inherit
+      "keep": [ // Environment variables to keep
+        "env1",
+        "env2"
+      ],
+      "check": [ // Environment variables to check for unsafe characters
+        "env3",
+        "env4"
+      ],
+      "delete": [ // Environment variables to delete
+        "env5",
+        "env6"
+      ]
+    },
+    "root": "privileged", // Default policy for root, privileged, user, inherit
+    "bounding": "ignore", // Default policy for bounding, strict, ignore, inherit
+    "wildcard-denied": "*", // Characters denied in any binary path
+    "timeout": {
+      "type": "ppid", // Type of timeout, tty, ppid, uid
+      "duration": "15:30:30", // Duration of the timeout
+      "max_usage": 1 // Maximum usage before timeout expires
+    }
+  },
+  "roles": [ // Role list
+    {
+      "name": "complete", // Role name
+      "actors": [ // Actors granted
+        {
+          "id": 0, // ID of the actor, could be a name
+          "type": "user" // Type of actor, user, group
+        },
+        {
+          "groups": 0, // ID of the group, could be a name
+          "type": "group" 
+        },
+        {
+          "type": "group",
+          "groups": [ // List of groups, this is an AND condition between groups
+            "groupA",
+            "groupB"
+          ]
+        }
+      ],
+      "tasks": [ // List of role's tasks
+        {
+          "name": "t_complete", // Task name, must be unique in the role
+          "purpose": "complete", // Task purpose, just a description
+          "cred": {
+            "setuid": "user1", // User to setuid before executing the command
+            "setgid": [ // Groups to setgid before executing the command, The first one is the primary group
+              "group1",
+              "group2"
+            ],
+            "capabilities": { // Capabilities to grants
+              "default": "all", // Default policy for capabilities, all, none
+              "add": [ // Capabilities to add
+                "CAP_LINUX_IMMUTABLE",
+                "CAP_NET_BIND_SERVICE"
+              ],
+              "sub": [ // Capabilities to remove, overrides add
+                "CAP_SYS_ADMIN",
+                "CAP_SYS_BOOT"
+              ]
+            }
+          },
+          "commands": {
+            "default": "all", // Default policy for commands, allow-all, deny-all
+            "add": [ // Commands to add to the whitelist
+              "ls",
+              "echo"
+            ],
+            "sub": [ // Commands to add to the blacklist
+              "cat",
+              "grep"
+            ]
+          },
+          "options": { // Task-level options
+            "path": {
+              "default": "delete", // When default is not inherit, all upper level options are ignored
+              "add": [
+                "path1",
+                "path2"
+              ],
+              "sub": [
+                "path3",
+                "path4"
+              ]
+            },
+            "env": {
+              "default": "delete",
+              "keep": [
+                "env1",
+                "env2"
+              ],
+              "check": [
+                "env3",
+                "env4"
+              ],
+              "delete": [
+                "env5",
+                "env6"
+              ]
+            },
+            "root": "privileged",
+            "bounding": "ignore",
+            "wildcard-denied": "*",
+            "timeout": {
+              "type": "ppid",
+              "duration": "15:30:30",
+              "max_usage": 1
+            }
+          }
+        }
+      ],
+      "options": { // Role-level options
+        "path": {
+          "default": "delete",
+          "add": [
+            "path1",
+            "path2"
+          ],
+          "sub": [
+            "path3",
+            "path4"
+          ]
+        },
+        "env": {
+          "default": "delete",
+          "keep": [
+            "env1",
+            "env2"
+          ],
+          "check": [
+            "env3",
+            "env4"
+          ],
+          "delete": [
+            "env5",
+            "env6"
+          ]
+        },
+        "root": "privileged",
+        "bounding": "ignore",
+        "wildcard-denied": "*",
+        "timeout": {
+          "type": "ppid",
+          "duration": "15:30:30",
+          "max_usage": 1
+        }
+      }
+    }
+  ]
+}
+```
+
+### Config example Role hierarchy plugin
+
+The following example shows a RootAsRole config using role hierarchy plugin.
+
+```json
+{
+  "version": "3.0.0-alpha.4",
+  "roles": [
+    {
+      "parents": ["user"],
+      "name": "admin",
+      "actors": [
+        {
+          "id": 0,
+          "type": "user"
+        }
+      ],
+      "tasks": [
+      ],
+    },
+    {
+      "name": "user",
+      "actors": [
+        {
+          "id": 1,
+          "type": "user"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "t_user",
+          "purpose": "user",
+          "commands": {
+            "default": "all",
+            "sub": [
+              "cat",
+              "grep"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+In this example, the `admin` role inherits from the `user` role. The `user` role has a task `t_user` that denies `cat` and `grep` commands. The `admin` role will inherit the `t_user` task and deny `cat` and `grep` commands.
+
+### Config example Static separation of duties plugin
+
+The following example shows a RootAsRole config using separation of duties plugin.
+
+```json
+{
+  "version": "3.0.0-alpha.4",
+  "roles": [
+    {
+      "ssd": ["user"],
+      "name": "admin",
+      "actors": [
+        {
+          "id": 0,
+          "type": "user"
+        }
+      ],
+      "tasks": [
+      ],
+    },
+    {
+      "name": "user",
+      "actors": [
+        {
+          "id": 0,
+          "type": "user"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "t_user",
+          "purpose": "user",
+          "commands": {
+            "default": "all",
+            "sub": [
+              "cat",
+              "grep"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+In this example, the `admin` role is separated from the `user` role. The user 0 cannot be in the `user` role and the `admin` role at the same time. But currently this user is still on these two roles. In resulting, the user 0 will not be able to execute any `admin` or `user` role's tasks.
+
+### Config example with hashchecker plugin
+
+Hashchecker plugin verifies the integrity of the binary before executing it. The following example shows a RootAsRole config using hashchecker plugin.
+
+```json
+{
+  "version": "3.0.0-alpha.4",
+  "roles": [
+    {
+      "name": "admin",
+      "actors": [
+        {
+          "id": 0,
+          "type": "user"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "t_admin",
+          "purpose": "admin",
+          "commands": {
+            "default": "none",
+            "add": [
+              {
+                "command": "/usr/bin/cat superfile",
+                "hash_type": "sha256",
+                "hash": "3b77deacba25588129debfb3b9603d7e7187c29d7f6c14bdb667426b7be91761"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+This example shows a `t_admin` task that allows the `cat superfile` command only if the hash of the binary is `3b77deacba25588129debfb3b9603d7e7187c29d7f6c14bdb667426b7be91761`. If the hash of the binary is different, the command isn't even considered in configuration setup. Supported hashes : SHA224, SHA256, SHA384, SHA512.
 
 ## How options work with examples
 
