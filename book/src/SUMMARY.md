@@ -5,7 +5,9 @@
 # User Guide
 
 - [Installation](guide/installation.md)
-- [Configure RootAsRole](chsr/README.md)
+- [`sr` Command Line Tool](sr/README.md)
+- [`chsr` Command Line Tool](chsr/README.md)
+
 
 # Knowledge Guide
 
@@ -18,9 +20,7 @@
 
 # Reference Guide
 
-- [`sr` Command Line Tool](sr/README.md)
-- [`chsr` Command Line Tool](chsr/README.md)
-
+- [Configure RootAsRole](chsr/file-config.md)
 - [Continuous Integration](continuous-integration.md)
 - [How to contribute](dev/CONTRIBUTE.md)
 - [Code of Conduct](dev/CODE_OF_CONDUCT.md)
