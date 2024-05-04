@@ -184,14 +184,14 @@ fn from_json_execution_settings(
         (Some(role), Some(task)) => {
             let task = IdTask::Name(task.to_string());
             let res = as_borrow!(config)
-            .role(role)
-            .expect("Permission Denied")
-            .matches(user, &args.command)?;
+                .role(role)
+                .expect("Permission Denied")
+                .matches(user, &args.command)?;
             if res.fully_matching() && res.settings.task().as_ref().borrow().name == task {
                 Ok(res)
             } else {
                 let mut taskres = as_borrow!(config)
-                    .task(role,&task)
+                    .task(role, &task)
                     .expect("Permission Denied")
                     .matches(user, &args.command)?;
                 if taskres.command_matching() {
@@ -200,9 +200,8 @@ fn from_json_execution_settings(
                 } else {
                     Err("Permission Denied".into())
                 }
-                
             }
-        },
+        }
         (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
@@ -454,7 +453,9 @@ mod tests {
     use super::*;
     use crate::common::database::finder::TaskMatch;
     use crate::common::database::make_weak_config;
-    use crate::common::database::structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask};
+    use crate::common::database::structs::{
+        IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
+    };
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -478,9 +479,16 @@ mod tests {
         let task = rc_refcell!(STask::default());
         task.as_ref().borrow_mut().name = IdTask::Name("task1".to_owned());
         task.as_ref().borrow_mut().commands = SCommands::default();
-        task.as_ref().borrow_mut().commands.add.push(SCommand::Simple("ls".to_owned()));
+        task.as_ref()
+            .borrow_mut()
+            .commands
+            .add
+            .push(SCommand::Simple("ls".to_owned()));
         role.as_ref().borrow_mut().name = "role1".to_owned();
-        role.as_ref().borrow_mut().actors.push(SActor::from_user_id(0));
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_id(0));
         role.as_ref().borrow_mut().tasks.push(task);
         config.as_ref().borrow_mut().roles.push(role);
         make_weak_config(&config);
@@ -495,6 +503,5 @@ mod tests {
         args.role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
-        
     }
 }

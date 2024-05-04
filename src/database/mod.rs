@@ -14,12 +14,12 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Ver
 
 use super::config::SettingsFile;
 use super::util::warn_if_mutable;
-use super::{open_with_privileges, write_json_config};
 use super::{
     config::{RemoteStorageSettings, ROOTASROLE},
     dac_override_effective, immutable_effective,
     util::parse_capset_iter,
 };
+use super::{open_with_privileges, write_json_config};
 
 pub mod finder;
 pub mod migration;

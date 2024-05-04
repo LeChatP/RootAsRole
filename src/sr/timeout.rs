@@ -16,10 +16,13 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::common::{database::{
-    finder::Cred,
-    options::{STimeout, TimestampType},
-}, open_with_privileges};
+use crate::common::{
+    database::{
+        finder::Cred,
+        options::{STimeout, TimestampType},
+    },
+    open_with_privileges,
+};
 
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
