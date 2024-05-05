@@ -24,8 +24,8 @@ use crate::{
                 SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
-                IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole,
-                STask, SetBehavior,
+                IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
+                SetBehavior,
             },
         },
         util::escape_parser_string,
@@ -210,7 +210,7 @@ enum TimeoutOpt {
 struct Inputs {
     action: InputAction,
     setlist_type: Option<SetListType>,
-    timeout_arg: Option<[bool;3]>,
+    timeout_arg: Option<[bool; 3]>,
     timeout_type: Option<TimestampType>,
     timeout_duration: Option<Duration>,
     timeout_max_usage: Option<u64>,
@@ -368,7 +368,8 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 if let Some(hours) = reversed.next() {
                     duration = duration
                         .checked_add(
-                            &Duration::try_hours(hours.parse::<i64>().unwrap_or(0)).unwrap_or_default(),
+                            &Duration::try_hours(hours.parse::<i64>().unwrap_or(0))
+                                .unwrap_or_default(),
                         )
                         .expect("Invalid hours");
                 }
@@ -579,7 +580,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         }
     }
 }
-
 
 fn rule_to_string(rule: &Rule) -> String {
     match *rule {
@@ -1544,7 +1544,7 @@ where
                     } else {
                         opt.as_ref().borrow_mut().timeout = Some(timeout);
                     }
-                    
+
                     Ok(())
                 })?;
                 Ok(true)
@@ -1883,10 +1883,13 @@ fn print_task(
 mod tests {
     use std::{io::Write, rc::Rc};
 
-    use crate::common::{config, database::{read_json_config, structs::SCredentials}};
+    use crate::common::{
+        config,
+        database::{read_json_config, structs::SCredentials},
+    };
 
     use super::super::common::{
-        config::{RemoteStorageSettings, SettingsFile, ROOTASROLE, Storage},
+        config::{RemoteStorageSettings, SettingsFile, Storage, ROOTASROLE},
         database::{options::*, structs::*, version::Versioning},
     };
 
@@ -1977,9 +1980,6 @@ mod tests {
         assert_eq!(inputs.role_type, Some(RoleType::All));
     }
 
-
-   
-
     fn setup() {
         //Write json test json file
         let mut file = std::fs::File::create(ROOTASROLE).unwrap();
@@ -1993,11 +1993,13 @@ mod tests {
 
         opt.timeout = Some(STimeout::default());
         opt.timeout.as_mut().unwrap().type_field = Some(TimestampType::PPID);
-        opt.timeout.as_mut().unwrap().duration = Some(TimeDelta::hours(15)
-            .checked_add(&TimeDelta::minutes(30))
-            .unwrap()
-            .checked_add(&TimeDelta::seconds(30))
-            .unwrap());
+        opt.timeout.as_mut().unwrap().duration = Some(
+            TimeDelta::hours(15)
+                .checked_add(&TimeDelta::minutes(30))
+                .unwrap()
+                .checked_add(&TimeDelta::seconds(30))
+                .unwrap(),
+        );
         opt.timeout.as_mut().unwrap().max_usage = Some(1);
 
         opt.path = Some(SPathOptions::default());
@@ -2134,7 +2136,7 @@ mod tests {
     #[test]
     fn test_all_main() {
         setup();
-        
+
         // lets test every commands
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
@@ -3736,12 +3738,7 @@ mod tests {
         .is_ok_and(|b| b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "tosk",
-            ],
+            vec!["chsr", "r", "complete", "tosk",],
         )
         .inspect_err(|e| {
             error!("{}", e);

@@ -210,9 +210,9 @@ where
         let hours: i64 = hours.parse().map_err(de::Error::custom)?;
         let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
         let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
-        return Ok(Some(Duration::hours(hours)
-            + Duration::minutes(minutes)
-            + Duration::seconds(seconds)));
+        return Ok(Some(
+            Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds),
+        ));
     }
     Err(de::Error::custom("Invalid duration format"))
 }

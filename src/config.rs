@@ -52,20 +52,15 @@ pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 #[cfg(test)]
 pub const ROOTASROLE: &str = "target/rootasrole.json";
 
-use std::{
-    cell::RefCell,
-    error::Error,
-    path::PathBuf,
-    rc::Rc,
-};
+use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, open_with_privileges, read_effective,
-        util::toggle_lock_config, write_json_config,
+        dac_override_effective, open_with_privileges, read_effective, util::toggle_lock_config,
+        write_json_config,
     },
     rc_refcell,
 };

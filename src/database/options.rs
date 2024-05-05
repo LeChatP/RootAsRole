@@ -219,14 +219,17 @@ impl Opt {
         opt.root = Some(SPrivileged::User);
         opt.bounding = Some(SBounding::Strict);
         opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
-        opt.path.as_mut().unwrap().add = vec![ 
+        opt.path.as_mut().unwrap().add = vec![
             "/usr/local/sbin".to_string(),
             "/usr/local/bin".to_string(),
             "/usr/sbin".to_string(),
             "/usr/bin".to_string(),
             "/sbin".to_string(),
             "/bin".to_string(),
-            "/snap/bin".to_string()].into_iter().collect();
+            "/snap/bin".to_string(),
+        ]
+        .into_iter()
+        .collect();
         let mut env = SEnvOptions::new(EnvBehavior::Delete);
         env.keep = vec![
             "HOME".into(),
@@ -241,8 +244,10 @@ impl Opt {
             "PS2".into(),
             "XAUTHORY".into(),
             "XAUTHORIZATION".into(),
-            "XDG_CURRENT_DESKTOP".into()
-        ].into_iter().collect();
+            "XDG_CURRENT_DESKTOP".into(),
+        ]
+        .into_iter()
+        .collect();
         env.check = vec![
             "COLORTERM".into(),
             "LANG".into(),
@@ -250,8 +255,10 @@ impl Opt {
             "LC_*".into(),
             "LINGUAS".into(),
             "TERM".into(),
-            "TZ".into()
-        ].into_iter().collect();
+            "TZ".into(),
+        ]
+        .into_iter()
+        .collect();
         opt.env = Some(env);
         let mut timeout = STimeout::default();
         timeout.type_field = Some(TimestampType::PPID);
@@ -280,7 +287,13 @@ impl Default for Opt {
 impl Default for OptStack {
     fn default() -> Self {
         OptStack {
-            stack: [None, Some(Rc::new(Opt::level_default().into())), None, None, None],
+            stack: [
+                None,
+                Some(Rc::new(Opt::level_default().into())),
+                None,
+                None,
+                None,
+            ],
             roles: None,
             role: None,
             task: None,
@@ -783,11 +796,15 @@ impl OptStack {
                 final_behavior = match p.default_behavior {
                     EnvBehavior::Delete => {
                         // policy is to delete, so we add whitelist and remove blacklist
-                        final_keep = p.keep.iter()
+                        final_keep = p
+                            .keep
+                            .iter()
                             .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
-                        final_check = p.check.iter()
+                        final_check = p
+                            .check
+                            .iter()
                             .filter(|e| !p.delete.env_matches(e))
                             .cloned()
                             .collect();
@@ -795,11 +812,15 @@ impl OptStack {
                     }
                     EnvBehavior::Keep => {
                         //policy is to keep, so we remove blacklist and add whitelist
-                        final_delete = p.delete.iter()
+                        final_delete = p
+                            .delete
+                            .iter()
                             .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
                             .cloned()
                             .collect();
-                        final_check = p.check.iter()
+                        final_check = p
+                            .check
+                            .iter()
                             .filter(|e| !p.keep.env_matches(e))
                             .cloned()
                             .collect();
@@ -1255,7 +1276,10 @@ mod tests {
         assert!(!tz_is_safe("/America/New_York"));
         assert!(!tz_is_safe("America/New_York/.."));
         //assert path max
-        assert!(!tz_is_safe(String::from_utf8(vec![b'a'; (PATH_MAX+1).try_into().unwrap()]).unwrap().as_str()));
+        assert!(!tz_is_safe(
+            String::from_utf8(vec![b'a'; (PATH_MAX + 1).try_into().unwrap()])
+                .unwrap()
+                .as_str()
+        ));
     }
-
 }
