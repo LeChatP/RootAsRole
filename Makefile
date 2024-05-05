@@ -31,6 +31,9 @@ install: build
 test:
 	cargo test
 
+cov:
+	cargo tarpaulin --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Lcov --out Html
+
 uninstall:
 	rm -f /usr/bin/sr
 	rm -f /usr/bin/chsr

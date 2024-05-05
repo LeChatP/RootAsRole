@@ -9,6 +9,7 @@
 *.ll
 *.pyc
 *.profraw
+*.info
 
 # Linker output
 *.ilk
@@ -66,3 +67,7 @@ bin/
 
 # Rust crates
 Cargo.lock
+
+# Html results
+*.html
+*.xml

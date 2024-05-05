@@ -169,7 +169,7 @@ mod tests {
 
     fn teardown() {
         //Remove json test file
-        std::fs::remove_file("target/rootasrole.json").unwrap();
+        std::fs::remove_file(ROOTASROLE).unwrap();
     }
     // we need to test every commands
     // chsr r r1 create

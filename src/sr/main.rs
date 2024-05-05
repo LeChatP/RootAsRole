@@ -4,7 +4,8 @@ mod timeout;
 
 use capctl::CapState;
 use clap::Parser;
-use common::database::finder::{Cred, TaskMatch, TaskMatcher};
+use common::database::finder::{Cred, CredMatcher, TaskMatch, TaskMatcher};
+use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
 use nix::{
     libc::dev_t,
@@ -31,6 +32,13 @@ use crate::common::{
 };
 use crate::common::{drop_effective, subsribe};
 
+#[cfg(not(test))]
+const PAM_SERVICE: &str = "sr";
+#[cfg(test)]
+const PAM_SERVICE: &str = "sr_test";
+
+const PAM_PROMPT: &str = "Password: ";
+
 #[derive(Parser, Debug)]
 #[command(
     about = "Execute privileged commands with a role-based access control system",
@@ -50,7 +58,7 @@ struct Cli {
     task: Option<String>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
-    #[arg(short, long, default_value = "Password: ")]
+    #[arg(short, long, default_value = PAM_PROMPT)]
     prompt: String,
 
     /// Display rights of executor
@@ -173,14 +181,27 @@ fn from_json_execution_settings(
             .expect("Permission Denied")
             .matches(user, &args.command)
             .map_err(|m| m.into()),
-        (Some(role), Some(task)) => as_borrow!(config)
-            .task(
-                role,
-                &common::database::structs::IdTask::Name(task.to_string()),
-            )
-            .expect("Permission Denied")
-            .matches(user, &args.command)
-            .map_err(|m| m.into()),
+        (Some(role), Some(task)) => {
+            let task = IdTask::Name(task.to_string());
+            let res = as_borrow!(config)
+                .role(role)
+                .expect("Permission Denied")
+                .matches(user, &args.command)?;
+            if res.fully_matching() && res.settings.task().as_ref().borrow().name == task {
+                Ok(res)
+            } else {
+                let mut taskres = as_borrow!(config)
+                    .task(role, &task)
+                    .expect("Permission Denied")
+                    .matches(user, &args.command)?;
+                if taskres.command_matching() {
+                    taskres.score.user_min = res.score.user_min;
+                    Ok(taskres)
+                } else {
+                    Err("Permission Denied".into())
+                }
+            }
+        }
         (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
 }
@@ -230,9 +251,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         tty,
         ppid,
     };
-
-    dac_override_effective(true)
-        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_override")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
@@ -283,6 +301,68 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     debug!("setuid : {:?}", execcfg.setuid);
 
+    setuid_setgid(execcfg);
+
+    set_capabilities(execcfg, optstack);
+
+    //execute command
+    let envset = optstack
+        .calculate_filtered_env()
+        .expect("Failed to calculate env");
+    let pty = Pty::new().expect("Failed to create pty");
+
+    let command = Command::new(&execcfg.exec_path)
+        .args(execcfg.exec_args.iter())
+        .envs(envset)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn(&pty.pts().expect("Failed to get pts"));
+    let mut command = match command {
+        Ok(command) => command,
+        Err(e) => {
+            error!("{}", e);
+            /*error!(
+                "{} : command not found",
+                matching.exec_path.display()
+            );*/
+            eprintln!("sr: {} : command not found", execcfg.exec_path.display());
+            std::process::exit(1);
+        }
+    };
+    let status = command.wait().expect("Failed to wait for command");
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
+    //set capabilities
+    if let Some(caps) = execcfg.caps {
+        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+        let mut capstate = CapState::empty();
+        if !optstack.get_bounding().1.is_ignore() {
+            for cap in (!caps).iter() {
+                capctl::bounding::drop(cap).expect("Failed to set bounding cap");
+            }
+        }
+        capstate.permitted = caps;
+        capstate.inheritable = caps;
+        capstate.set_current().expect("Failed to set current cap");
+        for cap in caps.iter() {
+            capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
+        }
+        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+    } else {
+        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+        if !optstack.get_bounding().1.is_ignore() {
+            capctl::bounding::clear().expect("Failed to clear bounding cap");
+        }
+        let capstate = CapState::empty();
+        capstate.set_current().expect("Failed to set current cap");
+        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+    }
+}
+
+fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
     let uid = execcfg.setuid.as_ref().and_then(|u| {
         let res = u.into_user().unwrap_or(None);
         if let Some(user) = res {
@@ -335,60 +415,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     capctl::cap_set_ids(uid, gid, groups.as_deref()).expect("Failed to set ids");
     setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
-
-    //set capabilities
-    if let Some(caps) = execcfg.caps {
-        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        let mut capstate = CapState::empty();
-        if !optstack.get_bounding().1.is_ignore() {
-            for cap in (!caps).iter() {
-                capctl::bounding::drop(cap).expect("Failed to set bounding cap");
-            }
-        }
-        capstate.permitted = caps;
-        capstate.inheritable = caps;
-        capstate.set_current().expect("Failed to set current cap");
-        for cap in caps.iter() {
-            capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
-        }
-        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    } else {
-        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        if !optstack.get_bounding().1.is_ignore() {
-            capctl::bounding::clear().expect("Failed to clear bounding cap");
-        }
-        let capstate = CapState::empty();
-        capstate.set_current().expect("Failed to set current cap");
-        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    }
-
-    //execute command
-    let envset = optstack
-        .calculate_filtered_env()
-        .expect("Failed to calculate env");
-    let pty = Pty::new().expect("Failed to create pty");
-
-    let command = Command::new(&execcfg.exec_path)
-        .args(execcfg.exec_args.iter())
-        .envs(envset)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn(&pty.pts().expect("Failed to get pts"));
-    let mut command = match command {
-        Ok(command) => command,
-        Err(e) => {
-            error!("{}", e);
-            /*error!(
-                "{} : command not found",
-                matching.exec_path.display()
-            );*/
-            eprintln!("sr: {} : command not found", execcfg.exec_path.display());
-            std::process::exit(1);
-        }
-    };
-    let status = command.wait().expect("Failed to wait for command");
-    std::process::exit(status.code().unwrap_or(1));
 }
 
 fn check_auth(
@@ -404,7 +430,7 @@ fn check_auth(
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let mut context = Context::new(
-            "sr",
+            PAM_SERVICE,
             Some(&user.user.name),
             SrConversationHandler::new(prompt),
         )
@@ -418,4 +444,82 @@ fn check_auth(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use nix::unistd::Pid;
+
+    use super::*;
+    use crate::common::database::finder::TaskMatch;
+    use crate::common::database::make_weak_config;
+    use crate::common::database::structs::{
+        IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
+    };
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn test_from_json_execution_settings() {
+        let mut args = Cli {
+            role: None,
+            task: None,
+            prompt: PAM_PROMPT.to_string(),
+            info: false,
+            command: vec!["ls".to_string(), "-l".to_string()],
+        };
+        let user = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        let config = rc_refcell!(SConfig::default());
+        let role = rc_refcell!(SRole::default());
+        let task = rc_refcell!(STask::default());
+        task.as_ref().borrow_mut().name = IdTask::Name("task1".to_owned());
+        task.as_ref().borrow_mut().commands = SCommands::default();
+        task.as_ref()
+            .borrow_mut()
+            .commands
+            .add
+            .push(SCommand::Simple("ls -l".to_owned()));
+        role.as_ref().borrow_mut().name = "role1".to_owned();
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_id(0));
+        role.as_ref().borrow_mut().tasks.push(task);
+        let task = rc_refcell!(STask::default());
+        task.as_ref().borrow_mut().name = IdTask::Name("task2".to_owned());
+        task.as_ref().borrow_mut().commands = SCommands::default();
+        task.as_ref()
+            .borrow_mut()
+            .commands
+            .add
+            .push(SCommand::Simple("ls .*".to_owned()));
+        role.as_ref().borrow_mut().tasks.push(task);
+        let task = rc_refcell!(STask::default());
+        task.as_ref().borrow_mut().name = IdTask::Name("task3".to_owned());
+        role.as_ref().borrow_mut().tasks.push(task);
+        config.as_ref().borrow_mut().roles.push(role);
+        make_weak_config(&config);
+        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
+        assert!(taskmatch.fully_matching());
+        args.role = Some("role1".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
+        assert!(taskmatch.fully_matching());
+        args.task = Some("task1".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
+        assert!(taskmatch.fully_matching());
+        args.task = Some("task2".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
+        assert!(taskmatch.fully_matching());
+        args.task = Some("task3".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user);
+        assert!(taskmatch.is_err());
+        args.role = None;
+        let taskmatch = from_json_execution_settings(&args, &config, &user);
+        assert!(taskmatch.is_err());
+    }
 }

@@ -14,12 +14,12 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Ver
 
 use super::config::SettingsFile;
 use super::util::warn_if_mutable;
-use super::write_json_config;
 use super::{
     config::{RemoteStorageSettings, ROOTASROLE},
     dac_override_effective, immutable_effective,
     util::parse_capset_iter,
 };
+use super::{open_with_privileges, write_json_config};
 
 pub mod finder;
 pub mod migration;
@@ -55,7 +55,7 @@ pub fn read_json_config(
         make_weak_config(&settings.as_ref().borrow().config);
         Ok(settings.as_ref().borrow().config.clone())
     } else {
-        let file = std::fs::File::open(path)?;
+        let file = open_with_privileges(path)?;
         warn_if_mutable(
             &file,
             settings
@@ -87,7 +87,6 @@ pub fn save_json(
     config: Rc<RefCell<SConfig>>,
 ) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    // remove immutable flag
     let into = ROOTASROLE.into();
     let binding = settings.as_ref().borrow();
     let path = binding
@@ -102,21 +101,25 @@ pub fn save_json(
         // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
         return save_settings(settings.clone());
     }
-    debug!("Setting immutable privilege");
-    immutable_effective(true)?;
-    debug!("Toggling immutable on for config file");
-    toggle_lock_config(path, true)?;
-    immutable_effective(false)?;
+
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
         version: PACKAGE_VERSION.to_owned().parse()?,
         data: config,
     };
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable on for config file");
+            toggle_lock_config(path, true)?;
+        }
+    }
     write_sconfig(&settings.as_ref().borrow(), versionned)?;
-    debug!("Toggling immutable off for config file");
-    immutable_effective(true)?;
-    toggle_lock_config(path, false)?;
-
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable off for config file");
+            toggle_lock_config(path, false)?;
+        }
+    }
     debug!("Resetting immutable privilege");
     immutable_effective(false)?;
     Ok(())

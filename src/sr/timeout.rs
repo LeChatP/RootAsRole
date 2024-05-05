@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    fs::{self, File},
+    fs,
     io::{BufReader, Read, Write},
     path::Path,
     thread::sleep,
@@ -16,9 +16,13 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::common::database::{
-    finder::Cred,
-    options::{STimeout, TimestampType},
+use crate::common::{
+    create_with_privileges, dac_override_effective,
+    database::{
+        finder::Cred,
+        options::{STimeout, TimestampType},
+    },
+    open_with_privileges,
 };
 
 /// This module checks the validity of a user's credentials
@@ -90,7 +94,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
     let retry_interval = time::Duration::from_secs(1);
     let pid_contents: pid_t;
     if lockfile_path.exists() {
-        if let Ok(mut lockfile) = File::open(lockfile_path) {
+        if let Ok(mut lockfile) = open_with_privileges(lockfile_path) {
             let mut be: [u8; 4] = [u8::MAX; 4];
             if lockfile.read_exact(&mut be).is_err() {
                 debug!(
@@ -146,7 +150,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn write_lockfile(lockfile_path: &Path) {
-    let mut lockfile = File::create(lockfile_path).expect("Failed to create lockfile");
+    let mut lockfile = create_with_privileges(lockfile_path).expect("Failed to create lockfile");
     let pid_contents = nix::unistd::getpid().as_raw();
     lockfile
         .write_all(&pid_contents.to_be_bytes())
@@ -165,7 +169,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     }
     wait_for_lockfile(&lockpath)?;
     write_lockfile(&lockpath);
-    let mut file = File::open(&path)?;
+    let mut file = open_with_privileges(&path)?;
     let reader = BufReader::new(&mut file);
     let res = ciborium::de::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
     Ok(res)
@@ -173,11 +177,20 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(&user.user.name);
-    fs::create_dir_all(path.parent().unwrap())?;
+    fs::create_dir_all(path.parent().unwrap()).or_else(|e| {
+        debug!(
+            "Failed to create directory for cookies: {}, trying with privileges",
+            e
+        );
+        dac_override_effective(true)?;
+        let res = fs::create_dir_all(path.parent().unwrap());
+        dac_override_effective(false)?;
+        res
+    })?;
     let lockpath = Path::new(TS_LOCATION)
         .join(&user.user.name)
         .with_extension("lock");
-    let mut file = File::create(&path)?;
+    let mut file = create_with_privileges(&path)?;
     ciborium::ser::into_writer(cookies, &mut file)?;
     if let Err(err) = fs::remove_file(lockpath) {
         debug!("Failed to remove lockfile: {}", err);
@@ -226,8 +239,8 @@ fn find_valid_cookie(
     for a in to_remove {
         cookies.remove(a);
     }
-    if save_cookies(from, &cookies).is_err() {
-        debug!("Failed to save cookies");
+    if let Err(e) = save_cookies(from, &cookies) {
+        debug!("Failed to save cookies {:?}", e);
     }
     res
 }

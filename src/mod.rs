@@ -1,6 +1,11 @@
 use capctl::{prctl, Cap, CapState};
 use serde::Serialize;
-use std::{error::Error, ffi::CString, path::PathBuf};
+use std::{
+    error::Error,
+    ffi::CString,
+    fs::File,
+    path::{Path, PathBuf},
+};
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -96,18 +101,38 @@ pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }
 
-pub fn write_json_config<T: Serialize, S: std::convert::AsRef<std::path::Path>>(
-    settings: &T,
-    path: S,
-) -> Result<(), Box<dyn Error>> {
-    let file = std::fs::File::create(path).or_else(|e| {
+pub fn write_json_config<T: Serialize, S>(settings: &T, path: S) -> Result<(), Box<dyn Error>>
+where
+    S: std::convert::AsRef<Path> + Clone,
+{
+    let file = create_with_privileges(path)?;
+    serde_json::to_writer_pretty(file, &settings)?;
+    Ok(())
+}
+
+pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
+    std::fs::File::create(&p).or_else(|e| {
+        debug!(
+            "Error creating file without privilege, trying with privileges: {}",
+            e
+        );
+        dac_override_effective(true)?;
+        let res = std::fs::File::create(p);
+        dac_override_effective(false)?;
+        res
+    })
+}
+
+pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
+    std::fs::File::open(&p).or_else(|e| {
         debug!(
             "Error creating file without privilege, trying with privileges: {}",
             e
         );
         read_effective(true).or(dac_override_effective(true))?;
-        std::fs::File::create(ROOTASROLE)
-    })?;
-    serde_json::to_writer_pretty(file, &settings)?;
-    Ok(())
+        let res = std::fs::File::open(p);
+        read_effective(false)?;
+        dac_override_effective(false)?;
+        res
+    })
 }

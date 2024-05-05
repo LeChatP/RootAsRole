@@ -18,6 +18,7 @@ jobs:
       run: |
         sudo ./dependencies.sh -yd
         sudo ./configure.sh -yd
+        sudo sed -i 's/"immutable": true/"immutable": false/g' /etc/security/rootasrole.json
         echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
     - name: Configure PAM
       run: |
@@ -38,8 +39,12 @@ jobs:
     - name: getenv
       run: env
     - name: Install Project
+      env:
+        PROFILE: debug
       run: sudo -E make -e install
     - name: Run Sr
+      env:
+        RUST_LOG: debug
       run: /usr/bin/sr -h
     - name: Run Chsr with sr
       run: sr /usr/bin/chsr -h

@@ -52,7 +52,13 @@ pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 #[cfg(test)]
 pub const ROOTASROLE: &str = "target/rootasrole.json";
 
-use std::{cell::RefCell, error::Error, fs::File, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    error::Error,
+    fs::File,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use ciborium::de;
 use serde::{Deserialize, Serialize};
@@ -60,8 +66,8 @@ use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, immutable_effective, read_effective, util::toggle_lock_config,
-        write_json_config,
+        dac_override_effective, immutable_effective, open_with_privileges, read_effective,
+        util::toggle_lock_config, write_json_config,
     },
     rc_refcell,
 };
@@ -204,8 +210,6 @@ impl Default for RemoteStorageSettings {
 }
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
-    debug!("Setting immutable privilege");
-    immutable_effective(true)?;
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
     let into = ROOTASROLE.into();
@@ -218,17 +222,23 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
         .path
         .as_ref()
         .unwrap_or(&into);
-    debug!("Toggling immutable on for config file");
-    toggle_lock_config(path, true)?;
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable on for config file");
+            toggle_lock_config(path, true)?;
+        }
+    }
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
     write_json_config(&versionned, ROOTASROLE)?;
-    debug!("Toggling immutable off for config file");
-    toggle_lock_config(path, false)?;
+    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
+        if settings.immutable.unwrap_or(true) {
+            debug!("Toggling immutable off for config file");
+            toggle_lock_config(path, false)?;
+        }
+    }
     debug!("Resetting dac privilege");
     dac_override_effective(false)?;
-    debug!("Resetting immutable privilege");
-    immutable_effective(false)?;
     Ok(())
 }
 
@@ -238,14 +248,7 @@ pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
         return Ok(rc_refcell!(SettingsFile::default()));
     }
     // if user does not have read permission, try to enable privilege
-    let file = std::fs::File::open(ROOTASROLE).or_else(|e| {
-        debug!(
-            "Error opening file without privilege, trying with privileges: {}",
-            e
-        );
-        read_effective(true).or(dac_override_effective(true))?;
-        std::fs::File::open(ROOTASROLE)
-    })?;
+    let file = open_with_privileges(ROOTASROLE)?;
     let value: Versioning<SettingsFile> = serde_json::from_reader(file)
         .inspect_err(|e| {
             debug!("Error reading file: {}", e);

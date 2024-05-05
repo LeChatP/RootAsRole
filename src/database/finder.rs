@@ -270,25 +270,9 @@ pub trait CredMatcher {
     fn user_matches(&self, user: &Cred) -> UserMin;
 }
 
-pub fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
-    let path = var("PATH").unwrap_or("".to_string());
-    for dir in path.split(':') {
-        let path = Path::new(dir).join(executable);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-    None
-}
-
 pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Error>> {
     match command {
-        SCommand::Simple(command) => {
-            if command == "ALL" {
-                return Ok(vec!["**".to_string(), ".*".to_string()]);
-            }
-            Ok(shell_words::split(command)?)
-        }
+        SCommand::Simple(command) => Ok(shell_words::split(command)?),
         SCommand::Complex(command) => {
             if let Some(array) = command.as_array() {
                 let mut result = Vec::new();
@@ -306,7 +290,9 @@ pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Err
                 Ok(result)
             } else {
                 // call PluginManager
-                PluginManager::notify_complex_command_parser(command)
+                let res = PluginManager::notify_complex_command_parser(command);
+                debug!("Parsed command {:?}", res);
+                res
             }
         }
     }
@@ -323,7 +309,7 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     None
 }
 
-fn final_path(path: &String) -> PathBuf {
+pub fn final_path(path: &String) -> PathBuf {
     let result;
     if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;
