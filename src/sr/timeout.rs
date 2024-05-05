@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    fs::{self, File},
+    fs,
     io::{BufReader, Read, Write},
     path::Path,
     thread::sleep,
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    create_with_privileges,
+    create_with_privileges, dac_override_effective,
     database::{
         finder::Cred,
         options::{STimeout, TimestampType},
@@ -177,7 +177,16 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(&user.user.name);
-    fs::create_dir_all(path.parent().unwrap())?;
+    fs::create_dir_all(path.parent().unwrap()).or_else(|e| {
+        debug!(
+            "Failed to create directory for cookies: {}, trying with privileges",
+            e
+        );
+        dac_override_effective(true)?;
+        let res = fs::create_dir_all(path.parent().unwrap());
+        dac_override_effective(false)?;
+        res
+    })?;
     let lockpath = Path::new(TS_LOCATION)
         .join(&user.user.name)
         .with_extension("lock");
@@ -230,8 +239,8 @@ fn find_valid_cookie(
     for a in to_remove {
         cookies.remove(a);
     }
-    if save_cookies(from, &cookies).is_err() {
-        debug!("Failed to save cookies");
+    if let Err(e) = save_cookies(from, &cookies) {
+        debug!("Failed to save cookies {:?}",e);
     }
     res
 }
