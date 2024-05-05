@@ -17,11 +17,10 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    database::{
+    create_with_privileges, database::{
         finder::Cred,
         options::{STimeout, TimestampType},
-    },
-    open_with_privileges,
+    }, open_with_privileges
 };
 
 /// This module checks the validity of a user's credentials
@@ -149,7 +148,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn write_lockfile(lockfile_path: &Path) {
-    let mut lockfile = File::create(lockfile_path).expect("Failed to create lockfile");
+    let mut lockfile = create_with_privileges(lockfile_path).expect("Failed to create lockfile");
     let pid_contents = nix::unistd::getpid().as_raw();
     lockfile
         .write_all(&pid_contents.to_be_bytes())
@@ -180,7 +179,7 @@ fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Er
     let lockpath = Path::new(TS_LOCATION)
         .join(&user.user.name)
         .with_extension("lock");
-    let mut file = File::create(&path)?;
+    let mut file = create_with_privileges(&path)?;
     ciborium::ser::into_writer(cookies, &mut file)?;
     if let Err(err) = fs::remove_file(lockpath) {
         debug!("Failed to remove lockfile: {}", err);

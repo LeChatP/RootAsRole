@@ -117,8 +117,11 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Err
             e
         );
         dac_override_effective(true)?;
-        std::fs::File::create(p)
+        let res = std::fs::File::create(p);
+        dac_override_effective(false)?;
+        res
     })
+    
 }
 
 pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
@@ -127,7 +130,10 @@ pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error
             "Error creating file without privilege, trying with privileges: {}",
             e
         );
-        dac_override_effective(true)?;
-        std::fs::File::open(p)
+        read_effective(true).or(dac_override_effective(true))?;
+        let res = std::fs::File::open(p);
+        read_effective(false)?;
+        dac_override_effective(false)?;
+        res
     })
 }
