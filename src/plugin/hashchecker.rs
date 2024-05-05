@@ -5,7 +5,7 @@ use tracing_subscriber::field::debug;
 use crate::common::{
     api::PluginManager,
     database::{
-        finder::{final_path, find_executable_in_path, parse_conf_command},
+        finder::{final_path, parse_conf_command},
         structs::SCommand,
     },
 };

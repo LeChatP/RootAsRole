@@ -11,19 +11,12 @@ on:
 jobs:
   rust-coverage:
     runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        components: llvm-tools-preview
-        override: true
-
-    - name: Install grcov
-      run: cargo install grcov
     
     - name: Install Dependencies
       run: sudo ./dependencies.sh -yd
@@ -32,16 +25,8 @@ jobs:
       run: sudo ./configure.sh -yd
     
     - name: run tests with coverage
-      run: cargo test
-      env: 
-        RUST_LOG: debug
-        CARGO_INCREMENTAL: 0
-        RUSTFLAGS: '-Cinstrument-coverage'
-        LLVM_PROFILE_FILE: 'cargo-test-%p-%m.profraw'
-    
-    - name: generate report
-      run: grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/debug/rootasrole.lcov
-      
+      run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3
       env: 

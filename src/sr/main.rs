@@ -466,7 +466,7 @@ mod tests {
             task: None,
             prompt: PAM_PROMPT.to_string(),
             info: false,
-            command: vec!["ls".to_string()],
+            command: vec!["ls".to_string(), "-l".to_string()],
         };
         let user = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
@@ -483,12 +483,24 @@ mod tests {
             .borrow_mut()
             .commands
             .add
-            .push(SCommand::Simple("ls".to_owned()));
+            .push(SCommand::Simple("ls -l".to_owned()));
         role.as_ref().borrow_mut().name = "role1".to_owned();
         role.as_ref()
             .borrow_mut()
             .actors
             .push(SActor::from_user_id(0));
+        role.as_ref().borrow_mut().tasks.push(task);
+        let task = rc_refcell!(STask::default());
+        task.as_ref().borrow_mut().name = IdTask::Name("task2".to_owned());
+        task.as_ref().borrow_mut().commands = SCommands::default();
+        task.as_ref()
+            .borrow_mut()
+            .commands
+            .add
+            .push(SCommand::Simple("ls .*".to_owned()));
+        role.as_ref().borrow_mut().tasks.push(task);
+        let task = rc_refcell!(STask::default());
+        task.as_ref().borrow_mut().name = IdTask::Name("task3".to_owned());
         role.as_ref().borrow_mut().tasks.push(task);
         config.as_ref().borrow_mut().roles.push(role);
         make_weak_config(&config);
@@ -500,6 +512,12 @@ mod tests {
         args.task = Some("task1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
+        args.task = Some("task2".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
+        assert!(taskmatch.fully_matching());
+        args.task = Some("task3".to_owned());
+        let taskmatch = from_json_execution_settings(&args, &config, &user);
+        assert!(taskmatch.is_err());
         args.role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
