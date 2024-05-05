@@ -70,3 +70,4 @@ Cargo.lock
 
 # Html results
 *.html
+*.xml

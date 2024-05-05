@@ -38,5 +38,5 @@ jobs:
       env: 
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:
-        file: target/debug/rootasrole.lcov
+        file: cobertura.xml
         flags: unittests
