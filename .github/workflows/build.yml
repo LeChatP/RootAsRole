@@ -41,6 +41,8 @@ jobs:
     - name: Install Project
       run: sudo -E make -e install
     - name: Run Sr
+      env:
+        RUST_LOG: debug
       run: /usr/bin/sr -h
     - name: Run Chsr with sr
       run: sr /usr/bin/chsr -h
