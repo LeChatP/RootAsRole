@@ -8,7 +8,6 @@ use crate::common::{
     },
 };
 
-use ciborium::de;
 use serde::Deserialize;
 use tracing::{debug, warn};
 

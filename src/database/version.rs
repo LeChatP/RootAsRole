@@ -1,7 +1,6 @@
 use semver::Version;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use tracing::debug;
 
 use super::migration::Migration;
 use crate::common::config::SettingsFile;

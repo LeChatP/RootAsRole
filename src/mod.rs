@@ -1,15 +1,8 @@
 use capctl::{prctl, Cap, CapState};
 use serde::Serialize;
-use std::{
-    error::Error,
-    ffi::CString,
-    fs::File,
-    path::{Path, PathBuf},
-};
+use std::{error::Error, ffi::CString, fs::File, path::Path};
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
-
-use self::config::ROOTASROLE;
 
 pub mod api;
 pub mod config;

@@ -24,8 +24,8 @@ use crate::{
                 SPathOptions, SPrivileged, STimeout, TimestampType,
             },
             structs::{
-                IdTask, SActor, SActorType, SCapabilities, SCommand, SCommands, SGroups, SRole,
-                STask, SetBehavior,
+                IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
+                SetBehavior,
             },
         },
         util::escape_parser_string,
@@ -198,10 +198,19 @@ enum SetListType {
     CheckList,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+#[repr(usize)]
+enum TimeoutOpt {
+    Duration = 0,
+    Type,
+    MaxUsage,
+}
+
 #[derive(Debug)]
 struct Inputs {
     action: InputAction,
     setlist_type: Option<SetListType>,
+    timeout_arg: Option<[bool; 3]>,
     timeout_type: Option<TimestampType>,
     timeout_duration: Option<Duration>,
     timeout_max_usage: Option<u64>,
@@ -232,6 +241,7 @@ impl Default for Inputs {
         Inputs {
             action: InputAction::None,
             setlist_type: None,
+            timeout_arg: None,
             timeout_type: None,
             timeout_duration: None,
             timeout_max_usage: None,
@@ -303,7 +313,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "allow-all" {
                 inputs.cmd_policy = Some(SetBehavior::All);
             } else {
-                warn!("Unknown cmd policy: {}", pair.as_str())
+                unreachable!("Unknown cmd policy: {}", pair.as_str())
             }
         }
         Rule::caps_policy => {
@@ -313,7 +323,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "allow-all" {
                 inputs.cred_policy = Some(SetBehavior::All);
             } else {
-                warn!("Unknown caps policy: {}", pair.as_str())
+                unreachable!("Unknown caps policy: {}", pair.as_str())
             }
         }
         Rule::path_policy => {
@@ -327,7 +337,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "inherit" {
                 inputs.options_path_policy = Some(PathBehavior::Inherit);
             } else {
-                warn!("Unknown path policy: {}", pair.as_str())
+                unreachable!("Unknown path policy: {}", pair.as_str())
             }
         }
         Rule::env_policy => {
@@ -339,7 +349,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "inherit" {
                 inputs.options_env_policy = Some(EnvBehavior::Inherit);
             } else {
-                warn!("Unknown env policy: {}", pair.as_str())
+                unreachable!("Unknown env policy: {}", pair.as_str())
             }
         }
         // === timeout ===
@@ -348,20 +358,21 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             let mut duration: Duration =
                 Duration::try_seconds(reversed.next().unwrap().parse::<i64>().unwrap_or(0))
                     .unwrap_or_default();
-            if let Some(mins) = reversed.nth(1) {
+            if let Some(mins) = reversed.next() {
                 duration = duration
                     .checked_add(
                         &Duration::try_minutes(mins.parse::<i64>().unwrap_or(0))
                             .unwrap_or_default(),
                     )
                     .expect("Invalid minutes");
-            }
-            if let Some(hours) = reversed.nth(2) {
-                duration = duration
-                    .checked_add(
-                        &Duration::try_hours(hours.parse::<i64>().unwrap_or(0)).unwrap_or_default(),
-                    )
-                    .expect("Invalid hours");
+                if let Some(hours) = reversed.next() {
+                    duration = duration
+                        .checked_add(
+                            &Duration::try_hours(hours.parse::<i64>().unwrap_or(0))
+                                .unwrap_or_default(),
+                        )
+                        .expect("Invalid hours");
+                }
             }
             inputs.timeout_duration = Some(duration);
         }
@@ -373,8 +384,23 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "uid" {
                 inputs.timeout_type = Some(TimestampType::UID);
             } else {
-                warn!("Unknown timeout type: {}", pair.as_str())
+                unreachable!("Unknown timeout type: {}", pair.as_str())
             }
+        }
+        Rule::opt_timeout_t_arg => {
+            let mut timeout_arg = inputs.timeout_arg.unwrap_or_default();
+            timeout_arg[TimeoutOpt::Type as usize] = true;
+            inputs.timeout_arg.replace(timeout_arg);
+        }
+        Rule::opt_timeout_d_arg => {
+            let mut timeout_arg = inputs.timeout_arg.unwrap_or_default();
+            timeout_arg[TimeoutOpt::Duration as usize] = true;
+            inputs.timeout_arg.replace(timeout_arg);
+        }
+        Rule::opt_timeout_m_arg => {
+            let mut timeout_arg = inputs.timeout_arg.unwrap_or_default();
+            timeout_arg[TimeoutOpt::MaxUsage as usize] = true;
+            inputs.timeout_arg.replace(timeout_arg);
         }
         Rule::opt_timeout_max_usage => {
             inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>().unwrap());
@@ -391,7 +417,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "tasks" {
                 inputs.role_type = Some(RoleType::Tasks);
             } else {
-                warn!("Unknown role type: {}", pair.as_str())
+                unreachable!("Unknown role type: {}", pair.as_str())
             }
         }
         // === actors ===
@@ -429,12 +455,12 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
         Rule::task_type_arg => {
             if pair.as_str() == "all" {
                 inputs.task_type = Some(TaskType::All);
-            } else if pair.as_str() == "commands" || pair.as_str() == "cmds" {
+            } else if pair.as_str() == "commands" || pair.as_str() == "cmd" {
                 inputs.task_type = Some(TaskType::Commands);
             } else if pair.as_str().starts_with("cred") {
                 inputs.task_type = Some(TaskType::Credentials);
             } else {
-                warn!("Unknown role type: {}", pair.as_str())
+                unreachable!("Unknown task type: {}", pair.as_str());
             }
         }
         // === commands ===
@@ -493,12 +519,12 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 inputs.options_type = Some(OptType::Root);
             } else if pair.as_str() == "bounding" {
                 inputs.options_type = Some(OptType::Bounding);
-            } else if pair.as_str() == "wildcard" {
+            } else if pair.as_str() == "wildcard-denied" {
                 inputs.options_type = Some(OptType::Wildcard);
             } else if pair.as_str() == "timeout" {
                 inputs.options_type = Some(OptType::Timeout);
             } else {
-                warn!("Unknown option type: {}", pair.as_str())
+                unreachable!("Unknown option type: {}", pair.as_str())
             }
         }
         Rule::path => {
@@ -524,7 +550,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "inherit" {
                 inputs.options_root = Some(SPrivileged::Inherit);
             } else {
-                warn!("Unknown root type: {}", pair.as_str());
+                unreachable!("Unknown root type: {}", pair.as_str());
             }
         }
         Rule::opt_bounding_args => {
@@ -536,7 +562,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else if pair.as_str() == "inherit" {
                 inputs.options_bounding = Some(SBounding::Inherit);
             } else {
-                warn!("Unknown bounding type: {}", pair.as_str());
+                unreachable!("Unknown bounding type: {}", pair.as_str());
             }
         }
         Rule::wildcard_value => {
@@ -901,7 +927,7 @@ where
                             .retain(|a| !actors.contains(a));
                         Ok(true)
                     }
-                    _ => Err("Unknown action".into()),
+                    _ => unreachable!("Invalid action"),
                 }
             }
         },
@@ -985,7 +1011,7 @@ where
                         }
                         Ok(true)
                     }
-                    _ => Ok(false),
+                    _ => unreachable!("Invalid action"),
                 }
             }
         },
@@ -1032,6 +1058,7 @@ where
             cred_setgid,
             cmd_id: None,
             cmd_policy: None,
+            options: false,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -1069,6 +1096,7 @@ where
             setlist_type: Some(setlist_type),
             cred_caps: Some(cred_caps),
             cmd_policy: None,
+            options: false,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -1101,9 +1129,7 @@ where
                                 .unwrap()
                                 .add = cred_caps;
                         }
-                        _ => {
-                            return Err("Unknown action".into());
-                        }
+                        _ => unreachable!("Unknown action"),
                     },
                     SetListType::BlackList => match action {
                         InputAction::Add => {
@@ -1130,13 +1156,9 @@ where
                                 .unwrap()
                                 .sub = cred_caps;
                         }
-                        _ => {
-                            return Err("Unknown action".into());
-                        }
+                        _ => unreachable!("Unknown action"),
                     },
-                    _ => {
-                        return Err("Unknown setlist type".into());
-                    }
+                    _ => unreachable!("Unknown setlist type"),
                 }
                 Ok(true)
             }
@@ -1145,6 +1167,7 @@ where
             role_id: Some(role_id),
             task_id: Some(task_id),
             cred_policy: Some(cred_policy),
+            options: false,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -1241,9 +1264,7 @@ where
                                 *c != SCommand::Simple(cmd_id.clone())
                             });
                         }
-                        _ => {
-                            return Err("Unknown action".into());
-                        }
+                        _ => unreachable!("Unknown action"),
                     },
                     SetListType::BlackList => match action {
                         InputAction::Add => {
@@ -1280,13 +1301,9 @@ where
                                 .sub
                                 .retain(|c| c != &SCommand::Simple(cmd_id.clone()));
                         }
-                        _ => {
-                            return Err("Unknown action".into());
-                        }
+                        _ => unreachable!("Unknown action"),
                     },
-                    _ => {
-                        return Err("Unknown setlist type".into());
-                    }
+                    _ => unreachable!("Unknown setlist type"),
                 }
                 Ok(true)
             }
@@ -1402,9 +1419,7 @@ where
                             opt.as_ref().borrow_mut().wildcard_denied = None;
                             return Ok(());
                         }
-                        _ => {
-                            return Err("Unknown action".into());
-                        }
+                        _ => unreachable!("Unknown action"),
                     }
 
                     Ok(())
@@ -1434,9 +1449,7 @@ where
                         Some(SetListType::BlackList) => {
                             path.sub = options_path.split(':').map(|s| s.to_string()).collect();
                         }
-                        _ => {
-                            return Err("Unknown setlist type".into());
-                        }
+                        _ => unreachable!("Unknown setlist type"),
                     }
                     Ok(())
                 })?;
@@ -1465,9 +1478,7 @@ where
                         Some(SetListType::BlackList) => {
                             path.sub.clear();
                         }
-                        _ => {
-                            return Err("Unknown setlist type".into());
-                        }
+                        _ => unreachable!("Unknown setlist type"),
                     }
                     Ok(())
                 })?;
@@ -1499,10 +1510,41 @@ where
                         Some(SetListType::CheckList) => {
                             env.check = options_env.clone();
                         }
-                        _ => {
-                            return Err("Internal Error: setlist type not found".into());
-                        }
+                        _ => unreachable!("Unknown setlist type"),
                     }
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o timeout set --type tty --duration 00:00:00 --max-usage 1
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options: true,
+            timeout_arg: Some(timeout_arg),
+            setlist_type: None,
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    let mut timeout = STimeout::default();
+                    if timeout_arg[TimeoutOpt::Type as usize] {
+                        timeout.type_field = None;
+                    }
+                    if timeout_arg[TimeoutOpt::Duration as usize] {
+                        timeout.duration = None;
+                    }
+                    if timeout_arg[TimeoutOpt::MaxUsage as usize] {
+                        timeout.max_usage = None;
+                    }
+                    if timeout_arg.iter().all(|b| *b) {
+                        opt.as_ref().borrow_mut().timeout = None;
+                    } else {
+                        opt.as_ref().borrow_mut().timeout = Some(timeout);
+                    }
+
                     Ok(())
                 })?;
                 Ok(true)
@@ -1513,6 +1555,8 @@ where
             action: InputAction::Set,
             role_id,
             task_id,
+            options: true,
+            timeout_arg: Some(_),
             timeout_type,
             timeout_duration,
             timeout_max_usage,
@@ -1522,10 +1566,10 @@ where
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
                     let mut timeout = STimeout::default();
                     if let Some(timeout_type) = timeout_type {
-                        timeout.type_field = timeout_type;
+                        timeout.type_field = Some(timeout_type);
                     }
                     if let Some(duration) = timeout_duration {
-                        timeout.duration = duration;
+                        timeout.duration = Some(duration);
                     }
                     if let Some(max_usage) = timeout_max_usage {
                         timeout.max_usage = Some(max_usage);
@@ -1558,6 +1602,7 @@ where
                                     .extend(options_path.split(':').map(|s| s.to_string()));
                             }
                             InputAction::Del => {
+                                debug!("path.add del {:?}", path.add);
                                 let hashset = options_path
                                     .split(':')
                                     .map(|s| s.to_string())
@@ -1568,9 +1613,7 @@ where
                                     .cloned()
                                     .collect::<LinkedHashSet<String>>();
                             }
-                            _ => {
-                                return Err("Unknown action".into());
-                            }
+                            _ => unreachable!("Unknown action"),
                         },
                         Some(SetListType::BlackList) => match action {
                             InputAction::Add => {
@@ -1578,6 +1621,7 @@ where
                                     .extend(options_path.split(':').map(|s| s.to_string()));
                             }
                             InputAction::Del => {
+                                debug!("path.del del {:?}", path.sub);
                                 let hashset = options_path
                                     .split(':')
                                     .map(|s| s.to_string())
@@ -1588,13 +1632,9 @@ where
                                     .cloned()
                                     .collect::<LinkedHashSet<String>>();
                             }
-                            _ => {
-                                return Err("Unknown action".into());
-                            }
+                            _ => unreachable!("Unknown action"),
                         },
-                        _ => {
-                            return Err("Unknown setlist type".into());
-                        }
+                        _ => unreachable!("Unknown setlist type"),
                     }
                     Ok(())
                 })?;
@@ -1644,9 +1684,7 @@ where
                             InputAction::Purge => {
                                 env.keep = LinkedHashSet::new();
                             }
-                            _ => {
-                                return Err("Unknown action".into());
-                            }
+                            _ => unreachable!("Unknown action"),
                         },
                         SetListType::BlackList => match action {
                             InputAction::Add => {
@@ -1668,9 +1706,7 @@ where
                             InputAction::Purge => {
                                 env.delete = LinkedHashSet::new();
                             }
-                            _ => {
-                                return Err("Unknown action".into());
-                            }
+                            _ => unreachable!("Unknown action"),
                         },
                         SetListType::CheckList => match action {
                             InputAction::Add => {
@@ -1692,9 +1728,7 @@ where
                             InputAction::Purge => {
                                 env.check = LinkedHashSet::new();
                             }
-                            _ => {
-                                return Err("Unknown action".into());
-                            }
+                            _ => unreachable!("Unknown action"),
                         },
                     }
                     Ok(())
@@ -1847,7 +1881,22 @@ fn print_task(
 
 #[cfg(test)]
 mod tests {
+    use std::{io::Write, rc::Rc};
+
+    use crate::common::{
+        config,
+        database::{read_json_config, structs::SCredentials},
+    };
+
+    use super::super::common::{
+        config::{RemoteStorageSettings, SettingsFile, Storage, ROOTASROLE},
+        database::{options::*, structs::*, version::Versioning},
+    };
+
     use super::*;
+    use capctl::Cap;
+    use chrono::TimeDelta;
+    use tracing::error;
 
     fn make_args(args: &str) -> String {
         shell_words::join(shell_words::split(args).unwrap())
@@ -1929,5 +1978,1775 @@ mod tests {
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::All));
+    }
+
+    fn setup() {
+        //Write json test json file
+        let mut file = std::fs::File::create(ROOTASROLE).unwrap();
+        let mut settings = SettingsFile::default();
+        settings.storage.method = config::StorageMethod::JSON;
+        settings.storage.settings = Some(RemoteStorageSettings::default());
+        settings.storage.settings.as_mut().unwrap().path = Some(ROOTASROLE.into());
+        settings.storage.settings.as_mut().unwrap().immutable = Some(false);
+
+        let mut opt = Opt::default();
+
+        opt.timeout = Some(STimeout::default());
+        opt.timeout.as_mut().unwrap().type_field = Some(TimestampType::PPID);
+        opt.timeout.as_mut().unwrap().duration = Some(
+            TimeDelta::hours(15)
+                .checked_add(&TimeDelta::minutes(30))
+                .unwrap()
+                .checked_add(&TimeDelta::seconds(30))
+                .unwrap(),
+        );
+        opt.timeout.as_mut().unwrap().max_usage = Some(1);
+
+        opt.path = Some(SPathOptions::default());
+        opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
+        opt.path.as_mut().unwrap().add = vec!["path1".to_string(), "path2".to_string()]
+            .into_iter()
+            .collect();
+        opt.path.as_mut().unwrap().sub = vec!["path3".to_string(), "path4".to_string()]
+            .into_iter()
+            .collect();
+
+        opt.env = Some(SEnvOptions::default());
+        opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Delete;
+        opt.env.as_mut().unwrap().keep = vec!["env1".into(), "env2".into()].into_iter().collect();
+        opt.env.as_mut().unwrap().check = vec!["env3".into(), "env4".into()].into_iter().collect();
+        opt.env.as_mut().unwrap().delete = vec!["env5".into(), "env6".into()].into_iter().collect();
+
+        opt.root = Some(SPrivileged::Privileged);
+        opt.bounding = Some(SBounding::Ignore);
+        opt.wildcard_denied = Some("*".to_string());
+
+        settings.config.as_ref().borrow_mut().options = Some(rc_refcell!(opt.clone()));
+
+        settings.config.as_ref().borrow_mut().roles = vec![];
+
+        let mut role = SRole::default();
+        role.name = "complete".to_string();
+        role.actors = vec![
+            SActor::from_user_id(0),
+            SActor::from_group_id(0),
+            SActor::from_group_vec_string(vec!["groupA", "groupB"]),
+        ];
+        role.options = Some(rc_refcell!(opt.clone()));
+        let role = rc_refcell!(role);
+
+        let mut task = STask::new(IdTask::Name("t_complete".to_string()), Rc::downgrade(&role));
+        task.purpose = Some("complete".to_string());
+        task.commands = SCommands::default();
+        task.commands.default_behavior = Some(SetBehavior::All);
+        task.commands.add.push(SCommand::Simple("ls".to_string()));
+        task.commands.add.push(SCommand::Simple("echo".to_string()));
+        task.commands.sub.push(SCommand::Simple("cat".to_string()));
+        task.commands.sub.push(SCommand::Simple("grep".to_string()));
+
+        task.cred = SCredentials::default();
+        task.cred.setuid = Some(SActorType::Name("user1".to_string()));
+        task.cred.setgid = Some(SGroups::Multiple(vec![
+            SActorType::Name("group1".to_string()),
+            SActorType::Name("group2".to_string()),
+        ]));
+        task.cred.capabilities = Some(SCapabilities::default());
+        task.cred.capabilities.as_mut().unwrap().default_behavior = SetBehavior::All;
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .add
+            .add(Cap::LINUX_IMMUTABLE);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .add
+            .add(Cap::NET_BIND_SERVICE);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .sub
+            .add(Cap::SYS_ADMIN);
+        task.cred
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .sub
+            .add(Cap::SYS_BOOT);
+
+        task.options = Some(rc_refcell!(opt.clone()));
+
+        role.as_ref().borrow_mut().tasks.push(rc_refcell!(task));
+        settings.config.as_ref().borrow_mut().roles.push(role);
+
+        let versionned = Versioning::new(settings.clone());
+
+        file.write_all(
+            serde_json::to_string_pretty(&versionned)
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+
+        file.flush().unwrap();
+    }
+
+    fn teardown() {
+        //Remove json test file
+        std::fs::remove_file(ROOTASROLE).unwrap();
+    }
+    // we need to test every commands
+    // chsr r r1 create
+    // chsr r r1 delete
+    // chsr r r1 show (actors|tasks|all)
+    // chsr r r1 purge (actors|tasks|all)
+    // chsr r r1 grant -u user1 -g group1 group2&group3
+    // chsr r r1 revoke -u user1 -g group1 group2&group3
+    // chsr r r1 task t1 show (all|cmd|cred)
+    // chsr r r1 task t1 purge (all|cmd|cred)
+    // chsr r r1 t t1 add
+    // chsr r r1 t t1 del
+    // chsr r r1 t t1 commands show
+    // chsr r r1 t t1 cmd setpolicy (deny-all|allow-all)
+    // chsr r r1 t t1 cmd (whitelist|blacklist) (add|del) super command with spaces
+    // chsr r r1 t t1 credentials show
+    // chsr r r1 t t1 cred (unset|set) --caps capA,capB,capC --setuid user1 --setgid group1,group2
+    // chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
+    // chsr r r1 t t1 cred caps (whitelist|blacklist) (add|del) capA capB capC
+    // chsr (r r1) (t t1) options show (all|path|env|root|bounding|wildcard-denied)
+    // chsr o path set /usr/bin:/bin this regroups setpolicy delete and whitelist set
+    // chsr o path setpolicy (delete-all|keep-all|inherit)
+    // chsr o path (whitelist|blacklist) (add|del|set|purge) /usr/bin:/bin
+
+    // chsr o env set MYVAR=1 VAR2=2 //this regroups setpolicy delete and whitelist set
+    // chsr o env setpolicy (delete-all|keep-all|inherit)
+    // chsr o env (whitelist|blacklist|checklist) (add|del|set|purge) MYVAR=1
+
+    // chsr o root (privileged|user|inherit)
+    // chsr o bounding (strict|ignore|inherit)
+    // chsr o wildcard-denied (set|add|del) *
+
+    // chsr o timeout set --type tty --duration 5:00 --max_usage 1
+    // chsr o t unset --type --duration --max_usage
+
+    //TODO: verify values
+    #[test]
+    fn test_all_main() {
+        setup();
+
+        // lets test every commands
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "--help"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "r1", "create"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "r1", "delete"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "show", "actors"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "show", "tasks"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "show", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "purge", "actors"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "purge", "tasks"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "purge", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "grant",
+                "-u",
+                "user1",
+                "-g",
+                "group1",
+                "-g",
+                "group2&group3"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "revoke",
+                "-u",
+                "user1",
+                "-g",
+                "group1",
+                "-g",
+                "group2&group3"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "task", "t_complete", "show", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "task", "t_complete", "show", "cmd"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "show",
+                "cred"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "cmd"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "task",
+                "t_complete",
+                "purge",
+                "cred"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "t", "t1", "add"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "t", "t1", "del"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "setpolicy",
+                "deny-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "setpolicy",
+                "allow-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "whitelist",
+                "add",
+                "super command with spaces"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "blacklist",
+                "add",
+                "super",
+                "command",
+                "with",
+                "spaces"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "whitelist",
+                "del",
+                "super command with spaces"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cmd",
+                "blacklist",
+                "del",
+                "super command with spaces"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        // let settings = config::get_settings().expect("Failed to get settings");
+        // assert!(main(
+        //     &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+        //     vec!["chsr", "r", "complete", "t", "t_complete", "credentials", "show"],
+        // )
+        // .inspect_err(|e| {
+        //     error!("{}", e);
+        // })
+        // .inspect(|e| {
+        //     debug!("{}",e);
+        // })
+        // .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "unset",
+                "--caps",
+                "capA,capB,capC",
+                "--setuid",
+                "user1",
+                "--setgid",
+                "group1,group2"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "set",
+                "--caps",
+                "capA,capB,capC",
+                "--setuid",
+                "user1",
+                "--setgid",
+                "group1,group2"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "setpolicy",
+                "deny-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "setpolicy",
+                "allow-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "whitelist",
+                "add",
+                "capA",
+                "capB",
+                "capC"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "blacklist",
+                "add",
+                "capA",
+                "capB",
+                "capC"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "whitelist",
+                "del",
+                "capA",
+                "capB",
+                "capC"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "cred",
+                "caps",
+                "blacklist",
+                "del",
+                "capA",
+                "capB",
+                "capC"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "options", "show", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "options", "show", "path"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "options", "show", "bounding"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "env"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "root"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "bounding"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "options",
+                "show",
+                "wildcard-denied"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "set",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "setpolicy",
+                "delete-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "setpolicy",
+                "keep-unsafe"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "setpolicy",
+                "inherit"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "whitelist",
+                "add",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "whitelist",
+                "del",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "whitelist",
+                "set",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "whitelist",
+                "purge"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "blacklist",
+                "add",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "blacklist",
+                "del",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "blacklist",
+                "set",
+                "/usr/bin:/bin"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "path",
+                "blacklist",
+                "purge"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "set",
+                "MYVAR,VAR2"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "setpolicy",
+                "delete-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "setpolicy",
+                "keep-all"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "setpolicy",
+                "inherit"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "whitelist",
+                "add",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "whitelist",
+                "del",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "whitelist",
+                "set",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "whitelist",
+                "purge"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "blacklist",
+                "add",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "blacklist",
+                "del",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "blacklist",
+                "set",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "blacklist",
+                "purge"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "checklist",
+                "add",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "checklist",
+                "del",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "checklist",
+                "set",
+                "MYVAR"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "env",
+                "checklist",
+                "purge"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "privileged"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "user"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "root",
+                "inherit"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "strict"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "ignore"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "bounding",
+                "inherit"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "wildcard-denied",
+                "set",
+                "*"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "wildcard-denied",
+                "add",
+                "*"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "wildcard-denied",
+                "del",
+                "*"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "timeout",
+                "set",
+                "--type",
+                "tty",
+                "--duration",
+                "15:05:10",
+                "--max-usage",
+                "1"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "chsr",
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "timeout",
+                "unset",
+                "--type",
+                "--duration",
+                "--max-usage"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "tosk",],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_err());
+        teardown();
     }
 }

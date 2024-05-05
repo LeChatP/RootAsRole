@@ -184,11 +184,11 @@ opt_timeout_args  =  _{
 opt_timeout_t_arg    = ${ ("--type" ~ assignment? | "-t" ~ WHITESPACE*) ~ opt_timeout_type? }
 opt_timeout_type =  { "tty" | "ppid" | "uid" }
 opt_timeout_d_arg    =  { ("--duration" ~ assignment? | "-d" ~ WHITESPACE*) ~ time? }
-time         =  _{ (hours~colon)? ~ minutes ~ colon ~ seconds | (minutes~colon)? ~ seconds }
+time        =  { (hours~colon)? ~ minutes ~ colon ~ seconds | (minutes~colon)? ~ seconds }
 colon       =  _{ ":"}
-hours       =  { ASCII_DIGIT+ }
-minutes     =  { ASCII_DIGIT+ }
-seconds     =  { ASCII_DIGIT+ }
+hours       =  _{ ASCII_DIGIT+ }
+minutes     =  _{ ASCII_DIGIT+ }
+seconds     =  _{ ASCII_DIGIT+ }
 opt_timeout_m_arg    =  { ("--max-usage" ~ assignment? | "-m" ~ WHITESPACE*) ~ opt_timeout_max_usage? }
 opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 
