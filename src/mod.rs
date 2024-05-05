@@ -121,7 +121,6 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Err
         dac_override_effective(false)?;
         res
     })
-    
 }
 
 pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {

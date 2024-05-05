@@ -17,10 +17,12 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    create_with_privileges, database::{
+    create_with_privileges,
+    database::{
         finder::Cred,
         options::{STimeout, TimestampType},
-    }, open_with_privileges
+    },
+    open_with_privileges,
 };
 
 /// This module checks the validity of a user's credentials
