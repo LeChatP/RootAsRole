@@ -4,12 +4,11 @@ use std::{
     error::Error,
     ffi::CString,
     fs::File,
-    path::{Path, PathBuf},
+    path::Path,
 };
 use tracing::{debug, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
-use self::config::ROOTASROLE;
 
 pub mod api;
 pub mod config;

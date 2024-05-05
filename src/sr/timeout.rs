@@ -216,15 +216,15 @@ fn find_valid_cookie(
             CookieVersion::V1(cookie) => {
                 debug!("Checking cookie: {:?}", cookie);
                 if cookie.auth_uid != cred_asked.user.uid.as_raw()
-                    || cookie.timestamp_type != constraint.type_field
+                    || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
                 {
                     continue;
                 }
                 let max_usage_ok =
                     constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
-                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.duration.num_seconds(), Utc::now().timestamp() + constraint.duration.num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.duration.num_seconds());
+                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.duration.unwrap_or_default().num_seconds(), Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds());
                 let timeofuse: bool = cookie.timestamp - Utc::now().timestamp()
-                    + constraint.duration.num_seconds()
+                    + constraint.duration.unwrap_or_default().num_seconds()
                     > 0;
                 debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
                 if timeofuse && max_usage_ok && res.is_none() {
@@ -272,10 +272,10 @@ pub(crate) fn update_cookie(
     });
     if res.is_none() {
         let mut cookies = read_cookies(from).unwrap_or_default();
-        let parent_record = ParentRecord::new(&constraint.type_field, from);
+        let parent_record = ParentRecord::new(&constraint.type_field.unwrap_or_default(), from);
         let cookie = CookieVersion::V1(Cookiev1 {
             auth_uid: cred_asked.user.uid.as_raw(),
-            timestamp_type: constraint.type_field,
+            timestamp_type: constraint.type_field.unwrap_or_default(),
             start_time: Utc::now().timestamp(),
             timestamp: Utc::now().timestamp(),
             usage: 0,

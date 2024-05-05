@@ -1,7 +1,6 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::common::config::save_settings;
-use crate::common::read_effective;
 use crate::common::util::toggle_lock_config;
 use crate::common::version::PACKAGE_VERSION;
 
@@ -16,7 +15,7 @@ use super::config::SettingsFile;
 use super::util::warn_if_mutable;
 use super::{
     config::{RemoteStorageSettings, ROOTASROLE},
-    dac_override_effective, immutable_effective,
+    immutable_effective,
     util::parse_capset_iter,
 };
 use super::{open_with_privileges, write_json_config};
@@ -139,7 +138,7 @@ fn write_sconfig(
         .path
         .as_ref()
         .unwrap_or(&binding);
-    write_json_config(&config, path);
+    write_json_config(&config, path)?;
     Ok(())
 }
 
@@ -183,20 +182,23 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
-fn serialize_duration<S>(value: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     // hh:mm:ss format
-    serializer.serialize_str(&format!(
-        "{}:{}:{}",
-        value.num_hours(),
-        value.num_minutes() % 60,
-        value.num_seconds() % 60
-    ))
+    match value {
+        Some(value) => serializer.serialize_str(&format!(
+            "{}:{}:{}",
+            value.num_hours(),
+            value.num_minutes() % 60,
+            value.num_seconds() % 60
+        )),
+        None => serializer.serialize_none(),
+    }
 }
 
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
@@ -208,9 +210,9 @@ where
         let hours: i64 = hours.parse().map_err(de::Error::custom)?;
         let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
         let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
-        return Ok(Duration::hours(hours)
+        return Ok(Some(Duration::hours(hours)
             + Duration::minutes(minutes)
-            + Duration::seconds(seconds));
+            + Duration::seconds(seconds)));
     }
     Err(de::Error::custom("Invalid duration format"))
 }

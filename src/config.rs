@@ -55,18 +55,16 @@ pub const ROOTASROLE: &str = "target/rootasrole.json";
 use std::{
     cell::RefCell,
     error::Error,
-    fs::File,
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::Rc,
 };
 
-use ciborium::de;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, immutable_effective, open_with_privileges, read_effective,
+        dac_override_effective, open_with_privileges, read_effective,
         util::toggle_lock_config, write_json_config,
     },
     rc_refcell,

@@ -1,10 +1,9 @@
 use std::{
     cell::RefCell,
     cmp::Ordering,
-    env::var,
     error::Error,
     fmt::{Display, Formatter},
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::{Rc, Weak},
 };
 

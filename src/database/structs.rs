@@ -10,7 +10,6 @@ use serde::{
 };
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
-use tracing::debug;
 
 use std::{
     cell::RefCell,
@@ -749,8 +748,8 @@ mod tests {
         assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
 
         let timeout = options.timeout.as_ref().unwrap();
-        assert_eq!(timeout.type_field, TimestampType::PPID);
-        assert_eq!(timeout.duration, Duration::minutes(5));
+        assert_eq!(timeout.type_field, Some(TimestampType::PPID));
+        assert_eq!(timeout.duration, Some(Duration::minutes(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
         match actor0 {

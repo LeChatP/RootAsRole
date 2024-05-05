@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
-use tracing_subscriber::field::debug;
 
 use crate::common::{
     api::PluginManager,

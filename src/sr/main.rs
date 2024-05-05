@@ -4,7 +4,7 @@ mod timeout;
 
 use capctl::CapState;
 use clap::Parser;
-use common::database::finder::{Cred, CredMatcher, TaskMatch, TaskMatcher};
+use common::database::finder::{Cred, TaskMatch, TaskMatcher};
 use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
 use nix::{
@@ -26,7 +26,6 @@ use crate::common::plugin::register_plugins;
 use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
-    dac_override_effective,
     database::{read_json_config, structs::SGroups},
     read_effective, setgid_effective, setpcap_effective, setuid_effective,
 };
@@ -206,6 +205,7 @@ fn from_json_execution_settings(
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
     subsribe("sr");
     drop_effective()?;
@@ -215,42 +215,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
     read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
-    let user = User::from_uid(getuid())
-        .expect("Failed to get user")
-        .expect("Failed to get user");
-    let mut groups = getgroups()
-        .expect("Failed to get groups")
-        .iter()
-        .map(|g| {
-            Group::from_gid(*g)
-                .expect("Failed to get group")
-                .expect("Failed to get group")
-        })
-        .collect::<Vec<_>>();
-    groups.insert(
-        0,
-        Group::from_gid(user.gid)
-            .expect("Failed to get group")
-            .expect("Failed to get group"),
-    );
-    debug!("User: {} ({}), Groups: {:?}", user.name, user.uid, groups,);
-    let mut tty: Option<dev_t> = None;
-    if let Ok(stat) = stat::fstat(stdout().as_raw_fd()) {
-        if let Ok(istty) = isatty(stdout().as_raw_fd()) {
-            if istty {
-                tty = Some(stat.st_rdev);
-            }
-        }
-    }
-    // get parent pid
-    let ppid = nix::unistd::getppid();
-
-    let user = Cred {
-        user,
-        groups,
-        tty,
-        ppid,
-    };
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
@@ -259,6 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err("Unsupported storage method".into());
         }
     };
+    let user = make_cred();
     let taskmatch = match config {
         Storage::JSON(ref config) => {
             from_json_execution_settings(&args, config, &user).unwrap_or_default()
@@ -268,8 +233,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let optstack = &execcfg.opt;
     check_auth(optstack, &config, &user, &args.prompt)?;
-    dac_override_effective(false)
-        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_override")));
 
     if !taskmatch.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -332,6 +295,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let status = command.wait().expect("Failed to wait for command");
     std::process::exit(status.code().unwrap_or(1));
+}
+
+fn make_cred() -> Cred {
+    let user = User::from_uid(getuid())
+        .expect("Failed to get user")
+        .expect("Failed to get user");
+    let mut groups = getgroups()
+        .expect("Failed to get groups")
+        .iter()
+        .map(|g| {
+            Group::from_gid(*g)
+                .expect("Failed to get group")
+                .expect("Failed to get group")
+        })
+        .collect::<Vec<_>>();
+    groups.insert(
+        0,
+        Group::from_gid(user.gid)
+            .expect("Failed to get group")
+            .expect("Failed to get group"),
+    );
+    debug!("User: {} ({}), Groups: {:?}", user.name, user.uid, groups,);
+    let mut tty: Option<dev_t> = None;
+    if let Ok(stat) = stat::fstat(stdout().as_raw_fd()) {
+        if let Ok(istty) = isatty(stdout().as_raw_fd()) {
+            if istty {
+                tty = Some(stat.st_rdev);
+            }
+        }
+    }
+    // get parent pid
+    let ppid = nix::unistd::getppid();
+
+    let user = Cred {
+        user,
+        groups,
+        tty,
+        ppid,
+    };
+    user
 }
 
 fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
@@ -451,13 +454,10 @@ mod tests {
     use nix::unistd::Pid;
 
     use super::*;
-    use crate::common::database::finder::TaskMatch;
     use crate::common::database::make_weak_config;
     use crate::common::database::structs::{
         IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
     };
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     #[test]
     fn test_from_json_execution_settings() {
