@@ -39,6 +39,8 @@ jobs:
     - name: getenv
       run: env
     - name: Install Project
+      env:
+        PROFILE: debug
       run: sudo -E make -e install
     - name: Run Sr
       env:
