@@ -240,7 +240,7 @@ fn find_valid_cookie(
         cookies.remove(a);
     }
     if let Err(e) = save_cookies(from, &cookies) {
-        debug!("Failed to save cookies {:?}",e);
+        debug!("Failed to save cookies {:?}", e);
     }
     res
 }
