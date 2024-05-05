@@ -18,6 +18,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
     
+    - name: Update apt-get
+      run: sudo apt update -y
+    
+    - name: Install sudo
+      run: sudo apt install sudo -y
+    
     - name: Install Dependencies
       run: sudo ./dependencies.sh -yd
     

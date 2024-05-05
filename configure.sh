@@ -13,7 +13,7 @@ done
 
 if [ -z ${SUDO_USER+x} ]; then INSTALL_USER=`id -urn`; else INSTALL_USER=$SUDO_USER; fi
 
-if [ $(capsh --has-p=CAP_DAC_OVERRIDE; echo $?) != 0 ] || [ $(capsh --has-p=CAP_LINUX_IMMUTABLE; echo $?) != 0 ]; then
+if [ $(capsh --has-p=CAP_DAC_OVERRIDE; echo $?) != 0 ] || [ $(capsh --has-p=CAP_LINUX_IMMUTABLE; echo $?) != ${DOCKER} ]; then
     echo "Vous avez besoin des capacités CAP_DAC_OVERRIDE et CAP_LINUX_IMMUTABLE pour exécuter ce script."
     exit 1
 fi
