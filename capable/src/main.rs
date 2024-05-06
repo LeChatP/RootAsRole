@@ -48,6 +48,7 @@ struct Cli {
     #[arg(short, long)]
     daemon: bool,
 
+    /// Print output in JSON format, ignore stdin/out/err
     #[arg(short, long)]
     json: bool,
 
@@ -262,6 +263,7 @@ fn print_all<T>(
     pnsid_nsid_map: &HashMap<T, Key, u64>,
     uid_gid_map: &HashMap<T, Key, u64>,
     ppid_map: &HashMap<T, Key, i32>,
+    json: bool,
 ) -> Result<(), anyhow::Error>
 where
     T: Borrow<MapData>,
@@ -297,15 +299,20 @@ where
             capabilities: capset_to_string(&capabilities),
         });
     }
-    println!(
-        "\n{}",
-        Table::new(&capabilities_table)
-            .with(Style::modern())
-            .with(Modify::new(Columns::single(3)).with(Width::wrap(10).keep_words()))
-            .with(Modify::new(Columns::single(2)).with(Width::wrap(10).keep_words()))
-            .with(Modify::new(Columns::single(6)).with(Width::wrap(10).keep_words()))
-            .with(Modify::new(Columns::last()).with(Width::wrap(52).keep_words()))
-    );
+    if json {
+        println!("{}", serde_json::to_string(&capabilities_table)?);
+    } else {
+        println!(
+            "\n{}",
+            Table::new(&capabilities_table)
+                .with(Style::modern())
+                .with(Modify::new(Columns::single(3)).with(Width::wrap(10).keep_words()))
+                .with(Modify::new(Columns::single(2)).with(Width::wrap(10).keep_words()))
+                .with(Modify::new(Columns::single(6)).with(Width::wrap(10).keep_words()))
+                .with(Modify::new(Columns::last()).with(Width::wrap(52).keep_words()))
+        );
+    }
+    
     Ok(())
 }
 
@@ -355,7 +362,7 @@ async fn main() -> Result<(), anyhow::Error> {
     if cli_args.daemon || cli_args.command.is_empty() {
         println!("Waiting for Ctrl-C...");
         signal::ctrl_c().await?;
-        print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
+        print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map, cli_args.json)?;
     } else {
         let (path, args) = get_exec_and_args(&mut cli_args.command);
 
