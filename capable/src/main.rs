@@ -99,7 +99,7 @@ fn add_dashes() -> Vec<String> {
 }
 
 pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
-    set.iter().map(|c| format!("CAP_{:?}",c) ).collect()
+    set.iter().map(|c| format!("CAP_{:?}", c)).collect()
 }
 
 pub fn capset_to_string(set: &CapSet) -> String {
@@ -379,9 +379,21 @@ async fn main() -> Result<(), anyhow::Error> {
                     nsclone.as_ref().replace(fnspid.ino() as u32);
                     Ok(())
                 })
-                .stdout(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
-                .stderr(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
-                .stdin(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
+                .stdout(if cli_args.json {
+                    unshare::Stdio::null()
+                } else {
+                    unshare::Stdio::inherit()
+                })
+                .stderr(if cli_args.json {
+                    unshare::Stdio::null()
+                } else {
+                    unshare::Stdio::inherit()
+                })
+                .stdin(if cli_args.json {
+                    unshare::Stdio::null()
+                } else {
+                    unshare::Stdio::inherit()
+                })
                 .spawn()
                 .expect("failed to spawn child"),
         ));
