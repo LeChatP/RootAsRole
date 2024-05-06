@@ -35,8 +35,8 @@ path = "src/chsr/main.rs"
 reqwest = { version = "0.12.4", features = ["blocking", "json"] }
 pcre2 = "0.2.4"
 regex = "1.9.1"
-serde = { version = "1.0.185" }
-serde_json = "1.0.113"
+serde = { version = "1.0.200" }
+serde_json = "1.0.116"
 
 [dependencies]
 tracing = "0.1.40"
@@ -49,8 +49,8 @@ nix = { version = "0.28.0", features = ["user","process", "signal", "fs"] }
 clap = { version = "4.5.3", features = ["derive"] }
 capctl = "0.2.4"
 pcre2 = "0.2.6"
-serde = { version = "1.0.197", features=["rc"] }
-serde_json = "1.0.114"
+serde = { version = "1.0.200", features=["rc"] }
+serde_json = "1.0.116"
 ciborium = "0.2.2"
 glob = "0.3.1"
 pam-client = { version = "0.5.0", git = "https://gitlab.com/LeChatP/rust-pam-client.git" }

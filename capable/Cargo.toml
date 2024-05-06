@@ -19,6 +19,8 @@ tabled = "0.14.0"
 capctl = "0.2.3"
 nix = { version = "0.27.1", features = ["user", "signal"] }
 shell-words = "1.1.0"
+serde = { version = "1.0.200", features=["rc", "derive"] }
+serde_json = "1.0.116"
 
 [[bin]]
 name = "capable"
