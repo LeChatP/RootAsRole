@@ -20,6 +20,7 @@ use clap::Parser;
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::unistd::Uid;
+use serde::{Deserialize, Serialize};
 use tabled::settings::object::Columns;
 
 use tabled::settings::{Modify, Style, Width};
@@ -46,11 +47,15 @@ struct Cli {
     /// collecting data on system and print result at the end
     #[arg(short, long)]
     daemon: bool,
+
+    #[arg(short, long)]
+    json: bool,
+
     /// Specify a command to execute with arguments
     command: Vec<String>,
 }
 
-#[derive(Tabled)]
+#[derive(Tabled, Serialize, Deserialize)]
 #[tabled(rename_all = "UPPERCASE")]
 struct CapabilitiesTable {
     pid: u32,
@@ -90,6 +95,10 @@ fn add_dashes() -> Vec<String> {
     }
     debug!("final args : {:?}", args);
     args
+}
+
+pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
+    set.iter().map(|c| format!("CAP_{:?}",c) ).collect()
 }
 
 pub fn capset_to_string(set: &CapSet) -> String {
@@ -180,6 +189,7 @@ fn print_program_capabilities<T>(
     nsinode: &u32,
     capabilities_map: &HashMap<T, Key, u64>,
     pnsid_nsid_map: &HashMap<T, Key, u64>,
+    json: bool,
 ) -> Result<(), Box<dyn Error>>
 where
     T: Borrow<MapData>,
@@ -201,9 +211,12 @@ where
         }
     }
     let result = init.union(union_all_childs(*nsinode, &graph));
-
-    println!("Here's all capabilities intercepted for this program :\n{}\nWARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\nWARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant",
-    capset_to_string(&result));
+    if json {
+        println!("{}", serde_json::to_string(&capset_to_vec(&result))?);
+    } else {
+        println!("Here's all capabilities intercepted for this program :\n{}\nWARNING: These capabilities aren't mandatory, but can change the behavior of tested program.\nWARNING: CAP_SYS_ADMIN is rarely needed and can be very dangerous to grant",
+        capset_to_string(&result));
+    }
     Ok(())
 }
 
@@ -332,22 +345,23 @@ async fn main() -> Result<(), anyhow::Error> {
     program.attach("cap_capable", 0)?;
 
     let args = add_dashes();
-    let mut args = Cli::parse_from(args.iter());
+    let mut cli_args = Cli::parse_from(args.iter());
     let capabilities_map: HashMap<_, Key, u64> =
         HashMap::try_from(bpf.map("CAPABILITIES_MAP").unwrap())?;
     let pnsid_nsid_map: HashMap<_, Key, u64> =
         HashMap::try_from(bpf.map("PNSID_NSID_MAP").unwrap())?;
     let uid_gid_map: HashMap<_, Key, u64> = HashMap::try_from(bpf.map("UID_GID_MAP").unwrap())?;
     let ppid_map: HashMap<_, Key, i32> = HashMap::try_from(bpf.map("PPID_MAP").unwrap())?;
-    if args.daemon || args.command.is_empty() {
+    if cli_args.daemon || cli_args.command.is_empty() {
         println!("Waiting for Ctrl-C...");
         signal::ctrl_c().await?;
         print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
     } else {
-        let (path, args) = get_exec_and_args(&mut args.command);
+        let (path, args) = get_exec_and_args(&mut cli_args.command);
 
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
+        //avoid output
         let child = Arc::new(Mutex::new(
             unshare::Command::new(path)
                 .args(&args)
@@ -358,6 +372,9 @@ async fn main() -> Result<(), anyhow::Error> {
                     nsclone.as_ref().replace(fnspid.ino() as u32);
                     Ok(())
                 })
+                .stdout(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
+                .stderr(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
+                .stdin(if cli_args.json {unshare::Stdio::null()} else {unshare::Stdio::inherit()})
                 .spawn()
                 .expect("failed to spawn child"),
         ));
@@ -413,6 +430,7 @@ async fn main() -> Result<(), anyhow::Error> {
             &nsinode.as_ref().borrow(),
             &capabilities_map,
             &pnsid_nsid_map,
+            cli_args.json,
         )
         .expect("failed to print capabilities");
     }
