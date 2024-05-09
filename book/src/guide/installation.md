@@ -8,9 +8,9 @@ Install git
 
   1. git clone <https://github.com/LeChatP/RootAsRole>
   1. cd RootAsRole
-  1. sudo ./dependencies.sh
+  1. . ./dependencies.sh
   1. sudo ./configure.sh
-  1. sudo make install
+  1. make install
 
 <div class="warning">
 <b>
