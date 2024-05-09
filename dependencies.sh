@@ -11,15 +11,6 @@ while getopts "yd" opt; do
 	esac
 done
 
-echo "Install Rust Cargo compiler"
-if [ $(command -v cargo &>/dev/null; echo $?) -eq 0 ]; then 
-	echo "Cargo is installed"
-else
-	curl https://sh.rustup.rs -sSf | sh -s -- ${YES}
-fi
-
-. "$HOME/.cargo/env"
-
 echo "Capabilities & PAM packages installation"
 
 if [ ! `id -u` -eq 0 ]; then 
@@ -58,6 +49,15 @@ else
     echo "Unable to find a supported package manager, exiting..."
     exit 2
 fi
+
+echo "Install Rust Cargo compiler"
+if [ $(command -v cargo &>/dev/null; echo $?) -eq 0 ]; then 
+	echo "Cargo is installed"
+else
+	curl https://sh.rustup.rs -sSf | sh -s -- ${YES}
+fi
+
+. "$HOME/.cargo/env"
 
 # ask for user to install bpf-linker
 if [ "${YES}" == "-y" ]; then
