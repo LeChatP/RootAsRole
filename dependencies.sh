@@ -27,7 +27,7 @@ fi
 
 if [ ! -f "/bin/cargo" ]; then
 	cp ~/.cargo/bin/cargo /usr/bin
-    ln -s /usr/local/bin/cargo /bin/cargo
+    ln -s /usr/bin/cargo /bin/cargo
 	echo "as $HOME/.cargo/bin/cargo cargo program is copied to /usr/bin"
 fi
 
