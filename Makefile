@@ -1,4 +1,4 @@
-export PATH := $(shell echo $HOME)/.cargo/bin:$(PATH)
+export PATH := $(shell echo $$HOME)/.cargo/bin:$(PATH)
 PROFILE ?= release
 RELEASE = $(if $(filter $(PROFILE),release),--release,)
 BIN_DIR := target/$(PROFILE)
