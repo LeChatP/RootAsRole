@@ -40,7 +40,7 @@ jobs:
           override: true
 
       - name: Install Dependencies
-        run: . ./dependencies.sh -yd
+        run: ./dependencies.sh -yd
       
       - name: Configure
         run: sudo ./configure.sh -yd
