@@ -27,7 +27,7 @@ use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
     database::{read_json_config, structs::SGroups},
-    read_effective, setgid_effective, setpcap_effective, setuid_effective,
+    read_effective, dac_override_effective, setgid_effective, setpcap_effective, setuid_effective,
 };
 use crate::common::{drop_effective, subsribe};
 
@@ -212,9 +212,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     register_plugins();
     let args = add_dashes();
     let args = Cli::parse_from(args.iter());
-    read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(true).or(dac_override_effective(true)).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
-    read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(false).and(dac_override_effective(false)).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))

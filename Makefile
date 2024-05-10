@@ -23,13 +23,13 @@ $(BIN_DIR):
 build: $(BINS)
 
 install: build
-ifneq (0, $(filter $(shell capsh --has-p=CAP_DAC_OVERRIDE,CAP_CHOWN 2&>/dev/null; echo $?), $(shell id -u)))
+ifneq (0, $(filter $(shell capsh --has-p=CAP_DAC_OVERRIDE,CAP_CHOWN &>/dev/null; echo $?), $(shell id -u)))
 	$(PRIV_EXE) cp -f $(BINS) /usr/bin
 	$(PRIV_EXE) chown root:root /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	$(PRIV_EXE) chmod 0555 /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	$(PRIV_EXE) setcap "=p" /usr/bin/sr
 	$(PRIV_EXE) setcap cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable
-else ifneq (0, $(shell capsh --has-p=CAP_SETFCAP 2&>/dev/null; echo $?))
+else ifneq (0, $(shell capsh --has-p=CAP_SETFCAP &>/dev/null; echo $?))
 	@echo "You must have CAP_SETFCAP privilege to perform installation."
 else
 	cp -f $(BINS) /usr/bin
@@ -47,9 +47,9 @@ cov:
 	cargo tarpaulin --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Lcov --out Html
 
 uninstall:
-ifneq (0, $(filter $(shell capsh --has-p=CAP_DAC_OVERRIDE 2&>/dev/null; echo $?), $(shell id -u)))
+ifneq (0, $(filter $(shell capsh --has-p=CAP_DAC_OVERRIDE &>/dev/null; echo $?), $(shell id -u)))
 	@echo "You must have CAP_DAC_OVERRIDE privilege or be root"
-else ifneq (0, $(shell capsh --has-p=CAP_LINUX_IMMUTABLE 2&>/dev/null; echo $?))
+else ifneq (0, $(shell capsh --has-p=CAP_LINUX_IMMUTABLE &>/dev/null; echo $?))
 	@echo "You must have CAP_LINUX_IMMUTABLE privilege"
 else
 	rm -f /usr/bin/sr

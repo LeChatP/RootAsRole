@@ -54,7 +54,7 @@ echo "Install Rust Cargo compiler"
 if [ $(command -v cargo &>/dev/null; echo $?) -eq 0 ]; then 
 	echo "Cargo is installed"
 else
-	curl https://sh.rustup.rs -sSf | sh -s -- ${YES}
+	curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly ${YES} # nightly because aya use -Z feature
 fi
 
 . "$HOME/.cargo/env"
