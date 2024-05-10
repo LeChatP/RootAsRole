@@ -25,9 +25,9 @@ echo "Configuration files installation"
 echo "id : ${ID}"
 if [[ "${ID}" == "arch" ]]; then
     cp resources/arch_sr_pam.conf /etc/pam.d/sr || exit;
-elif [[ "${ID}" == "ubuntu" ]] || [ "${ID}" == "debian" ]]; then
+elif [[ "${ID}" == "ubuntu" ]] || [[ "${ID}" == "debian" ]]; then
     cp resources/deb_sr_pam.conf /etc/pam.d/sr || exit;
-elif [[ "${ID}" == "centos" ]] || [ "${ID}" == "fedora" ]] || [[ "${ID}" == *"rhel"* ]]; then
+elif [[ "${ID}" == "centos" ]] || [[ "${ID}" == "fedora" ]] || [[ "${ID}" == *"rhel"* ]]; then
     cp resources/rh_sr_pam.conf /etc/pam.d/sr || exit;
 else
     echo "Unable to find a supported distribution, exiting..."
