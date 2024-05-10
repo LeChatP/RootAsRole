@@ -20,7 +20,7 @@ PRIV_EXE=""
 fi
 
 if command -v apt-get &>/dev/null; then
-    $PRIV_EXE apt-get update "${YES}"
+    $PRIV_EXE apt-get update
     $PRIV_EXE apt-get install "${YES}" "linux-headers-$(uname -r)" || $PRIV_EXE apt-get install "${YES}" linux-headers-generic
     $PRIV_EXE apt-get install "${YES}" man pkg-config openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev libclang-dev make
     if [ -n "${DEBUG}" ]; then
