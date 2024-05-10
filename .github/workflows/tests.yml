@@ -28,7 +28,7 @@ jobs:
       run: ./dependencies.sh -yd
     
     - name: Install file configuration
-      run: sudo ./configure.sh -yd
+      run: sudo bash ./configure.sh -yd
     
     - name: run tests with coverage
       run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
