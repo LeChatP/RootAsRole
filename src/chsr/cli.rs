@@ -23,7 +23,7 @@ use crate::{
                 SetBehavior,
             },
         },
-        util::{escape_parser_string, parse_capset_iter},
+        util::{escape_parser_string, parse_capset_iter, underline, BOLD, RST, UNDERLINE, RED},
     },
     rc_refcell,
 };
@@ -38,10 +38,7 @@ These tasks are multiple commands associated with their granted permissions (cre
 Like Sudo, you could manipulate environment variables, PATH, and other options.
 More than Sudo, you can manage the capabilities and remove privileges from the root user.";
 
-const RST: &str = "\x1B[0m";
-const BOLD: &str = "\x1B[1m";
-const UNDERLINE: &str = "\x1B[4m";
-const RED: &str = "\x1B[31m";
+
 
 const RAR_USAGE_GENERAL: &str = formatcp!("{UNDERLINE}{BOLD}Usage:{RST} {BOLD}chsr{RST} [command] [options]
 
@@ -229,7 +226,6 @@ struct Inputs {
     options_root: Option<SPrivileged>,
     options_bounding: Option<SBounding>,
     options_wildcard: Option<String>,
-    autotask: bool,
 }
 
 impl Default for Inputs {
@@ -261,7 +257,6 @@ impl Default for Inputs {
             options_root: None,
             options_bounding: None,
             options_wildcard: None,
-            autotask: false,
         }
     }
 }
@@ -562,10 +557,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
                 unreachable!("Unknown bounding type: {}", pair.as_str());
             }
         }
-        Rule::autotask_keyword => {
-            inputs.action = InputAction::Set;
-            inputs.autotask = true;
-        }
         Rule::wildcard_value => {
             inputs.options_wildcard = Some(pair.as_str().to_string());
         }
@@ -647,55 +638,6 @@ fn print_role(
             );
         }
     }
-}
-
-fn start(error: &pest::error::Error<Rule>) -> (usize, usize) {
-    match error.line_col {
-        LineColLocation::Pos(line_col) => line_col,
-        LineColLocation::Span(start_line_col, _) => start_line_col,
-    }
-}
-
-fn underline(error: &pest::error::Error<Rule>) -> String {
-    let mut underline = String::new();
-
-    let mut start = start(error).1;
-    let end = match error.line_col {
-        LineColLocation::Span(_, (_, mut end)) => {
-            let inverted_cols = start > end;
-            if inverted_cols {
-                mem::swap(&mut start, &mut end);
-                start -= 1;
-                end += 1;
-            }
-
-            Some(end)
-        }
-        _ => None,
-    };
-    let offset = start - 1;
-    let line_chars = error.line().chars();
-
-    for c in line_chars.take(offset) {
-        match c {
-            '\t' => underline.push('\t'),
-            _ => underline.push(' '),
-        }
-    }
-
-    if let Some(end) = end {
-        underline.push('^');
-        if end - start > 1 {
-            for _ in 2..(end - start) {
-                underline.push('-');
-            }
-            underline.push('^');
-        }
-    } else {
-        underline.push_str("^---")
-    }
-
-    underline
 }
 
 fn usage_concat(usages: &[&'static str]) -> String {
@@ -3749,28 +3691,6 @@ mod tests {
             debug!("{}", e);
         })
         .is_err());
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "auto", "auto_task", "cat", "/etc/shadow"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "auto", "auto_task", "--setuid", "root", "--setgid", "root,root", "cat", "/etc/shadow"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
         teardown();
     }
 }

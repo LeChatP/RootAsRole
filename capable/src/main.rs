@@ -381,18 +381,6 @@ async fn main() -> Result<(), anyhow::Error> {
         let namespaces = if cli_args.privileged {
             vec![unshare::Namespace::Pid]
         } else {
-            
-            //capctl::set_no_new_privs();
-            //capctl::set_keepcaps(false);
-            
-            //capctl::cap_set_ids(Some(1000), Some(1000), Some(&[1000]));
-            //capctl::ambient::clear();
-            //capctl::bounding::clear();
-            //capctl::set_securebits(Secbits::NOROOT_LOCKED | Secbits::NO_CAP_AMBIENT_RAISE_LOCKED);
-            //let mut caps = CapState::empty();
-            //caps.effective.add(Cap::SYS_ADMIN);
-            //caps.permitted.add(Cap::SYS_ADMIN);
-            //capctl::CapState::set_current(&caps);
             vec![unshare::Namespace::Pid]
         };
         let mut cmd = unshare::Command::new(path);
@@ -468,7 +456,7 @@ async fn main() -> Result<(), anyhow::Error> {
             Ok::<(), ()>(())
         });
 
-        cloned
+        let exit_status = cloned
             .try_lock()
             .unwrap()
             .wait()
@@ -481,6 +469,11 @@ async fn main() -> Result<(), anyhow::Error> {
             cli_args.json,
         )
         .expect("failed to print capabilities");
+        if exit_status.success() {
+            exit(0);
+        } else {
+            exit(exit_status.code().unwrap_or(-1));
+        }
     }
 
     Ok(())

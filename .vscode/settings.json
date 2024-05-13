@@ -33,5 +33,9 @@
     ],
     "c-cpp-flylint.clang.includePaths": [
         "${workspaceFolder}/src"
-    ]
+    ],
+    "terminal.integrated.env.linux": {
+        "PROFILE" : "debug",
+        "RUST_BACKTRACE" : "1",
+    }
 }

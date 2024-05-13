@@ -1,0 +1,30 @@
+cli = { SOI ~ sr ~ options ~ command ~ EOI }
+
+sr = _{ "sr" }
+
+options = _{ (role_opt | task_opt | prompt_opt | info | help)* }
+
+command = { quoted_cmd }
+quoted_cmd  = _{ ("'"|"\"")~ cmd ~ ("'"|"\"") | cmd }
+cmd = ${  inner  }
+inner = @{ char* }
+char = _{
+    !("\"" | "'" | "\\") ~ ANY
+    | "\\" ~ ("'" | "\"" | "\\" | "/")
+}
+
+name = @{ (!WHITESPACE ~ ANY)+ }
+role = @{ name }
+task = @{ name }
+prompt = @{ quoted_cmd }
+
+role_opt = { ("--role" ~ assignment? | "-r" ~ WHITESPACE) ~ role }
+task_opt = { ("--task" ~ assignment? | "-t" ~ WHITESPACE) ~ task }
+prompt_opt = { ("--prompt" ~ assignment? | "-p" ~ WHITESPACE) ~ prompt }
+info = { ("--info" | "-i") }
+
+assignment = _{ "=" | WHITESPACE }
+help       =  { "-h" | "--help" }
+
+NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\"" | "'") }
+WHITESPACE       = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }

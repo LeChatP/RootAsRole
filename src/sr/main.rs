@@ -3,10 +3,10 @@ mod common;
 mod timeout;
 
 use capctl::CapState;
-use clap::Parser;
 use common::database::finder::{Cred, TaskMatch, TaskMatcher};
 use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
+use const_format::formatcp;
 use nix::{
     libc::dev_t,
     sys::stat,
@@ -15,7 +15,9 @@ use nix::{
 use pam_client::{Context, Flag};
 use pam_client::{ConversationHandler, ErrorCode};
 use pcre2::bytes::RegexBuilder;
+use pest_derive::Parser;
 use pty_process::blocking::{Command, Pty};
+use shell_words::ParseError;
 use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
@@ -28,8 +30,12 @@ use crate::common::{
     config::{self, Storage},
     database::{read_json_config, structs::SGroups},
     read_effective, setgid_effective, setpcap_effective, setuid_effective,
+    util::{BOLD, RST, UNDERLINE, RED},
 };
 use crate::common::{drop_effective, subsribe};
+
+use pest::iterators::Pair;
+use pest::Parser;
 
 #[cfg(not(test))]
 const PAM_SERVICE: &str = "sr";
@@ -39,32 +45,73 @@ const PAM_SERVICE: &str = "sr_test";
 const PAM_PROMPT: &str = "Password: ";
 
 #[derive(Parser, Debug)]
-#[command(
-    about = "Execute privileged commands with a role-based access control system",
-    long_about = "sr is a tool to execute privileged commands with a role-based access control system. 
+#[grammar = "sr/cli.pest"]
+struct Grammar;
+
+const ABOUT : &str = "Execute privileged commands with a role-based access control system";
+const LONG_ABOUT : &str = "sr is a tool to execute privileged commands with a role-based access control system. 
 It is designed to be used in a multi-user environment, 
 where users can be assigned to different roles, 
-and each role has a set of rights to execute commands."
-)]
+and each role has a set of rights to execute commands.";
+
+const USAGE : &str = formatcp!(r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
+
+{UNDERLINE}{BOLD}Arguments:{RST}
+  [COMMAND]...
+          Command to execute
+
+{UNDERLINE}{BOLD}Options:{RST}
+  {BOLD}-r, --role <ROLE>{RST}
+          Role option allows you to select a specific role to use
+
+  {BOLD}-t, --task <TASK>{RST}
+          Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
+
+  {BOLD}-p, --prompt <PROMPT>{RST}
+          Prompt option allows you to override the default password prompt and use a custom one
+          
+          [default: "Password: "]
+
+  {BOLD}-i, --info{RST}
+          Display rights of executor
+
+  {BOLD}-h, --help{RST}
+          Print help (see a summary with '-h')"#, UNDERLINE = UNDERLINE, BOLD = BOLD, RST = RST);
+
+#[derive(Debug)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
-    #[arg(short, long)]
     role: Option<String>,
 
     /// Task option allows you to select a specific task to use in the selected role.
     /// Note: You must specify a role to designate a task.
-    #[arg(short, long)]
     task: Option<String>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
-    #[arg(short, long, default_value = PAM_PROMPT)]
     prompt: String,
 
     /// Display rights of executor
-    #[arg(short, long)]
     info: bool,
+
+    /// Display help
+    help: bool,
+
     /// Command to execute
     command: Vec<String>,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Cli {
+            role: None,
+            task: None,
+            prompt: PAM_PROMPT.to_string(),
+            info: false,
+            help: false,
+            command: vec![],
+        }
+    }
+
 }
 
 struct SrConversationHandler {
@@ -132,31 +179,37 @@ impl ConversationHandler for SrConversationHandler {
     }
 }
 
-fn add_dashes() -> Vec<String> {
-    //get current argv
-    let mut args = std::env::args().collect::<Vec<_>>();
-    debug!("args : {:?}", args);
-    let mut i = -1;
-    //iter through args until we find no dash
-    let mut iter = args.iter().enumerate();
-    iter.next();
-    while let Some((pos, arg)) = iter.next() {
-        if arg.starts_with('-') {
-            if arg == "-r" {
-                iter.next();
-            }
-            continue;
-        } else {
-            // add argument at this position
-            i = pos as i32;
-            break;
+fn match_pair(pair: &Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+    match pair.as_rule() {
+        Rule::role => {
+            inputs.role = Some(pair.as_str().to_string());
         }
+        Rule::task => {
+            inputs.task = Some(pair.as_str().to_string());
+        }
+        Rule::prompt => {
+            inputs.prompt = pair.as_str().to_string();
+        }
+        Rule::info => {
+            inputs.info = true;
+        }
+        Rule::help => {
+            inputs.help = true;
+        }
+        Rule::command => {
+            inputs.command = shell_words::split(pair.as_str())?;
+        }
+        _ => {}
     }
-    if i > -1 {
-        args.insert(i as usize, String::from("--"));
+    Ok(())
+}
+
+fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+    for inner_pair in pair.into_inner() {
+        match_pair(&inner_pair, inputs)?;
+        recurse_pair(inner_pair, inputs)?;
     }
-    debug!("final args : {:?}", args);
-    args
+    Ok(())
 }
 
 const CAPABILITIES_ERROR: &str =
@@ -188,7 +241,7 @@ fn from_json_execution_settings(
                 .matches(user, &args.command)?;
             if res.fully_matching() && res.settings.task().as_ref().borrow().name == task {
                 Ok(res)
-            } else {
+            } else if res.user_matching() {
                 let mut taskres = as_borrow!(config)
                     .task(role, &task)
                     .expect("Permission Denied")
@@ -199,6 +252,8 @@ fn from_json_execution_settings(
                 } else {
                     Err("Permission Denied".into())
                 }
+            } else {
+                Err("Permission Denied".into())
             }
         }
         (None, Some(_)) => Err("You must specify a role to designate a task".into()),
@@ -207,11 +262,37 @@ fn from_json_execution_settings(
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
+    use crate::common::util::{escape_parser_string, underline};
+
     subsribe("sr");
     drop_effective()?;
     register_plugins();
-    let args = add_dashes();
-    let args = Cli::parse_from(args.iter());
+    let grammar = escape_parser_string(std::env::args());
+    let grammar = Grammar::parse(Rule::cli, &grammar );
+    let grammar = match grammar {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", USAGE);
+            println!(
+                "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
+                e.line(),
+                underline(&e),
+                e.variant.message(),
+                RED = RED,
+                BOLD = BOLD,
+                RST = RST
+            );
+            return Err(Box::new(e));
+        }
+    };
+    let mut args = Cli::default();
+    for pair in grammar {
+        recurse_pair(pair, &mut args);
+    }
+    if args.help {
+        println!("{}", USAGE);
+        return Ok(());
+    }
     read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
     read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
