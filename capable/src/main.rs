@@ -15,11 +15,11 @@ use aya::maps::{HashMap, MapData};
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
-use capctl::{Cap, CapSet};
+use capctl::{Cap, CapSet, CapState, Secbits};
 use clap::Parser;
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
-use nix::unistd::Uid;
+use nix::unistd::{getgroups, getresuid, getuid, Uid};
 use serde::{Deserialize, Serialize};
 use tabled::settings::object::Columns;
 
@@ -27,7 +27,7 @@ use tabled::settings::{Modify, Style, Width};
 use tabled::{Table, Tabled};
 use tokio::runtime::Runtime;
 use tokio::signal;
-use unshare::Signal;
+use unshare::{Signal, UidMap};
 
 type Key = i32;
 
@@ -47,6 +47,10 @@ struct Cli {
     /// collecting data on system and print result at the end
     #[arg(short, long)]
     daemon: bool,
+
+    /// Pass all capabilities when executing the command,
+    #[arg(short, long)]
+    privileged: bool,
 
     /// Print output in JSON format, ignore stdin/out/err
     #[arg(short, long)]
@@ -374,11 +378,29 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
+        let namespaces = if cli_args.privileged {
+            vec![unshare::Namespace::Pid]
+        } else {
+            
+            //capctl::set_no_new_privs();
+            //capctl::set_keepcaps(false);
+            
+            //capctl::cap_set_ids(Some(1000), Some(1000), Some(&[1000]));
+            //capctl::ambient::clear();
+            //capctl::bounding::clear();
+            //capctl::set_securebits(Secbits::NOROOT_LOCKED | Secbits::NO_CAP_AMBIENT_RAISE_LOCKED);
+            //let mut caps = CapState::empty();
+            //caps.effective.add(Cap::SYS_ADMIN);
+            //caps.permitted.add(Cap::SYS_ADMIN);
+            //capctl::CapState::set_current(&caps);
+            vec![unshare::Namespace::Pid]
+        };
+        let mut cmd = unshare::Command::new(path);
         //avoid output
-        let child = Arc::new(Mutex::new(
-            unshare::Command::new(path)
+        let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
+            cmd
                 .args(&args)
-                .unshare(vec![unshare::Namespace::Pid].iter())
+                .unshare(namespaces.iter())
                 .before_unfreeze(move |id| {
                     let fnspid =
                         metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
@@ -401,8 +423,9 @@ async fn main() -> Result<(), anyhow::Error> {
                     unshare::Stdio::inherit()
                 })
                 .spawn()
-                .expect("failed to spawn child"),
+                .expect("failed to spawn child")
         ));
+
         let cloned = child.clone();
         let pid = child.try_lock().unwrap().pid();
 

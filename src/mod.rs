@@ -129,3 +129,17 @@ pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error
         res
     })
 }
+
+pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
+    std::fs::remove_file(&p).or_else(|e| {
+        debug!(
+            "Error creating file without privilege, trying with privileges: {}",
+            e
+        );
+        read_effective(true).or(dac_override_effective(true))?;
+        let res = std::fs::remove_file(p);
+        read_effective(false)?;
+        dac_override_effective(false)?;
+        res
+    })
+}

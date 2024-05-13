@@ -1,10 +1,5 @@
 use std::{
-    cell::RefCell,
-    error::Error,
-    mem,
-    ops::Deref,
-    rc::{Rc, Weak},
-    str::FromStr,
+    cell::RefCell, error::Error, mem, ops::Deref, process::Command, rc::{Rc, Weak}, str::FromStr
 };
 
 use capctl::{Cap, CapSet};
@@ -28,7 +23,7 @@ use crate::{
                 SetBehavior,
             },
         },
-        util::escape_parser_string,
+        util::{escape_parser_string, parse_capset_iter},
     },
     rc_refcell,
 };
@@ -234,6 +229,7 @@ struct Inputs {
     options_root: Option<SPrivileged>,
     options_bounding: Option<SBounding>,
     options_wildcard: Option<String>,
+    autotask: bool,
 }
 
 impl Default for Inputs {
@@ -265,6 +261,7 @@ impl Default for Inputs {
             options_root: None,
             options_bounding: None,
             options_wildcard: None,
+            autotask: false,
         }
     }
 }
@@ -564,6 +561,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             } else {
                 unreachable!("Unknown bounding type: {}", pair.as_str());
             }
+        }
+        Rule::autotask_keyword => {
+            inputs.action = InputAction::Set;
+            inputs.autotask = true;
         }
         Rule::wildcard_value => {
             inputs.options_wildcard = Some(pair.as_str().to_string());
@@ -1385,6 +1386,7 @@ where
             action,
             role_id,
             task_id,
+            options: true,
             options_wildcard: Some(options_wildcard),
             ..
         } => match storage {
@@ -1885,7 +1887,7 @@ mod tests {
 
     use crate::common::{
         config,
-        database::{read_json_config, structs::SCredentials},
+        database::{read_json_config, structs::SCredentials}, remove_with_privileges,
     };
 
     use super::super::common::{
@@ -2096,7 +2098,7 @@ mod tests {
 
     fn teardown() {
         //Remove json test file
-        std::fs::remove_file(ROOTASROLE).unwrap();
+        remove_with_privileges(ROOTASROLE).unwrap();
     }
     // we need to test every commands
     // chsr r r1 create
@@ -3747,6 +3749,28 @@ mod tests {
             debug!("{}", e);
         })
         .is_err());
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "auto", "auto_task", "cat", "/etc/shadow"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["chsr", "r", "complete", "auto", "auto_task", "--setuid", "root", "--setgid", "root,root", "cat", "/etc/shadow"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
         teardown();
     }
 }

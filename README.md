@@ -15,13 +15,23 @@
 </p>
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0-alpha.4) : a secure alternative to sudo/su on Linux systems
+# RootAsRole (V3.0.0-alpha.4) : A memory-safe and security-oriented alternative to sudo/su commands
 
-This tool allows you to configure your privilege access management more securely on a single operating system. 
+**RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
-Unlike sudo, this project sets the principle least privilege on its core features. Like sudo, this project wants to be usable. More than sudo, we care about configurators, and we try to warn configurators about dangerous manipulations.
+* [A structured access control model based on Roles](https://dl.acm.org/doi/10.1145/501978.501980)
+  * [Role hierarchy](https://dl.acm.org/doi/10.1145/501978.501980)
+  * [Static/Dynamic Separation of Duties](https://dl.acm.org/doi/10.1145/501978.501980)
+* [Linux Capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html) support, to minimize the privileges of the user executing the command.
+  * Prevent the escalation of privileges via Bounding set manipulation.
+* [Highly configurable](chsr/README.md) with a simple command line interface. This interface is designed to be as easy as `ip` command.
+  * File relocation ability.
+  * Multi-layered and inheritable execution environment configuration.
+  * Interoperable and evolvable by using [JSON](https://www.json.org/) as the main configuration file format.
+* Command matching based on commonly-used open-source libraries:
+  * [glob](https://docs.rs/glob/latest/glob/) for binary path
+  * [PCRE2](https://www.pcre.org/) for command arguments
 
-By using a role-based access control model, this project allows us to better manage administrative tasks. With this project, you could distribute privileges and prevent them from escalating directly. Unlike sudo does, we don't want to give entire privileges for any insignificant administrative task, so you could configure it easily with `capable` command.
 
 ## Installation
 
@@ -35,7 +45,7 @@ Requirement: rustc >= 1.70.0
   1. sudo ./configure.sh
   1. sudo make install
 
-Note: The `configure.sh` installs `cargo` and `bpf-linker` rust programs manually into `/usr/local/bin`. You can refuse to install it this way, but these are mandatory to build the program. Depending on your distribution or how you want to install this software, you may know that most rust binaries are installed to `$HOME/.cargo/bin`. When you use sudo to configure, these binaries are installed in the effective user home directory. You may need to move these binaries to a known-user path. 
+Note: The `dependencies.sh` installs `cargo` and `bpf-linker` rust programs manually into `/usr/local/bin`. You can refuse to install it this way, but these are mandatory to build the program. Depending on your distribution or how you want to install this software, you may know that most rust binaries are installed to `$HOME/.cargo/bin`. When you use sudo to configure, these binaries are installed in the effective user home directory. You may need to move these binaries to a known-user path. 
 
 > [!WARNING]
 > **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
