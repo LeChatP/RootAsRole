@@ -16,7 +16,7 @@ jobs:
       run: sudo apt-get update
     - name: Install Dependencies
       run: |
-        sudo ./dependencies.sh -yd
+        . ./dependencies.sh -yd
         sudo ./configure.sh -yd
         sudo sed -i 's/"immutable": true/"immutable": false/g' /etc/security/rootasrole.json
         echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
@@ -41,7 +41,7 @@ jobs:
     - name: Install Project
       env:
         PROFILE: debug
-      run: sudo -E make -e install
+      run: make -e install
     - name: Run Sr
       env:
         RUST_LOG: debug

@@ -295,7 +295,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
-    read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(false).and(dac_override_effective(false)).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))

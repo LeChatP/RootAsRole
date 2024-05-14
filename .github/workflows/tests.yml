@@ -25,10 +25,10 @@ jobs:
       run: apt install sudo -y
     
     - name: Install Dependencies
-      run: sudo ./dependencies.sh -yd
+      run: ./dependencies.sh -yd
     
     - name: Install file configuration
-      run: sudo ./configure.sh -yd
+      run: sudo bash ./configure.sh -yd
     
     - name: Install RootAsRole
       run: sudo make install
