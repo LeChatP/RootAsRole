@@ -1,5 +1,11 @@
 use std::{
-    cell::RefCell, error::Error, mem, ops::Deref, process::Command, rc::{Rc, Weak}, str::FromStr
+    cell::RefCell,
+    error::Error,
+    mem,
+    ops::Deref,
+    process::Command,
+    rc::{Rc, Weak},
+    str::FromStr,
 };
 
 use capctl::{Cap, CapSet};
@@ -23,7 +29,7 @@ use crate::{
                 SetBehavior,
             },
         },
-        util::{escape_parser_string, parse_capset_iter, underline, BOLD, RST, UNDERLINE, RED},
+        util::{escape_parser_string, parse_capset_iter, underline, BOLD, RED, RST, UNDERLINE},
     },
     rc_refcell,
 };
@@ -37,8 +43,6 @@ A role is a set of tasks that can be executed by a user or a group of users.
 These tasks are multiple commands associated with their granted permissions (credentials).
 Like Sudo, you could manipulate environment variables, PATH, and other options.
 More than Sudo, you can manage the capabilities and remove privileges from the root user.";
-
-
 
 const RAR_USAGE_GENERAL: &str = formatcp!("{UNDERLINE}{BOLD}Usage:{RST} {BOLD}chsr{RST} [command] [options]
 
@@ -1829,7 +1833,8 @@ mod tests {
 
     use crate::common::{
         config,
-        database::{read_json_config, structs::SCredentials}, remove_with_privileges,
+        database::{read_json_config, structs::SCredentials},
+        remove_with_privileges,
     };
 
     use super::super::common::{

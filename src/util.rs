@@ -151,17 +151,20 @@ pub(super) mod test {
     }
 }
 
-
 fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
-where R: RuleType {
+where
+    R: RuleType,
+{
     match error.line_col {
         LineColLocation::Pos(line_col) => line_col,
         LineColLocation::Span(start_line_col, _) => start_line_col,
     }
 }
 
-pub fn underline<R>(error: &pest::error::Error<R>) -> String 
-where R: RuleType {
+pub fn underline<R>(error: &pest::error::Error<R>) -> String
+where
+    R: RuleType,
+{
     let mut underline = String::new();
 
     let mut start = start(error).1;
