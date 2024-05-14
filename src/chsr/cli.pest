@@ -79,14 +79,8 @@ command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
 cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
-cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ quoted_cmd | purge) }
-quoted_cmd  = _{ ("'"|"\"")~ cmd ~ ("'"|"\"") | cmd }
-cmd = ${  inner  }
-inner = @{ char* }
-char = _{
-    !("\"" | "'" | "\\") ~ ANY
-    | "\\" ~ ("'" | "\"" | "\\" | "/")
-}
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
+cmd = ${  ((!NOT_ESCAPE_QUOTE) ~ ANY)+  }
 
 // ========================
 // credentials
@@ -141,7 +135,7 @@ options_operations  = { ("options" | "o") ~ opt_args }
 opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout }
 
 opt_show     = _{ list ~ opt_show_arg? }
-opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout" }
+opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout"  }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }
@@ -198,4 +192,4 @@ help = { "-h" | "--help" }
 
 NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\""|"'") }
 
-WHITESPACE = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }
+WHITESPACE       = _{ ((!NOT_ESCAPE_QUOTE) ~ SEPARATOR)+ }

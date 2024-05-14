@@ -128,15 +128,25 @@ where
 {
     s.into_iter()
         .map(|s| {
-            let s = s.as_ref();
+            let s = remove_outer_quotes(s.as_ref());
             if s.contains(' ') {
                 format!("\"{}\"", s.replace("\"", "\\\""))
             } else {
-                s.to_string()
+                s
             }
         })
         .collect::<Vec<String>>()
         .join(" ")
+}
+
+fn remove_outer_quotes(input: &str) -> String {
+    if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else if input.len() >= 2 && input.starts_with('\'') && input.ends_with('\'') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else {
+        input.to_string()
+    }
 }
 
 #[cfg(test)]

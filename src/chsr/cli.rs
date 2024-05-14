@@ -657,11 +657,6 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    /*let binding = std::env::args().fold("\"".to_string(), |mut s, e| {
-        s.push_str(&e);
-        s.push_str("\" \"");
-        s
-    });*/
 
     let args = escape_parser_string(args);
     let args = Cli::parse(Rule::cli, &args);

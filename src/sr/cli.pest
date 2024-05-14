@@ -4,14 +4,13 @@ sr = _{ name }
 
 options = _{ (role_opt | task_opt | prompt_opt | info | help)* }
 
-command = { quoted_cmd }
-quoted_cmd  = _{ ("'"|"\"")~ cmd ~ ("'"|"\"") | cmd }
-cmd = ${  ANY*  }
+command = { cmd }
+cmd = ${  ((!NOT_ESCAPE_QUOTE) ~ ANY)+  }
 
-name = @{ (!WHITESPACE ~ ANY)+ }
+name = @{ ((!WHITESPACE) ~ ANY)+ }
 role = @{ name }
 task = @{ name }
-prompt = @{ quoted_cmd }
+prompt = @{ cmd }
 
 role_opt = { ("--role" ~ assignment? | "-r" ~ WHITESPACE) ~ role }
 task_opt = { ("--task" ~ assignment? | "-t" ~ WHITESPACE) ~ task }
@@ -22,4 +21,4 @@ assignment = _{ "=" | WHITESPACE }
 help       =  { "-h" | "--help" }
 
 NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\"" | "'") }
-WHITESPACE       = _{ (!NOT_ESCAPE_QUOTE) ~ SEPARATOR+ }
+WHITESPACE       = _{ ((!NOT_ESCAPE_QUOTE) ~ SEPARATOR)+ }
