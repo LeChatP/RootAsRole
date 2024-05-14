@@ -29,7 +29,7 @@ use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
     database::{read_json_config, structs::SGroups},
-    read_effective, setgid_effective, setpcap_effective, setuid_effective,
+    read_effective, setgid_effective, setpcap_effective, setuid_effective, dac_override_effective,
     util::{BOLD, RED, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
@@ -218,7 +218,7 @@ fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
 }
 
 const CAPABILITIES_ERROR: &str =
-    "You need at least dac_override, setpcap, setuid capabilities to run sr";
+    "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
 fn cap_effective_error(caplist: &str) -> String {
     format!(
         "Unable to toggle {} privilege. {}",
@@ -298,7 +298,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{}", USAGE);
         return Ok(());
     }
-    read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(true).or(dac_override_effective(true)).unwrap_or_else(panic!("{}", cap_effective_error("dac_read_search or dac_override")));
     let settings = config::get_settings().expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
