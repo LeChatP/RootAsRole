@@ -25,16 +25,13 @@ jobs:
       run: apt install sudo -y
     
     - name: Install Dependencies
-      run: sudo ./dependencies.sh -yd
+      run: ./dependencies.sh -yd
     
     - name: Install file configuration
-      run: sudo ./configure.sh -yd
-    
-    - name: Install RootAsRole
-      run: sudo make install
+      run: sudo bash ./configure.sh -yd
     
     - name: run tests with coverage
-      run: sudo cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
+      run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3
