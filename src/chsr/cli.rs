@@ -657,7 +657,6 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-
     let args = escape_parser_string(args);
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {

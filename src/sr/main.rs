@@ -331,7 +331,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "User {} tried to execute command : {:?} without the permission.",
             &user.user.name, args.command
         );
-        
+
         std::process::exit(1);
     }
 
