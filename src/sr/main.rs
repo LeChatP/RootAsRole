@@ -301,7 +301,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     read_effective(true)
         .or(dac_override_effective(true))
-        .unwrap_or_else(panic!(
+        .unwrap_or_else(|_| panic!(
             "{}",
             cap_effective_error("dac_read_search or dac_override")
         ));
