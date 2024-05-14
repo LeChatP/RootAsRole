@@ -30,7 +30,7 @@ use crate::common::{
     config::{self, Storage},
     database::{read_json_config, structs::SGroups},
     read_effective, setgid_effective, setpcap_effective, setuid_effective,
-    util::{BOLD, RST, UNDERLINE, RED},
+    util::{BOLD, RED, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
 
@@ -48,13 +48,15 @@ const PAM_PROMPT: &str = "Password: ";
 #[grammar = "sr/cli.pest"]
 struct Grammar;
 
-const ABOUT : &str = "Execute privileged commands with a role-based access control system";
-const LONG_ABOUT : &str = "sr is a tool to execute privileged commands with a role-based access control system. 
+const ABOUT: &str = "Execute privileged commands with a role-based access control system";
+const LONG_ABOUT: &str =
+    "sr is a tool to execute privileged commands with a role-based access control system. 
 It is designed to be used in a multi-user environment, 
 where users can be assigned to different roles, 
 and each role has a set of rights to execute commands.";
 
-const USAGE : &str = formatcp!(r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
+const USAGE: &str = formatcp!(
+    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
 
 {UNDERLINE}{BOLD}Arguments:{RST}
   [COMMAND]...
@@ -76,7 +78,11 @@ const USAGE : &str = formatcp!(r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OP
           Display rights of executor
 
   {BOLD}-h, --help{RST}
-          Print help (see a summary with '-h')"#, UNDERLINE = UNDERLINE, BOLD = BOLD, RST = RST);
+          Print help (see a summary with '-h')"#,
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
 
 #[derive(Debug)]
 struct Cli {
@@ -111,7 +117,6 @@ impl Default for Cli {
             command: vec![],
         }
     }
-
 }
 
 struct SrConversationHandler {
@@ -268,7 +273,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop_effective()?;
     register_plugins();
     let grammar = escape_parser_string(std::env::args());
-    let grammar = Grammar::parse(Rule::cli, &grammar );
+    let grammar = Grammar::parse(Rule::cli, &grammar);
     let grammar = match grammar {
         Ok(v) => v,
         Err(e) => {
@@ -295,7 +300,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     read_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let settings = config::get_settings().expect("Failed to get settings");
-    read_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(false)
+        .and(dac_override_effective(false))
+        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))

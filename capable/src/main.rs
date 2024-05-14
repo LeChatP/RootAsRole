@@ -386,8 +386,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let mut cmd = unshare::Command::new(path);
         //avoid output
         let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
-            cmd
-                .args(&args)
+            cmd.args(&args)
                 .unshare(namespaces.iter())
                 .before_unfreeze(move |id| {
                     let fnspid =
@@ -411,7 +410,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     unshare::Stdio::inherit()
                 })
                 .spawn()
-                .expect("failed to spawn child")
+                .expect("failed to spawn child"),
         ));
 
         let cloned = child.clone();
