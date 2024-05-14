@@ -1,6 +1,6 @@
 cli = { SOI ~ sr ~ options ~ command ~ EOI }
 
-sr = _{ "sr" }
+sr = _{ name }
 
 options = _{ (role_opt | task_opt | prompt_opt | info | help)* }
 

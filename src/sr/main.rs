@@ -557,6 +557,7 @@ mod tests {
             task: None,
             prompt: PAM_PROMPT.to_string(),
             info: false,
+            help: false,
             command: vec!["ls".to_string(), "-l".to_string()],
         };
         let user = Cred {
