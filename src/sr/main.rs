@@ -28,8 +28,9 @@ use crate::common::plugin::register_plugins;
 use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
+    dac_override_effective,
     database::{read_json_config, structs::SGroups},
-    read_effective, setgid_effective, setpcap_effective, setuid_effective, dac_override_effective,
+    read_effective, setgid_effective, setpcap_effective, setuid_effective,
     util::{BOLD, RED, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
@@ -298,7 +299,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{}", USAGE);
         return Ok(());
     }
-    read_effective(true).or(dac_override_effective(true)).unwrap_or_else(panic!("{}", cap_effective_error("dac_read_search or dac_override")));
+    read_effective(true)
+        .or(dac_override_effective(true))
+        .unwrap_or_else(panic!(
+            "{}",
+            cap_effective_error("dac_read_search or dac_override")
+        ));
     let settings = config::get_settings().expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
