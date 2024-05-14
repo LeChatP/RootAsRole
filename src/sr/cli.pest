@@ -6,12 +6,7 @@ options = _{ (role_opt | task_opt | prompt_opt | info | help)* }
 
 command = { quoted_cmd }
 quoted_cmd  = _{ ("'"|"\"")~ cmd ~ ("'"|"\"") | cmd }
-cmd = ${  inner  }
-inner = @{ char* }
-char = _{
-    !("\"" | "'" | "\\") ~ ANY
-    | "\\" ~ ("'" | "\"" | "\\" | "/")
-}
+cmd = ${  ANY*  }
 
 name = @{ (!WHITESPACE ~ ANY)+ }
 role = @{ name }
