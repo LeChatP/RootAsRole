@@ -12,7 +12,12 @@ use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
 use std::{
-    cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, rc::{Rc, Weak}
+    cell::RefCell,
+    cmp::Ordering,
+    error::Error,
+    fmt,
+    ops::{Index, Not},
+    rc::{Rc, Weak},
 };
 
 use crate::common::database::is_default;

@@ -8,7 +8,10 @@ use tracing::debug;
 
 use crate::common::database::finder::{Cred, ExecSettings, TaskMatch, UserMin};
 
-use super::database::{finder::FilterMatcher, structs::{SActor, SConfig, SRole, STask}};
+use super::database::{
+    finder::FilterMatcher,
+    structs::{SActor, SConfig, SRole, STask},
+};
 use once_cell::sync::Lazy;
 static API: Lazy<Mutex<PluginManager>> = Lazy::new(|| Mutex::new(PluginManager::new()));
 
@@ -36,7 +39,7 @@ pub type ConfigLoaded = fn(config: &SConfig);
 pub type RoleMatcher = fn(
     role: &SRole,
     user: &Cred,
-    filter : &Option<FilterMatcher>,
+    filter: &Option<FilterMatcher>,
     command: &[String],
     matcher: &mut TaskMatch,
 ) -> PluginResultAction;

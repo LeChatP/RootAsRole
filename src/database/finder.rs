@@ -277,7 +277,12 @@ impl Default for FilterMatcher {
 }
 
 pub trait TaskMatcher<T> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<T, MatchError>;
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<T, MatchError>;
 }
 
 pub trait CredMatcher {
@@ -539,7 +544,12 @@ fn get_setuid_min(
 }
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         if let Some(cmd_opt) = cmd_opt {
             if let Some(task) = &cmd_opt.task {
                 if task != &self.as_ref().borrow().name.to_string() {
@@ -552,7 +562,11 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
         let TaskMatch {
             mut score,
             mut settings,
-        } = self.as_ref().borrow().commands.matches(user, cmd_opt, command)?;
+        } = self
+            .as_ref()
+            .borrow()
+            .commands
+            .matches(user, cmd_opt, command)?;
         let capset = self
             .as_ref()
             .borrow()
@@ -583,7 +597,12 @@ fn get_default_behavior(commands: &Option<SetBehavior>) -> &SetBehavior {
 }
 
 impl TaskMatcher<TaskMatch> for SCommands {
-    fn matches(&self, _ : &Cred, _ : &Option<FilterMatcher>, input_command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        _: &Cred,
+        _: &Option<FilterMatcher>,
+        input_command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         let min_score: CmdMin;
         let mut settings = ExecSettings::new();
         // if the command is forbidden, we return NoMatch
@@ -635,15 +654,18 @@ fn match_groups(groups: &[Group], role_groups: &[SGroups]) -> bool {
     for role_group in role_groups {
         if match role_group {
             SGroups::Single(group) => {
-                debug!("Checking group {}, with {:?}, it must be {}", group, groups, groups.iter().any(|g| group == g));
+                debug!(
+                    "Checking group {}, with {:?}, it must be {}",
+                    group,
+                    groups,
+                    groups.iter().any(|g| group == g)
+                );
                 groups.iter().any(|g| group == g)
             }
-            SGroups::Multiple(multiple_actors) => {
-                multiple_actors.iter().all(|actor| {
-                    debug!("Checking group {}, with {:?}", actor, groups);
-                    groups.iter().any(|g| actor == g)
-                })
-            }
+            SGroups::Multiple(multiple_actors) => multiple_actors.iter().all(|actor| {
+                debug!("Checking group {}, with {:?}", actor, groups);
+                groups.iter().any(|g| actor == g)
+            }),
         } {
             return true;
         }
@@ -686,16 +708,19 @@ impl CredMatcher for Rc<RefCell<SRole>> {
         let min = matches.min().unwrap_or(UserMin::NoMatch);
         debug!(
             "Role {} : User {} matches with {:?}",
-            borrow.name,
-            user.user.name,
-            min
+            borrow.name, user.user.name, min
         );
         min
     }
 }
 
 impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         let mut min_task = TaskMatch::default();
         let mut nmatch = 0;
         for task in self.iter() {
@@ -733,7 +758,12 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
 }
 
 impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<SRole>>> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         let mut min_role = TaskMatch::default();
         let mut nmatch = 0;
         for role in self.iter() {
@@ -772,21 +802,26 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<SRole>>> {
 }
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         if let Some(cmd_opt) = cmd_opt {
             if let Some(role) = &cmd_opt.role {
                 if role != &self.as_ref().borrow().name {
                     return Err(MatchError::NoMatch);
                 }
             }
-        } 
+        }
         let borrow = self.as_ref().borrow();
         let mut min_role = TaskMatch::default();
         let user_min = self.user_matches(user);
         min_role.score.user_min = user_min;
-        
+
         let mut nmatch = 0;
-        
+
         match borrow.tasks.matches(user, cmd_opt, command) {
             Ok(task_match) => {
                 if !min_role.fully_matching()
@@ -804,7 +839,15 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
             }
         }
         min_role.score.user_min = user_min;
-        plugin_role_match(user_min, borrow, user, cmd_opt, command, &mut min_role, &mut nmatch);
+        plugin_role_match(
+            user_min,
+            borrow,
+            user,
+            cmd_opt,
+            command,
+            &mut min_role,
+            &mut nmatch,
+        );
         debug!(
             "==== Role {} ====\n score: {}",
             self.as_ref().borrow().name,
@@ -830,7 +873,7 @@ fn plugin_role_match(
     user_min: UserMin,
     borrow: std::cell::Ref<'_, SRole>,
     user: &Cred,
-    cmd_opt : &Option<FilterMatcher>,
+    cmd_opt: &Option<FilterMatcher>,
     command: &[String],
     min_role: &mut TaskMatch,
     nmatch: &mut i32,
@@ -862,7 +905,12 @@ fn plugin_role_match(
 }
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
-    fn matches(&self, user: &Cred, cmd_opt : &Option<FilterMatcher>, command: &[String]) -> Result<TaskMatch, MatchError> {
+    fn matches(
+        &self,
+        user: &Cred,
+        cmd_opt: &Option<FilterMatcher>,
+        command: &[String],
+    ) -> Result<TaskMatch, MatchError> {
         debug!(
             "Config : Matching user {} with command {:?}",
             user.user.name, command
