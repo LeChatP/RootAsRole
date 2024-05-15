@@ -17,10 +17,12 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    create_dir_all_with_privileges, create_with_privileges, dac_override_effective, database::{
+    create_dir_all_with_privileges, create_with_privileges, dac_override_effective,
+    database::{
         finder::Cred,
         options::{STimeout, TimestampType},
-    }, open_with_privileges, remove_with_privileges
+    },
+    open_with_privileges, remove_with_privileges,
 };
 
 /// This module checks the validity of a user's credentials
@@ -273,7 +275,7 @@ pub(crate) fn update_cookie(
         });
         cookies.insert(0, cookie);
         save_cookies(from, &cookies)?;
-    } 
+    }
     Ok(())
 }
 

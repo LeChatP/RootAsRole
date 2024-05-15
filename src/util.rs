@@ -127,13 +127,10 @@ where
     S: AsRef<str>,
 {
     s.into_iter()
-        .map(|s| {
-            escape_parser_string(s)
-        })
+        .map(|s| escape_parser_string(s))
         .collect::<Vec<String>>()
         .join(" ")
 }
-
 
 pub fn escape_parser_string<S>(s: S) -> String
 where
@@ -141,7 +138,6 @@ where
 {
     remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
 }
-
 
 fn remove_outer_quotes(input: &str) -> String {
     if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {

@@ -43,9 +43,9 @@ const PAM_PROMPT: &str = "Password: ";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
-//    "sr is a tool to execute privileged commands with a role-based access control system. 
-//It is designed to be used in a multi-user environment, 
-//where users can be assigned to different roles, 
+//    "sr is a tool to execute privileged commands with a role-based access control system.
+//It is designed to be used in a multi-user environment,
+//where users can be assigned to different roles,
 //and each role has a set of rights to execute commands.";
 
 const USAGE: &str = formatcp!(
@@ -258,14 +258,15 @@ fn from_json_execution_settings(
     }
 }
 
-fn getopt<S, I>(s: I) -> Result<Cli,Box<dyn Error>>
+fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     let mut args = Cli::default();
     let mut iter = s.into_iter().skip(1);
-    while let Some(arg) = iter.next() { // matches only first options
+    while let Some(arg) = iter.next() {
+        // matches only first options
         match arg.as_ref() {
             "-r" | "--role" => {
                 args.role = iter.next().map(|s| escape_parser_string(s));
@@ -274,7 +275,10 @@ where
                 args.task = iter.next().map(|s| escape_parser_string(s));
             }
             "-p" | "--prompt" => {
-                args.prompt = iter.next().map(|s| escape_parser_string(s)).unwrap_or_default();
+                args.prompt = iter
+                    .next()
+                    .map(|s| escape_parser_string(s))
+                    .unwrap_or_default();
             }
             "-i" | "--info" => {
                 args.info = true;
@@ -296,12 +300,10 @@ where
         args.command.push(escape_parser_string(arg));
     }
     Ok(args)
-
 }
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-
     subsribe("sr");
     drop_effective()?;
     register_plugins();
@@ -309,7 +311,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // for pair in grammar {
     //     recurse_pair(pair, &mut args)?;
     // }
-    
+
     if args.help {
         println!("{}", USAGE);
         return Ok(());
