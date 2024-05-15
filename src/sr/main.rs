@@ -3,7 +3,7 @@ mod common;
 mod timeout;
 
 use capctl::CapState;
-use common::database::finder::{Cred, TaskMatch, TaskMatcher};
+use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
 use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
 use common::util::escape_parser_string;
@@ -77,14 +77,12 @@ const USAGE: &str = formatcp!(
     RST = RST
 );
 
+
+
 #[derive(Debug)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
-    role: Option<String>,
-
-    /// Task option allows you to select a specific task to use in the selected role.
-    /// Note: You must specify a role to designate a task.
-    task: Option<String>,
+    opt_filter : Option<FilterMatcher>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
     prompt: String,
@@ -102,8 +100,7 @@ struct Cli {
 impl Default for Cli {
     fn default() -> Self {
         Cli {
-            role: None,
-            task: None,
+            opt_filter: None,
             prompt: PAM_PROMPT.to_string(),
             info: false,
             help: false,
@@ -224,39 +221,7 @@ fn from_json_execution_settings(
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
 ) -> Result<TaskMatch, Box<dyn Error>> {
-    match (&args.role, &args.task) {
-        (None, None) => config.matches(user, &args.command).map_err(|m| m.into()),
-        (Some(role), None) => as_borrow!(config)
-            .role(role)
-            .expect("Permission Denied")
-            .matches(user, &args.command)
-            .map_err(|m| m.into()),
-        (Some(role), Some(task)) => {
-            let task = IdTask::Name(task.to_string());
-            debug!("Trying to fing with Role: {}, Task: {}", role, task);
-            let res = as_borrow!(config)
-                .role(role)
-                .expect("Permission Denied")
-                .matches(user, &args.command)?;
-            if res.fully_matching() && res.settings.task().as_ref().borrow().name == task {
-                Ok(res)
-            } else if res.user_matching() {
-                let mut taskres = as_borrow!(config)
-                    .task(role, &task)
-                    .expect("Permission Denied")
-                    .matches(user, &args.command)?;
-                if taskres.command_matching() {
-                    taskres.score.user_min = res.score.user_min;
-                    Ok(taskres)
-                } else {
-                    Err("Permission Denied".into())
-                }
-            } else {
-                Err("Permission Denied".into())
-            }
-        }
-        (None, Some(_)) => Err("You must specify a role to designate a task".into()),
-    }
+    config.matches(user, &args.opt_filter, &args.command).map_err(|m| m.into())
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -270,10 +235,24 @@ where
         // matches only first options
         match arg.as_ref() {
             "-r" | "--role" => {
-                args.role = iter.next().map(|s| escape_parser_string(s));
+                if let Some(opt_filter) = args.opt_filter.as_mut() {
+                    opt_filter.role = iter.next().map(|s| escape_parser_string(s));
+                } else {
+                    args.opt_filter = Some(FilterMatcher {
+                        role: iter.next().map(|s| escape_parser_string(s)),
+                        task: None,
+                    });
+                }
             }
             "-t" | "--task" => {
-                args.task = iter.next().map(|s| escape_parser_string(s));
+                if let Some(opt_filter) = args.opt_filter.as_mut() {
+                    opt_filter.task = iter.next().map(|s| escape_parser_string(s));
+                } else {
+                    args.opt_filter = Some(FilterMatcher {
+                        task: iter.next().map(|s| escape_parser_string(s)),
+                        role: None,
+                    });
+                }
             }
             "-p" | "--prompt" => {
                 args.prompt = iter
@@ -335,7 +314,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let user = make_cred();
     let taskmatch = match config {
         Storage::JSON(ref config) => {
-            from_json_execution_settings(&args, config, &user).unwrap_or_default()
+            from_json_execution_settings(&args, config, &user).inspect_err(|e| {
+                error!("{}", e);
+            }).unwrap_or_default()
         }
     };
     let execcfg = &taskmatch.settings;
@@ -572,8 +553,7 @@ mod tests {
     #[test]
     fn test_from_json_execution_settings() {
         let mut args = Cli {
-            role: None,
-            task: None,
+            opt_filter: None,
             prompt: PAM_PROMPT.to_string(),
             info: false,
             help: false,
@@ -617,19 +597,20 @@ mod tests {
         make_weak_config(&config);
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.role = Some("role1".to_owned());
+        args.opt_filter = Some(FilterMatcher::default());
+        args.opt_filter.as_mut().unwrap().role = Some("role1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task1".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task2".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task2".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task3".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task3".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
-        args.role = None;
+        args.opt_filter.as_mut().unwrap().role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
     }
