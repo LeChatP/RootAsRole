@@ -1,7 +1,6 @@
-cli  = { SOI ~ chsr ~ args ~ EOI }
+cli  = { SOI ~ args ~ EOI }
 args = { help | list | role | options_operations }
 
-chsr      = _{ name }
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
 add       = { "add" | "create" }
@@ -80,7 +79,7 @@ cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
 cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
-cmd = ${  ((!NOT_ESCAPE_QUOTE) ~ ANY)+  }
+cmd = ${  ANY+  }
 
 // ========================
 // credentials
@@ -192,4 +191,4 @@ help = { "-h" | "--help" }
 
 NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\""|"'") }
 
-WHITESPACE       = _{ ((!NOT_ESCAPE_QUOTE) ~ SEPARATOR)+ }
+WHITESPACE       = _{ ((!NOT_ESCAPE_QUOTE) ~ SEPARATOR)+}

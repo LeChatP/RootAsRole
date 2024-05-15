@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     read_effective(false).expect("Operation not permitted");
 
-    if cli::main(&config, std::env::args()).is_ok_and(|b| b) {
+    if cli::main(&config, std::env::args().skip(1)).is_ok_and(|b| b) {
         match config {
             Storage::JSON(config) => {
                 debug!("Saving configuration");

@@ -121,23 +121,27 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
-pub fn escape_parser_string<S, I>(s: I) -> String
+pub fn escape_parser_string_vec<S, I>(s: I) -> String
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     s.into_iter()
         .map(|s| {
-            let s = remove_outer_quotes(s.as_ref());
-            if s.contains(' ') {
-                format!("\"{}\"", s.replace("\"", "\\\""))
-            } else {
-                s
-            }
+            escape_parser_string(s)
         })
         .collect::<Vec<String>>()
         .join(" ")
 }
+
+
+pub fn escape_parser_string<S>(s: S) -> String
+where
+    S: AsRef<str>,
+{
+    remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
+}
+
 
 fn remove_outer_quotes(input: &str) -> String {
     if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {

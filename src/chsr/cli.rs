@@ -1,9 +1,7 @@
 use std::{
     cell::RefCell,
     error::Error,
-    mem,
     ops::Deref,
-    process::Command,
     rc::{Rc, Weak},
     str::FromStr,
 };
@@ -12,7 +10,7 @@ use capctl::{Cap, CapSet};
 use chrono::Duration;
 use const_format::formatcp;
 use linked_hash_set::LinkedHashSet;
-use pest::{error::LineColLocation, iterators::Pair, Parser};
+use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
 use tracing::{debug, warn};
 
@@ -29,7 +27,7 @@ use crate::{
                 SetBehavior,
             },
         },
-        util::{escape_parser_string, parse_capset_iter, underline, BOLD, RED, RST, UNDERLINE},
+        util::{escape_parser_string_vec, underline, BOLD, RED, RST, UNDERLINE},
     },
     rc_refcell,
 };
@@ -216,7 +214,7 @@ struct Inputs {
     task_id: Option<IdTask>,
     task_type: Option<TaskType>,
     cmd_policy: Option<SetBehavior>,
-    cmd_id: Option<String>,
+    cmd_id: Option<Vec<String>>,
     cred_caps: Option<CapSet>,
     cred_setuid: Option<SActorType>,
     cred_setgid: Option<SGroups>,
@@ -265,14 +263,15 @@ impl Default for Inputs {
     }
 }
 
-fn recurse_pair(pair: Pair<Rule>, inputs: &mut Inputs) {
+fn recurse_pair(pair: Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Error>> {
     for inner_pair in pair.into_inner() {
-        match_pair(&inner_pair, inputs);
-        recurse_pair(inner_pair, inputs);
+        match_pair(&inner_pair, inputs)?;
+        recurse_pair(inner_pair, inputs)?;
     }
+    Ok(())
 }
 
-fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
+fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Error>> {
     match pair.as_rule() {
         Rule::help => {
             inputs.action = InputAction::Help;
@@ -460,8 +459,8 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             }
         }
         // === commands ===
-        Rule::inner => {
-            inputs.cmd_id = Some(pair.as_str().to_string());
+        Rule::cmd => {
+            inputs.cmd_id = Some(shell_words::split(pair.as_str())?);
         }
         // === credentials ===
         Rule::capability => {
@@ -575,6 +574,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) {
             debug!("Unmatched rule: {:?}", pair.as_rule());
         }
     }
+    Ok(())
 }
 
 fn rule_to_string(rule: &Rule) -> String {
@@ -595,13 +595,12 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::credentials_operations => "cred",
         Rule::cmd_checklisting => "whitelist, blacklist",
         Rule::cmd_policy => "allow-all or deny-all",
-        Rule::cmd | Rule::inner => "a command line",
+        Rule::cmd => "a command line",
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
         Rule::cred_caps_operations => "caps",
         Rule::cli => "a command line",
-        Rule::chsr => unreachable!(),
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
         Rule::opt_path => "path",
@@ -657,8 +656,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-
-    let args = escape_parser_string(args);
+    let args = escape_parser_string_vec(args);
     let args = Cli::parse(Rule::cli, &args);
     let args = match args {
         Ok(v) => v,
@@ -731,7 +729,7 @@ where
     };
     let mut inputs = Inputs::default();
     for pair in args {
-        recurse_pair(pair, &mut inputs);
+        recurse_pair(pair, &mut inputs)?;
     }
     debug!("Inputs : {:?}", inputs);
     match inputs {
@@ -1166,44 +1164,24 @@ where
                 debug!("chsr role r1 task t1 command whitelist add c1");
                 let config = rconfig.as_ref().borrow_mut();
                 let task = config.task(&role_id, &task_id)?;
+                let cmd = SCommand::Simple(shell_words::join(cmd_id.iter()));
                 match setlist_type {
                     SetListType::WhiteList => match action {
                         InputAction::Add => {
                             //verify if command exists
-                            if task
-                                .as_ref()
-                                .borrow()
-                                .commands
-                                .add
-                                .contains(&SCommand::Simple(cmd_id.clone()))
-                            {
+                            if task.as_ref().borrow().commands.add.contains(&cmd) {
                                 return Err("Command already exists".into());
                             }
-                            task.as_ref()
-                                .borrow_mut()
-                                .commands
-                                .add
-                                .push(SCommand::Simple(cmd_id));
+                            task.as_ref().borrow_mut().commands.add.push(cmd);
                         }
                         InputAction::Del => {
                             //if command is not in task, warns
-                            if !task
-                                .as_ref()
-                                .borrow()
-                                .commands
-                                .add
-                                .contains(&SCommand::Simple(cmd_id.clone()))
-                            {
-                                println!("Command {} not in task", cmd_id);
+                            if !task.as_ref().borrow().commands.add.contains(&cmd) {
+                                println!("Command {:?} not in task", cmd);
                             }
                             task.as_ref().borrow_mut().commands.add.retain(|c| {
-                                debug!(
-                                    "'{:?}' != '{:?}' : {}",
-                                    c,
-                                    &SCommand::Simple(cmd_id.clone()),
-                                    *c != SCommand::Simple(cmd_id.clone())
-                                );
-                                *c != SCommand::Simple(cmd_id.clone())
+                                debug!("'{:?}' != '{:?}' : {}", c, &cmd, *c != cmd);
+                                *c != cmd
                             });
                         }
                         _ => unreachable!("Unknown action"),
@@ -1211,37 +1189,21 @@ where
                     SetListType::BlackList => match action {
                         InputAction::Add => {
                             //verify if command exists
-                            if task
-                                .as_ref()
-                                .borrow()
-                                .commands
-                                .sub
-                                .contains(&SCommand::Simple(cmd_id.clone()))
-                            {
+                            if task.as_ref().borrow().commands.sub.contains(&cmd) {
                                 return Err("Command already exists".into());
                             }
-                            task.as_ref()
-                                .borrow_mut()
-                                .commands
-                                .sub
-                                .push(SCommand::Simple(cmd_id));
+                            task.as_ref().borrow_mut().commands.sub.push(cmd);
                         }
                         InputAction::Del => {
                             //if command is not in task, warns
-                            if !task
-                                .as_ref()
-                                .borrow()
-                                .commands
-                                .sub
-                                .contains(&SCommand::Simple(cmd_id.clone()))
-                            {
-                                println!("Command {} not in task", cmd_id);
+                            if !task.as_ref().borrow().commands.sub.contains(&cmd) {
+                                println!("Command {:?} not in task", cmd);
                             }
                             task.as_ref()
                                 .borrow_mut()
                                 .commands
                                 .sub
-                                .retain(|c| c != &SCommand::Simple(cmd_id.clone()));
+                                .retain(|c| c != &cmd);
                         }
                         _ => unreachable!("Unknown action"),
                     },
@@ -2085,7 +2047,7 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "--help"],
+            vec!["--help"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2096,7 +2058,7 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "r1", "create"],
+            vec!["r", "r1", "create"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2107,52 +2069,7 @@ mod tests {
         .is_ok_and(|b| b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "r1", "delete"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let settings = config::get_settings().expect("Failed to get settings");
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "show", "actors"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "show", "tasks"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "show", "all"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "purge", "actors"],
+            vec!["r", "r1", "delete"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2164,7 +2081,40 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "purge", "tasks"],
+            vec!["r", "complete", "show", "actors"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "show", "tasks"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "show", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| !b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "purge", "actors"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2176,7 +2126,19 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "purge", "all"],
+            vec!["r", "complete", "purge", "tasks"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "purge", "all"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2189,7 +2151,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "grant",
@@ -2212,7 +2173,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "revoke",
@@ -2234,7 +2194,7 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "show", "all"],
+            vec!["r", "complete", "task", "t_complete", "show", "all"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2245,7 +2205,7 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "task", "t_complete", "show", "cmd"],
+            vec!["r", "complete", "task", "t_complete", "show", "cmd"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2256,15 +2216,7 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "task",
-                "t_complete",
-                "show",
-                "cred"
-            ],
+            vec!["r", "complete", "task", "t_complete", "show", "cred"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2275,15 +2227,54 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "task",
-                "t_complete",
-                "purge",
-                "all"
-            ],
+            vec!["r", "complete", "task", "t_complete", "purge", "all"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "task", "t_complete", "purge", "cmd"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "task", "t_complete", "purge", "cred"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "t", "t1", "add"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "t", "t1", "del"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2296,70 +2287,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
-                "r",
-                "complete",
-                "task",
-                "t_complete",
-                "purge",
-                "cmd"
-            ],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let settings = config::get_settings().expect("Failed to get settings");
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "task",
-                "t_complete",
-                "purge",
-                "cred"
-            ],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let settings = config::get_settings().expect("Failed to get settings");
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t1", "add"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "t", "t1", "del"],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let settings = config::get_settings().expect("Failed to get settings");
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2380,7 +2307,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2401,7 +2327,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2423,7 +2348,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2448,7 +2372,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2470,7 +2393,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2491,7 +2413,7 @@ mod tests {
         // let settings = config::get_settings().expect("Failed to get settings");
         // assert!(main(
         //     &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-        //     vec!["chsr", "r", "complete", "t", "t_complete", "credentials", "show"],
+        //     vec![ "r", "complete", "t", "t_complete", "credentials", "show"],
         // )
         // .inspect_err(|e| {
         //     error!("{}", e);
@@ -2504,7 +2426,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2530,7 +2451,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2556,7 +2476,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2578,7 +2497,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2600,7 +2518,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2625,7 +2542,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2650,7 +2566,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2675,7 +2590,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2699,7 +2613,7 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "options", "show", "all"],
+            vec!["options", "show", "all"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2710,7 +2624,7 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "options", "show", "path"],
+            vec!["r", "complete", "options", "show", "path"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2721,7 +2635,7 @@ mod tests {
         .is_ok_and(|b| !b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "options", "show", "bounding"],
+            vec!["r", "complete", "options", "show", "bounding"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2733,16 +2647,7 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "t",
-                "t_complete",
-                "options",
-                "show",
-                "env"
-            ],
+            vec!["r", "complete", "t", "t_complete", "options", "show", "env"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -2754,7 +2659,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2774,7 +2678,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2794,7 +2697,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2814,7 +2716,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2836,7 +2737,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2858,7 +2758,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2880,7 +2779,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2902,7 +2800,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2924,7 +2821,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2947,7 +2843,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2970,7 +2865,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -2992,7 +2886,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3014,7 +2907,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3037,7 +2929,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3060,7 +2951,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3082,7 +2972,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3104,7 +2993,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3126,7 +3014,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3148,7 +3035,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3170,7 +3056,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3192,7 +3077,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3215,7 +3099,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3238,7 +3121,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3260,7 +3142,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3282,7 +3163,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3305,7 +3185,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3328,7 +3207,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3350,7 +3228,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3373,7 +3250,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3396,7 +3272,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3419,7 +3294,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3441,7 +3315,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3461,16 +3334,19 @@ mod tests {
         let settings = config::get_settings().expect("Failed to get settings");
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
-                "r",
-                "complete",
-                "t",
-                "t_complete",
-                "o",
-                "root",
-                "user"
-            ],
+            vec!["r", "complete", "t", "t_complete", "o", "root", "user"],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec!["r", "complete", "t", "t_complete", "o", "root", "inherit"],
         )
         .inspect_err(|e| {
             error!("{}", e);
@@ -3483,28 +3359,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
-                "r",
-                "complete",
-                "t",
-                "t_complete",
-                "o",
-                "root",
-                "inherit"
-            ],
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let settings = config::get_settings().expect("Failed to get settings");
-        assert!(main(
-            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3525,7 +3379,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3546,7 +3399,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3567,7 +3419,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3589,7 +3440,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3611,7 +3461,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3633,7 +3482,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3660,7 +3508,6 @@ mod tests {
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             vec![
-                "chsr",
                 "r",
                 "complete",
                 "t",
@@ -3682,7 +3529,7 @@ mod tests {
         .is_ok_and(|b| b));
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
-            vec!["chsr", "r", "complete", "tosk",],
+            vec!["r", "complete", "tosk",],
         )
         .inspect_err(|e| {
             error!("{}", e);

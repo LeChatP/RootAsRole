@@ -17,12 +17,10 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    create_with_privileges, dac_override_effective,
-    database::{
+    create_dir_all_with_privileges, create_with_privileges, dac_override_effective, database::{
         finder::Cred,
         options::{STimeout, TimestampType},
-    },
-    open_with_privileges,
+    }, open_with_privileges, remove_with_privileges
 };
 
 /// This module checks the validity of a user's credentials
@@ -101,13 +99,13 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
                     "Lockfile located at {:?} is empty, continuing...",
                     lockfile_path
                 );
-                fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
+                remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
                 return Ok(());
             }
             pid_contents = i32::from_be_bytes(be);
             if kill(nix::unistd::Pid::from_raw(pid_contents), None).is_err() {
                 debug!("Lockfile located at {:?} was owned by process {:?}, but not released, remove it, and continuing...", lockfile_path, pid_contents.to_string());
-                fs::remove_file(lockfile_path).expect("Failed to remove lockfile");
+                remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
                 return Ok(());
             }
         } else {
@@ -176,23 +174,15 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 }
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
+    debug!("Saving cookies: {:?}", cookies);
     let path = Path::new(TS_LOCATION).join(&user.user.name);
-    fs::create_dir_all(path.parent().unwrap()).or_else(|e| {
-        debug!(
-            "Failed to create directory for cookies: {}, trying with privileges",
-            e
-        );
-        dac_override_effective(true)?;
-        let res = fs::create_dir_all(path.parent().unwrap());
-        dac_override_effective(false)?;
-        res
-    })?;
+    create_dir_all_with_privileges(path.parent().unwrap())?;
     let lockpath = Path::new(TS_LOCATION)
         .join(&user.user.name)
         .with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     ciborium::ser::into_writer(cookies, &mut file)?;
-    if let Err(err) = fs::remove_file(lockpath) {
+    if let Err(err) = remove_with_privileges(lockpath) {
         debug!("Failed to remove lockfile: {}", err);
     }
     Ok(())
@@ -283,7 +273,7 @@ pub(crate) fn update_cookie(
         });
         cookies.insert(0, cookie);
         save_cookies(from, &cookies)?;
-    }
+    } 
     Ok(())
 }
 

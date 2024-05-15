@@ -6,6 +6,7 @@ use capctl::CapState;
 use common::database::finder::{Cred, TaskMatch, TaskMatcher};
 use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
+use common::util::escape_parser_string;
 use const_format::formatcp;
 use nix::{
     libc::dev_t,
@@ -15,9 +16,7 @@ use nix::{
 use pam_client::{Context, Flag};
 use pam_client::{ConversationHandler, ErrorCode};
 use pcre2::bytes::RegexBuilder;
-use pest_derive::Parser;
 use pty_process::blocking::{Command, Pty};
-use shell_words::ParseError;
 use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
@@ -31,12 +30,9 @@ use crate::common::{
     dac_override_effective,
     database::{read_json_config, structs::SGroups},
     read_effective, setgid_effective, setpcap_effective, setuid_effective,
-    util::{BOLD, RED, RST, UNDERLINE},
+    util::{BOLD, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
-
-use pest::iterators::Pair;
-use pest::Parser;
 
 #[cfg(not(test))]
 const PAM_SERVICE: &str = "sr";
@@ -45,16 +41,12 @@ const PAM_SERVICE: &str = "sr_test";
 
 const PAM_PROMPT: &str = "Password: ";
 
-#[derive(Parser, Debug)]
-#[grammar = "sr/cli.pest"]
-struct Grammar;
-
-const ABOUT: &str = "Execute privileged commands with a role-based access control system";
-const LONG_ABOUT: &str =
-    "sr is a tool to execute privileged commands with a role-based access control system. 
-It is designed to be used in a multi-user environment, 
-where users can be assigned to different roles, 
-and each role has a set of rights to execute commands.";
+//const ABOUT: &str = "Execute privileged commands with a role-based access control system";
+//const LONG_ABOUT: &str =
+//    "sr is a tool to execute privileged commands with a role-based access control system. 
+//It is designed to be used in a multi-user environment, 
+//where users can be assigned to different roles, 
+//and each role has a set of rights to execute commands.";
 
 const USAGE: &str = formatcp!(
     r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
@@ -185,38 +177,38 @@ impl ConversationHandler for SrConversationHandler {
     }
 }
 
-fn match_pair(pair: &Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
-    match pair.as_rule() {
-        Rule::role => {
-            inputs.role = Some(pair.as_str().to_string());
-        }
-        Rule::task => {
-            inputs.task = Some(pair.as_str().to_string());
-        }
-        Rule::prompt => {
-            inputs.prompt = pair.as_str().to_string();
-        }
-        Rule::info => {
-            inputs.info = true;
-        }
-        Rule::help => {
-            inputs.help = true;
-        }
-        Rule::command => {
-            inputs.command = shell_words::split(pair.as_str())?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
+// fn match_pair(pair: &Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+//     match pair.as_rule() {
+//         Rule::role => {
+//             inputs.role = Some(pair.as_str().to_string());
+//         }
+//         Rule::task => {
+//             inputs.task = Some(pair.as_str().to_string());
+//         }
+//         Rule::prompt => {
+//             inputs.prompt = pair.as_str().to_string();
+//         }
+//         Rule::info => {
+//             inputs.info = true;
+//         }
+//         Rule::help => {
+//             inputs.help = true;
+//         }
+//         Rule::command => {
+//             inputs.command = shell_words::split(pair.as_str())?;
+//         }
+//         _ => {}
+//     }
+//     Ok(())
+// }
 
-fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
-    for inner_pair in pair.into_inner() {
-        match_pair(&inner_pair, inputs)?;
-        recurse_pair(inner_pair, inputs)?;
-    }
-    Ok(())
-}
+// fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+//     for inner_pair in pair.into_inner() {
+//         match_pair(&inner_pair, inputs)?;
+//         recurse_pair(inner_pair, inputs)?;
+//     }
+//     Ok(())
+// }
 
 const CAPABILITIES_ERROR: &str =
     "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
@@ -266,35 +258,58 @@ fn from_json_execution_settings(
     }
 }
 
+fn getopt<S, I>(s: I) -> Result<Cli,Box<dyn Error>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = Cli::default();
+    let mut iter = s.into_iter().skip(1);
+    while let Some(arg) = iter.next() { // matches only first options
+        match arg.as_ref() {
+            "-r" | "--role" => {
+                args.role = iter.next().map(|s| escape_parser_string(s));
+            }
+            "-t" | "--task" => {
+                args.task = iter.next().map(|s| escape_parser_string(s));
+            }
+            "-p" | "--prompt" => {
+                args.prompt = iter.next().map(|s| escape_parser_string(s)).unwrap_or_default();
+            }
+            "-i" | "--info" => {
+                args.info = true;
+            }
+            "-h" | "--help" => {
+                args.help = true;
+            }
+            _ => {
+                if arg.as_ref().starts_with('-') {
+                    return Err(format!("Unknown option: {}", arg.as_ref()).into());
+                } else {
+                    args.command.push(escape_parser_string(arg));
+                    break;
+                }
+            }
+        }
+    }
+    while let Some(arg) = iter.next() {
+        args.command.push(escape_parser_string(arg));
+    }
+    Ok(args)
+
+}
+
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::common::util::{escape_parser_string, underline};
 
     subsribe("sr");
     drop_effective()?;
     register_plugins();
-    let grammar = escape_parser_string(std::env::args());
-    let grammar = Grammar::parse(Rule::cli, &grammar);
-    let grammar = match grammar {
-        Ok(v) => v,
-        Err(e) => {
-            println!("{}", USAGE);
-            println!(
-                "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
-                e.line(),
-                underline(&e),
-                e.variant.message(),
-                RED = RED,
-                BOLD = BOLD,
-                RST = RST
-            );
-            return Err(Box::new(e));
-        }
-    };
-    let mut args = Cli::default();
-    for pair in grammar {
-        recurse_pair(pair, &mut args);
-    }
+    let args = getopt(std::env::args())?;
+    // for pair in grammar {
+    //     recurse_pair(pair, &mut args)?;
+    // }
+    
     if args.help {
         println!("{}", USAGE);
         return Ok(());
@@ -331,7 +346,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "User {} tried to execute command : {:?} without the permission.",
             &user.user.name, args.command
         );
-        
+
         std::process::exit(1);
     }
 

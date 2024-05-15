@@ -277,7 +277,7 @@ impl Default for Opt {
             root: Some(SPrivileged::default()),
             bounding: Some(SBounding::default()),
             wildcard_denied: None,
-            timeout: Some(STimeout::default()),
+            timeout: None,
             _extra_fields: Map::default(),
             level: Level::Default,
         }
@@ -314,7 +314,7 @@ impl Default for SPathOptions {
 
 impl EnvKey {
     pub fn new(s: String) -> Result<Self, String> {
-        debug!("Creating env key: {}", s);
+        //debug!("Creating env key: {}", s);
         if Regex::new("^[a-zA-Z_]+[a-zA-Z0-9_]*$") // check if it is a valid env name
             .unwrap()
             .is_match(s.as_bytes())
