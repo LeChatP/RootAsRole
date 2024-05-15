@@ -233,6 +233,7 @@ fn from_json_execution_settings(
             .map_err(|m| m.into()),
         (Some(role), Some(task)) => {
             let task = IdTask::Name(task.to_string());
+            debug!("Trying to fing with Role: {}, Task: {}", role, task);
             let res = as_borrow!(config)
                 .role(role)
                 .expect("Permission Denied")

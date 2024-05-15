@@ -525,6 +525,7 @@ fn get_setuid_min(
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
     fn matches(&self, user: &Cred, command: &[String]) -> Result<TaskMatch, MatchError> {
+        debug!("Matching task {}", self.as_ref().borrow().name);
         let TaskMatch {
             mut score,
             mut settings,
@@ -563,6 +564,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
         let min_score: CmdMin;
         let mut settings = ExecSettings::new();
         // if the command is forbidden, we return NoMatch
+        debug!("Checking if command is forbidden");
         let is_forbidden = get_cmd_min(input_command, &self.sub);
         if !is_forbidden.is_empty() {
             debug!("Command is forbidden");
@@ -570,6 +572,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
         }
         // otherwise, we check if behavior is No command allowed by default
         if get_default_behavior(&self.default_behavior).is_none() {
+            debug!("Checking if command is allowed by default");
             // if the behavior is No command by default, we check if the command is allowed explicitly.
             min_score = get_cmd_min(input_command, &self.add);
             if min_score.is_empty() {
@@ -577,6 +580,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
             }
         } else {
             min_score = CmdMin::all();
+            debug!("Command is allowed by default");
         }
 
         if let Some(program) =
