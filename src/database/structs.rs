@@ -12,12 +12,7 @@ use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
 use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    error::Error,
-    fmt,
-    ops::{Index, Not},
-    rc::{Rc, Weak},
+    cell::RefCell, cmp::Ordering, error::Error, fmt, ops::{Index, Not}, rc::{Rc, Weak}
 };
 
 use crate::common::database::is_default;
@@ -58,11 +53,20 @@ pub struct SRole {
     pub _config: Option<Weak<RefCell<SConfig>>>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, EnumIs, Display, Clone)]
+#[derive(Serialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SActorType {
     Id(u32),
     Name(String),
+}
+
+impl std::fmt::Display for SActorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SActorType::Id(id) => write!(f, "{}", id),
+            SActorType::Name(name) => write!(f, "{}", name),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
@@ -70,6 +74,15 @@ pub enum SActorType {
 pub enum SGroups {
     Single(SActorType),
     Multiple(Vec<SActorType>),
+}
+
+impl SGroups {
+    pub fn len(&self) -> usize {
+        match self {
+            SGroups::Single(_) => 1,
+            SGroups::Multiple(groups) => groups.len(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]

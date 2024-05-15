@@ -632,9 +632,19 @@ impl TaskMatcher<TaskMatch> for SCommands {
 
 /// Check if user's groups is matching with any of the role's groups
 fn match_groups(groups: &[Group], role_groups: &[SGroups]) -> bool {
-    let str_groups: SGroups = groups.iter().map(|g| g.name.to_string()).collect();
     for role_group in role_groups {
-        if *role_group <= str_groups {
+        if match role_group {
+            SGroups::Single(group) => {
+                debug!("Checking group {}, with {:?}, it must be {}", group, groups, groups.iter().any(|g| group == g));
+                groups.iter().any(|g| group == g)
+            }
+            SGroups::Multiple(multiple_actors) => {
+                multiple_actors.iter().all(|actor| {
+                    debug!("Checking group {}, with {:?}", actor, groups);
+                    groups.iter().any(|g| actor == g)
+                })
+            }
+        } {
             return true;
         }
     }
@@ -660,7 +670,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
                 SActor::Group { groups, .. } => {
                     if let Some(groups) = groups.as_ref() {
                         if match_groups(&user.groups, &[groups.clone()]) {
-                            return Some(UserMin::GroupMatch(user.groups.len()));
+                            return Some(UserMin::GroupMatch(groups.len()));
                         }
                     }
                 }
@@ -673,19 +683,14 @@ impl CredMatcher for Rc<RefCell<SRole>> {
             }
             None
         });
-        if matches.any(|m| m.is_user_match()) {
-            UserMin::UserMatch
-        } else if matches.any(|m| m.is_group_match()) {
-            UserMin::GroupMatch(user.groups.len())
-        } else {
-            debug!(
-                "Role {} : No match for user {} or for groups {:?}",
-                self.as_ref().borrow().name,
-                user.user.name,
-                user.groups
-            );
-            UserMin::NoMatch
-        }
+        let min = matches.min().unwrap_or(UserMin::NoMatch);
+        debug!(
+            "Role {} : User {} matches with {:?}",
+            borrow.name,
+            user.user.name,
+            min
+        );
+        min
     }
 }
 
@@ -778,13 +783,10 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
         let borrow = self.as_ref().borrow();
         let mut min_role = TaskMatch::default();
         let user_min = self.user_matches(user);
-        debug!(
-            "==== Role {} ====\n score: {}",
-            self.as_ref().borrow().name,
-            min_role.score.prettyprint()
-        );
-        let mut nmatch = 0;
         min_role.score.user_min = user_min;
+        
+        let mut nmatch = 0;
+        
         match borrow.tasks.matches(user, cmd_opt, command) {
             Ok(task_match) => {
                 if !min_role.fully_matching()
@@ -803,7 +805,11 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
         }
         min_role.score.user_min = user_min;
         plugin_role_match(user_min, borrow, user, cmd_opt, command, &mut min_role, &mut nmatch);
-
+        debug!(
+            "==== Role {} ====\n score: {}",
+            self.as_ref().borrow().name,
+            min_role.score.prettyprint()
+        );
         if nmatch == 0 {
             Err(MatchError::NoMatch)
         } else if nmatch == 1 {
