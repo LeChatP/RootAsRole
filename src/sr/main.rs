@@ -77,12 +77,10 @@ const USAGE: &str = formatcp!(
     RST = RST
 );
 
-
-
 #[derive(Debug)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
-    opt_filter : Option<FilterMatcher>,
+    opt_filter: Option<FilterMatcher>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
     prompt: String,
@@ -221,7 +219,9 @@ fn from_json_execution_settings(
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
 ) -> Result<TaskMatch, Box<dyn Error>> {
-    config.matches(user, &args.opt_filter, &args.command).map_err(|m| m.into())
+    config
+        .matches(user, &args.opt_filter, &args.command)
+        .map_err(|m| m.into())
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -313,11 +313,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let user = make_cred();
     let taskmatch = match config {
-        Storage::JSON(ref config) => {
-            from_json_execution_settings(&args, config, &user).inspect_err(|e| {
+        Storage::JSON(ref config) => from_json_execution_settings(&args, config, &user)
+            .inspect_err(|e| {
                 error!("{}", e);
-            }).unwrap_or_default()
-        }
+            })
+            .unwrap_or_default(),
     };
     let execcfg = &taskmatch.settings;
 
