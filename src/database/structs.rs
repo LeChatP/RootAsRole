@@ -475,7 +475,7 @@ impl core::fmt::Display for SGroups {
 impl SCapabilities {
     pub fn to_capset(&self) -> CapSet {
         let mut capset = match self.default_behavior {
-            SetBehavior::All => CapSet::not(CapSet::empty()),
+            SetBehavior::All => capctl::bounding::probe() & CapSet::not(CapSet::empty()),
             SetBehavior::None => CapSet::empty(),
         };
         capset = capset.union(self.add);

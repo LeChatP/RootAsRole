@@ -431,6 +431,11 @@ fn make_cred() -> Cred {
 fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
     //set capabilities
     if let Some(caps) = execcfg.caps {
+        // case where capabilities are more than bounding set
+        let bounding = capctl::bounding::probe();
+        if bounding & caps != caps {
+            panic!("Capabilities are more than bounding set! You may are in a container or already in a RootAsRole session.");
+        }
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
         if !optstack.get_bounding().1.is_ignore() {
@@ -440,6 +445,7 @@ fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: 
         }
         capstate.permitted = caps;
         capstate.inheritable = caps;
+        debug!("caps : {:?}", caps);
         capstate.set_current().expect("Failed to set current cap");
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
