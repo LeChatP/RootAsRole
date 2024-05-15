@@ -434,7 +434,7 @@ fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: 
         // case where capabilities are more than bounding set
         let bounding = capctl::bounding::probe();
         if bounding & caps != caps {
-            panic!("Capabilities are more than bounding set! You may are in a container or already in a RootAsRole session.");
+            panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
         }
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
