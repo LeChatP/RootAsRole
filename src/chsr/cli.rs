@@ -1836,7 +1836,7 @@ mod tests {
 
     #[test]
     fn test_grant() {
-        let inputs = get_inputs("chsr role r1 grant -u u1 -u u2 -g g1,g2");
+        let inputs = get_inputs("role r1 grant -u u1 -u u2 -g g1,g2");
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.action, InputAction::Add);
         assert_eq!(
@@ -1851,20 +1851,20 @@ mod tests {
 
     #[test]
     fn test_list_roles() {
-        let inputs = get_inputs("chsr list");
+        let inputs = get_inputs("list");
         assert_eq!(inputs.action, InputAction::List);
     }
 
     #[test]
     fn test_list_role() {
-        let inputs = get_inputs("chsr role r1 show");
+        let inputs = get_inputs("role r1 show");
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
     }
 
     #[test]
     fn test_list_role_actors() {
-        let inputs = get_inputs("chsr r r1 l actors");
+        let inputs = get_inputs("r r1 l actors");
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::Actors));
@@ -1872,7 +1872,7 @@ mod tests {
 
     #[test]
     fn test_list_role_tasks() {
-        let inputs = get_inputs("chsr r r1 l tasks");
+        let inputs = get_inputs("r r1 l tasks");
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::Tasks));
@@ -1880,7 +1880,7 @@ mod tests {
 
     #[test]
     fn test_list_role_all() {
-        let inputs = get_inputs("chsr r r1 l all");
+        let inputs = get_inputs("r r1 l all");
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::All));
