@@ -94,6 +94,18 @@ impl ExecSettings {
     }
 }
 
+impl PartialEq for ExecSettings {
+    fn eq(&self, other: &Self) -> bool {
+        // We ignore the task field
+        self.exec_path == other.exec_path
+            && self.exec_args == other.exec_args
+            && self.opt == other.opt
+            && self.setuid == other.setuid
+            && self.setgroups == other.setgroups
+            && self.caps == other.caps
+    }
+}
+
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs)]
 #[repr(u32)]
 pub enum UserMin {
@@ -375,8 +387,8 @@ fn match_args(input_args: &[String], role_args: &[String]) -> Result<CmdMin, Box
     if role_args[0] == ".*" {
         return Ok(CmdMin::FullRegexArgs);
     }
-    let commandline = shell_words::join(input_args);
-    let role_args = shell_words::join(role_args);
+    let commandline = input_args.join(" ");
+    let role_args = role_args.join(" ");
     debug!("Matching args {:?} with {:?}", commandline, role_args);
     if commandline != role_args {
         debug!("test regex");
@@ -733,7 +745,9 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
                         task_match.settings.task = Rc::downgrade(task);
                         min_task = task_match;
                         nmatch = 1;
-                    } else if task_match.score == min_task.score {
+                    } else if task_match.score == min_task.score
+                        && task_match.settings != min_task.settings
+                    {
                         nmatch += 1;
                     }
                 }
@@ -747,6 +761,7 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
                 },
             }
         }
+        debug!("nmatch = {}", nmatch);
         if nmatch == 0 {
             Err(MatchError::NoMatch)
         } else if nmatch == 1 {

@@ -1011,6 +1011,31 @@ impl OptStack {
     }
 }
 
+impl PartialEq for OptStack {
+    fn eq(&self, other: &Self) -> bool {
+        // we must assess that every option result in the same final result
+        let (final_behavior, final_add, final_sub) = self.get_final_path();
+        let (other_final_behavior, other_final_add, other_final_sub) = other.get_final_path();
+        final_behavior != other_final_behavior
+            || final_add
+                .as_ref()
+                .borrow()
+                .difference(&other_final_add.as_ref().borrow())
+                .count()
+                != 0
+            || final_sub
+                .as_ref()
+                .borrow()
+                .difference(&other_final_sub.as_ref().borrow())
+                .count()
+                != 0
+            || self.get_root_behavior().1 != other.get_root_behavior().1
+            || self.get_bounding().1 != other.get_bounding().1
+            || self.get_wildcard().1 != other.get_wildcard().1
+            || self.get_timeout().1 != other.get_timeout().1
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
