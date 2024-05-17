@@ -168,7 +168,7 @@ fn union_all_childs(
     let mut result = CapSet::empty();
     for ns in graph.get(&nsinode).unwrap_or(&Vec::new()) {
         result = result.union(ns.1);
-        if graph.contains_key(&ns.0) {
+        if graph.contains_key(&ns.0) && ns.0 != nsinode {
             result = result.union(union_all_childs(ns.0, graph));
         }
     }
@@ -184,13 +184,10 @@ fn print_program_capabilities<T>(
 where
     T: Borrow<MapData>,
 {
-    debug!("STEP1");
     let mut graph = std::collections::HashMap::new();
     let mut init = CapSet::empty();
     for key in capabilities_map.keys() {
         let pid = key?;
-        debug!("STEP2");
-
         let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
         let child = pinum_inum as u32;
         let parent = (pinum_inum >> 32) as u32;
@@ -198,14 +195,11 @@ where
             child,
             caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0)),
         ));
-        debug!("STEP3");
         if child == *nsinode {
             init = caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0));
         }
     }
-    debug!("STEP4");
     let result = init.union(union_all_childs(*nsinode, &graph));
-    debug!("STEP5");
     if json {
         println!("{}", serde_json::to_string(&capset_to_vec(&result))?);
     } else {
