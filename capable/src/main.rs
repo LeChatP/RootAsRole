@@ -70,7 +70,6 @@ impl Default for Cli {
             command: Vec::new(),
         }
     }
-
 }
 
 #[derive(Tabled, Serialize, Deserialize)]
@@ -87,7 +86,6 @@ struct CapabilitiesTable {
 }
 
 const MAX_CHECK: u64 = 10;
-
 
 pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
     set.iter().map(|c| format!("CAP_{:?}", c)).collect()
@@ -396,10 +394,12 @@ async fn main() -> Result<(), anyhow::Error> {
     program.load()?;
     program.attach("cap_capable", 0)?;
 
-    let mut cli_args = getopt(std::env::args()).map_err(|e| {
-        eprintln!("{}", e);
-        exit(-1);
-    }).unwrap();
+    let mut cli_args = getopt(std::env::args())
+        .map_err(|e| {
+            eprintln!("{}", e);
+            exit(-1);
+        })
+        .unwrap();
     let capabilities_map: HashMap<_, Key, u64> =
         HashMap::try_from(bpf.map("CAPABILITIES_MAP").unwrap())?;
     let pnsid_nsid_map: HashMap<_, Key, u64> =
