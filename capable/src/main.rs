@@ -15,11 +15,11 @@ use aya::maps::{HashMap, MapData};
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
-use capctl::{Cap, CapSet, CapState, Secbits};
+use capctl::{Cap, CapSet};
 use clap::Parser;
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
-use nix::unistd::{getgroups, getresuid, getuid, Uid};
+use nix::unistd::Uid;
 use serde::{Deserialize, Serialize};
 use tabled::settings::object::Columns;
 
@@ -27,7 +27,7 @@ use tabled::settings::{Modify, Style, Width};
 use tabled::{Table, Tabled};
 use tokio::runtime::Runtime;
 use tokio::signal;
-use unshare::{Signal, UidMap};
+use unshare::Signal;
 
 type Key = i32;
 
@@ -184,10 +184,12 @@ fn print_program_capabilities<T>(
 where
     T: Borrow<MapData>,
 {
+    debug!("STEP1");
     let mut graph = std::collections::HashMap::new();
     let mut init = CapSet::empty();
     for key in capabilities_map.keys() {
         let pid = key?;
+        debug!("STEP2");
 
         let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
         let child = pinum_inum as u32;
@@ -196,11 +198,14 @@ where
             child,
             caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0)),
         ));
+        debug!("STEP3");
         if child == *nsinode {
             init = caps_from_u64(capabilities_map.get(&pid, 0).unwrap_or(0));
         }
     }
+    debug!("STEP4");
     let result = init.union(union_all_childs(*nsinode, &graph));
+    debug!("STEP5");
     if json {
         println!("{}", serde_json::to_string(&capset_to_vec(&result))?);
     } else {
@@ -503,6 +508,7 @@ async fn main() -> Result<(), anyhow::Error> {
             .unwrap()
             .wait()
             .expect("failed to wait on child");
+        debug!("child exited with {:?}", exit_status);
         //print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
         print_program_capabilities(
             &nsinode.as_ref().borrow(),

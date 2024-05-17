@@ -1,6 +1,5 @@
 use std::{
     error::Error,
-    fs,
     io::{BufReader, Read, Write},
     path::Path,
     thread::sleep,
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::common::{
-    create_dir_all_with_privileges, create_with_privileges, dac_override_effective,
+    create_dir_all_with_privileges, create_with_privileges,
     database::{
         finder::Cred,
         options::{STimeout, TimestampType},

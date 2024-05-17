@@ -692,7 +692,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
             warn!("You are forbidden to use a role due to a conflict of interest, please contact your administrator");
             return UserMin::NoMatch;
         }
-        let mut matches = borrow.actors.iter().filter_map(|actor| {
+        let matches = borrow.actors.iter().filter_map(|actor| {
             match actor {
                 SActor::User { id, .. } => {
                     if let Some(id) = id {

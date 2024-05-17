@@ -4,7 +4,6 @@ mod timeout;
 
 use capctl::CapState;
 use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
-use common::database::structs::IdTask;
 use common::database::{options::OptStack, structs::SConfig};
 use common::util::escape_parser_string;
 use const_format::formatcp;
