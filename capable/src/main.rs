@@ -60,6 +60,19 @@ struct Cli {
     command: Vec<String>,
 }
 
+impl Default for Cli {
+    fn default() -> Self {
+        Cli {
+            sleep: None,
+            daemon: false,
+            privileged: false,
+            json: false,
+            command: Vec::new(),
+        }
+    }
+
+}
+
 #[derive(Tabled, Serialize, Deserialize)]
 #[tabled(rename_all = "UPPERCASE")]
 struct CapabilitiesTable {
@@ -75,32 +88,6 @@ struct CapabilitiesTable {
 
 const MAX_CHECK: u64 = 10;
 
-fn add_dashes() -> Vec<String> {
-    //get current argv
-    let mut args = std::env::args().collect::<Vec<_>>();
-    debug!("args : {:?}", args);
-    let mut i = -1;
-    //iter through args until we find no dash
-    let mut iter = args.iter().enumerate();
-    iter.next();
-    while let Some((pos, arg)) = iter.next() {
-        if arg.starts_with('-') {
-            if arg == "-s" {
-                iter.next();
-            }
-            continue;
-        } else {
-            // add argument at this position
-            i = pos as i32;
-            break;
-        }
-    }
-    if i > -1 {
-        args.insert(i as usize, String::from("--"));
-    }
-    debug!("final args : {:?}", args);
-    args
-}
 
 pub fn capset_to_vec(set: &CapSet) -> Vec<String> {
     set.iter().map(|c| format!("CAP_{:?}", c)).collect()
@@ -320,6 +307,60 @@ where
     Ok(())
 }
 
+fn remove_outer_quotes(input: &str) -> String {
+    if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else if input.len() >= 2 && input.starts_with('\'') && input.ends_with('\'') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else {
+        input.to_string()
+    }
+}
+
+pub fn escape_parser_string<S>(s: S) -> String
+where
+    S: AsRef<str>,
+{
+    remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
+}
+
+fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = Cli::default();
+    let mut iter = s.into_iter().skip(1);
+    while let Some(arg) = iter.next() {
+        match arg.as_ref() {
+            "-s" | "--sleep" => {
+                args.sleep = iter.next().and_then(|s| s.as_ref().parse::<u64>().ok());
+            }
+            "-d" | "--daemon" => {
+                args.daemon = true;
+            }
+            "-p" | "--privileged" => {
+                args.privileged = true;
+            }
+            "-j" | "--json" => {
+                args.json = true;
+            }
+            _ => {
+                if arg.as_ref().starts_with('-') {
+                    return Err(format!("Unknown option: {}", arg.as_ref()).into());
+                } else {
+                    args.command.push(escape_parser_string(arg));
+                    break;
+                }
+            }
+        }
+    }
+    while let Some(arg) = iter.next() {
+        args.command.push(escape_parser_string(arg));
+    }
+    Ok(args)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
@@ -355,8 +396,10 @@ async fn main() -> Result<(), anyhow::Error> {
     program.load()?;
     program.attach("cap_capable", 0)?;
 
-    let args = add_dashes();
-    let mut cli_args = Cli::parse_from(args.iter());
+    let mut cli_args = getopt(std::env::args()).map_err(|e| {
+        eprintln!("{}", e);
+        exit(-1);
+    }).unwrap();
     let capabilities_map: HashMap<_, Key, u64> =
         HashMap::try_from(bpf.map("CAPABILITIES_MAP").unwrap())?;
     let pnsid_nsid_map: HashMap<_, Key, u64> =
