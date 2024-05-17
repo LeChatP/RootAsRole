@@ -15,7 +15,7 @@
 </p>
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0-alpha.4) : A memory-safe and security-oriented alternative to sudo/su commands
+#  RootAsRole (V3.0.0-alpha.4) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
@@ -32,6 +32,7 @@
   * [glob](https://docs.rs/glob/latest/glob/) for binary path
   * [PCRE2](https://www.pcre.org/) for command arguments
 
+## <img src="https://lechatp.github.io/RootAsRole/favicon.svg" width="20px"/>  You can find every interesting resources using [the RootAsRole User/Knowledge/Reference Guide Book](https://lechatp.github.io/RootAsRole/).</h2>
 
 ## Installation
 
@@ -39,13 +40,13 @@
 
 Requirement: rustc >= 1.70.0
 
-  1. git clone <https://github.com/LeChatP/RootAsRole>
-  1. cd RootAsRole
-  1. . ./dependencies.sh
-  1. sudo ./configure.sh
-  1. make install
+  1. `git clone <https://github.com/LeChatP/RootAsRole>`
+  1. `cd RootAsRole`
+  1. `. ./dependencies.sh`
+  1. `sudo ./configure.sh`
+  1. `make install`
 
-Note: The `dependencies.sh` installs `cargo` and `bpf-linker` rust programs manually into `/usr/local/bin`. You can refuse to install it this way, but these are mandatory to build the program. Depending on your distribution or how you want to install this software, you may know that most rust binaries are installed to `$HOME/.cargo/bin`. When you use sudo to configure, these binaries are installed in the effective user home directory. You may need to move these binaries to a known-user path. 
+**[What does the installation do?](https://lechatp.github.io/RootAsRole/guide/installation.html#what-does-the-installation-script-do)**
 
 > [!WARNING]
 > **This installation process gives by default the entire privileges set for the user which execute sudo. This means that the user which install this program will be privileged.**
@@ -75,61 +76,40 @@ If you're accustomed to utilizing the sudo tool and find it difficult to break t
 alias sudo="sr"
 ```
 
-```sh
-sr chattr -i /etc/security/rootasrole.xml
-sr nano /etc/security/rootasrole.xml
-```
+However you won't find out exact same options as sudo, you can use the `--role` option to specify the role you want to use instead.
 
-This will remove immutable bit flag on the configuration and open text editor for the configuration file.
-
-### How to find out the privileges needed for your command
-
-Use `capable` program, it will listen every capabilities requests and display them to you.
-
-
-## Feedback
-
-You may give us your feedbacks  about RootAsRole here:
-
-<https://docs.google.com/forms/d/e/1FAIpQLSfwXISzDaIzlUe42pas2rGZi7SV5QvUXXcDM9_GknPa8AdpFg/viewform>
-
-## Video presentation of the version 1.0 (in French)
-
-<https://www.youtube.com/watch?v=2Y8hTI912zQ>
 
 ## Why do you need this tool ?
 
-Traditionally, administering Linux systems is based on the existence of one powerful user (called superuser) who detains alone the complete list of the system's privileges. However, this administrative model is not respecting the least privilege principle because all programs executed in the context of the superuser obtain much more privileges than they need. For example, tcpdump, a tool for sniffing network packets, requires network capabilities to run. However, by executing it in the context of superuser, tcpdump obtains the complete list of systems' privileges, event reboot functionnality. Thus, the traditional approach of Linux administration breaks the principle of the least privilege that ensures that a process must have the least privileges necessary to perform its job (i.e., sniff packet networks). As a result, an attacker may exploit the vulnerabilities of tcpdump to compromise the whole system when the process of tcpdump possesses the complete list of root privileges.
+Traditional Linux system administration relies on a single powerful user, the superuser (root), who holds all system privileges. This model does not adhere to the principle of least privilege, as any program executed with superuser rights gains far more privileges than necessary. For example, `tcpdump`, a tool for sniffing network packets, only needs network capabilities. However, when run as the superuser, tcpdump gains all system privileges, including the ability to reboot the system. This excessive privilege can be exploited by attackers to compromise the entire system if tcpdump has vulnerabilities.
 
-RootAsRole module implements a role-based approach for distributing Linux capabilities to users. Our module contains the sr (switch role) tool that allows users to control the list of privileges they give to programs. Thus, with our module, users can stop using sudo and su commands that don't allow controlling the list of privileges granted to programs. Some tools already permit control of the list of privileges to give to programs, such as setcap and pam_cap module. However, these tools necessitate the use of extended attributes to store privileges. Storing privileges in extended attributes causes many different problems (see below motivation scenarios). Our module allows assigning Linux capabilities without the need to store the Linux capabilities in the extended attributes of executable files. Our work leverages a new capability set added to the Linux kernel, Ambient Set.
+The RootAsRole project offers a role-based approach for managing Linux capabilities. It includes the sr (switch role) tool, which allows users to control the specific privileges assigned to programs. This project eliminates the need for sudo and su commands, which do not provide fine-grained control over privileges.
 
-Our module is compatible with LSM modules (SELinux, AppArmor, etc.) and pam_cap.so. So administrators can continue using pam_cap.so along with our module. Finally, the RootAsRole module includes the capable tool, which helps Linux users know the privileges an application asks for.
+While tools like `setcap` and the `pam_cap` module also manage privileges, they only handle this specific function, which is for limited administrative usages. For example, when you need to use `apt` to install a package, you may not only need cap_dac_override (to read/write files arbitrary) but also to change effective user ID to root. Indeed, without the setuid, every installed file configuration will be owned by the user who executed the command, making file configuration owners inconsistent. This is why the RootAsRole project is essential for managing the entire user credential structure.
 
-## How do we solve Role conflicts ?
+Additionnally, `setcap` is applied to the binary file, which means that the capabilities are fixed for every program use-case. This is not ideal for a multi-user system, where different users may need different capabilities for the same program.
 
-As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
+Furthermore, the `pam_cap` module is applied to the PAM user session, which means that the capabilities are fixed for every user's session. This is not ideal as administrator do not need these capabilities for every commands and every sessions.
 
-* Find all the roles that match the user id assignment or the group id, and the command input
-* Within the matching roles, select the one that is the most precise and least privileged :
-   1. user assignment is more precise than the combination of group assignment
-   1. the combination of group assignment is more precise than single group assignment
-   1. exact command is more precise than command with regex argument
-   1. command with regex argument is more precise than a wildcarded command path
-   1. wildcarded command path is more precise than wildcarded command path and regex args
-   1. wildcarded command path and regex args is more precise than complete wildcard
-   1. A role granting no capability is less privileged than one granting at least one capability
-   1. A role granting no insecure capability is less privileged than one at least one insecure capability
-   1. A role granting insecure capability is less privileged than one granting all capabilities.
-   1. A role without setuid is less privileged than one has setuid.
-   1. if no root is disabled, a role without 'root' setuid is less privileged than a role with 'root' setuid
-   1. A role without setgid is less privileged than one has setgid.
-   1. A role with a single setgid is less privileged than one that set multiple gid.
-   1. if no root is disabled, A role with multiple setgid is less privileged than one that set root gid
-   1. if no root is disabled, A role with root setgid is less privileged than one that set multiple gid, particularly using root group
-   1. A role that enables root privileges is less privileged than one which disables root privileges (see "no-root" feature)
-   1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
+The RootAsRole project is compatible with LSM (Linux Security Modules) such as SELinux and AppArmor, as well as pam_cap.so. Administrators can continue using pam_cap.so alongside our module. Additionally, the module includes the capable tool, which helps users identify the privileges required by an application.
 
-After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
+### How to configure RootAsRole
+
+You can configure RootAsRole with the `chsr` command. This command permits you to create roles, tasks, and assign them to users or groups. You can find more information about this command in the [Configure RootAsRole](https://lechatp.github.io/RootAsRole/chsr/index.html) section.
+
+#### How to Find Out the Privileges Needed for Your Command
+
+To determine the privileges required for your command, you can use the capable program. This tool listens for capability requests and displays them to you. Here’s how to use it effectively:
+
+1. **Run the capable program**: It will monitor and display all capability requests made by your command.
+
+1. **Analyze the output**: Pay close attention to the capabilities requested. It's common to see capabilities like CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH because many programs attempt to access files the user doesn't have permission to read. However, these capabilities are often not essential. Additionally, be aware that the Linux kernel may return the cap_sys_admin capability, even if it is not necessary.
+
+1. **Filter unnecessary capabilities**: Determine if the requested capabilities are truly needed. If they are not, consider switching to an appropriate user with the necessary access rights.
+
+1. **Handle missing privileges**: If your program fails to execute due to missing privileges, try granting the specific missing privileges one at a time. Test the program after each change until it works as expected.
+
+By following these steps, you can identify and manage the necessary privileges for your command more effectively.
 
 ## Tested Platforms
 
@@ -138,17 +118,6 @@ Our module has been tested on:
 * Ubuntu>=16.04
 * Debian>=10
 * ArchLinux
-
-After the installation you will find a file called rootasrole.xml in the /etc/security directory. You could configure it with `chsr` command or you could configure this file in order to define the set of roles and assign them to users or group of users on your system. Once configuration is done, a user can assume a role using the ‘sr’ tool  that is installed with our package.
-
-## Capable Tool
-
-Since V2.0 of RootAsRole, we created a new tool that permits to retrieve capabilities asked by a program or a service. This can be very important when a user wants to configure the sr tool in order to inject the capabilities requested by a program.  Please note that you should pay attention to the output of the tool, especially with regards the cap_sys_admin capability. In most cases, programs don't need this capability but we show it because this what Linux kernel returns to the capable tool.
-
-
-## [Motivations and Some Working Scenarios](https://github.com/SamerW/RootAsRole/wiki/Motivations-and-Some-Working-Scenarios)
-
-## [How sr and sr_aux work?](https://github.com/SamerW/RootAsRole/wiki/How-sr-and-sr_aux-work)
 
 ## Contributors
 
