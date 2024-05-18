@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::common::{
     api::{PluginManager, PluginResultAction},
     database::{
-        finder::{Cred, TaskMatch, TaskMatcher},
+        finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
         structs::SRole,
     },
 };
@@ -23,6 +23,7 @@ fn get_parents(role: &SRole) -> Option<Result<Parents, serde_json::Error>> {
 fn find_in_parents(
     role: &SRole,
     user: &Cred,
+    filter: &Option<FilterMatcher>,
     command: &[String],
     matcher: &mut TaskMatch,
 ) -> PluginResultAction {
@@ -38,7 +39,7 @@ fn find_in_parents(
             for parent in parents.0.iter() {
                 if let Some(role) = config.as_ref().borrow().role(parent) {
                     debug!("Checking parent role {}", parent);
-                    match role.as_ref().borrow().tasks.matches(user, command) {
+                    match role.as_ref().borrow().tasks.matches(user, filter, command) {
                         Ok(matches) => {
                             debug!("Parent role {} matched", parent);
                             if !matcher.command_matching()
@@ -131,6 +132,7 @@ mod tests {
         let res = find_in_parents(
             &config.as_ref().borrow().roles[1].as_ref().borrow(),
             &cred,
+            &None,
             &["ls".to_string()],
             &mut matcher,
         );
@@ -179,7 +181,7 @@ mod tests {
         };
         let mut matcher = TaskMatch::default();
         matcher.score.user_min = UserMin::UserMatch;
-        let matches = config.matches(&cred, &["ls".to_string()]).unwrap();
+        let matches = config.matches(&cred, &None, &["ls".to_string()]).unwrap();
         assert_eq!(
             matches.settings.task.upgrade().unwrap(),
             config.as_ref().borrow().roles[0].as_ref().borrow().tasks[0].clone()

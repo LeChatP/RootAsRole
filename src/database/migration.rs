@@ -135,3 +135,103 @@ where {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use semver::Version;
+
+    #[test]
+    fn test_migration() {
+        let mut doc = 0;
+        let migrations = vec![
+            Migration {
+                from: || Version::parse("1.0.0").unwrap(),
+                to: || Version::parse("2.0.0").unwrap(),
+                up: |_, doc| {
+                    *doc += 1;
+                    Ok(())
+                },
+                down: |_, doc| {
+                    *doc -= 1;
+                    Ok(())
+                },
+            },
+            Migration {
+                from: || Version::parse("2.0.0").unwrap(),
+                to: || Version::parse("3.0.0-alpha.1").unwrap(),
+                up: |_, doc| {
+                    *doc += 1;
+                    Ok(())
+                },
+                down: |_, doc| {
+                    *doc -= 1;
+                    Ok(())
+                },
+            },
+            Migration {
+                from: || Version::parse("3.0.0-alpha.1").unwrap(),
+                to: || Version::parse(PACKAGE_VERSION).unwrap(),
+                up: |_, doc| {
+                    *doc += 1;
+                    Ok(())
+                },
+                down: |_, doc| {
+                    *doc -= 1;
+                    Ok(())
+                },
+            },
+            Migration {
+                from: || Version::parse(PACKAGE_VERSION).unwrap(),
+                to: || Version::parse("4.0.0").unwrap(),
+                up: |_, doc| {
+                    *doc += 1;
+                    Ok(())
+                },
+                down: |_, doc| {
+                    *doc -= 1;
+                    Ok(())
+                },
+            },
+        ];
+        assert_eq!(
+            Migration::migrate(&Version::parse("1.0.0").unwrap(), &mut doc, &migrations).unwrap(),
+            true
+        );
+        assert_eq!(doc, 3);
+        doc = 0;
+        assert_eq!(
+            Migration::migrate(&Version::parse("2.0.0").unwrap(), &mut doc, &migrations).unwrap(),
+            true
+        );
+        assert_eq!(doc, 2);
+        doc = 0;
+        assert_eq!(
+            Migration::migrate(
+                &Version::parse("3.0.0-alpha.1").unwrap(),
+                &mut doc,
+                &migrations
+            )
+            .unwrap(),
+            true
+        );
+        assert_eq!(doc, 1);
+        doc = 0;
+        assert_eq!(
+            Migration::migrate(&Version::parse("4.0.0").unwrap(), &mut doc, &migrations).unwrap(),
+            true
+        );
+        assert_eq!(doc, -1);
+        doc = 0;
+        assert_eq!(
+            Migration::migrate(
+                &Version::parse(PACKAGE_VERSION).unwrap(),
+                &mut doc,
+                &migrations
+            )
+            .unwrap(),
+            false
+        );
+        assert_eq!(doc, 0);
+    }
+}

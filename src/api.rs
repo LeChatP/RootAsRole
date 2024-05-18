@@ -8,7 +8,10 @@ use tracing::debug;
 
 use crate::common::database::finder::{Cred, ExecSettings, TaskMatch, UserMin};
 
-use super::database::structs::{SActor, SConfig, SRole, STask};
+use super::database::{
+    finder::FilterMatcher,
+    structs::{SActor, SConfig, SRole, STask},
+};
 use once_cell::sync::Lazy;
 static API: Lazy<Mutex<PluginManager>> = Lazy::new(|| Mutex::new(PluginManager::new()));
 
@@ -36,6 +39,7 @@ pub type ConfigLoaded = fn(config: &SConfig);
 pub type RoleMatcher = fn(
     role: &SRole,
     user: &Cred,
+    filter: &Option<FilterMatcher>,
     command: &[String],
     matcher: &mut TaskMatch,
 ) -> PluginResultAction;
@@ -129,6 +133,7 @@ impl PluginManager {
     pub fn notify_role_matcher(
         role: &SRole,
         user: &Cred,
+        filter: &Option<FilterMatcher>,
         command: &[String],
         matcher: &mut TaskMatch,
     ) -> PluginResultAction {
@@ -137,7 +142,7 @@ impl PluginManager {
         let mut result = PluginResultAction::Ignore;
         for plugin in api.role_matcher_plugins.iter() {
             debug!("Calling role matcher plugin");
-            match plugin(role, user, command, matcher) {
+            match plugin(role, user, filter, command, matcher) {
                 PluginResultAction::Override => return PluginResultAction::Override,
                 PluginResultAction::Edit => result = PluginResultAction::Edit,
                 PluginResultAction::Ignore => continue,
@@ -226,7 +231,7 @@ impl PluginManager {
         for plugin in api.complex_command_parsers.iter() {
             match plugin(command) {
                 Ok(result) => return Ok(result),
-                Err(e) => {
+                Err(_e) => {
                     //debug!("Error parsing command {:?}", e);
                     continue;
                 }

@@ -3,10 +3,10 @@ mod common;
 mod timeout;
 
 use capctl::CapState;
-use clap::Parser;
-use common::database::finder::{Cred, TaskMatch, TaskMatcher};
-use common::database::structs::IdTask;
+use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
 use common::database::{options::OptStack, structs::SConfig};
+use common::util::escape_parser_string;
+use const_format::formatcp;
 use nix::{
     libc::dev_t,
     sys::stat,
@@ -26,8 +26,10 @@ use crate::common::plugin::register_plugins;
 use crate::common::{
     activates_no_new_privs,
     config::{self, Storage},
+    dac_override_effective,
     database::{read_json_config, structs::SGroups},
-    read_effective, dac_override_effective, setgid_effective, setpcap_effective, setuid_effective,
+    read_effective, setgid_effective, setpcap_effective, setuid_effective,
+    util::{BOLD, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
 
@@ -38,33 +40,70 @@ const PAM_SERVICE: &str = "sr_test";
 
 const PAM_PROMPT: &str = "Password: ";
 
-#[derive(Parser, Debug)]
-#[command(
-    about = "Execute privileged commands with a role-based access control system",
-    long_about = "sr is a tool to execute privileged commands with a role-based access control system. 
-It is designed to be used in a multi-user environment, 
-where users can be assigned to different roles, 
-and each role has a set of rights to execute commands."
-)]
+//const ABOUT: &str = "Execute privileged commands with a role-based access control system";
+//const LONG_ABOUT: &str =
+//    "sr is a tool to execute privileged commands with a role-based access control system.
+//It is designed to be used in a multi-user environment,
+//where users can be assigned to different roles,
+//and each role has a set of rights to execute commands.";
+
+const USAGE: &str = formatcp!(
+    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
+
+{UNDERLINE}{BOLD}Arguments:{RST}
+  [COMMAND]...
+          Command to execute
+
+{UNDERLINE}{BOLD}Options:{RST}
+  {BOLD}-r, --role <ROLE>{RST}
+          Role option allows you to select a specific role to use
+
+  {BOLD}-t, --task <TASK>{RST}
+          Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
+
+  {BOLD}-p, --prompt <PROMPT>{RST}
+          Prompt option allows you to override the default password prompt and use a custom one
+          
+          [default: "Password: "]
+
+  {BOLD}-i, --info{RST}
+          Display rights of executor
+
+  {BOLD}-h, --help{RST}
+          Print help (see a summary with '-h')"#,
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST
+);
+
+#[derive(Debug)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
-    #[arg(short, long)]
-    role: Option<String>,
-
-    /// Task option allows you to select a specific task to use in the selected role.
-    /// Note: You must specify a role to designate a task.
-    #[arg(short, long)]
-    task: Option<String>,
+    opt_filter: Option<FilterMatcher>,
 
     /// Prompt option allows you to override the default password prompt and use a custom one.
-    #[arg(short, long, default_value = PAM_PROMPT)]
     prompt: String,
 
     /// Display rights of executor
-    #[arg(short, long)]
     info: bool,
+
+    /// Display help
+    help: bool,
+
     /// Command to execute
     command: Vec<String>,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Cli {
+            opt_filter: None,
+            prompt: PAM_PROMPT.to_string(),
+            info: false,
+            help: false,
+            command: vec![],
+        }
+    }
 }
 
 struct SrConversationHandler {
@@ -132,35 +171,41 @@ impl ConversationHandler for SrConversationHandler {
     }
 }
 
-fn add_dashes() -> Vec<String> {
-    //get current argv
-    let mut args = std::env::args().collect::<Vec<_>>();
-    debug!("args : {:?}", args);
-    let mut i = -1;
-    //iter through args until we find no dash
-    let mut iter = args.iter().enumerate();
-    iter.next();
-    while let Some((pos, arg)) = iter.next() {
-        if arg.starts_with('-') {
-            if arg == "-r" {
-                iter.next();
-            }
-            continue;
-        } else {
-            // add argument at this position
-            i = pos as i32;
-            break;
-        }
-    }
-    if i > -1 {
-        args.insert(i as usize, String::from("--"));
-    }
-    debug!("final args : {:?}", args);
-    args
-}
+// fn match_pair(pair: &Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+//     match pair.as_rule() {
+//         Rule::role => {
+//             inputs.role = Some(pair.as_str().to_string());
+//         }
+//         Rule::task => {
+//             inputs.task = Some(pair.as_str().to_string());
+//         }
+//         Rule::prompt => {
+//             inputs.prompt = pair.as_str().to_string();
+//         }
+//         Rule::info => {
+//             inputs.info = true;
+//         }
+//         Rule::help => {
+//             inputs.help = true;
+//         }
+//         Rule::command => {
+//             inputs.command = shell_words::split(pair.as_str())?;
+//         }
+//         _ => {}
+//     }
+//     Ok(())
+// }
+
+// fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
+//     for inner_pair in pair.into_inner() {
+//         match_pair(&inner_pair, inputs)?;
+//         recurse_pair(inner_pair, inputs)?;
+//     }
+//     Ok(())
+// }
 
 const CAPABILITIES_ERROR: &str =
-    "You need at least dac_override, setpcap, setuid capabilities to run sr";
+    "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
 fn cap_effective_error(caplist: &str) -> String {
     format!(
         "Unable to toggle {} privilege. {}",
@@ -173,36 +218,67 @@ fn from_json_execution_settings(
     config: &Rc<RefCell<SConfig>>,
     user: &Cred,
 ) -> Result<TaskMatch, Box<dyn Error>> {
-    match (&args.role, &args.task) {
-        (None, None) => config.matches(user, &args.command).map_err(|m| m.into()),
-        (Some(role), None) => as_borrow!(config)
-            .role(role)
-            .expect("Permission Denied")
-            .matches(user, &args.command)
-            .map_err(|m| m.into()),
-        (Some(role), Some(task)) => {
-            let task = IdTask::Name(task.to_string());
-            let res = as_borrow!(config)
-                .role(role)
-                .expect("Permission Denied")
-                .matches(user, &args.command)?;
-            if res.fully_matching() && res.settings.task().as_ref().borrow().name == task {
-                Ok(res)
-            } else {
-                let mut taskres = as_borrow!(config)
-                    .task(role, &task)
-                    .expect("Permission Denied")
-                    .matches(user, &args.command)?;
-                if taskres.command_matching() {
-                    taskres.score.user_min = res.score.user_min;
-                    Ok(taskres)
+    config
+        .matches(user, &args.opt_filter, &args.command)
+        .map_err(|m| m.into())
+}
+
+fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = Cli::default();
+    let mut iter = s.into_iter().skip(1);
+    while let Some(arg) = iter.next() {
+        // matches only first options
+        match arg.as_ref() {
+            "-r" | "--role" => {
+                if let Some(opt_filter) = args.opt_filter.as_mut() {
+                    opt_filter.role = iter.next().map(|s| escape_parser_string(s));
                 } else {
-                    Err("Permission Denied".into())
+                    args.opt_filter = Some(FilterMatcher {
+                        role: iter.next().map(|s| escape_parser_string(s)),
+                        task: None,
+                    });
+                }
+            }
+            "-t" | "--task" => {
+                if let Some(opt_filter) = args.opt_filter.as_mut() {
+                    opt_filter.task = iter.next().map(|s| escape_parser_string(s));
+                } else {
+                    args.opt_filter = Some(FilterMatcher {
+                        task: iter.next().map(|s| escape_parser_string(s)),
+                        role: None,
+                    });
+                }
+            }
+            "-p" | "--prompt" => {
+                args.prompt = iter
+                    .next()
+                    .map(|s| escape_parser_string(s))
+                    .unwrap_or_default();
+            }
+            "-i" | "--info" => {
+                args.info = true;
+            }
+            "-h" | "--help" => {
+                args.help = true;
+            }
+            _ => {
+                if arg.as_ref().starts_with('-') {
+                    return Err(format!("Unknown option: {}", arg.as_ref()).into());
+                } else {
+                    args.command.push(escape_parser_string(arg));
+                    break;
                 }
             }
         }
-        (None, Some(_)) => Err("You must specify a role to designate a task".into()),
     }
+    while let Some(arg) = iter.next() {
+        args.command.push(escape_parser_string(arg));
+    }
+    Ok(args)
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -210,11 +286,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     subsribe("sr");
     drop_effective()?;
     register_plugins();
-    let args = add_dashes();
-    let args = Cli::parse_from(args.iter());
-    read_effective(true).or(dac_override_effective(true)).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    let args = getopt(std::env::args())?;
+    // for pair in grammar {
+    //     recurse_pair(pair, &mut args)?;
+    // }
+
+    if args.help {
+        println!("{}", USAGE);
+        return Ok(());
+    }
+    read_effective(true)
+        .or(dac_override_effective(true))
+        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
     let settings = config::get_settings().expect("Failed to get settings");
-    read_effective(false).and(dac_override_effective(false)).unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
+    read_effective(false)
+        .and(dac_override_effective(false))
+        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
@@ -225,9 +312,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let user = make_cred();
     let taskmatch = match config {
-        Storage::JSON(ref config) => {
-            from_json_execution_settings(&args, config, &user).unwrap_or_default()
-        }
+        Storage::JSON(ref config) => from_json_execution_settings(&args, config, &user)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .unwrap_or_default(),
     };
     let execcfg = &taskmatch.settings;
 
@@ -240,6 +329,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "User {} tried to execute command : {:?} without the permission.",
             &user.user.name, args.command
         );
+
         std::process::exit(1);
     }
 
@@ -340,6 +430,11 @@ fn make_cred() -> Cred {
 fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
     //set capabilities
     if let Some(caps) = execcfg.caps {
+        // case where capabilities are more than bounding set
+        let bounding = capctl::bounding::probe();
+        if bounding & caps != caps {
+            panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+        }
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
         if !optstack.get_bounding().1.is_ignore() {
@@ -349,6 +444,7 @@ fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: 
         }
         capstate.permitted = caps;
         capstate.inheritable = caps;
+        debug!("caps : {:?}", caps);
         capstate.set_current().expect("Failed to set current cap");
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
@@ -451,6 +547,7 @@ fn check_auth(
 
 #[cfg(test)]
 mod tests {
+    use libc::getgid;
     use nix::unistd::Pid;
 
     use super::*;
@@ -462,10 +559,10 @@ mod tests {
     #[test]
     fn test_from_json_execution_settings() {
         let mut args = Cli {
-            role: None,
-            task: None,
+            opt_filter: None,
             prompt: PAM_PROMPT.to_string(),
             info: false,
+            help: false,
             command: vec!["ls".to_string(), "-l".to_string()],
         };
         let user = Cred {
@@ -506,20 +603,47 @@ mod tests {
         make_weak_config(&config);
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.role = Some("role1".to_owned());
+        args.opt_filter = Some(FilterMatcher::default());
+        args.opt_filter.as_mut().unwrap().role = Some("role1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task1".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task2".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task2".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
         assert!(taskmatch.fully_matching());
-        args.task = Some("task3".to_owned());
+        args.opt_filter.as_mut().unwrap().task = Some("task3".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
-        args.role = None;
+        args.opt_filter.as_mut().unwrap().role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
+    }
+
+    #[test]
+    fn test_getopt() {
+        let args = getopt(vec![
+            "chsr", "-r", "role1", "-t", "task1", "-p", "prompt", "-i", "-h", "ls", "-l",
+        ])
+        .unwrap();
+        let opt_filter = args.opt_filter.as_ref().unwrap();
+        assert_eq!(opt_filter.role.as_deref(), Some("role1"));
+        assert_eq!(opt_filter.task.as_deref(), Some("task1"));
+        assert_eq!(args.prompt, "prompt");
+        assert_eq!(args.info, true);
+        assert_eq!(args.help, true);
+        assert_eq!(args.command, vec!["ls".to_string(), "-l".to_string()]);
+    }
+
+    #[test]
+    fn test_make_cred() {
+        let user = make_cred();
+        let gid = unsafe { getgid() };
+        assert_eq!(user.user.uid, getuid());
+        assert_eq!(user.user.gid.as_raw(), gid);
+        assert!(user.groups.len() > 0);
+        assert_eq!(user.groups[0].gid.as_raw(), gid);
+        assert_eq!(user.ppid, Pid::parent());
     }
 }

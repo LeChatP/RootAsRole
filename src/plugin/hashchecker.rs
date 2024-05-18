@@ -142,7 +142,7 @@ mod tests {
         };
 
         let matching = config
-            .matches(&cred, &vec!["/tmp/hashchecker".to_string()])
+            .matches(&cred, &None, &vec!["/tmp/hashchecker".to_string()])
             .unwrap();
         assert!(matching.fully_matching());
         std::fs::remove_file("/tmp/hashchecker").unwrap();

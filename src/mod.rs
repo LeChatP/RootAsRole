@@ -110,7 +110,12 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Err
             e
         );
         dac_override_effective(true)?;
-        let res = std::fs::File::create(p);
+        let res = std::fs::File::create(p).inspect_err(|e| {
+            debug!(
+                "Error creating file without privilege, trying with privileges: {}",
+                e
+            );
+        });
         dac_override_effective(false)?;
         res
     })
@@ -124,6 +129,33 @@ pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error
         );
         read_effective(true).or(dac_override_effective(true))?;
         let res = std::fs::File::open(p);
+        read_effective(false)?;
+        dac_override_effective(false)?;
+        res
+    })
+}
+
+pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
+    std::fs::remove_file(&p).or_else(|e| {
+        debug!(
+            "Error creating file without privilege, trying with privileges: {}",
+            e
+        );
+        dac_override_effective(true)?;
+        let res = std::fs::remove_file(p);
+        dac_override_effective(false)?;
+        res
+    })
+}
+
+pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
+    std::fs::create_dir_all(&p).or_else(|e| {
+        debug!(
+            "Error creating file without privilege, trying with privileges: {}",
+            e
+        );
+        dac_override_effective(true)?;
+        let res = std::fs::create_dir_all(p);
         read_effective(false)?;
         dac_override_effective(false)?;
         res

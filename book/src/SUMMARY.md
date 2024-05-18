@@ -7,7 +7,7 @@
 - [Installation](guide/installation.md)
 - [`sr` Command Line Tool](sr/README.md)
 - [`chsr` Command Line Tool](chsr/README.md)
-
+- [`capable` Command Line Tool](capable/README.md)
 
 # Knowledge Guide
 

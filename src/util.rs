@@ -1,10 +1,16 @@
-use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf};
+use std::{error::Error, fs::File, mem, os::fd::AsRawFd, path::PathBuf};
 
 use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use pest::{error::LineColLocation, RuleType};
 use tracing::{debug, warn};
 
 use crate::common::{immutable_effective, open_with_privileges};
+
+pub const RST: &str = "\x1B[0m";
+pub const BOLD: &str = "\x1B[1m";
+pub const UNDERLINE: &str = "\x1B[4m";
+pub const RED: &str = "\x1B[31m";
 
 #[macro_export]
 macro_rules! upweak {
@@ -115,22 +121,32 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
-pub fn escape_parser_string<S, I>(s: I) -> String
+pub fn escape_parser_string_vec<S, I>(s: I) -> String
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     s.into_iter()
-        .map(|s| {
-            let s = s.as_ref();
-            if s.contains(' ') {
-                format!("\"{}\"", s.replace("\"", "\\\""))
-            } else {
-                s.to_string()
-            }
-        })
+        .map(|s| escape_parser_string(s))
         .collect::<Vec<String>>()
         .join(" ")
+}
+
+pub fn escape_parser_string<S>(s: S) -> String
+where
+    S: AsRef<str>,
+{
+    remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
+}
+
+fn remove_outer_quotes(input: &str) -> String {
+    if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else if input.len() >= 2 && input.starts_with('\'') && input.ends_with('\'') {
+        remove_outer_quotes(&input[1..input.len() - 1])
+    } else {
+        input.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -143,4 +159,59 @@ pub(super) mod test {
     pub fn test_resources_file(filename: &str) -> String {
         test_resources_folder().join(filename).display().to_string()
     }
+}
+
+fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
+where
+    R: RuleType,
+{
+    match error.line_col {
+        LineColLocation::Pos(line_col) => line_col,
+        LineColLocation::Span(start_line_col, _) => start_line_col,
+    }
+}
+
+pub fn underline<R>(error: &pest::error::Error<R>) -> String
+where
+    R: RuleType,
+{
+    let mut underline = String::new();
+
+    let mut start = start(error).1;
+    let end = match error.line_col {
+        LineColLocation::Span(_, (_, mut end)) => {
+            let inverted_cols = start > end;
+            if inverted_cols {
+                mem::swap(&mut start, &mut end);
+                start -= 1;
+                end += 1;
+            }
+
+            Some(end)
+        }
+        _ => None,
+    };
+    let offset = start - 1;
+    let line_chars = error.line().chars();
+
+    for c in line_chars.take(offset) {
+        match c {
+            '\t' => underline.push('\t'),
+            _ => underline.push(' '),
+        }
+    }
+
+    if let Some(end) = end {
+        underline.push('^');
+        if end - start > 1 {
+            for _ in 2..(end - start) {
+                underline.push('-');
+            }
+            underline.push('^');
+        }
+    } else {
+        underline.push_str("^---")
+    }
+
+    underline
 }
