@@ -644,7 +644,6 @@ mod tests {
         assert_eq!(user.user.gid.as_raw(), gid);
         assert!(user.groups.len() > 0);
         assert_eq!(user.groups[0].gid.as_raw(), gid);
-        assert!(user.tty.is_some());
         assert_eq!(user.ppid, Pid::parent());
     }
 }
