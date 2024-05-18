@@ -547,6 +547,7 @@ fn check_auth(
 
 #[cfg(test)]
 mod tests {
+    use libc::getgid;
     use nix::unistd::Pid;
 
     use super::*;
@@ -618,5 +619,30 @@ mod tests {
         args.opt_filter.as_mut().unwrap().role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
+    }
+
+    #[test]
+    fn test_getopt() {
+        let args = getopt(vec!["chsr", "-r", "role1", "-t", "task1", "-p", "prompt", "-i", "-h", "ls", "-l"])
+            .unwrap();
+        let opt_filter = args.opt_filter.as_ref().unwrap();
+        assert_eq!(opt_filter.role.as_deref(), Some("role1"));
+        assert_eq!(opt_filter.task.as_deref(), Some("task1"));
+        assert_eq!(args.prompt, "prompt");
+        assert_eq!(args.info, true);
+        assert_eq!(args.help, true);
+        assert_eq!(args.command, vec!["ls".to_string(), "-l".to_string()]);
+    }
+
+    #[test]
+    fn test_make_cred() {
+        let user = make_cred();
+        let gid = unsafe { getgid() };
+        assert_eq!(user.user.uid, getuid());
+        assert_eq!(user.user.gid.as_raw(), gid);
+        assert!(user.groups.len()> 0);
+        assert_eq!(user.groups[0].gid.as_raw(), gid);
+        assert!(user.tty.is_some());
+        assert_eq!(user.ppid, Pid::parent());
     }
 }
