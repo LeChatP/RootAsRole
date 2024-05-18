@@ -1348,8 +1348,16 @@ mod tests {
         assert!(role.as_ref().borrow_mut()[0]
             .as_ref()
             .borrow_mut()
-            .options.as_mut()
-            .unwrap().as_ref().borrow_mut().path.as_mut().unwrap().add.insert("/test".to_string()));
+            .options
+            .as_mut()
+            .unwrap()
+            .as_ref()
+            .borrow_mut()
+            .path
+            .as_mut()
+            .unwrap()
+            .add
+            .insert("/test".to_string()));
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_err());
     }

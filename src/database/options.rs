@@ -1042,10 +1042,8 @@ impl PartialEq for OptStack {
         && self.get_wildcard().1 == other.get_wildcard().1 : {}
         && self.get_timeout().1 == other.get_timeout().1 : {}",
             final_behavior == other_final_behavior,
-            final_add.as_ref()
-            .borrow(),
-            other_final_add.as_ref()
-            .borrow(),
+            final_add.as_ref().borrow(),
+            other_final_add.as_ref().borrow(),
             final_add
                 .as_ref()
                 .borrow()
