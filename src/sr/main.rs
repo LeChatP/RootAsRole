@@ -623,8 +623,10 @@ mod tests {
 
     #[test]
     fn test_getopt() {
-        let args = getopt(vec!["chsr", "-r", "role1", "-t", "task1", "-p", "prompt", "-i", "-h", "ls", "-l"])
-            .unwrap();
+        let args = getopt(vec![
+            "chsr", "-r", "role1", "-t", "task1", "-p", "prompt", "-i", "-h", "ls", "-l",
+        ])
+        .unwrap();
         let opt_filter = args.opt_filter.as_ref().unwrap();
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
@@ -640,7 +642,7 @@ mod tests {
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
-        assert!(user.groups.len()> 0);
+        assert!(user.groups.len() > 0);
         assert_eq!(user.groups[0].gid.as_raw(), gid);
         assert!(user.tty.is_some());
         assert_eq!(user.ppid, Pid::parent());
