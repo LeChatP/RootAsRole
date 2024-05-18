@@ -217,7 +217,7 @@ impl PartialOrd for Score {
 
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.user_cmp(other).then(self.cmd_cmp(other))
+        self.cmd_cmp(other).then(self.user_cmp(other))
     }
 
     fn max(self, other: Self) -> Self {

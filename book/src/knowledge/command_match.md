@@ -6,8 +6,6 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
 
 * Find all the roles that match the user id assignment or the group id, and the command input
 * Within the matching roles, select the one that is the most precise and least privileged :
-   1. user assignment is more precise than the combination of group assignment
-   1. the combination of group assignment is more precise than single group assignment
    1. exact command is more precise than command with regex argument
    1. command with regex argument is more precise than a wildcarded command path
    1. wildcarded command path is more precise than wildcarded command path and regex args
@@ -23,5 +21,7 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. if no root is disabled, A role with root setgid is less privileged than one that set multiple gid, particularly using root group
    1. A role that enables root privileges is less privileged than one which disables root privileges (see "no-root" feature)
    1. A role that disables the Bounding set feature in RootAsRole is less privileged than one that enables it
+   1. user assignment is more precise than the combination of group assignment
+   1. the combination of group assignment is more precise than single group assignment
 
 After these step, if two roles are conflicting, these roles are considered equal (only the environment variables are different), so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` option). In such cases, we highly recommend to review the design of the configured access control.
