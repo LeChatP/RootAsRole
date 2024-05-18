@@ -19,8 +19,7 @@ use crate::{
         config::Storage,
         database::{
             options::{
-                EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SBounding, SEnvOptions,
-                SPathOptions, SPrivileged, STimeout, TimestampType,
+                EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SAuthentication, SBounding, SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType
             },
             structs::{
                 IdTask, SActor, SActorType, SCapabilities, SCommand, SGroups, SRole, STask,
@@ -228,6 +227,7 @@ struct Inputs {
     options_root: Option<SPrivileged>,
     options_bounding: Option<SBounding>,
     options_wildcard: Option<String>,
+    options_auth: Option<SAuthentication>,
 }
 
 impl Default for Inputs {
@@ -259,6 +259,7 @@ impl Default for Inputs {
             options_root: None,
             options_bounding: None,
             options_wildcard: None,
+            options_auth: None,
         }
     }
 }
@@ -558,6 +559,18 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 inputs.options_bounding = Some(SBounding::Inherit);
             } else {
                 unreachable!("Unknown bounding type: {}", pair.as_str());
+            }
+        }
+        Rule::opt_skip_auth_args => {
+            inputs.action = InputAction::Set;
+            if pair.as_str() == "skip" {
+                inputs.options_auth = Some(SAuthentication::Skip);
+            } else if pair.as_str() == "perform" {
+                inputs.options_auth = Some(SAuthentication::Perform);
+            } else if pair.as_str() == "inherit" {
+                inputs.options_auth = Some(SAuthentication::Inherit);
+            } else {
+                unreachable!("Unknown authentication type: {}", pair.as_str());
             }
         }
         Rule::wildcard_value => {
@@ -1279,6 +1292,22 @@ where
             Storage::JSON(rconfig) => {
                 perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
                     opt.as_ref().borrow_mut().bounding = Some(options_bounding);
+                    Ok(())
+                })?;
+                Ok(true)
+            }
+        },
+        Inputs {
+            // chsr o bounding set strict
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_auth: Some(options_auth),
+            ..
+        } => match storage {
+            Storage::JSON(rconfig) => {
+                perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+                    opt.as_ref().borrow_mut().authentication = Some(options_auth);
                     Ok(())
                 })?;
                 Ok(true)
@@ -3406,6 +3435,26 @@ mod tests {
                 "o",
                 "bounding",
                 "inherit"
+            ],
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        let settings = config::get_settings().expect("Failed to get settings");
+        assert!(main(
+            &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
+            vec![
+                "r",
+                "complete",
+                "t",
+                "t_complete",
+                "o",
+                "auth",
+                "skip"
             ],
         )
         .inspect_err(|e| {

@@ -20,7 +20,7 @@ use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::common::plugin::register_plugins;
 use crate::common::{
@@ -522,6 +522,10 @@ fn check_auth(
     user: &Cred,
     prompt: &str,
 ) -> Result<(), Box<dyn Error>> {
+    if optstack.get_authentication().1.is_skip() {
+        warn!("Skipping authentication, this is a security risk!");
+        return Ok(());
+    }
     let timeout = optstack.get_timeout().1;
     let is_valid = match config {
         Storage::JSON(_) => timeout::is_valid(user, user, &timeout),

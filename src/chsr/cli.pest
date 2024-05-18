@@ -126,12 +126,13 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o root (privileged|user|inherit)
 // chsr o bounding (strict|ignore|inherit)
 // chsr o wildcard-denied (set|add|del) *
+// chsr o skip-auth (true|false)
 
 // chsr o timeout set --type tty --duration 5:00 --max_usage 1
 // chsr o t unset --type --duration --max_usage
 
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout }
+opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_wildcard | opt_timeout | opt_skip_auth }
 
 opt_show     = _{ list ~ opt_show_arg? }
 opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "wildcard-denied" | "timeout"  }
@@ -162,6 +163,10 @@ opt_bounding_args = { "strict" | "ignore" | "inherit" }
 
 opt_wildcard      = { "wildcard-denied" ~ (opt_wildcard_args | help) }
 opt_wildcard_args = _{ (add | del | set) ~ wildcard_value }
+
+opt_skip_auth = { ( "authentication" | "auth") ~ (opt_skip_auth_args | help) }
+opt_skip_auth_args = { "skip" | "perform" | "inherit" }
+
 wildcard_value    = { name }
 
 

@@ -17,6 +17,7 @@
 - [How does work role hierarchy feature](knowledge/role_hierarchy.md)
 - [RootAsRole Command matching](knowledge/command_match.md)
 - [What is eBPF ?](knowledge/ebpf.md)
+- [Is a Linux system without root user possible ?](knowledge/no-root.md)
 
 # Reference Guide
 

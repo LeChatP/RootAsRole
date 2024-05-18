@@ -81,7 +81,7 @@ However you won't find out exact same options as sudo, you can use the `--role` 
 
 ## Why do you need this tool ?
 
-Traditional Linux system administration relies on a single powerful user, the superuser (root), who holds all system privileges. This model does not adhere to the principle of least privilege, as any program executed with superuser rights gains far more privileges than necessary. For example, `tcpdump`, a tool for sniffing network packets, only needs network capabilities. However, when run as the superuser, tcpdump gains all system privileges, including the ability to reboot the system. This excessive privilege can be exploited by attackers to compromise the entire system if tcpdump has vulnerabilities.
+Traditional Linux system administration relies on a single powerful user, the superuser (root), who holds all system privileges. This model does not adhere to the principle of least privilege, as any program executed with superuser rights gains far more privileges than necessary. For example, `tcpdump`, a tool for sniffing network packets, only needs network capabilities. However, when run as the superuser, tcpdump gains all system privileges, including the ability to reboot the system. This excessive privilege can be exploited by attackers to compromise the entire system if tcpdump has vulnerabilities or their developers performs a supply chain attack.
 
 The RootAsRole project offers a role-based approach for managing Linux capabilities. It includes the sr (switch role) tool, which allows users to control the specific privileges assigned to programs. This project eliminates the need for sudo and su commands, which do not provide fine-grained control over privileges.
 

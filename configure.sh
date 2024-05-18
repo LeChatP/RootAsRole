@@ -42,6 +42,10 @@ write() {
 	cp resources/rootasrole.json /etc/security || exit
 	echo "Define root role for the user $INSTALL_USER"
 	sed -i "s/ROOTADMINISTRATOR/$INSTALL_USER/g" /etc/security/rootasrole.json
+	if [[  ${DOCKER} -eq 1 ]]; then
+		sed -i "s/\"immutable\": true/\"immutable\": false/g" /etc/security/rootasrole.json
+		sed -i "s;\"CAP_LINUX_IMMUTABLE\";;g" /etc/security/rootasrole.json
+	fi
 }
 
 if [[ $INSTALL_USER == "0" ]]; then
