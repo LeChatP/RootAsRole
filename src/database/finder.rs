@@ -97,12 +97,27 @@ impl ExecSettings {
 impl PartialEq for ExecSettings {
     fn eq(&self, other: &Self) -> bool {
         // We ignore the task field
-        self.exec_path == other.exec_path
+        let res = self.exec_path == other.exec_path
             && self.exec_args == other.exec_args
             && self.opt == other.opt
             && self.setuid == other.setuid
             && self.setgroups == other.setgroups
-            && self.caps == other.caps
+            && self.caps == other.caps;
+        debug!(
+            "Comparing self.exec_path == other.exec_path : {}
+        && self.exec_args == other.exec_args : {}
+        && self.opt == other.opt : {}
+        && self.setuid == other.setuid : {}
+        && self.setgroups == other.setgroups : {}
+        && self.caps == other.caps : {}",
+            self.exec_path == other.exec_path,
+            self.exec_args == other.exec_args,
+            self.opt == other.opt,
+            self.setuid == other.setuid,
+            self.setgroups == other.setgroups,
+            self.caps == other.caps
+        );
+        res
     }
 }
 
@@ -968,6 +983,8 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc;
+
     use capctl::Cap;
     use test_log::test;
 
@@ -1266,5 +1283,74 @@ mod tests {
             IdTask::Name("role0_task_0".to_string())
         );
         assert_eq!(result.role().as_ref().borrow().name, "role0");
+    }
+
+    #[test]
+    fn test_equal_settings() {
+        let mut settings1 = ExecSettings::new();
+        let mut settings2 = ExecSettings::new();
+        assert_eq!(settings1, settings2);
+        settings1.exec_path = PathBuf::from("/bin/ls");
+        assert_ne!(settings1, settings2);
+        settings2.exec_path = PathBuf::from("/bin/ls");
+        assert_eq!(settings1, settings2);
+        settings1.exec_args = vec!["-l".to_string()];
+        assert_ne!(settings1, settings2);
+        settings2.exec_args = vec!["-l".to_string()];
+        assert_eq!(settings1, settings2);
+        settings1.setuid = Some("root".into());
+        assert_ne!(settings1, settings2);
+        settings2.setuid = Some("root".into());
+        assert_eq!(settings1, settings2);
+        settings1.setgroups = Some(SGroups::Single("root".into()));
+        assert_ne!(settings1, settings2);
+        settings2.setgroups = Some(SGroups::Single("root".into()));
+        assert_eq!(settings1, settings2);
+        settings1.caps = Some(CapSet::empty());
+        assert_ne!(settings1, settings2);
+        settings2.caps = Some(CapSet::empty());
+        assert_eq!(settings1, settings2);
+    }
+
+    #[test]
+    fn test_two_task_matches_equals() {
+        let config = rc_refcell!(SConfig::default());
+        let role = rc_refcell!(SRole::default());
+        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(&config));
+        role.as_ref().borrow_mut().name = "test".to_string();
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_string("root"));
+        let mut task1 = STask::default();
+        let mut task2 = STask::default();
+        task1.name = IdTask::Name("task1".to_string());
+        task2.name = IdTask::Name("task2".to_string());
+        task1.commands.add.push("/bin/ls".into());
+        task2.commands.add.push("/bin/ls".into());
+        task1.options = Some(Rc::new(RefCell::new(Opt::default())));
+        task2.options = Some(Rc::new(RefCell::new(Opt::default())));
+        task1._role = Some(Rc::downgrade(&role));
+        task2._role = Some(Rc::downgrade(&role));
+        task1.cred.capabilities = Some((!CapSet::empty()).into());
+        task2.cred.capabilities = Some((!CapSet::empty()).into());
+        role.as_ref().borrow_mut().tasks.push(Rc::new(task1.into()));
+        role.as_ref().borrow_mut().tasks.push(Rc::new(task2.into()));
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+        let command = vec!["/bin/ls".to_string()];
+        let result = role.matches(&cred, &None, &command);
+        assert!(result.is_ok());
+        assert!(role.as_ref().borrow_mut()[0]
+            .as_ref()
+            .borrow_mut()
+            .options.as_mut()
+            .unwrap().as_ref().borrow_mut().path.as_mut().unwrap().add.insert("/test".to_string()));
+        let result = role.matches(&cred, &None, &command);
+        assert!(result.is_err());
     }
 }
