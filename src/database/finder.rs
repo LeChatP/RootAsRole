@@ -1409,7 +1409,7 @@ mod tests {
             result.task().as_ref().borrow().name,
             IdTask::Name("t_root".to_string())
         );
-        let command = vec!["chsr".to_string(), "show".to_string()];
+        let command = vec!["/usr/bin/chsr".to_string(), "show".to_string()];
         let result = config.matches(&cred, &None, &command);
         assert!(result.is_ok());
         // must match the r_root role and t_chsr task
