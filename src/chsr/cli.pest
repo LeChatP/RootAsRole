@@ -42,9 +42,9 @@ role_type_arg = @{ "actors" | "tasks" | all }
 
 
 user_or_groups   =  { (user | group)+ }
-user             = ${ ("--user" ~ assignment? | "-u" ~ WHITESPACE) ~ actor_name }
-group            = ${ ("--group" ~ assignment? | "-g" ~ WHITESPACE) ~ name_combination }
-name_combination =  _{ actor_name ~ (("&" | ",") ~ name_combination) | actor_name }
+user             = ${ ("--user" ~ assignment | "-u" ~ WHITESPACE+) ~ actor_name }
+group            = ${ ("--group" ~ assignment | "-g" ~ WHITESPACE+) ~ name_combination }
+name_combination =  { actor_name ~ (("&" | ",") ~ name_combination) | actor_name }
 actor_name             = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT | "-" | "_"){,30} ~ "$" | (CASED_LETTER | ASCII_DIGIT | "-" | "_"){,31}) | ASCII_DIGIT+ }
 
 // ========================
@@ -95,12 +95,12 @@ cred_set_args = _{
     (cred_c | cred_u | cred_g)+
   | help
 }
-cred_c       =  { ("--caps" ~ assignment? | "-c" ~ WHITESPACE) ~ capabilities? }
-cred_u       =  { ("--setuid" ~ assignment? | "-u" ~ WHITESPACE) ~ actor_name }
-cred_g       =  { ("--setgid" ~ assignment? | "-g" ~ WHITESPACE) ~ name_combination }
+cred_c       =  ${ ("--caps" ~ assignment | "-c" ~ WHITESPACE+) ~ capabilities? }
+cred_u       =  ${ ("--setuid" ~ assignment | "-u" ~ WHITESPACE+) ~ actor_name }
+cred_g       =  ${ ("--setgid" ~ assignment | "-g" ~ WHITESPACE+) ~ name_combination }
 
-capabilities = _{ capability ~ ("," | WHITESPACE) ~ capabilities | capability}
-capability   =  { "CAP_"? ~ (LETTER | "_")+ }
+capabilities = _{ capability ~ (","?) ~ capabilities | capability }
+capability   =  @{ ^"CAP_"? ~ (LETTER | "_")+ }
 
 
 // chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
@@ -151,9 +151,9 @@ opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
 opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_list) | purge) }
 opt_env_set     = _{ set ~ env_list }
-env_list        = _{ env_key ~ (("," | WHITESPACE) ~ env_list) | env_key }
+env_list        = { env_key ~ ((","?) ~ env_list) | env_key }
 
-env_key   = { (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
+env_key   = @{ (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
 
 opt_root      = { "root" ~ (opt_root_args | help) }
 opt_root_args = { "privileged" | "user" | "inherit" }
@@ -179,19 +179,19 @@ opt_timeout_args  =  _{
   | opt_timeout_d_arg ~ (opt_timeout_t_arg ~ opt_timeout_m_arg? | opt_timeout_m_arg ~ opt_timeout_t_arg?)?
   | opt_timeout_m_arg ~ (opt_timeout_t_arg ~ opt_timeout_d_arg? | opt_timeout_d_arg ~ opt_timeout_t_arg?)?
 }
-opt_timeout_t_arg    = ${ ("--type" ~ assignment? | "-t" ~ WHITESPACE*) ~ opt_timeout_type? }
+opt_timeout_t_arg    = ${ ("--type" ~ assignment | "-t" ~ WHITESPACE+) ~ opt_timeout_type? }
 opt_timeout_type =  { "tty" | "ppid" | "uid" }
-opt_timeout_d_arg    =  { ("--duration" ~ assignment? | "-d" ~ WHITESPACE*) ~ time? }
+opt_timeout_d_arg    =  { ("--duration" ~ assignment | "-d" ) ~ time? }
 time        =  { (hours~colon)? ~ minutes ~ colon ~ seconds | (minutes~colon)? ~ seconds }
 colon       =  _{ ":"}
 hours       =  _{ ASCII_DIGIT+ }
 minutes     =  _{ ASCII_DIGIT+ }
 seconds     =  _{ ASCII_DIGIT+ }
-opt_timeout_m_arg    =  { ("--max-usage" ~ assignment? | "-m" ~ WHITESPACE*) ~ opt_timeout_max_usage? }
+opt_timeout_m_arg    =  { ("--max-usage" ~ assignment | "-m" ) ~ opt_timeout_max_usage? }
 opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 
 
-assignment   =  _{ "=" | WHITESPACE }
+assignment   =  _{ "=" | WHITESPACE*}
 help = { "-h" | "--help" }
 
 NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\""|"'") }
