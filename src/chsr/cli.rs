@@ -538,7 +538,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.options_type = Some(OptType::Path);
         }
         Rule::opt_show_arg => {
-
             if pair.as_str() == "all" {
                 inputs.options_type = None;
             } else if pair.as_str() == "path" {
@@ -1506,7 +1505,7 @@ where
             }
         },
         Inputs {
-            // chsr o timeout unset --type  --duration  --max-usage 
+            // chsr o timeout unset --type  --duration  --max-usage
             action: InputAction::Del,
             role_id,
             task_id,
@@ -1654,7 +1653,8 @@ where
                         opt.as_ref().borrow_mut().path = Some(path);
                     }
                     Ok(())
-                }).map(|_| true)
+                })
+                .map(|_| true)
             }
         },
         Inputs {
@@ -1665,7 +1665,7 @@ where
             options_env,
             options_type: Some(OptType::Env),
             setlist_type,
-            options_env_policy : None,
+            options_env_policy: None,
             ..
         } => match storage {
             Storage::JSON(rconfig) => {
@@ -1765,23 +1765,28 @@ where
             role_id,
             task_id,
             options_type: Some(OptType::Env),
-            options_env_policy : Some(options_env_policy),
+            options_env_policy: Some(options_env_policy),
             ..
         } => {
             debug!("chsr o env setpolicy delete-all");
             match storage {
                 Storage::JSON(rconfig) => {
-                    perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
-                        let mut default_env = SEnvOptions::default();
-                        let mut binding = opt.as_ref().borrow_mut();
-                        let env = binding.env.as_mut().unwrap_or(&mut default_env);
-                        env.default_behavior = options_env_policy;
-                        Ok(())
-                    })?;
+                    perform_on_target_opt(
+                        rconfig,
+                        role_id,
+                        task_id,
+                        move |opt: Rc<RefCell<Opt>>| {
+                            let mut default_env = SEnvOptions::default();
+                            let mut binding = opt.as_ref().borrow_mut();
+                            let env = binding.env.as_mut().unwrap_or(&mut default_env);
+                            env.default_behavior = options_env_policy;
+                            Ok(())
+                        },
+                    )?;
                     Ok(true)
                 }
             }
-        },
+        }
         _ => Err("Unknown Input".into()),
     }
 }
@@ -2676,7 +2681,11 @@ mod tests {
             .as_ref()
             .borrow()
             .cred
-            .capabilities.as_ref().unwrap().add.is_empty());
+            .capabilities
+            .as_ref()
+            .unwrap()
+            .add
+            .is_empty());
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
             .borrow()
@@ -3300,18 +3309,21 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        debug!("add : {:?}", config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-        .as_ref()
-        .borrow()
-        .options
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .borrow()
-        .path
-        .as_ref()
-        .unwrap()
-        .sub);
+        debug!(
+            "add : {:?}",
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+        );
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
                 .as_ref()
@@ -3421,19 +3433,22 @@ mod tests {
             .unwrap()
             .keep
             .contains(&"VAR2".to_string().into()));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .len(), 2);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .keep
+                .len(),
+            2
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3448,18 +3463,21 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .default_behavior, EnvBehavior::Delete);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .default_behavior,
+            EnvBehavior::Delete
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3474,18 +3492,21 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .default_behavior, EnvBehavior::Keep);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .default_behavior,
+            EnvBehavior::Keep
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3500,18 +3521,21 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .default_behavior, EnvBehavior::Inherit);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .default_behavior,
+            EnvBehavior::Inherit
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3539,19 +3563,22 @@ mod tests {
             .unwrap()
             .keep
             .contains(&"MYVAR".to_string().into()));
-        assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .len() > 1);
+        assert!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .keep
+                .len()
+                > 1
+        );
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),
             "r complete t t_complete o env whitelist del MYVAR".split(" "),
@@ -3601,19 +3628,22 @@ mod tests {
             .unwrap()
             .keep
             .contains(&"MYVAR".to_string().into()));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .len(), 1);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .keep
+                .len(),
+            1
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3719,19 +3749,22 @@ mod tests {
             .unwrap()
             .delete
             .contains(&"MYVAR".to_string().into()));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .len(), 1);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .delete
+                .len(),
+            1
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3836,19 +3869,22 @@ mod tests {
             .unwrap()
             .check
             .contains(&"MYVAR".to_string().into()));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .check
-            .len(), 1);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .check
+                .len(),
+            1
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -3888,15 +3924,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .root.as_ref().unwrap(), &SPrivileged::Privileged);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .root
+                .as_ref()
+                .unwrap(),
+            &SPrivileged::Privileged
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -3909,15 +3950,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .root.as_ref().unwrap(), &SPrivileged::User);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .root
+                .as_ref()
+                .unwrap(),
+            &SPrivileged::User
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -3930,15 +3976,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .root.as_ref().unwrap(), &SPrivileged::Inherit);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .root
+                .as_ref()
+                .unwrap(),
+            &SPrivileged::Inherit
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3953,15 +4004,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .bounding.as_ref().unwrap(), &SBounding::Strict);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .bounding
+                .as_ref()
+                .unwrap(),
+            &SBounding::Strict
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3976,15 +4032,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .bounding.as_ref().unwrap(), &SBounding::Ignore);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .bounding
+                .as_ref()
+                .unwrap(),
+            &SBounding::Ignore
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -3999,15 +4060,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .bounding.as_ref().unwrap(), &SBounding::Inherit);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .bounding
+                .as_ref()
+                .unwrap(),
+            &SBounding::Inherit
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -4022,15 +4088,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .authentication.as_ref().unwrap(), &SAuthentication::Skip);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .authentication
+                .as_ref()
+                .unwrap(),
+            &SAuthentication::Skip
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -4043,15 +4114,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .authentication.as_ref().unwrap(), &SAuthentication::Perform);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .authentication
+                .as_ref()
+                .unwrap(),
+            &SAuthentication::Perform
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -4064,15 +4140,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .authentication.as_ref().unwrap(), &SAuthentication::Inherit);
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .authentication
+                .as_ref()
+                .unwrap(),
+            &SAuthentication::Inherit
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -4087,15 +4168,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .wildcard_denied.as_ref().unwrap(), "*");
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .wildcard_denied
+                .as_ref()
+                .unwrap(),
+            "*"
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -4108,7 +4194,8 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -4116,7 +4203,11 @@ mod tests {
                 .unwrap()
                 .as_ref()
                 .borrow()
-                .wildcard_denied.as_ref().unwrap(), "*~");
+                .wildcard_denied
+                .as_ref()
+                .unwrap(),
+            "*~"
+        );
         debug!("=====");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -4129,15 +4220,20 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .wildcard_denied.as_ref().unwrap(), "~");
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .wildcard_denied
+                .as_ref()
+                .unwrap(),
+            "~"
+        );
         debug!("=====");
         let settings = config::get_settings().expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
@@ -4156,19 +4252,9 @@ mod tests {
         {
             let binding = config.as_ref().borrow();
             let bindingrole = binding[0].as_ref().borrow();
-            let bindingtask = bindingrole.tasks[0]
-                .as_ref()
-                .borrow();
-            let bindingopt = bindingtask
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow();
-            let timeout = bindingopt
-                .timeout
-                .as_ref()
-                .unwrap();
+            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
+            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
+            let timeout = bindingopt.timeout.as_ref().unwrap();
             assert_eq!(timeout.duration, Some(Duration::seconds(54310)));
             assert_eq!(timeout.max_usage, Some(7));
             assert_eq!(timeout.type_field, Some(TimestampType::UID));
@@ -4186,23 +4272,13 @@ mod tests {
         })
         .is_ok_and(|b| b));
         {
-        let binding = config.as_ref().borrow();
-        let bindingrole = binding[0].as_ref().borrow();
-        let bindingtask = bindingrole.tasks[0]
-            .as_ref()
-            .borrow();
-        let bindingopt = bindingtask
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow();
-        let timeout = bindingopt
-            .timeout
-            .as_ref()
-            .unwrap();
-        assert_eq!(timeout.max_usage, None);
-        assert_eq!(timeout.type_field, None);
+            let binding = config.as_ref().borrow();
+            let bindingrole = binding[0].as_ref().borrow();
+            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
+            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
+            let timeout = bindingopt.timeout.as_ref().unwrap();
+            assert_eq!(timeout.max_usage, None);
+            assert_eq!(timeout.type_field, None);
         }
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -4216,21 +4292,11 @@ mod tests {
         })
         .is_ok_and(|b| b));
         {
-        let binding = config.as_ref().borrow();
-        let bindingrole = binding[0].as_ref().borrow();
-        let bindingtask = bindingrole.tasks[0]
-            .as_ref()
-            .borrow();
-        let bindingopt = bindingtask
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow();
-        assert!(bindingopt
-            .timeout
-            .as_ref()
-            .is_none());
+            let binding = config.as_ref().borrow();
+            let bindingrole = binding[0].as_ref().borrow();
+            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
+            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
+            assert!(bindingopt.timeout.as_ref().is_none());
         }
         assert!(main(
             &Storage::JSON(read_json_config(settings.clone()).expect("Failed to read json")),

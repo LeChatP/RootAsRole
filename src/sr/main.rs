@@ -375,7 +375,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", execcfg.exec_path.display(),e.to_string());
+            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e.to_string());
             std::process::exit(1);
         }
     };

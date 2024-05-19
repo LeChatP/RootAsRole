@@ -1010,7 +1010,10 @@ mod tests {
 
     use crate::{
         common::database::{
-            make_weak_config, options::{SBounding, SPrivileged}, structs::IdTask, version::Versioning
+            make_weak_config,
+            options::{SBounding, SPrivileged},
+            structs::IdTask,
+            version::Versioning,
         },
         rc_refcell,
     };
@@ -1383,10 +1386,13 @@ mod tests {
 
     #[test]
     fn test_two_role_default() {
-        let config : Versioning<Rc<RefCell<SConfig>>> = serde_json::from_str(&fs::read_to_string("resources/rootasrole.json").unwrap()).unwrap();
+        let config: Versioning<Rc<RefCell<SConfig>>> =
+            serde_json::from_str(&fs::read_to_string("resources/rootasrole.json").unwrap())
+                .unwrap();
         let config = config.data;
         make_weak_config(&config);
-        config.as_ref().borrow_mut()[0].as_ref().borrow_mut().actors[0] = SActor::from_user_string("root");
+        config.as_ref().borrow_mut()[0].as_ref().borrow_mut().actors[0] =
+            SActor::from_user_string("root");
         let cred = Cred {
             user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
@@ -1399,13 +1405,19 @@ mod tests {
         // must match the r_root role and t_root task
         let result = result.unwrap();
         assert_eq!(result.role().as_ref().borrow().name, "r_root");
-        assert_eq!(result.task().as_ref().borrow().name, IdTask::Name("t_root".to_string()));
+        assert_eq!(
+            result.task().as_ref().borrow().name,
+            IdTask::Name("t_root".to_string())
+        );
         let command = vec!["chsr".to_string(), "show".to_string()];
         let result = config.matches(&cred, &None, &command);
         assert!(result.is_ok());
         // must match the r_root role and t_chsr task
         let result = result.unwrap();
         assert_eq!(result.role().as_ref().borrow().name, "r_root");
-        assert_eq!(result.task().as_ref().borrow().name, IdTask::Name("t_chsr".to_string()));
+        assert_eq!(
+            result.task().as_ref().borrow().name,
+            IdTask::Name("t_chsr".to_string())
+        );
     }
 }
