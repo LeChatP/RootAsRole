@@ -1094,17 +1094,30 @@ mod tests {
             opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Keep;
             opt.authentication = Some(SAuthentication::Skip);
         }
-        
-        assert_eq!(
-            get_security_min(&Some(rcopt.clone())),
-            SecurityMin::DisableBounding | SecurityMin::EnableRoot | SecurityMin::KeepUnsafePath | SecurityMin::KeepEnv | SecurityMin::SkipAuth
-        );
-        rcopt.as_ref().borrow_mut().path.as_mut().unwrap().default_behavior = PathBehavior::KeepSafe;
-        assert_eq!(
-            get_security_min(&Some(rcopt.clone())),
-            SecurityMin::DisableBounding | SecurityMin::EnableRoot | SecurityMin::KeepPath | SecurityMin::KeepEnv | SecurityMin::SkipAuth
-        );
 
+        assert_eq!(
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding
+                | SecurityMin::EnableRoot
+                | SecurityMin::KeepUnsafePath
+                | SecurityMin::KeepEnv
+                | SecurityMin::SkipAuth
+        );
+        rcopt
+            .as_ref()
+            .borrow_mut()
+            .path
+            .as_mut()
+            .unwrap()
+            .default_behavior = PathBehavior::KeepSafe;
+        assert_eq!(
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding
+                | SecurityMin::EnableRoot
+                | SecurityMin::KeepPath
+                | SecurityMin::KeepEnv
+                | SecurityMin::SkipAuth
+        );
     }
 
     #[test]
