@@ -375,11 +375,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            /*error!(
-                "{} : command not found",
-                matching.exec_path.display()
-            );*/
-            eprintln!("sr: {} : command not found", execcfg.exec_path.display());
+            eprintln!("sr: {} : {}", execcfg.exec_path.display(),e.to_string());
             std::process::exit(1);
         }
     };
