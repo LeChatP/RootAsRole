@@ -1011,7 +1011,7 @@ mod tests {
     use crate::{
         common::database::{
             make_weak_config,
-            options::{SBounding, SPrivileged},
+            options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
             structs::IdTask,
             version::Versioning,
         },
@@ -1085,13 +1085,26 @@ mod tests {
 
     #[test]
     fn test_get_security_min() {
-        let mut opt = Opt::default();
-        opt.bounding = Some(SBounding::Strict);
-        opt.root = Some(SPrivileged::Privileged);
+        let rcopt = Rc::new(RefCell::new(Opt::default()));
+        {
+            let opt = &mut rcopt.as_ref().borrow_mut();
+            opt.bounding = Some(SBounding::Strict);
+            opt.root = Some(SPrivileged::Privileged);
+            opt.path.as_mut().unwrap().default_behavior = PathBehavior::KeepUnsafe;
+            opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Keep;
+            opt.authentication = Some(SAuthentication::Skip);
+        }
+        
         assert_eq!(
-            get_security_min(&Some(Rc::new(RefCell::new(opt)))),
-            SecurityMin::DisableBounding | SecurityMin::EnableRoot
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding | SecurityMin::EnableRoot | SecurityMin::KeepUnsafePath | SecurityMin::KeepEnv | SecurityMin::SkipAuth
         );
+        rcopt.as_ref().borrow_mut().path.as_mut().unwrap().default_behavior = PathBehavior::KeepSafe;
+        assert_eq!(
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding | SecurityMin::EnableRoot | SecurityMin::KeepPath | SecurityMin::KeepEnv | SecurityMin::SkipAuth
+        );
+
     }
 
     #[test]
