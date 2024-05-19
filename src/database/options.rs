@@ -184,6 +184,16 @@ pub enum SPrivileged {
     Inherit,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+#[derive(Default)]
+pub enum SAuthentication {
+    Skip,
+    #[default]
+    Perform,
+    Inherit,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt {
@@ -195,7 +205,8 @@ pub struct Opt {
     pub root: Option<SPrivileged>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
-
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<SAuthentication>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wildcard_denied: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -230,6 +241,7 @@ impl Opt {
         ]
         .into_iter()
         .collect();
+        opt.authentication = SAuthentication::Perform.into();
         let mut env = SEnvOptions::new(EnvBehavior::Delete);
         env.keep = vec![
             "HOME".into(),
@@ -276,6 +288,7 @@ impl Default for Opt {
             env: Some(SEnvOptions::default()),
             root: Some(SPrivileged::default()),
             bounding: Some(SBounding::default()),
+            authentication: None,
             wildcard_denied: None,
             timeout: None,
             _extra_fields: Map::default(),
@@ -952,6 +965,16 @@ impl OptStack {
         })
         .unwrap_or((Level::None, SBounding::default()))
     }
+    pub fn get_authentication(&self) -> (Level, SAuthentication) {
+        self.find_in_options(|opt| {
+            if let Some(p) = &opt.borrow().authentication {
+                return Some((opt.level, *p));
+            }
+            None
+        })
+        .unwrap_or((Level::None, SAuthentication::default()))
+    }
+
     pub fn get_wildcard(&self) -> (Level, String) {
         self.find_in_options(|opt| {
             if let Some(p) = opt.borrow().wildcard_denied.borrow().as_ref() {
@@ -1032,6 +1055,7 @@ impl PartialEq for OptStack {
             && self.get_root_behavior().1 == other.get_root_behavior().1
             && self.get_bounding().1 == other.get_bounding().1
             && self.get_wildcard().1 == other.get_wildcard().1
+            && self.get_authentication().1 == other.get_authentication().1
             && self.get_timeout().1 == other.get_timeout().1;
         debug!(
             "final_behavior == other_final_behavior : {}
@@ -1040,6 +1064,7 @@ impl PartialEq for OptStack {
         && self.get_root_behavior().1 == other.get_root_behavior().1 : {}
         && self.get_bounding().1 == other.get_bounding().1 : {}
         && self.get_wildcard().1 == other.get_wildcard().1 : {}
+        && self.get_authentication().1 == other.get_authentication().1 : {}
         && self.get_timeout().1 == other.get_timeout().1 : {}",
             final_behavior == other_final_behavior,
             final_add.as_ref().borrow(),
@@ -1059,6 +1084,7 @@ impl PartialEq for OptStack {
             self.get_root_behavior().1 == other.get_root_behavior().1,
             self.get_bounding().1 == other.get_bounding().1,
             self.get_wildcard().1 == other.get_wildcard().1,
+            self.get_authentication().1 == other.get_authentication().1,
             self.get_timeout().1 == other.get_timeout().1
         );
         debug!("OPT check: {}", res);

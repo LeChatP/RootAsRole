@@ -175,6 +175,10 @@ bitflags! {
     impl SecurityMin: u32 {
         const DisableBounding = 0b00001;
         const EnableRoot = 0b00010;
+        const KeepPath = 0b00100;
+        const KeepUnsafePath = 0b01000;
+        const KeepEnv = 0b10000;
+        const SkipAuth = 0b100000;
     }
 }
 
@@ -217,7 +221,7 @@ impl PartialOrd for Score {
 
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.user_cmp(other).then(self.cmd_cmp(other))
+        self.cmd_cmp(other).then(self.user_cmp(other))
     }
 
     fn max(self, other: Self) -> Self {
@@ -423,7 +427,7 @@ fn match_command_line(input_command: &[String], role_command: &[String]) -> CmdM
     let mut result = CmdMin::empty();
     if !input_command.is_empty() {
         result = match_path(&input_command[0], &role_command[0]);
-        if role_command.len() == 1 {
+        if result.is_empty() || role_command.len() == 1 {
             return result;
         }
         match match_args(&input_command[1..], &role_command[1..]) {
@@ -448,7 +452,7 @@ fn get_cmd_min(input_command: &[String], commands: &[SCommand]) -> CmdMin {
             Ok(command) => {
                 let new_score = match_command_line(input_command, &command);
                 debug!("Score for command {:?} is {:?}", command, new_score);
-                if min_score.is_empty() || (new_score < min_score) {
+                if !new_score.is_empty() && (min_score.is_empty() || (new_score < min_score)) {
                     debug!("New min score for command {:?} is {:?}", command, new_score);
                     min_score = new_score;
                 }
@@ -492,6 +496,21 @@ fn get_security_min(opt: &Option<Rc<RefCell<Opt>>>) -> SecurityMin {
                 if value.is_privileged() {
                     result |= SecurityMin::EnableRoot;
                 }
+            }
+            if let Some(value) = &opt.path {
+                if value.default_behavior.is_keep_unsafe() {
+                    result |= SecurityMin::KeepUnsafePath;
+                } else if value.default_behavior.is_keep_safe() {
+                    result |= SecurityMin::KeepPath;
+                }
+            }
+            if let Some(value) = &opt.env {
+                if value.default_behavior.is_keep() {
+                    result |= SecurityMin::KeepEnv;
+                }
+            }
+            if opt.authentication.is_some_and(|auth| auth.is_skip()) {
+                result |= SecurityMin::SkipAuth;
             }
             result
         }
@@ -983,15 +1002,18 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
 
 #[cfg(test)]
 mod tests {
-    use std::rc;
+
+    use std::fs;
 
     use capctl::Cap;
     use test_log::test;
 
     use crate::{
         common::database::{
-            options::{SBounding, SPrivileged},
+            make_weak_config,
+            options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
             structs::IdTask,
+            version::Versioning,
         },
         rc_refcell,
     };
@@ -1063,12 +1085,38 @@ mod tests {
 
     #[test]
     fn test_get_security_min() {
-        let mut opt = Opt::default();
-        opt.bounding = Some(SBounding::Strict);
-        opt.root = Some(SPrivileged::Privileged);
+        let rcopt = Rc::new(RefCell::new(Opt::default()));
+        {
+            let opt = &mut rcopt.as_ref().borrow_mut();
+            opt.bounding = Some(SBounding::Strict);
+            opt.root = Some(SPrivileged::Privileged);
+            opt.path.as_mut().unwrap().default_behavior = PathBehavior::KeepUnsafe;
+            opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Keep;
+            opt.authentication = Some(SAuthentication::Skip);
+        }
+
         assert_eq!(
-            get_security_min(&Some(Rc::new(RefCell::new(opt)))),
-            SecurityMin::DisableBounding | SecurityMin::EnableRoot
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding
+                | SecurityMin::EnableRoot
+                | SecurityMin::KeepUnsafePath
+                | SecurityMin::KeepEnv
+                | SecurityMin::SkipAuth
+        );
+        rcopt
+            .as_ref()
+            .borrow_mut()
+            .path
+            .as_mut()
+            .unwrap()
+            .default_behavior = PathBehavior::KeepSafe;
+        assert_eq!(
+            get_security_min(&Some(rcopt.clone())),
+            SecurityMin::DisableBounding
+                | SecurityMin::EnableRoot
+                | SecurityMin::KeepPath
+                | SecurityMin::KeepEnv
+                | SecurityMin::SkipAuth
         );
     }
 
@@ -1360,5 +1408,42 @@ mod tests {
             .insert("/test".to_string()));
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_two_role_default() {
+        let config: Versioning<Rc<RefCell<SConfig>>> =
+            serde_json::from_str(&fs::read_to_string("resources/rootasrole.json").unwrap())
+                .unwrap();
+        let config = config.data;
+        make_weak_config(&config);
+        config.as_ref().borrow_mut()[0].as_ref().borrow_mut().actors[0] =
+            SActor::from_user_string("root");
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+        let command = vec!["/bin/ls".to_string()];
+        let result = config.matches(&cred, &None, &command);
+        assert!(result.is_ok());
+        // must match the r_root role and t_root task
+        let result = result.unwrap();
+        assert_eq!(result.role().as_ref().borrow().name, "r_root");
+        assert_eq!(
+            result.task().as_ref().borrow().name,
+            IdTask::Name("t_root".to_string())
+        );
+        let command = vec!["/usr/bin/chsr".to_string(), "show".to_string()];
+        let result = config.matches(&cred, &None, &command);
+        assert!(result.is_ok());
+        // must match the r_root role and t_chsr task
+        let result = result.unwrap();
+        assert_eq!(result.role().as_ref().borrow().name, "r_root");
+        assert_eq!(
+            result.task().as_ref().borrow().name,
+            IdTask::Name("t_chsr".to_string())
+        );
     }
 }

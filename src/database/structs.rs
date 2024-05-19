@@ -684,7 +684,7 @@ mod tests {
 
     use crate::{
         as_borrow,
-        common::database::options::{EnvBehavior, PathBehavior, TimestampType},
+        common::database::options::{EnvBehavior, PathBehavior, SAuthentication, TimestampType},
     };
 
     use super::*;
@@ -708,6 +708,7 @@ mod tests {
                 },
                 "root": "privileged",
                 "bounding": "ignore",
+                "authentication": "skip",
                 "wildcard-denied": "wildcards",
                 "timeout": {
                     "type": "ppid",
@@ -763,6 +764,7 @@ mod tests {
         assert!(env.check.front().is_some_and(|s| s == "check_env"));
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
+        assert_eq!(options.authentication, Some(SAuthentication::Skip));
         assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
 
         let timeout = options.timeout.as_ref().unwrap();
