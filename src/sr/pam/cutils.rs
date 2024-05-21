@@ -1,3 +1,8 @@
+/// This file is part of sudo-rs.
+/// Licensed under the MIT License and Apache 2.0 License;
+/// Original source: https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs
+/// Original authors: The sudo-rs developers (Ruben Nijveld et al.)
+
 use std::{
     ffi::{CStr, OsStr, OsString},
     os::unix::prelude::OsStrExt,

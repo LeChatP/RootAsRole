@@ -1,4 +1,4 @@
-use std::{error::Error, ffi::{CStr, CString}, slice};
+use std::{error::Error, ffi::{CStr, CString}, ops::Deref, slice};
 
 use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
@@ -60,13 +60,6 @@ impl SrConversationHandler {
 
 }
 
-impl Drop for SrConversationHandler {
-    fn drop(&mut self) {
-        debug!("Dropping SrConversationHandler");
-
-    }
-}
-
 impl Default for SrConversationHandler {
     fn default() -> Self {
         SrConversationHandler {
@@ -86,10 +79,7 @@ impl ConversationHandler for SrConversationHandler {
         let mut term = self.open().map_err(|_| ErrorCode::CONV_ERR)?;
         term.prompt(prompt.to_string_lossy().as_ref()).map_err(|_| ErrorCode::CONV_ERR)?;
         let read = term.read_cleartext().map_err(|_| ErrorCode::BUF_ERR)?;
-        Ok(unsafe { CString::from_vec_with_nul(slice::from_raw_parts(read.leak().as_ptr().cast(), SIZE - 1).to_vec()).map_err(|e| {
-            error!("{}", e);
-            ErrorCode::BUF_ERR
-        })?  })
+        Ok(unsafe { CString::from_vec_unchecked(read.deref().to_vec()) })
     }
 
     fn prompt_echo_off(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
@@ -103,10 +93,7 @@ impl ConversationHandler for SrConversationHandler {
         let mut term = self.open().map_err(|_| ErrorCode::CONV_ERR)?;
         term.prompt(pam_prompt.as_ref()).map_err(|_| ErrorCode::CONV_ERR)?;
         let read = term.read_password().map_err(|_| ErrorCode::BUF_ERR)?;
-        Ok(unsafe { CString::from_vec_with_nul(slice::from_raw_parts(read.leak().as_ptr().cast(), SIZE - 1).to_vec()).map_err(|e| {
-            error!("{}", e);
-            ErrorCode::BUF_ERR
-        })?  })
+        Ok(unsafe { CString::from_vec_unchecked(read.deref().to_vec()) })
     }
 
     fn text_info(&mut self, msg: &CStr) {

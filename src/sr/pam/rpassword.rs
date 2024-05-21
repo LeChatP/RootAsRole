@@ -1,7 +1,8 @@
-/// Parts of the code below are Copyright (c) 2023, Conrad Kleinespel et al
+/// Parts of the code below are Copyright (c) 2023, Conrad Kleinespel et al. And took from the sudo-rs project.
+/// The sudo-rs project is licensed under the Apache License, Version 2.0 and MIT License.
 ///
 /// This module contains code that was originally written by Conrad Kleinespel for the rpassword
-/// crate. No copyright notices were found in the original code.
+/// crate. The crate is under Apache 2.0 licence.
 ///
 /// See: https://docs.rs/rpassword/latest/rpassword/
 ///
