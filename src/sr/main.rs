@@ -1,6 +1,7 @@
 #[path = "../mod.rs"]
 mod common;
 mod timeout;
+pub mod pam;
 
 use capctl::CapState;
 use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
@@ -12,11 +13,9 @@ use nix::{
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
-use pam_client::{Context, Flag};
-use pam_client::{ConversationHandler, ErrorCode};
-use pcre2::bytes::RegexBuilder;
+
+use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-use std::ffi::{CStr, CString};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
@@ -33,12 +32,7 @@ use crate::common::{
 };
 use crate::common::{drop_effective, subsribe};
 
-#[cfg(not(test))]
-const PAM_SERVICE: &str = "sr";
-#[cfg(test)]
-const PAM_SERVICE: &str = "sr_test";
 
-const PAM_PROMPT: &str = "Password: ";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -92,6 +86,9 @@ struct Cli {
 
     /// Command to execute
     command: Vec<String>,
+
+    /// Use stdin for password prompt
+    stdin: bool,
 }
 
 impl Default for Cli {
@@ -101,108 +98,13 @@ impl Default for Cli {
             prompt: PAM_PROMPT.to_string(),
             info: false,
             help: false,
+            stdin: false,
             command: vec![],
         }
     }
 }
 
-struct SrConversationHandler {
-    username: Option<String>,
-    prompt: String,
-}
 
-impl SrConversationHandler {
-    fn new(prompt: &str) -> Self {
-        SrConversationHandler {
-            prompt: prompt.to_string(),
-            username: None,
-        }
-    }
-    fn is_pam_password_prompt(&self, prompt: &CStr) -> bool {
-        let pam_prompt = prompt.to_string_lossy();
-        RegexBuilder::new()
-            .build("^Password: ?$")
-            .unwrap()
-            .is_match(pam_prompt.as_bytes())
-            .is_ok_and(|f| f)
-            || self.username.as_ref().is_some_and(|username| {
-                RegexBuilder::new()
-                    .build(&format!("^{}'s Password: ?$", username))
-                    .unwrap()
-                    .is_match(pam_prompt.as_bytes())
-                    .is_ok_and(|f| f)
-            })
-    }
-}
-
-impl Default for SrConversationHandler {
-    fn default() -> Self {
-        SrConversationHandler {
-            prompt: "Password: ".to_string(),
-            username: None,
-        }
-    }
-}
-
-impl ConversationHandler for SrConversationHandler {
-    fn prompt_echo_on(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
-        self.prompt_echo_off(prompt)
-    }
-
-    fn prompt_echo_off(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
-        let pam_prompt = prompt.to_string_lossy();
-        if self.prompt == Self::default().prompt && !self.is_pam_password_prompt(prompt) {
-            self.prompt = pam_prompt.to_string()
-        }
-        match rpassword::prompt_password(&self.prompt) {
-            Err(_) => Err(ErrorCode::CONV_ERR),
-            Ok(password) => CString::new(password).map_err(|_| ErrorCode::CONV_ERR),
-        }
-    }
-
-    fn text_info(&mut self, msg: &CStr) {
-        info!("{}", msg.to_string_lossy());
-        println!("{}", msg.to_string_lossy());
-    }
-
-    fn error_msg(&mut self, msg: &CStr) {
-        error!("{}", msg.to_string_lossy());
-        eprintln!("{}", msg.to_string_lossy());
-    }
-}
-
-// fn match_pair(pair: &Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
-//     match pair.as_rule() {
-//         Rule::role => {
-//             inputs.role = Some(pair.as_str().to_string());
-//         }
-//         Rule::task => {
-//             inputs.task = Some(pair.as_str().to_string());
-//         }
-//         Rule::prompt => {
-//             inputs.prompt = pair.as_str().to_string();
-//         }
-//         Rule::info => {
-//             inputs.info = true;
-//         }
-//         Rule::help => {
-//             inputs.help = true;
-//         }
-//         Rule::command => {
-//             inputs.command = shell_words::split(pair.as_str())?;
-//         }
-//         _ => {}
-//     }
-//     Ok(())
-// }
-
-// fn recurse_pair(pair: Pair<Rule>, inputs: &mut Cli) -> Result<(), ParseError> {
-//     for inner_pair in pair.into_inner() {
-//         match_pair(&inner_pair, inputs)?;
-//         recurse_pair(inner_pair, inputs)?;
-//     }
-//     Ok(())
-// }
 
 const CAPABILITIES_ERROR: &str =
     "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
@@ -233,6 +135,9 @@ where
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
+            "-S" | "--stdin" => {
+                args.stdin = true;
+            }
             "-r" | "--role" => {
                 if let Some(opt_filter) = args.opt_filter.as_mut() {
                     opt_filter.role = iter.next().map(|s| escape_parser_string(s));
@@ -283,14 +188,13 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
+    use crate::pam::check_auth;
+
     subsribe("sr");
     drop_effective()?;
     register_plugins();
     let args = getopt(std::env::args())?;
-    // for pair in grammar {
-    //     recurse_pair(pair, &mut args)?;
-    // }
-
+    
     if args.help {
         println!("{}", USAGE);
         return Ok(());
@@ -512,38 +416,7 @@ fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
     setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
 }
 
-fn check_auth(
-    optstack: &OptStack,
-    config: &Storage,
-    user: &Cred,
-    prompt: &str,
-) -> Result<(), Box<dyn Error>> {
-    if optstack.get_authentication().1.is_skip() {
-        warn!("Skipping authentication, this is a security risk!");
-        return Ok(());
-    }
-    let timeout = optstack.get_timeout().1;
-    let is_valid = match config {
-        Storage::JSON(_) => timeout::is_valid(user, user, &timeout),
-    };
-    debug!("need to re-authenticate : {}", !is_valid);
-    if !is_valid {
-        let mut context = Context::new(
-            PAM_SERVICE,
-            Some(&user.user.name),
-            SrConversationHandler::new(prompt),
-        )
-        .expect("Failed to initialize PAM");
-        context.authenticate(Flag::SILENT)?;
-        context.acct_mgmt(Flag::SILENT)?;
-    }
-    match config {
-        Storage::JSON(_) => {
-            timeout::update_cookie(user, user, &timeout)?;
-        }
-    }
-    Ok(())
-}
+
 
 #[cfg(test)]
 mod tests {
@@ -563,6 +436,7 @@ mod tests {
             prompt: PAM_PROMPT.to_string(),
             info: false,
             help: false,
+            stdin: false,
             command: vec!["ls".to_string(), "-l".to_string()],
         };
         let user = Cred {
