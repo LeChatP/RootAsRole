@@ -188,6 +188,8 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
+    use tracing_subscriber::field::debug;
+
     use crate::pam::check_auth;
 
     subsribe("sr");
@@ -259,17 +261,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("setuid : {:?}", execcfg.setuid);
 
     setuid_setgid(execcfg);
+    let cred = make_cred();
 
     set_capabilities(execcfg, optstack);
 
     //execute command
     let envset = optstack
-        .calculate_filtered_env()
+        .calculate_filtered_env(cred)
         .expect("Failed to calculate env");
+    
     let pty = Pty::new().expect("Failed to create pty");
 
     let command = Command::new(&execcfg.exec_path)
         .args(execcfg.exec_args.iter())
+        .env_clear()
         .envs(envset)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
@@ -288,6 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn make_cred() -> Cred {
+    
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
         .expect("Failed to get user");

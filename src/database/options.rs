@@ -1,17 +1,21 @@
+use std::collections::HashMap;
 use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
 
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
+use nix::unistd::Uid;
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
-use tracing::debug;
+use tracing::{debug, warn};
+use tracing_subscriber::field::debug;
 
 use crate::rc_refcell;
 
+use super::finder::Cred;
 use super::{deserialize_duration, is_default, serialize_duration};
 
 use super::{
@@ -139,6 +143,11 @@ pub struct EnvKey {
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: EnvBehavior,
+    #[serde(
+        default,
+        skip_serializing_if = "HashMap::is_empty",
+    )]
+    pub set: HashMap<String,String>,
     #[serde(
         default,
         skip_serializing_if = "LinkedHashSet::is_empty",
@@ -398,6 +407,7 @@ impl Default for SEnvOptions {
     fn default() -> Self {
         SEnvOptions {
             default_behavior: EnvBehavior::default(),
+            set: HashMap::new(),
             keep: LinkedHashSet::new(),
             check: LinkedHashSet::new(),
             delete: LinkedHashSet::new(),
@@ -416,6 +426,25 @@ impl SEnvOptions {
 
 trait EnvSet {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool;
+}
+
+impl<T> EnvSet for HashMap<String, T> {
+    fn env_matches(&self, wildcarded: &EnvKey) -> bool {
+        match wildcarded.env_type {
+            EnvKeyType::Normal => self.contains_key(&wildcarded.value),
+            EnvKeyType::Wildcarded => {
+                self.keys().any(|s| {
+                    Regex::new(&format!(
+                        "^{}$",
+                        wildcarded.value.replace('*', ".*").replace('?', ".")
+                    )) // convert to regex
+                    .unwrap()
+                    .is_match(s.as_bytes())
+                    .is_ok_and(|m| m)
+                })
+            }
+        }
+    }
 }
 
 impl EnvSet for LinkedHashSet<EnvKey> {
@@ -758,10 +787,17 @@ impl OptStack {
         (final_behavior, final_add, final_sub)
     }
 
-    pub fn calculate_filtered_env(&self) -> Result<LinkedHashSet<(String, String)>, String> {
+    pub fn calculate_filtered_env(&self, target: Cred) -> Result<HashMap<String, String>, String> {
         let final_env = std::env::vars();
-        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
-        match final_behavior {
+        let (final_behavior, final_set, final_keep, final_check, final_delete) = self.get_final_env();
+        if final_behavior.is_keep() {
+            warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
+            Please consider using delete instead. 
+            See https://www.sudo.ws/security/advisories/bash_env/, 
+            https://www.sudo.ws/security/advisories/perl_env/ or 
+            https://nvd.nist.gov/vuln/detail/CVE-2006-0151");
+        }
+        let mut final_env: HashMap<String, String> = match final_behavior {
             EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
             EnvBehavior::Delete => Ok(final_env
                 .filter_map(|(key, value)| {
@@ -769,8 +805,10 @@ impl OptStack {
                     if final_keep.env_matches(&key)
                         || (final_check.env_matches(&key) && check_env(&key.value, &value))
                     {
+                        debug!("Keeping env: {}={}", key.value, value);
                         Some((key.value, value))
                     } else {
+                        debug!("Dropping env: {}", key.value);
                         None
                     }
                 })
@@ -780,27 +818,46 @@ impl OptStack {
                     let key = EnvKey::new(key).expect("Unexpected environment variable");
                     if key.value == "PATH" {
                         Some((key.value, self.calculate_path()))
-                    } else if final_delete.env_matches(&key)
+                    } else if !final_delete.env_matches(&key)
                         || (final_check.env_matches(&key) && check_env(&key.value, &value))
                     {
+                        debug!("Keeping env: {}={}", key.value, value);
                         Some((key.value, value))
                     } else {
+                        debug!("Dropping env: {}", key.value);
                         None
                     }
                 })
                 .collect()),
-        }
+        }?;
+        let user = final_env
+            .get("USER".into())
+            .cloned()
+            .unwrap_or_else(|| target.user.name.clone().into());
+        let logname = final_env.entry("LOGNAME".into()).or_insert(user).clone();
+        final_env.entry("USER".into()).or_insert(logname);
+        final_env
+            .entry("TERM".into())
+            .or_insert_with(|| "unknown".into());
+        final_env.insert(
+            "SHELL".into(),
+            target.user.shell.to_string_lossy().to_string(),
+        );
+        final_env.extend(final_set.into_iter());
+        Ok(final_env)
     }
 
     fn get_final_env(
         &self,
     ) -> (
         EnvBehavior,
+        HashMap<String,String>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
     ) {
         let mut final_behavior = EnvBehavior::default();
+        let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();
         let mut final_check = LinkedHashSet::new();
         let mut final_delete = LinkedHashSet::new();
@@ -812,15 +869,16 @@ impl OptStack {
                         final_keep = p
                             .keep
                             .iter()
-                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.check.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .iter()
-                            .filter(|e| !p.delete.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
+                        final_set = p.set.clone();
                         p.default_behavior
                     }
                     EnvBehavior::Keep => {
@@ -828,47 +886,49 @@ impl OptStack {
                         final_delete = p
                             .delete
                             .iter()
-                            .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e) || !p.check.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .iter()
-                            .filter(|e| !p.keep.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e))
                             .cloned()
                             .collect();
+                        final_set = p.set.clone();
                         p.default_behavior
                     }
                     EnvBehavior::Inherit => {
                         if final_behavior.is_delete() {
                             final_keep = final_keep
                                 .union(&p.keep)
-                                .filter(|e| !p.delete.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e) || !p.check.env_matches(e))
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.delete.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e))
                                 .cloned()
                                 .collect();
                         } else {
                             final_delete = final_delete
                                 .union(&p.delete)
-                                .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e) || !p.check.env_matches(e))
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.keep.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e))
                                 .cloned()
                                 .collect();
                         }
+                        final_set.extend(p.set.clone());
                         final_behavior
                     }
                 };
             }
         });
-        (final_behavior, final_keep, final_check, final_delete)
+        (final_behavior, final_set, final_keep, final_check, final_delete)
     }
 
     #[allow(dead_code)]
@@ -1011,8 +1071,9 @@ impl OptStack {
         res.path.as_mut().unwrap().default_behavior = final_behavior;
         res.path.as_mut().unwrap().add = final_add.as_ref().borrow().clone();
         res.path.as_mut().unwrap().sub = final_sub.as_ref().borrow().clone();
-        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
+        let (final_behavior, final_set, final_keep, final_check, final_delete) = self.get_final_env();
         res.env.as_mut().unwrap().default_behavior = final_behavior;
+        res.env.as_mut().unwrap().set = final_set;
         res.env.as_mut().unwrap().keep = final_keep;
         res.env.as_mut().unwrap().check = final_check;
         res.env.as_mut().unwrap().delete = final_delete;
