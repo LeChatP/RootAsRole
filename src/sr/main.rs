@@ -261,7 +261,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     //execute command
     let envset = optstack
-        .calculate_filtered_env(cred)
+        .calculate_filtered_env(cred,std::env::vars())
         .expect("Failed to calculate env");
 
     let pty = Pty::new().expect("Failed to create pty");

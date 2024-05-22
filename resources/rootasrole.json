@@ -45,7 +45,7 @@
                 "COLORTERM",
                 "LANG",
                 "LANGUAGE",
-                "LC_*",
+                "LC_.*",
                 "LINGUAS",
                 "TERM",
                 "TZ"

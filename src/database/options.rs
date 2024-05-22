@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
 use tracing::{debug, warn};
+use tracing_subscriber::field::debug;
 
 use crate::rc_refcell;
 
@@ -342,7 +343,7 @@ impl EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if Regex::new("^[a-zA-Z_*?]+[a-zA-Z0-9_*?]*$") // check if it is a valid env name
+        } else if Regex::new("^[a-zA-Z_*?]+.*$") // check if it is a valid env name
             .unwrap()
             .is_match(s.as_bytes())
             .is_ok_and(|m| m)
@@ -352,7 +353,7 @@ impl EnvKey {
                 value: s,
             })
         } else {
-            Err(format!("Invalid env key {}, must start with letter or underscore following by letters, numbers or underscores. Wildcard accepts only '?' and '*'", s))
+            Err(format!("Invalid env key {}, must start with letter or underscore following by a regex", s))
         }
     }
 }
@@ -451,7 +452,7 @@ impl EnvSet for LinkedHashSet<EnvKey> {
                 self.iter().any(|s| {
                     Regex::new(&format!(
                         "^{}$",
-                        wildcarded.value.replace('*', ".*").replace('?', ".")
+                        wildcarded.value
                     )) // convert to regex
                     .unwrap()
                     .is_match(s.value.as_bytes())
@@ -511,9 +512,10 @@ fn tz_is_safe(tzval: &str) -> bool {
 }
 
 fn check_env(key: &str, value: &str) -> bool {
+    debug!("Checking env: {}={}", key, value);
     match key {
         "TZ" => tz_is_safe(value),
-        _ => value.chars().any(|c| c == '/' || c == '%'),
+        _ => !value.chars().any(|c| c == '/' || c == '%'),
     }
 }
 
@@ -783,8 +785,8 @@ impl OptStack {
         (final_behavior, final_add, final_sub)
     }
 
-    pub fn calculate_filtered_env(&self, target: Cred) -> Result<HashMap<String, String>, String> {
-        let final_env = std::env::vars();
+    pub fn calculate_filtered_env<I>(&self, target: Cred, final_env: I) -> Result<HashMap<String, String>, String> 
+    where I : Iterator<Item = (String, String)> {
         let (final_behavior, final_set, final_keep, final_check, final_delete) =
             self.get_final_env();
         if final_behavior.is_keep() {
@@ -880,6 +882,7 @@ impl OptStack {
                             .cloned()
                             .collect();
                         final_set = p.set.clone();
+                        debug!("check: {:?}", final_check);
                         p.default_behavior
                     }
                     EnvBehavior::Keep => {
@@ -936,6 +939,7 @@ impl OptStack {
                                 .collect();
                         }
                         final_set.extend(p.set.clone());
+                        debug!("check: {:?}", final_check);
                         final_behavior
                     }
                 };
@@ -1176,6 +1180,10 @@ impl PartialEq for OptStack {
 #[cfg(test)]
 mod tests {
 
+    use nix::unistd::Group;
+    use nix::unistd::Pid;
+    use nix::unistd::User;
+
     use crate::as_borrow_mut;
     use crate::common::database::wrapper::SConfigWrapper;
     use crate::common::database::wrapper::SRoleWrapper;
@@ -1306,8 +1314,6 @@ mod tests {
         let options = OptStack::from_task(task).to_opt();
         let res = options.env.unwrap().keep;
         assert!(res.contains(&EnvKey::from("env1")));
-        //assert!(res.contains(&EnvKey::from("env2")));
-        //assert!(res.contains(&EnvKey::from("env3")));
     }
 
     // test to_opt() for OptStack
@@ -1443,5 +1449,49 @@ mod tests {
                 .unwrap()
                 .as_str()
         ));
+    }
+
+    #[test]
+    fn test_check_env() {
+        let mut env_options = SEnvOptions::new(EnvBehavior::Inherit);
+        env_options.keep.insert("env1".into());
+        let mut opt = Opt::new(Level::Task);
+        opt.env = Some(env_options);
+        let task = STaskWrapper::default();
+        as_borrow_mut!(task).name = IdTask::Number(1);
+        as_borrow_mut!(task).options = Some(rc_refcell!(opt));
+        let role = SRoleWrapper::default();
+        as_borrow_mut!(role).name = "test".to_string();
+        let mut env_options = SEnvOptions::new(EnvBehavior::Inherit);
+        env_options.check.insert("env2".into());
+        let mut opt = Opt::new(Level::Role);
+        opt.env = Some(env_options);
+        as_borrow_mut!(role).options = Some(rc_refcell!(opt));
+        as_borrow_mut!(task)._role = Some(Rc::downgrade(&role));
+
+        let mut env_options = SEnvOptions::new(EnvBehavior::Delete);
+        env_options.check.insert("env3".into());
+
+        let mut opt = Opt::new(Level::Global);
+        opt.env = Some(env_options);
+        let config = SConfigWrapper::default();
+        as_borrow_mut!(config).roles.push(role.clone());
+        as_borrow_mut!(config).options = Some(rc_refcell!(opt));
+        as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
+        let options = OptStack::from_task(task);
+        let mut test_env = HashMap::new();
+        test_env.insert("env1".to_string(), "value1".to_string());
+        test_env.insert("env2".into(), "va%lue2".into());
+        test_env.insert("env3".into(), "value3".into());
+        let cred =  Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            groups: vec![Group::from_gid(0.into()).unwrap().unwrap()],
+            tty: None,
+            ppid: Pid::from_raw(0),
+        };
+        let result = options.calculate_filtered_env(cred, test_env.into_iter()).unwrap();
+        assert_eq!(result.get("env1").unwrap(), "value1");
+        assert_eq!(result.get("env3").unwrap(), "value3");
+        assert!(result.get("env2").is_none());
     }
 }
