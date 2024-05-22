@@ -821,9 +821,7 @@ impl OptStack {
             EnvBehavior::Keep => Ok(final_env
                 .filter_map(|(key, value)| {
                     let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if key.value == "PATH" {
-                        Some((key.value, self.calculate_path()))
-                    } else if !final_delete.env_matches(&key)
+                    if !final_delete.env_matches(&key)
                         || (final_check.env_matches(&key) && check_env(&key.value, &value))
                     {
                         debug!("Keeping env: {}={}", key.value, value);
@@ -835,8 +833,10 @@ impl OptStack {
                 })
                 .collect()),
         }?;
+        final_env.insert("PATH".into(), self.calculate_path());
         final_env.insert("LOGNAME".into(), target.user.name.clone());
         final_env.insert("USER".into(), target.user.name);
+        final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
         final_env
             .entry("TERM".into())
             .or_insert_with(|| "unknown".into());
