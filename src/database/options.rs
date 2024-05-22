@@ -353,7 +353,10 @@ impl EnvKey {
                 value: s,
             })
         } else {
-            Err(format!("Invalid env key {}, must start with letter or underscore following by a regex", s))
+            Err(format!(
+                "Invalid env key {}, must start with letter or underscore following by a regex",
+                s
+            ))
         }
     }
 }
@@ -450,13 +453,10 @@ impl EnvSet for LinkedHashSet<EnvKey> {
             EnvKeyType::Normal => self.contains(wildcarded),
             EnvKeyType::Wildcarded => {
                 self.iter().any(|s| {
-                    Regex::new(&format!(
-                        "^{}$",
-                        wildcarded.value
-                    )) // convert to regex
-                    .unwrap()
-                    .is_match(s.value.as_bytes())
-                    .is_ok_and(|m| m)
+                    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
+                        .unwrap()
+                        .is_match(s.value.as_bytes())
+                        .is_ok_and(|m| m)
                 })
             }
         }
@@ -785,8 +785,14 @@ impl OptStack {
         (final_behavior, final_add, final_sub)
     }
 
-    pub fn calculate_filtered_env<I>(&self, target: Cred, final_env: I) -> Result<HashMap<String, String>, String> 
-    where I : Iterator<Item = (String, String)> {
+    pub fn calculate_filtered_env<I>(
+        &self,
+        target: Cred,
+        final_env: I,
+    ) -> Result<HashMap<String, String>, String>
+    where
+        I: Iterator<Item = (String, String)>,
+    {
         let (final_behavior, final_set, final_keep, final_check, final_delete) =
             self.get_final_env();
         if final_behavior.is_keep() {
@@ -1483,13 +1489,15 @@ mod tests {
         test_env.insert("env1".to_string(), "value1".to_string());
         test_env.insert("env2".into(), "va%lue2".into());
         test_env.insert("env3".into(), "value3".into());
-        let cred =  Cred {
+        let cred = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             groups: vec![Group::from_gid(0.into()).unwrap().unwrap()],
             tty: None,
             ppid: Pid::from_raw(0),
         };
-        let result = options.calculate_filtered_env(cred, test_env.into_iter()).unwrap();
+        let result = options
+            .calculate_filtered_env(cred, test_env.into_iter())
+            .unwrap();
         assert_eq!(result.get("env1").unwrap(), "value1");
         assert_eq!(result.get("env3").unwrap(), "value3");
         assert!(result.get("env2").is_none());
