@@ -20,7 +20,6 @@ use std::{fs, mem};
 
 use libc::{tcsetattr, termios, ECHO, ECHONL, TCSANOW};
 
-
 use super::cutils::cerr;
 
 use super::securemem::PamBuffer;

@@ -1,7 +1,7 @@
 #[path = "../mod.rs"]
 mod common;
-mod timeout;
 pub mod pam;
+mod timeout;
 
 use capctl::CapState;
 use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
@@ -31,8 +31,6 @@ use crate::common::{
     util::{BOLD, RST, UNDERLINE},
 };
 use crate::common::{drop_effective, subsribe};
-
-
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -103,8 +101,6 @@ impl Default for Cli {
         }
     }
 }
-
-
 
 const CAPABILITIES_ERROR: &str =
     "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
@@ -196,7 +192,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop_effective()?;
     register_plugins();
     let args = getopt(std::env::args())?;
-    
+
     if args.help {
         println!("{}", USAGE);
         return Ok(());
@@ -269,7 +265,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let envset = optstack
         .calculate_filtered_env(cred)
         .expect("Failed to calculate env");
-    
+
     let pty = Pty::new().expect("Failed to create pty");
 
     let command = Command::new(&execcfg.exec_path)
@@ -293,7 +289,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn make_cred() -> Cred {
-    
     let user = User::from_uid(getuid())
         .expect("Failed to get user")
         .expect("Failed to get user");
@@ -421,8 +416,6 @@ fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
     setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
 }
-
-
 
 #[cfg(test)]
 mod tests {

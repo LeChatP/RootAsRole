@@ -1,16 +1,27 @@
-use std::{error::Error, ffi::{CStr, CString}, ops::Deref, slice};
+use std::{
+    error::Error,
+    ffi::{CStr, CString},
+    ops::Deref,
+    slice,
+};
 
 use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
 use tracing::{debug, error, info, warn};
 
-use crate::{common::{config::Storage, database::{finder::Cred, options::OptStack}}, timeout};
+use crate::{
+    common::{
+        config::Storage,
+        database::{finder::Cred, options::OptStack},
+    },
+    timeout,
+};
 
 use self::{rpassword::Terminal, securemem::SIZE};
 
+mod cutils;
 mod rpassword;
 mod securemem;
-mod cutils;
 
 #[cfg(not(test))]
 const PAM_SERVICE: &str = "sr";
@@ -57,7 +68,6 @@ impl SrConversationHandler {
                     .is_ok_and(|f| f)
             })
     }
-
 }
 
 impl Default for SrConversationHandler {
@@ -77,7 +87,8 @@ impl ConversationHandler for SrConversationHandler {
             return Err(ErrorCode::CONV_ERR);
         }
         let mut term = self.open().map_err(|_| ErrorCode::CONV_ERR)?;
-        term.prompt(prompt.to_string_lossy().as_ref()).map_err(|_| ErrorCode::CONV_ERR)?;
+        term.prompt(prompt.to_string_lossy().as_ref())
+            .map_err(|_| ErrorCode::CONV_ERR)?;
         let read = term.read_cleartext().map_err(|_| ErrorCode::BUF_ERR)?;
         Ok(unsafe { CString::from_vec_unchecked(read.deref().to_vec()) })
     }
@@ -91,7 +102,8 @@ impl ConversationHandler for SrConversationHandler {
             self.prompt = pam_prompt.to_string()
         }
         let mut term = self.open().map_err(|_| ErrorCode::CONV_ERR)?;
-        term.prompt(pam_prompt.as_ref()).map_err(|_| ErrorCode::CONV_ERR)?;
+        term.prompt(pam_prompt.as_ref())
+            .map_err(|_| ErrorCode::CONV_ERR)?;
         let read = term.read_password().map_err(|_| ErrorCode::BUF_ERR)?;
         Ok(unsafe { CString::from_vec_unchecked(read.deref().to_vec()) })
     }
@@ -124,12 +136,8 @@ pub(super) fn check_auth(
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let conv = SrConversationHandler::new(prompt);
-        let mut context = Context::new(
-            PAM_SERVICE,
-            Some(&user.user.name),
-            conv,
-        )
-        .expect("Failed to initialize PAM");
+        let mut context = Context::new(PAM_SERVICE, Some(&user.user.name), conv)
+            .expect("Failed to initialize PAM");
         context.authenticate(Flag::SILENT)?;
         context.acct_mgmt(Flag::SILENT)?;
     }

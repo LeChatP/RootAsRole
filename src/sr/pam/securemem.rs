@@ -2,7 +2,6 @@
 /// Licensed under the MIT License and Apache 2.0 License;
 /// Original source: https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs
 /// Original authors: The sudo-rs developers (Ruben Nijveld et al.)
-
 // Routines for "secure" memory operations; i.e. data that we need to send to Linux-PAM and don't
 // want any copies to leak (that we would then need to zeroize).
 use std::{

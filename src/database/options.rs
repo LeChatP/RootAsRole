@@ -143,11 +143,8 @@ pub struct EnvKey {
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: EnvBehavior,
-    #[serde(
-        default,
-        skip_serializing_if = "HashMap::is_empty",
-    )]
-    pub set: HashMap<String,String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub set: HashMap<String, String>,
     #[serde(
         default,
         skip_serializing_if = "LinkedHashSet::is_empty",
@@ -789,7 +786,8 @@ impl OptStack {
 
     pub fn calculate_filtered_env(&self, target: Cred) -> Result<HashMap<String, String>, String> {
         let final_env = std::env::vars();
-        let (final_behavior, final_set, final_keep, final_check, final_delete) = self.get_final_env();
+        let (final_behavior, final_set, final_keep, final_check, final_delete) =
+            self.get_final_env();
         if final_behavior.is_keep() {
             warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
             Please consider using delete instead. 
@@ -851,7 +849,7 @@ impl OptStack {
         &self,
     ) -> (
         EnvBehavior,
-        HashMap<String,String>,
+        HashMap<String, String>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
@@ -869,7 +867,11 @@ impl OptStack {
                         final_keep = p
                             .keep
                             .iter()
-                            .filter(|e| !p.set.env_matches(e) || !p.check.env_matches(e) || !p.delete.env_matches(e))
+                            .filter(|e| {
+                                !p.set.env_matches(e)
+                                    || !p.check.env_matches(e)
+                                    || !p.delete.env_matches(e)
+                            })
                             .cloned()
                             .collect();
                         final_check = p
@@ -886,7 +888,11 @@ impl OptStack {
                         final_delete = p
                             .delete
                             .iter()
-                            .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e) || !p.check.env_matches(e))
+                            .filter(|e| {
+                                !p.set.env_matches(e)
+                                    || !p.keep.env_matches(e)
+                                    || !p.check.env_matches(e)
+                            })
                             .cloned()
                             .collect();
                         final_check = p
@@ -902,7 +908,11 @@ impl OptStack {
                         if final_behavior.is_delete() {
                             final_keep = final_keep
                                 .union(&p.keep)
-                                .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| {
+                                    !p.set.env_matches(e)
+                                        || !p.delete.env_matches(e)
+                                        || !p.check.env_matches(e)
+                                })
                                 .cloned()
                                 .collect();
                             final_check = final_check
@@ -913,7 +923,11 @@ impl OptStack {
                         } else {
                             final_delete = final_delete
                                 .union(&p.delete)
-                                .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| {
+                                    !p.set.env_matches(e)
+                                        || !p.keep.env_matches(e)
+                                        || !p.check.env_matches(e)
+                                })
                                 .cloned()
                                 .collect();
                             final_check = final_check
@@ -928,7 +942,13 @@ impl OptStack {
                 };
             }
         });
-        (final_behavior, final_set, final_keep, final_check, final_delete)
+        (
+            final_behavior,
+            final_set,
+            final_keep,
+            final_check,
+            final_delete,
+        )
     }
 
     #[allow(dead_code)]
@@ -1071,7 +1091,8 @@ impl OptStack {
         res.path.as_mut().unwrap().default_behavior = final_behavior;
         res.path.as_mut().unwrap().add = final_add.as_ref().borrow().clone();
         res.path.as_mut().unwrap().sub = final_sub.as_ref().borrow().clone();
-        let (final_behavior, final_set, final_keep, final_check, final_delete) = self.get_final_env();
+        let (final_behavior, final_set, final_keep, final_check, final_delete) =
+            self.get_final_env();
         res.env.as_mut().unwrap().default_behavior = final_behavior;
         res.env.as_mut().unwrap().set = final_set;
         res.env.as_mut().unwrap().keep = final_keep;
