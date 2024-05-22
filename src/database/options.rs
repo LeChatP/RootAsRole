@@ -835,12 +835,8 @@ impl OptStack {
                 })
                 .collect()),
         }?;
-        let user = final_env
-            .get("USER".into())
-            .cloned()
-            .unwrap_or_else(|| target.user.name.clone().into());
-        let logname = final_env.entry("LOGNAME".into()).or_insert(user).clone();
-        final_env.entry("USER".into()).or_insert(logname);
+        final_env.insert("LOGNAME".into(), target.user.name.clone());
+        final_env.insert("USER".into(), target.user.name);
         final_env
             .entry("TERM".into())
             .or_insert_with(|| "unknown".into());
