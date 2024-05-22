@@ -1761,7 +1761,7 @@ where
         },
         Inputs {
             // chsr o env setpolicy delete-all
-            action,
+            action: _,
             role_id,
             task_id,
             options_type: Some(OptType::Env),
@@ -1932,7 +1932,7 @@ fn print_task(
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Write, path::PathBuf, rc::Rc};
+    use std::{io::Write, rc::Rc};
 
     use crate::common::{
         config,

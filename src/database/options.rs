@@ -5,13 +5,12 @@ use chrono::Duration;
 
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
-use nix::unistd::Uid;
+
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
 use tracing::{debug, warn};
-use tracing_subscriber::field::debug;
 
 use crate::rc_refcell;
 

@@ -2,7 +2,6 @@ use std::{
     error::Error,
     ffi::{CStr, CString},
     ops::Deref,
-    slice,
 };
 
 use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
@@ -17,7 +16,7 @@ use crate::{
     timeout,
 };
 
-use self::{rpassword::Terminal, securemem::SIZE};
+use self::rpassword::Terminal;
 
 mod cutils;
 mod rpassword;

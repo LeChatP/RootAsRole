@@ -19,7 +19,7 @@ use pty_process::blocking::{Command, Pty};
 #[cfg(not(debug_assertions))]
 use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 use crate::common::plugin::register_plugins;
 use crate::common::{
@@ -184,8 +184,6 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use tracing_subscriber::field::debug;
-
     use crate::pam::check_auth;
 
     subsribe("sr");
