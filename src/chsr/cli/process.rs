@@ -317,7 +317,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
                 timeout_max_usage,
             ),
         },
-        
+
         Inputs {
             // chsr o path setpolicy delete-all
             action: InputAction::Set,
@@ -382,7 +382,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
         } => match storage {
             Storage::JSON(rconfig) => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
         },
-        
+
         _ => Err("Unknown Input".into()),
     }
 }
