@@ -292,19 +292,10 @@ impl Default for TaskMatch {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
-}
-
-impl Default for FilterMatcher {
-    fn default() -> Self {
-        FilterMatcher {
-            role: None,
-            task: None,
-        }
-    }
 }
 
 pub trait TaskMatcher<T> {

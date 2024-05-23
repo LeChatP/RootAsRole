@@ -37,5 +37,6 @@
     "terminal.integrated.env.linux": {
         "PROFILE" : "debug",
         "RUST_BACKTRACE" : "1",
-    }
+    },
+    "rust-analyzer.checkOnSave": true
 }

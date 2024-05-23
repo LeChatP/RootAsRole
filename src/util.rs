@@ -136,7 +136,7 @@ pub fn escape_parser_string<S>(s: S) -> String
 where
     S: AsRef<str>,
 {
-    remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
+    remove_outer_quotes(s.as_ref()).replace('\"', "\\\"")
 }
 
 fn remove_outer_quotes(input: &str) -> String {

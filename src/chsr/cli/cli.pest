@@ -12,6 +12,7 @@ setpolicy = { "setpolicy" }
 whitelist = { "whitelist" | "wl" }
 blacklist = { "blacklist" | "bl" }
 checklist = { "checklist" | "cl" }
+setlist   = { "setlist" | "sl" }
 
 all       = { "all" }
 
@@ -146,12 +147,24 @@ opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | 
 path               =  @{ name }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
-opt_env_args    = _{ opt_env_setpolicy | opt_env_set | opt_env_listing }
+opt_env_args    = _{ opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }
 opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
-opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_list) | purge) }
-opt_env_set     = _{ set ~ env_list }
-env_list        = { env_key ~ ((","?) ~ env_list) | env_key }
+opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_key_list) | purge) }
+opt_env_setlisting = { setlist ~ (((add | del | set) ~ env_value_list) | purge) }
+opt_env_keep     = { "keep" ~ env_key_list }
+opt_env_delete     = { "delete" ~ env_key_list }
+opt_env_set      = { "set" ~ env_value_list }
+
+env_key_list        = { env_key ~ ((","?) ~ env_key_list) | env_key }
+
+env_value_list    = { env_key_value ~ ("," ~ env_key_value)* }
+env_key_value         = { env_key ~ "=" ~ env_value }
+env_value       = { NOT_ESCAPE_QUOTE ~ env_quoted_value ~ NOT_ESCAPE_QUOTE | env_unquoted_value }
+env_quoted_value = { (env_char | env_escape)* }
+env_unquoted_value = { (!"," ~ !"\"" ~ ANY)* }
+env_char        = _{ (!"\\" ~ !"\"") ~ ANY }
+env_escape      = _{ "\\" ~ ("\"" | ",") }
 
 env_key   = @{ (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
 
@@ -194,6 +207,6 @@ opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 assignment   =  _{ "=" | WHITESPACE*}
 help = { "-h" | "--help" }
 
-NOT_ESCAPE_QUOTE = @{ !"\\" ~ ("\""|"'") }
+NOT_ESCAPE_QUOTE = _{ !"\\" ~ ("\""|"'") }
 
 WHITESPACE       = _{ ((!NOT_ESCAPE_QUOTE) ~ SEPARATOR)+}

@@ -11,7 +11,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
 use tracing::{debug, warn};
-use tracing_subscriber::field::debug;
 
 use crate::rc_refcell;
 
@@ -64,7 +63,7 @@ pub enum TimestampType {
     UID,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
 pub struct STimeout {
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_field: Option<TimestampType>,
@@ -79,17 +78,6 @@ pub struct STimeout {
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
-}
-
-impl Default for STimeout {
-    fn default() -> Self {
-        STimeout {
-            type_field: None,
-            duration: None,
-            max_usage: None,
-            _extra_fields: Map::default(),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -844,7 +832,7 @@ impl OptStack {
             "SHELL".into(),
             target.user.shell.to_string_lossy().to_string(),
         );
-        final_env.extend(final_set.into_iter());
+        final_env.extend(final_set);
         Ok(final_env)
     }
 
@@ -1473,6 +1461,7 @@ mod tests {
 
         let mut env_options = SEnvOptions::new(EnvBehavior::Delete);
         env_options.check.insert("env3".into());
+        env_options.set.insert("env4".into(), "value4".into());
 
         let mut opt = Opt::new(Level::Global);
         opt.env = Some(env_options);
@@ -1497,5 +1486,6 @@ mod tests {
         assert_eq!(result.get("env1").unwrap(), "value1");
         assert_eq!(result.get("env3").unwrap(), "value3");
         assert!(result.get("env2").is_none());
+        assert_eq!(result.get("env4").unwrap(), "value4");
     }
 }
