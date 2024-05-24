@@ -999,8 +999,9 @@ pub fn env_setlist_add(
                 }
                 InputAction::Del => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set
-                        .retain(|k, _| !options_env_values.as_ref().unwrap().contains_key(k));
+                    options_key_env.as_ref().unwrap().into_iter().for_each(|k| {
+                        env.set.remove(&k.to_string());
+                    });
                 }
                 InputAction::Purge => {
                     debug!("options_env_values: {:?}", options_env_values);

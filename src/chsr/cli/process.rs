@@ -281,6 +281,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_key_env: Some(options_env),
             options_type: Some(OptType::Env),
             setlist_type,
+            options_env_values: None,
             options_env_policy: None,
             ..
         } => match storage {

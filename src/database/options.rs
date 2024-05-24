@@ -127,6 +127,12 @@ pub struct EnvKey {
     value: String,
 }
 
+impl ToString for EnvKey {
+    fn to_string(&self) -> String {
+        self.value.clone()
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]

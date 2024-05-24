@@ -297,6 +297,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::opt_env_setlisting => {
             inputs.setlist_type = Some(SetListType::SetList);
             inputs.options_env_values = Some(HashMap::new());
+            inputs.options_key_env = Some(LinkedHashSet::new());
         }
         Rule::opt_env_keep => {
             inputs.action = InputAction::Set;
