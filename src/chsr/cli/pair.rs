@@ -5,7 +5,6 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use pest::iterators::Pair;
 use tracing::{debug, warn};
-use tracing_subscriber::field::debug;
 
 use crate::{
     cli::data::{RoleType, TaskType},

@@ -6,7 +6,6 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use ciborium::de;
 use linked_hash_set::LinkedHashSet;
 use tracing::debug;
 

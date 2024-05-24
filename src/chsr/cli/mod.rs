@@ -38,7 +38,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::CString, io::Write, rc::Rc};
+    use std::{io::Write, rc::Rc};
 
     use crate::common::{
         config,
