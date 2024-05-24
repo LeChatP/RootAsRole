@@ -237,7 +237,8 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
 
 pub fn get_settings<S>(path: &S) -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>
 where
-    S: AsRef<OsStr> + ?Sized, {
+    S: AsRef<OsStr> + ?Sized,
+{
     // if file does not exist, return default settings
     if !std::path::Path::new(path.as_ref()).exists() {
         return Ok(rc_refcell!(SettingsFile::default()));

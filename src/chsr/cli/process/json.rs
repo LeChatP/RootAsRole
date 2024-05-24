@@ -604,7 +604,7 @@ pub fn env_set_policylist(
     options_env: LinkedHashSet<EnvKey>,
     options_env_policy: EnvBehavior,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o env set keep-only|delete-only {:?}",options_env);
+    debug!("chsr o env set keep-only|delete-only {:?}", options_env);
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut env = SEnvOptions::default();
         env.default_behavior = options_env_policy;

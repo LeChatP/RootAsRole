@@ -155,7 +155,9 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options: false,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => cred_caps(rconfig, role_id, task_id, setlist_type, action, pcred_caps),
+            Storage::JSON(rconfig) => {
+                cred_caps(rconfig, role_id, task_id, setlist_type, action, pcred_caps)
+            }
         },
         Inputs {
             role_id: Some(role_id),
@@ -198,7 +200,9 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_key_env: Some(options_env),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => env_set_policylist(rconfig, role_id, task_id, options_env, options_env_policy),
+            Storage::JSON(rconfig) => {
+                env_set_policylist(rconfig, role_id, task_id, options_env, options_env_policy)
+            }
         },
         Inputs {
             // chsr o root set privileged

@@ -340,7 +340,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::env_key_value => {
             if let Some(options_env_values) = inputs.options_env_values.as_mut() {
-                
                 let mut inner = pair.clone().into_inner();
                 let key = inner.next().unwrap().as_str().to_string();
                 let value = inner.next().unwrap().as_str().to_string();
