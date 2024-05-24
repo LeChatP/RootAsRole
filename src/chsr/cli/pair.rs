@@ -295,6 +295,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.options_key_env = Some(LinkedHashSet::new());
         }
         Rule::opt_env_setlisting => {
+            inputs.setlist_type = Some(SetListType::SetList);
             inputs.options_env_values = Some(HashMap::new());
         }
         Rule::opt_env_keep => {
@@ -309,6 +310,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::opt_env_set => {
             inputs.action = InputAction::Set;
+            inputs.setlist_type = Some(SetListType::SetList);
             inputs.options_env_values = Some(HashMap::new());
         }
 
@@ -341,10 +343,9 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             if let Some(options_env_values) = inputs.options_env_values.as_mut() {
                 let mut inner = pair.clone().into_inner();
                 let key = inner.next().unwrap().as_str().to_string();
-                let value = inner.next().unwrap().as_str().to_string();
+                let value = inner.next().unwrap().into_inner().next().unwrap().as_str().to_string();
                 debug!("env_key_value: {}={}", key, value);
                 options_env_values.insert(key, value);
-                unreachable!("env_key_value");
             }
         }
         Rule::env_key => {

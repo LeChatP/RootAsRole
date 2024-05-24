@@ -892,7 +892,7 @@ pub fn path_setpolicy(
     .map(|_| true)
 }
 
-pub fn path_setlist_add(
+pub fn env_setlist_add(
     rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
@@ -901,7 +901,7 @@ pub fn path_setlist_add(
     options_key_env: Option<LinkedHashSet<EnvKey>>,
     options_env_values: Option<HashMap<String, String>>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o path whitelist|blacklist add|del|set path1 path2 path3");
+    debug!("chsr o path {:?} {:?} path1 path2 path3", setlist_type, action);
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
         let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -991,16 +991,20 @@ pub fn path_setlist_add(
             },
             Some(SetListType::SetList) => match action {
                 InputAction::Add => {
+                    debug!("options_env_values: {:?}", options_env_values);
                     env.set.extend(options_env_values.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
+                    debug!("options_env_values: {:?}", options_env_values);
                     env.set
                         .retain(|k, _| !options_env_values.as_ref().unwrap().contains_key(k));
                 }
                 InputAction::Purge => {
+                    debug!("options_env_values: {:?}", options_env_values);
                     env.set = HashMap::new();
                 }
                 InputAction::Set => {
+                    debug!("options_env_values: {:?}", options_env_values);
                     env.set = options_env_values.as_ref().unwrap().clone();
                 }
                 _ => unreachable!("Unknown action {:?}", action),

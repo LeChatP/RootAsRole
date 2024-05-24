@@ -347,7 +347,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_env_policy: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => path_setlist_add(
+            Storage::JSON(rconfig) => env_setlist_add(
                 rconfig,
                 role_id,
                 task_id,

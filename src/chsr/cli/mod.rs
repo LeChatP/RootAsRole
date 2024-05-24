@@ -1736,6 +1736,70 @@ mod tests {
         teardown("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
     }
     #[test]
+    fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
+        setup("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
+        let settings = config::get_settings(&format!(
+            "{}.{}",
+            ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
+        ))
+        .expect("Failed to get settings");
+        let config = read_json_config(settings.clone()).expect("Failed to read json");
+        assert!(main(
+            &Storage::JSON(config.clone()),
+            r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#.split(" "),
+        )
+        .inspect_err(|e| {
+            error!("{}", e);
+        })
+        .inspect(|e| {
+            debug!("{}", e);
+        })
+        .is_ok_and(|b| b));
+        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            .as_ref()
+            .borrow()
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .env
+            .as_ref()
+            .unwrap()
+            .set
+            .get_key_value("MYVAR").unwrap(),(&"MYVAR".to_string(),&"value".to_string()));
+        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            .as_ref()
+            .borrow()
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .env
+            .as_ref()
+            .unwrap()
+            .set
+            .get_key_value("VAR2").unwrap(),(&"VAR2".to_string(),&"value2".to_string()));
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .set
+                .len(),
+            2
+        );
+        teardown("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
+    }
+    #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
         setup("r_complete_t_t_complete_o_env_setpolicy_delete_all");
         let settings = config::get_settings(&format!(
@@ -1847,7 +1911,7 @@ mod tests {
         teardown("r_complete_t_t_complete_o_env_setpolicy_inherit");
     }
     #[test]
-    fn test_r_complete_t_t_complete_o_env_whitelist_add_MYVAR() {
+    fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
         setup("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
         let settings = config::get_settings(&format!(
             "{}.{}",
