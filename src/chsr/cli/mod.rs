@@ -1932,38 +1932,34 @@ mod tests {
                 .len(),
             1
         );
-        assert!(
-            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .get_key_value("MYVAR")
-                .is_none()
-        );
-        assert!(
-            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .get_key_value("VAR2")
-                .is_none()
-        );
+        assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            .as_ref()
+            .borrow()
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .env
+            .as_ref()
+            .unwrap()
+            .set
+            .get_key_value("MYVAR")
+            .is_none());
+        assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            .as_ref()
+            .borrow()
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .env
+            .as_ref()
+            .unwrap()
+            .set
+            .get_key_value("VAR2")
+            .is_none());
         assert!(main(
             &Storage::JSON(config.clone()),
             r#"r complete t t_complete o env setlist purge"#.split(" "),
@@ -1975,21 +1971,19 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(
-            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .is_empty()
-        );
+        assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            .as_ref()
+            .borrow()
+            .options
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .env
+            .as_ref()
+            .unwrap()
+            .set
+            .is_empty());
         teardown("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
     }
     #[test]
