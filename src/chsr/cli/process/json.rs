@@ -901,7 +901,10 @@ pub fn env_setlist_add(
     options_key_env: Option<LinkedHashSet<EnvKey>>,
     options_env_values: Option<HashMap<String, String>>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o path {:?} {:?} path1 path2 path3", setlist_type, action);
+    debug!(
+        "chsr o path {:?} {:?} path1 path2 path3",
+        setlist_type, action
+    );
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
         let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();

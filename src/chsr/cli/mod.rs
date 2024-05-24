@@ -1755,32 +1755,40 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .set
-            .get_key_value("MYVAR").unwrap(),(&"MYVAR".to_string(),&"value".to_string()));
-        assert_eq!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .set
-            .get_key_value("VAR2").unwrap(),(&"VAR2".to_string(),&"value2".to_string()));
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .set
+                .get_key_value("MYVAR")
+                .unwrap(),
+            (&"MYVAR".to_string(), &"value".to_string())
+        );
+        assert_eq!(
+            config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
+                .as_ref()
+                .borrow()
+                .options
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .env
+                .as_ref()
+                .unwrap()
+                .set
+                .get_key_value("VAR2")
+                .unwrap(),
+            (&"VAR2".to_string(), &"value2".to_string())
+        );
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
                 .as_ref()
