@@ -152,8 +152,8 @@ opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
 opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_key_list) | purge) }
 opt_env_setlisting = { setlist ~ (((add | del | set) ~ env_value_list) | purge) }
-opt_env_keep     = { "keep" ~ env_key_list }
-opt_env_delete     = { "delete" ~ env_key_list }
+opt_env_keep     = { "keep-only" ~ env_key_list }
+opt_env_delete     = { "delete-only" ~ env_key_list }
 opt_env_set      = { "set" ~ env_value_list }
 
 env_key_list        = { env_key ~ ((","?) ~ env_key_list) | env_key }

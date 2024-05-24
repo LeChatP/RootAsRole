@@ -6,6 +6,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use ciborium::de;
 use linked_hash_set::LinkedHashSet;
 use tracing::debug;
 
@@ -154,7 +155,7 @@ pub fn role_add_del(
     role_id: String,
     role_type: Option<RoleType>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr role r1 add|del");
+    debug!("chsr role r1 {:?}", action);
     let mut config = rconfig.as_ref().borrow_mut();
     match action {
         InputAction::Add => {
@@ -415,7 +416,7 @@ pub fn cred_caps(
                     .unwrap()
                     .add = cred_caps;
             }
-            _ => unreachable!("Unknown action"),
+            _ => unreachable!("Unknown action {:?}", action),
         },
         SetListType::BlackList => match action {
             InputAction::Add => {
@@ -442,7 +443,7 @@ pub fn cred_caps(
                     .unwrap()
                     .sub = cred_caps;
             }
-            _ => unreachable!("Unknown action"),
+            _ => unreachable!("Unknown action {:?}", action),
         },
         _ => unreachable!("Unknown setlist type"),
     }
@@ -482,6 +483,7 @@ pub fn json_wildcard(
     action: InputAction,
     options_wildcard: String,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o wildcard add|del");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         match action {
             InputAction::Set => {
@@ -511,7 +513,7 @@ pub fn json_wildcard(
                 opt.as_ref().borrow_mut().wildcard_denied = None;
                 return Ok(());
             }
-            _ => unreachable!("Unknown action"),
+            _ => unreachable!("Unknown action {:?}", action),
         }
 
         Ok(())
@@ -550,7 +552,7 @@ pub fn cmd_whitelist_action(
                     *c != cmd
                 });
             }
-            _ => unreachable!("Unknown action"),
+            _ => unreachable!("Unknown action {:?}", action),
         },
         SetListType::BlackList => match action {
             InputAction::Add => {
@@ -571,7 +573,7 @@ pub fn cmd_whitelist_action(
                     .sub
                     .retain(|c| c != &cmd);
             }
-            _ => unreachable!("Unknown action"),
+            _ => unreachable!("Unknown action {:?}", action),
         },
         _ => unreachable!("Unknown setlist type"),
     }
@@ -595,16 +597,26 @@ pub fn cmd_setpolicy(
     Ok(true)
 }
 
-pub fn env_set_keeplist(
+pub fn env_set_policylist(
     rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     options_env: LinkedHashSet<EnvKey>,
+    options_env_policy: EnvBehavior,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env set keep-only|delete-only {:?}",options_env);
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut env = SEnvOptions::default();
-        env.default_behavior = EnvBehavior::Delete;
-        env.keep = options_env.clone();
+        env.default_behavior = options_env_policy;
+        match options_env_policy {
+            EnvBehavior::Delete => {
+                env.keep = options_env.clone();
+            }
+            EnvBehavior::Keep => {
+                env.delete = options_env.clone();
+            }
+            _ => unreachable!("Unknown env policy"),
+        }
         opt.as_ref().borrow_mut().env = Some(env);
         Ok(())
     })?;
@@ -631,6 +643,7 @@ pub fn set_bounding(
     task_id: Option<IdTask>,
     options_bounding: crate::common::database::options::SBounding,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o bounding set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().bounding = Some(options_bounding);
         Ok(())
@@ -644,6 +657,7 @@ pub fn set_authentication(
     task_id: Option<IdTask>,
     options_auth: crate::common::database::options::SAuthentication,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o auth set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().authentication = Some(options_auth);
         Ok(())
@@ -658,6 +672,7 @@ pub fn path_set(
     setlist_type: Option<SetListType>,
     options_path: String,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -686,6 +701,7 @@ pub fn path_purge(
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -711,6 +727,7 @@ pub fn env_whitelist_set(
     setlist_type: Option<SetListType>,
     options_env: LinkedHashSet<EnvKey>,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env whitelist set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -742,6 +759,7 @@ pub fn unset_timeout(
     task_id: Option<IdTask>,
     timeout_arg: [bool; 3],
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o timeout unset");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut timeout = STimeout::default();
         if timeout_arg[TimeoutOpt::Type as usize] {
@@ -772,6 +790,7 @@ pub fn set_timeout(
     timeout_duration: Option<chrono::TimeDelta>,
     timeout_max_usage: Option<u64>,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o timeout set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut timeout = STimeout::default();
         if let Some(timeout_type) = timeout_type {
@@ -797,6 +816,7 @@ pub fn path_setlist2(
     action: InputAction,
     options_path: String,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path set whitelist|blacklist add|del|set path1:path2:path3 22222222222");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -822,7 +842,7 @@ pub fn path_setlist2(
                 InputAction::Set => {
                     path.add = options_path.split(':').map(|s| s.to_string()).collect();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             Some(SetListType::BlackList) => match action {
                 InputAction::Add => {
@@ -844,7 +864,7 @@ pub fn path_setlist2(
                 InputAction::Set => {
                     path.sub = options_path.split(':').map(|s| s.to_string()).collect();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             _ => unreachable!("Unknown setlist type"),
         }
@@ -859,6 +879,7 @@ pub fn path_setpolicy(
     task_id: Option<IdTask>,
     options_path_policy: PathBehavior,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path setpolicy delete-all");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         if let Some(path) = &mut opt.as_ref().borrow_mut().path {
             path.default_behavior = options_path_policy;
@@ -881,6 +902,7 @@ pub fn path_setlist_add(
     options_key_env: Option<LinkedHashSet<EnvKey>>,
     options_env_values: Option<HashMap<String, String>>,
 ) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path whitelist|blacklist add|del|set path1 path2 path3");
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
         let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
@@ -916,7 +938,7 @@ pub fn path_setlist_add(
                 InputAction::Set => {
                     env.keep = options_key_env.as_ref().unwrap().clone();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             Some(SetListType::BlackList) => match action {
                 InputAction::Add => {
@@ -941,7 +963,7 @@ pub fn path_setlist_add(
                 InputAction::Set => {
                     env.delete = options_key_env.as_ref().unwrap().clone();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             Some(SetListType::CheckList) => match action {
                 InputAction::Add => {
@@ -966,7 +988,7 @@ pub fn path_setlist_add(
                 InputAction::Purge => {
                     env.check = LinkedHashSet::new();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             Some(SetListType::SetList) => match action {
                 InputAction::Add => {
@@ -982,13 +1004,13 @@ pub fn path_setlist_add(
                 InputAction::Set => {
                     env.set = options_env_values.as_ref().unwrap().clone();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
             None => match action {
                 InputAction::Set => {
                     env.keep = options_key_env.as_ref().unwrap().clone();
                 }
-                _ => unreachable!("Unknown action"),
+                _ => unreachable!("Unknown action {:?}", action),
             },
         }
         Ok(())

@@ -184,7 +184,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::pam::check_auth;
+    use crate::{common::config::ROOTASROLE, pam::check_auth};
 
     subsribe("sr");
     drop_effective()?;
@@ -198,7 +198,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     read_effective(true)
         .or(dac_override_effective(true))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
-    let settings = config::get_settings().expect("Failed to get settings");
+    let settings = config::get_settings(ROOTASROLE).expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));

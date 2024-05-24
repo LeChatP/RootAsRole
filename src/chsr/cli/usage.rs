@@ -253,5 +253,5 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
         BOLD = BOLD,
         RST = RST
     );
-    Ok(false)
+    Err(Box::new(e))
 }

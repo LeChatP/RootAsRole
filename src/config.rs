@@ -52,7 +52,7 @@ pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 #[cfg(test)]
 pub const ROOTASROLE: &str = "target/rootasrole.json";
 
-use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -235,13 +235,15 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     Ok(())
 }
 
-pub fn get_settings() -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>> {
+pub fn get_settings<S>(path: &S) -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>
+where
+    S: AsRef<OsStr> + ?Sized, {
     // if file does not exist, return default settings
-    if !std::path::Path::new(ROOTASROLE).exists() {
+    if !std::path::Path::new(path.as_ref()).exists() {
         return Ok(rc_refcell!(SettingsFile::default()));
     }
     // if user does not have read permission, try to enable privilege
-    let file = open_with_privileges(ROOTASROLE)?;
+    let file = open_with_privileges(path.as_ref())?;
     let value: Versioning<SettingsFile> = serde_json::from_reader(file)
         .inspect_err(|e| {
             debug!("Error reading file: {}", e);

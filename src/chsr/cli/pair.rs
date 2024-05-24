@@ -1,10 +1,11 @@
-use std::{error::Error, str::FromStr};
+use std::{collections::HashMap, error::Error, str::FromStr};
 
 use capctl::{Cap, CapSet};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use pest::iterators::Pair;
 use tracing::{debug, warn};
+use tracing_subscriber::field::debug;
 
 use crate::{
     cli::data::{RoleType, TaskType},
@@ -291,6 +292,27 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::opt_env => {
             inputs.options_type = Some(OptType::Env);
         }
+        Rule::opt_env_listing => {
+            inputs.options_key_env = Some(LinkedHashSet::new());
+        }
+        Rule::opt_env_setlisting => {
+            inputs.options_env_values = Some(HashMap::new());
+        }
+        Rule::opt_env_keep => {
+            inputs.action = InputAction::Set;
+            inputs.options_env_policy = Some(EnvBehavior::Delete);
+            inputs.options_key_env = Some(LinkedHashSet::new());
+        }
+        Rule::opt_env_delete => {
+            inputs.action = InputAction::Set;
+            inputs.options_env_policy = Some(EnvBehavior::Keep);
+            inputs.options_key_env = Some(LinkedHashSet::new());
+        }
+        Rule::opt_env_set => {
+            inputs.action = InputAction::Set;
+            inputs.options_env_values = Some(HashMap::new());
+        }
+
         Rule::opt_path => {
             inputs.options_type = Some(OptType::Path);
         }
@@ -316,15 +338,16 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::path => {
             inputs.options_path = Some(pair.as_str().to_string());
         }
-        Rule::env_value_list => {
-            if inputs.options_key_env.is_none() {
-                inputs.options_key_env = Some(LinkedHashSet::new());
+        Rule::env_key_value => {
+            if let Some(options_env_values) = inputs.options_env_values.as_mut() {
+                
+                let mut inner = pair.clone().into_inner();
+                let key = inner.next().unwrap().as_str().to_string();
+                let value = inner.next().unwrap().as_str().to_string();
+                debug!("env_key_value: {}={}", key, value);
+                options_env_values.insert(key, value);
+                unreachable!("env_key_value");
             }
-            inputs
-                .options_key_env
-                .as_mut()
-                .unwrap()
-                .insert_if_absent(pair.as_str().into());
         }
         Rule::env_key => {
             if let Some(options_env) = inputs.options_key_env.as_mut() {
