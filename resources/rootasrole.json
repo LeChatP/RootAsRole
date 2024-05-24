@@ -45,10 +45,18 @@
                 "COLORTERM",
                 "LANG",
                 "LANGUAGE",
-                "LC_*",
+                "LC_.*",
                 "LINGUAS",
                 "TERM",
                 "TZ"
+            ],
+            "delete" : [
+                "PS4",
+                "SHELLOPTS",
+                "PERLLIB",
+                "PERL5LIB",
+                "PERL5OPT",
+                "PYTHONINSPECT"
             ]
         },
         "root": "user",

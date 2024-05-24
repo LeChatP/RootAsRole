@@ -1,17 +1,20 @@
+use std::collections::HashMap;
 use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
 
 use chrono::Duration;
 
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
+
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::rc_refcell;
 
+use super::finder::Cred;
 use super::{deserialize_duration, is_default, serialize_duration};
 
 use super::{
@@ -60,7 +63,7 @@ pub enum TimestampType {
     UID,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
 pub struct STimeout {
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_field: Option<TimestampType>,
@@ -75,17 +78,6 @@ pub struct STimeout {
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
-}
-
-impl Default for STimeout {
-    fn default() -> Self {
-        STimeout {
-            type_field: None,
-            duration: None,
-            max_usage: None,
-            _extra_fields: Map::default(),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -135,10 +127,18 @@ pub struct EnvKey {
     value: String,
 }
 
+impl ToString for EnvKey {
+    fn to_string(&self) -> String {
+        self.value.clone()
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: EnvBehavior,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub set: HashMap<String, String>,
     #[serde(
         default,
         skip_serializing_if = "LinkedHashSet::is_empty",
@@ -337,7 +337,7 @@ impl EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if Regex::new("^[a-zA-Z_*?]+[a-zA-Z0-9_*?]*$") // check if it is a valid env name
+        } else if Regex::new("^[a-zA-Z_*?]+.*$") // check if it is a valid env name
             .unwrap()
             .is_match(s.as_bytes())
             .is_ok_and(|m| m)
@@ -347,7 +347,10 @@ impl EnvKey {
                 value: s,
             })
         } else {
-            Err(format!("Invalid env key {}, must start with letter or underscore following by letters, numbers or underscores. Wildcard accepts only '?' and '*'", s))
+            Err(format!(
+                "Invalid env key {}, must start with letter or underscore following by a regex",
+                s
+            ))
         }
     }
 }
@@ -398,6 +401,7 @@ impl Default for SEnvOptions {
     fn default() -> Self {
         SEnvOptions {
             default_behavior: EnvBehavior::default(),
+            set: HashMap::new(),
             keep: LinkedHashSet::new(),
             check: LinkedHashSet::new(),
             delete: LinkedHashSet::new(),
@@ -418,19 +422,35 @@ trait EnvSet {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool;
 }
 
+impl<T> EnvSet for HashMap<String, T> {
+    fn env_matches(&self, wildcarded: &EnvKey) -> bool {
+        match wildcarded.env_type {
+            EnvKeyType::Normal => self.contains_key(&wildcarded.value),
+            EnvKeyType::Wildcarded => {
+                self.keys().any(|s| {
+                    Regex::new(&format!(
+                        "^{}$",
+                        wildcarded.value.replace('*', ".*").replace('?', ".")
+                    )) // convert to regex
+                    .unwrap()
+                    .is_match(s.as_bytes())
+                    .is_ok_and(|m| m)
+                })
+            }
+        }
+    }
+}
+
 impl EnvSet for LinkedHashSet<EnvKey> {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool {
         match wildcarded.env_type {
             EnvKeyType::Normal => self.contains(wildcarded),
             EnvKeyType::Wildcarded => {
                 self.iter().any(|s| {
-                    Regex::new(&format!(
-                        "^{}$",
-                        wildcarded.value.replace('*', ".*").replace('?', ".")
-                    )) // convert to regex
-                    .unwrap()
-                    .is_match(s.value.as_bytes())
-                    .is_ok_and(|m| m)
+                    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
+                        .unwrap()
+                        .is_match(s.value.as_bytes())
+                        .is_ok_and(|m| m)
                 })
             }
         }
@@ -486,9 +506,10 @@ fn tz_is_safe(tzval: &str) -> bool {
 }
 
 fn check_env(key: &str, value: &str) -> bool {
+    debug!("Checking env: {}={}", key, value);
     match key {
         "TZ" => tz_is_safe(value),
-        _ => value.chars().any(|c| c == '/' || c == '%'),
+        _ => !value.chars().any(|c| c == '/' || c == '%'),
     }
 }
 
@@ -758,10 +779,24 @@ impl OptStack {
         (final_behavior, final_add, final_sub)
     }
 
-    pub fn calculate_filtered_env(&self) -> Result<LinkedHashSet<(String, String)>, String> {
-        let final_env = std::env::vars();
-        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
-        match final_behavior {
+    pub fn calculate_filtered_env<I>(
+        &self,
+        target: Cred,
+        final_env: I,
+    ) -> Result<HashMap<String, String>, String>
+    where
+        I: Iterator<Item = (String, String)>,
+    {
+        let (final_behavior, final_set, final_keep, final_check, final_delete) =
+            self.get_final_env();
+        if final_behavior.is_keep() {
+            warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
+            Please consider using delete instead. 
+            See https://www.sudo.ws/security/advisories/bash_env/, 
+            https://www.sudo.ws/security/advisories/perl_env/ or 
+            https://nvd.nist.gov/vuln/detail/CVE-2006-0151");
+        }
+        let mut final_env: HashMap<String, String> = match final_behavior {
             EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
             EnvBehavior::Delete => Ok(final_env
                 .filter_map(|(key, value)| {
@@ -769,8 +804,10 @@ impl OptStack {
                     if final_keep.env_matches(&key)
                         || (final_check.env_matches(&key) && check_env(&key.value, &value))
                     {
+                        debug!("Keeping env: {}={}", key.value, value);
                         Some((key.value, value))
                     } else {
+                        debug!("Dropping env: {}", key.value);
                         None
                     }
                 })
@@ -778,29 +815,44 @@ impl OptStack {
             EnvBehavior::Keep => Ok(final_env
                 .filter_map(|(key, value)| {
                     let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if key.value == "PATH" {
-                        Some((key.value, self.calculate_path()))
-                    } else if final_delete.env_matches(&key)
+                    if !final_delete.env_matches(&key)
                         || (final_check.env_matches(&key) && check_env(&key.value, &value))
                     {
+                        debug!("Keeping env: {}={}", key.value, value);
                         Some((key.value, value))
                     } else {
+                        debug!("Dropping env: {}", key.value);
                         None
                     }
                 })
                 .collect()),
-        }
+        }?;
+        final_env.insert("PATH".into(), self.calculate_path());
+        final_env.insert("LOGNAME".into(), target.user.name.clone());
+        final_env.insert("USER".into(), target.user.name);
+        final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
+        final_env
+            .entry("TERM".into())
+            .or_insert_with(|| "unknown".into());
+        final_env.insert(
+            "SHELL".into(),
+            target.user.shell.to_string_lossy().to_string(),
+        );
+        final_env.extend(final_set);
+        Ok(final_env)
     }
 
     fn get_final_env(
         &self,
     ) -> (
         EnvBehavior,
+        HashMap<String, String>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
         LinkedHashSet<EnvKey>,
     ) {
         let mut final_behavior = EnvBehavior::default();
+        let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();
         let mut final_check = LinkedHashSet::new();
         let mut final_delete = LinkedHashSet::new();
@@ -812,15 +864,21 @@ impl OptStack {
                         final_keep = p
                             .keep
                             .iter()
-                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
+                            .filter(|e| {
+                                !p.set.env_matches(e)
+                                    || !p.check.env_matches(e)
+                                    || !p.delete.env_matches(e)
+                            })
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .iter()
-                            .filter(|e| !p.delete.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
+                        final_set = p.set.clone();
+                        debug!("check: {:?}", final_check);
                         p.default_behavior
                     }
                     EnvBehavior::Keep => {
@@ -828,47 +886,68 @@ impl OptStack {
                         final_delete = p
                             .delete
                             .iter()
-                            .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
+                            .filter(|e| {
+                                !p.set.env_matches(e)
+                                    || !p.keep.env_matches(e)
+                                    || !p.check.env_matches(e)
+                            })
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .iter()
-                            .filter(|e| !p.keep.env_matches(e))
+                            .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e))
                             .cloned()
                             .collect();
+                        final_set = p.set.clone();
                         p.default_behavior
                     }
                     EnvBehavior::Inherit => {
                         if final_behavior.is_delete() {
                             final_keep = final_keep
                                 .union(&p.keep)
-                                .filter(|e| !p.delete.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| {
+                                    !p.set.env_matches(e)
+                                        || !p.delete.env_matches(e)
+                                        || !p.check.env_matches(e)
+                                })
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.delete.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e))
                                 .cloned()
                                 .collect();
                         } else {
                             final_delete = final_delete
                                 .union(&p.delete)
-                                .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
+                                .filter(|e| {
+                                    !p.set.env_matches(e)
+                                        || !p.keep.env_matches(e)
+                                        || !p.check.env_matches(e)
+                                })
                                 .cloned()
                                 .collect();
                             final_check = final_check
                                 .union(&p.check)
-                                .filter(|e| !p.keep.env_matches(e))
+                                .filter(|e| !p.set.env_matches(e) || !p.keep.env_matches(e))
                                 .cloned()
                                 .collect();
                         }
+                        final_set.extend(p.set.clone());
+                        debug!("check: {:?}", final_check);
                         final_behavior
                     }
                 };
             }
         });
-        (final_behavior, final_keep, final_check, final_delete)
+        (
+            final_behavior,
+            final_set,
+            final_keep,
+            final_check,
+            final_delete,
+        )
     }
 
     #[allow(dead_code)]
@@ -1011,8 +1090,10 @@ impl OptStack {
         res.path.as_mut().unwrap().default_behavior = final_behavior;
         res.path.as_mut().unwrap().add = final_add.as_ref().borrow().clone();
         res.path.as_mut().unwrap().sub = final_sub.as_ref().borrow().clone();
-        let (final_behavior, final_keep, final_check, final_delete) = self.get_final_env();
+        let (final_behavior, final_set, final_keep, final_check, final_delete) =
+            self.get_final_env();
         res.env.as_mut().unwrap().default_behavior = final_behavior;
+        res.env.as_mut().unwrap().set = final_set;
         res.env.as_mut().unwrap().keep = final_keep;
         res.env.as_mut().unwrap().check = final_check;
         res.env.as_mut().unwrap().delete = final_delete;
@@ -1094,6 +1175,10 @@ impl PartialEq for OptStack {
 
 #[cfg(test)]
 mod tests {
+
+    use nix::unistd::Group;
+    use nix::unistd::Pid;
+    use nix::unistd::User;
 
     use crate::as_borrow_mut;
     use crate::common::database::wrapper::SConfigWrapper;
@@ -1225,8 +1310,6 @@ mod tests {
         let options = OptStack::from_task(task).to_opt();
         let res = options.env.unwrap().keep;
         assert!(res.contains(&EnvKey::from("env1")));
-        //assert!(res.contains(&EnvKey::from("env2")));
-        //assert!(res.contains(&EnvKey::from("env3")));
     }
 
     // test to_opt() for OptStack
@@ -1362,5 +1445,53 @@ mod tests {
                 .unwrap()
                 .as_str()
         ));
+    }
+
+    #[test]
+    fn test_check_env() {
+        let mut env_options = SEnvOptions::new(EnvBehavior::Inherit);
+        env_options.keep.insert("env1".into());
+        let mut opt = Opt::new(Level::Task);
+        opt.env = Some(env_options);
+        let task = STaskWrapper::default();
+        as_borrow_mut!(task).name = IdTask::Number(1);
+        as_borrow_mut!(task).options = Some(rc_refcell!(opt));
+        let role = SRoleWrapper::default();
+        as_borrow_mut!(role).name = "test".to_string();
+        let mut env_options = SEnvOptions::new(EnvBehavior::Inherit);
+        env_options.check.insert("env2".into());
+        let mut opt = Opt::new(Level::Role);
+        opt.env = Some(env_options);
+        as_borrow_mut!(role).options = Some(rc_refcell!(opt));
+        as_borrow_mut!(task)._role = Some(Rc::downgrade(&role));
+
+        let mut env_options = SEnvOptions::new(EnvBehavior::Delete);
+        env_options.check.insert("env3".into());
+        env_options.set.insert("env4".into(), "value4".into());
+
+        let mut opt = Opt::new(Level::Global);
+        opt.env = Some(env_options);
+        let config = SConfigWrapper::default();
+        as_borrow_mut!(config).roles.push(role.clone());
+        as_borrow_mut!(config).options = Some(rc_refcell!(opt));
+        as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
+        let options = OptStack::from_task(task);
+        let mut test_env = HashMap::new();
+        test_env.insert("env1".to_string(), "value1".to_string());
+        test_env.insert("env2".into(), "va%lue2".into());
+        test_env.insert("env3".into(), "value3".into());
+        let cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            groups: vec![Group::from_gid(0.into()).unwrap().unwrap()],
+            tty: None,
+            ppid: Pid::from_raw(0),
+        };
+        let result = options
+            .calculate_filtered_env(cred, test_env.into_iter())
+            .unwrap();
+        assert_eq!(result.get("env1").unwrap(), "value1");
+        assert_eq!(result.get("env3").unwrap(), "value3");
+        assert!(result.get("env2").is_none());
+        assert_eq!(result.get("env4").unwrap(), "value4");
     }
 }

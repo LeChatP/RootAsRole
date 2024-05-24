@@ -1,0 +1,1043 @@
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    error::Error,
+    ops::Deref,
+    rc::{Rc, Weak},
+};
+
+use linked_hash_set::LinkedHashSet;
+use tracing::debug;
+
+use crate::{
+    cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt},
+    common::database::{
+        options::{
+            EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
+            STimeout,
+        },
+        structs::{IdTask, SCapabilities, SCommand, SRole, STask},
+    },
+    rc_refcell,
+};
+
+use super::perform_on_target_opt;
+
+pub fn list_json(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options: bool,
+    options_type: Option<OptType>,
+    task_type: Option<TaskType>,
+    role_type: Option<RoleType>,
+) -> Result<(), Box<dyn Error>> {
+    let config = rconfig.as_ref().borrow();
+    debug!("list_json {:?}", config);
+    if let Some(role_id) = role_id {
+        if let Some(role) = config.role(&role_id) {
+            list_task(task_id, role, options, options_type, task_type, role_type)
+        } else {
+            Err("Role not found".into())
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(config.deref()).unwrap());
+        Ok(())
+    }
+}
+
+fn list_task(
+    task_id: Option<IdTask>,
+    role: &Rc<RefCell<crate::common::database::structs::SRole>>,
+    options: bool,
+    options_type: Option<OptType>,
+    task_type: Option<TaskType>,
+    role_type: Option<RoleType>,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(task_id) = task_id {
+        if let Some(task) = role.as_ref().borrow().task(&task_id) {
+            if options {
+                let opt = OptStack::from_task(task.clone()).to_opt();
+                if let Some(opttype) = options_type {
+                    match opttype {
+                        OptType::Env => {
+                            println!("{}", serde_json::to_string_pretty(&opt.env).unwrap());
+                        }
+                        OptType::Path => {
+                            println!("{}", serde_json::to_string_pretty(&opt.path).unwrap());
+                        }
+                        OptType::Root => {
+                            println!("{}", serde_json::to_string_pretty(&opt.root).unwrap());
+                        }
+                        OptType::Bounding => {
+                            println!("{}", serde_json::to_string_pretty(&opt.bounding).unwrap());
+                        }
+                        OptType::Wildcard => {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.wildcard_denied).unwrap()
+                            );
+                        }
+                        OptType::Timeout => {
+                            println!("{}", serde_json::to_string_pretty(&opt.timeout).unwrap());
+                        }
+                    }
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&opt)?);
+                }
+            } else {
+                print_task(task, task_type.unwrap_or(TaskType::All));
+            }
+        } else {
+            return Err("Task not found".into());
+        }
+    } else if options {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&OptStack::from_role(role.clone()).to_opt())?
+        );
+    } else {
+        print_role(role, &role_type.unwrap_or(RoleType::All));
+    }
+    Ok(())
+}
+
+fn print_task(
+    task: &std::rc::Rc<std::cell::RefCell<crate::common::database::structs::STask>>,
+    task_type: TaskType,
+) {
+    match task_type {
+        TaskType::All => {
+            println!("{}", serde_json::to_string_pretty(&task).unwrap());
+        }
+        TaskType::Commands => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.as_ref().borrow().commands).unwrap()
+            );
+        }
+        TaskType::Credentials => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&task.as_ref().borrow().cred).unwrap()
+            );
+        }
+    }
+}
+
+fn print_role(
+    role: &std::rc::Rc<std::cell::RefCell<crate::common::database::structs::SRole>>,
+    role_type: &RoleType,
+) {
+    match role_type {
+        RoleType::All => {
+            println!("{}", serde_json::to_string_pretty(&role).unwrap());
+        }
+        RoleType::Actors => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&role.as_ref().borrow().actors).unwrap()
+            );
+        }
+        RoleType::Tasks => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&role.as_ref().borrow().tasks).unwrap()
+            );
+        }
+    }
+}
+
+pub fn role_add_del(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    action: InputAction,
+    role_id: String,
+    role_type: Option<RoleType>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 {:?}", action);
+    let mut config = rconfig.as_ref().borrow_mut();
+    match action {
+        InputAction::Add => {
+            //verify if role exists
+            if config.role(&role_id).is_some() {
+                return Err("Role already exists".into());
+            }
+            config
+                .roles
+                .push(rc_refcell!(SRole::new(role_id, Weak::new())));
+            Ok(true)
+        }
+        InputAction::Del => {
+            if config.role(&role_id).is_none() {
+                return Err("Role do not exists".into());
+            }
+            config.roles.retain(|r| r.as_ref().borrow().name != role_id);
+            Ok(true)
+        }
+        InputAction::Purge => {
+            if config.role(&role_id).is_none() {
+                return Err("Role do not exists".into());
+            }
+            let role = config.role(&role_id).unwrap();
+            match role_type {
+                Some(RoleType::Actors) => {
+                    role.as_ref().borrow_mut().actors.clear();
+                }
+                Some(RoleType::Tasks) => {
+                    role.as_ref().borrow_mut().tasks.clear();
+                }
+                None | Some(RoleType::All) => {
+                    role.as_ref().borrow_mut().actors.clear();
+                    role.as_ref().borrow_mut().tasks.clear();
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+pub fn task_add_del(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    action: InputAction,
+    task_id: IdTask,
+    task_type: Option<TaskType>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 add|del");
+    let config = rconfig.as_ref().borrow_mut();
+    let role = config.role(&role_id).ok_or("Role not found")?;
+    match action {
+        InputAction::Add => {
+            //verify if task exists
+            if role
+                .as_ref()
+                .borrow()
+                .tasks
+                .iter()
+                .any(|t| t.as_ref().borrow().name == task_id)
+            {
+                return Err("Task already exists".into());
+            }
+            role.as_ref()
+                .borrow_mut()
+                .tasks
+                .push(rc_refcell!(STask::new(task_id, Weak::new())));
+            Ok(true)
+        }
+        InputAction::Del => {
+            if role
+                .as_ref()
+                .borrow()
+                .tasks
+                .iter()
+                .all(|t| t.as_ref().borrow().name != task_id)
+            {
+                return Err("Task do not exists".into());
+            }
+            role.as_ref()
+                .borrow_mut()
+                .tasks
+                .retain(|t| t.as_ref().borrow().name != task_id);
+            Ok(true)
+        }
+        InputAction::Purge => {
+            let borrow = &role.as_ref().borrow();
+            let task = borrow.task(&task_id).expect("Task do not exists");
+            match task_type {
+                Some(TaskType::Commands) => {
+                    task.as_ref().borrow_mut().commands.add.clear();
+                    task.as_ref().borrow_mut().commands.sub.clear();
+                    task.as_ref().borrow_mut().commands.default_behavior = None;
+                }
+                Some(TaskType::Credentials) => {
+                    task.as_ref().borrow_mut().cred.capabilities = None;
+                    task.as_ref().borrow_mut().cred.setuid = None;
+                    task.as_ref().borrow_mut().cred.setgid = None;
+                }
+                None | Some(TaskType::All) => {
+                    task.as_ref().borrow_mut().commands.add.clear();
+                    task.as_ref().borrow_mut().commands.sub.clear();
+                    task.as_ref().borrow_mut().commands.default_behavior = None;
+                    task.as_ref().borrow_mut().cred.capabilities = None;
+                    task.as_ref().borrow_mut().cred.setuid = None;
+                    task.as_ref().borrow_mut().cred.setgid = None;
+                }
+            }
+            Ok(true)
+        }
+        _ => unreachable!("Invalid action"),
+    }
+}
+
+pub fn grant_revoke(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    action: InputAction,
+    mut actors: Vec<crate::common::database::structs::SActor>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 grant|revoke");
+    let config = rconfig.as_ref().borrow_mut();
+    let role = config.role(&role_id).ok_or("Role not found")?;
+    match action {
+        InputAction::Add => {
+            //verify if actor is already in role
+            //remove already existing actors
+            actors.retain(|a| {
+                if role.as_ref().borrow().actors.contains(a) {
+                    println!("Actor {} already in role", a);
+                    false
+                } else {
+                    true
+                }
+            });
+            role.as_ref().borrow_mut().actors.extend(actors);
+            Ok(true)
+        }
+        InputAction::Del => {
+            //if actor is not in role, warns
+            if !role.as_ref().borrow().actors.contains(&actors[0]) {
+                println!("Actor {} not in role", actors[0]);
+            }
+            role.as_ref()
+                .borrow_mut()
+                .actors
+                .retain(|a| !actors.contains(a));
+            Ok(true)
+        }
+        _ => unreachable!("Invalid action"),
+    }
+}
+
+pub fn cred_set(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    cred_caps: Option<capctl::CapSet>,
+    cred_setuid: Option<crate::common::database::structs::SActorType>,
+    cred_setgid: Option<crate::common::database::structs::SGroups>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 cred");
+    let config = rconfig.as_ref().borrow_mut();
+    match config.task(&role_id, &task_id) {
+        Ok(task) => {
+            if let Some(caps) = cred_caps {
+                task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
+            }
+            if let Some(setuid) = cred_setuid {
+                task.as_ref().borrow_mut().cred.setuid = Some(setuid);
+            }
+            if let Some(setgid) = cred_setgid {
+                task.as_ref().borrow_mut().cred.setgid = Some(setgid);
+            }
+            Ok(true)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn cred_unset(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    cred_caps: Option<capctl::CapSet>,
+    cred_setuid: Option<crate::common::database::structs::SActorType>,
+    cred_setgid: Option<crate::common::database::structs::SGroups>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 cred unset");
+    let config = rconfig.as_ref().borrow_mut();
+    match config.task(&role_id, &task_id) {
+        Ok(task) => {
+            if let Some(caps) = cred_caps {
+                if caps.is_empty() {
+                    task.as_ref().borrow_mut().cred.capabilities = None;
+                } else if let Some(ccaps) = task.as_ref().borrow_mut().cred.capabilities.as_mut() {
+                    ccaps.add.drop_all(caps);
+                } else {
+                    return Err("No capabilities to remove".into());
+                }
+            }
+            if cred_setuid.is_some() {
+                task.as_ref().borrow_mut().cred.setuid = None;
+            }
+            if cred_setgid.is_some() {
+                task.as_ref().borrow_mut().cred.setgid = None;
+            }
+            Ok(true)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn cred_caps(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    setlist_type: SetListType,
+    action: InputAction,
+    cred_caps: capctl::CapSet,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 cred caps");
+    let config = rconfig.as_ref().borrow_mut();
+    let task = config.task(&role_id, &task_id)?;
+    match setlist_type {
+        SetListType::WhiteList => match action {
+            InputAction::Add => {
+                if task.as_ref().borrow().cred.capabilities.is_none() {
+                    task.as_ref()
+                        .borrow_mut()
+                        .cred
+                        .capabilities
+                        .replace(SCapabilities::default());
+                }
+                let mut borrow = task.as_ref().borrow_mut();
+                let caps = borrow.cred.capabilities.as_mut().unwrap();
+
+                caps.add = caps.add.union(cred_caps);
+                debug!("caps.add: {:?}, cred_caps : {:?}", caps.add, cred_caps);
+            }
+            InputAction::Del => {
+                task.as_ref()
+                    .borrow_mut()
+                    .cred
+                    .capabilities
+                    .as_mut()
+                    .unwrap()
+                    .add
+                    .drop_all(cred_caps);
+            }
+            InputAction::Set => {
+                task.as_ref()
+                    .borrow_mut()
+                    .cred
+                    .capabilities
+                    .as_mut()
+                    .unwrap()
+                    .add = cred_caps;
+            }
+            _ => unreachable!("Unknown action {:?}", action),
+        },
+        SetListType::BlackList => match action {
+            InputAction::Add => {
+                let caps = &mut task.as_ref().borrow_mut().cred.capabilities;
+
+                caps.as_mut().unwrap().sub = caps.as_ref().unwrap().sub.union(cred_caps)
+            }
+            InputAction::Del => {
+                task.as_ref()
+                    .borrow_mut()
+                    .cred
+                    .capabilities
+                    .as_mut()
+                    .unwrap()
+                    .sub
+                    .drop_all(cred_caps);
+            }
+            InputAction::Set => {
+                task.as_ref()
+                    .borrow_mut()
+                    .cred
+                    .capabilities
+                    .as_mut()
+                    .unwrap()
+                    .sub = cred_caps;
+            }
+            _ => unreachable!("Unknown action {:?}", action),
+        },
+        _ => unreachable!("Unknown setlist type"),
+    }
+    Ok(true)
+}
+
+pub fn cred_setpolicy(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    cred_policy: crate::common::database::structs::SetBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 cred setpolicy");
+    let config = rconfig.as_ref().borrow_mut();
+    let task = config.task(&role_id, &task_id)?;
+    if task.as_ref().borrow_mut().cred.capabilities.is_none() {
+        task.as_ref()
+            .borrow_mut()
+            .cred
+            .capabilities
+            .replace(SCapabilities::default());
+    }
+    task.as_ref()
+        .borrow_mut()
+        .cred
+        .capabilities
+        .as_mut()
+        .unwrap()
+        .default_behavior = cred_policy;
+    Ok(true)
+}
+
+pub fn json_wildcard(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    action: InputAction,
+    options_wildcard: String,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o wildcard add|del");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        match action {
+            InputAction::Set => {
+                opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
+            }
+            InputAction::Add => {
+                let mut default_wildcard = opt
+                    .as_ref()
+                    .borrow()
+                    .wildcard_denied
+                    .clone()
+                    .unwrap_or_default();
+                default_wildcard.push_str(&options_wildcard);
+                opt.as_ref().borrow_mut().wildcard_denied = Some(default_wildcard);
+            }
+            InputAction::Del => {
+                if opt.as_ref().borrow().wildcard_denied.is_none() {
+                    println!("No wildcard denied configured");
+                    return Ok(());
+                }
+                if let Some(w) = opt.as_ref().borrow_mut().wildcard_denied.as_mut() {
+                    w.retain(|c| !options_wildcard.contains(c));
+                }
+                return Ok(());
+            }
+            InputAction::Purge => {
+                opt.as_ref().borrow_mut().wildcard_denied = None;
+                return Ok(());
+            }
+            _ => unreachable!("Unknown action {:?}", action),
+        }
+
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn cmd_whitelist_action(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    cmd_id: Vec<String>,
+    setlist_type: SetListType,
+    action: InputAction,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 command whitelist add c1");
+    let config = rconfig.as_ref().borrow_mut();
+    let task = config.task(&role_id, &task_id)?;
+    let cmd = SCommand::Simple(shell_words::join(cmd_id.iter()));
+    match setlist_type {
+        SetListType::WhiteList => match action {
+            InputAction::Add => {
+                //verify if command exists
+                if task.as_ref().borrow().commands.add.contains(&cmd) {
+                    return Err("Command already exists".into());
+                }
+                task.as_ref().borrow_mut().commands.add.push(cmd);
+            }
+            InputAction::Del => {
+                //if command is not in task, warns
+                if !task.as_ref().borrow().commands.add.contains(&cmd) {
+                    println!("Command {:?} not in task", cmd);
+                }
+                task.as_ref().borrow_mut().commands.add.retain(|c| {
+                    debug!("'{:?}' != '{:?}' : {}", c, &cmd, *c != cmd);
+                    *c != cmd
+                });
+            }
+            _ => unreachable!("Unknown action {:?}", action),
+        },
+        SetListType::BlackList => match action {
+            InputAction::Add => {
+                //verify if command exists
+                if task.as_ref().borrow().commands.sub.contains(&cmd) {
+                    return Err("Command already exists".into());
+                }
+                task.as_ref().borrow_mut().commands.sub.push(cmd);
+            }
+            InputAction::Del => {
+                //if command is not in task, warns
+                if !task.as_ref().borrow().commands.sub.contains(&cmd) {
+                    println!("Command {:?} not in task", cmd);
+                }
+                task.as_ref()
+                    .borrow_mut()
+                    .commands
+                    .sub
+                    .retain(|c| c != &cmd);
+            }
+            _ => unreachable!("Unknown action {:?}", action),
+        },
+        _ => unreachable!("Unknown setlist type"),
+    }
+    Ok(true)
+}
+
+pub fn cmd_setpolicy(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: String,
+    task_id: IdTask,
+    cmd_policy: crate::common::database::structs::SetBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 command setpolicy");
+    let config = rconfig.as_ref().borrow_mut();
+    let task = config.task(&role_id, &task_id)?;
+    task.as_ref()
+        .borrow_mut()
+        .commands
+        .default_behavior
+        .replace(cmd_policy);
+    Ok(true)
+}
+
+pub fn env_set_policylist(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_env: LinkedHashSet<EnvKey>,
+    options_env_policy: EnvBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env set keep-only|delete-only {:?}", options_env);
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut env = SEnvOptions::default();
+        env.default_behavior = options_env_policy;
+        match options_env_policy {
+            EnvBehavior::Delete => {
+                env.keep = options_env.clone();
+            }
+            EnvBehavior::Keep => {
+                env.delete = options_env.clone();
+            }
+            _ => unreachable!("Unknown env policy"),
+        }
+        opt.as_ref().borrow_mut().env = Some(env);
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_privileged(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_root: crate::common::database::options::SPrivileged,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o root set privileged");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().root = Some(options_root);
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_bounding(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_bounding: crate::common::database::options::SBounding,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o bounding set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().bounding = Some(options_bounding);
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_authentication(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_auth: crate::common::database::options::SAuthentication,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o auth set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().authentication = Some(options_auth);
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn path_set(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    options_path: String,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut default_path = SPathOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        match setlist_type {
+            Some(SetListType::WhiteList) => {
+                path.add = options_path.split(':').map(|s| s.to_string()).collect();
+            }
+            Some(SetListType::BlackList) => {
+                path.sub = options_path.split(':').map(|s| s.to_string()).collect();
+            }
+            None => {
+                path.default_behavior = PathBehavior::Delete;
+                path.add = options_path.split(':').map(|s| s.to_string()).collect();
+            }
+            _ => unreachable!("Unknown setlist type"),
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn path_purge(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path purge");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut default_path = SPathOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        match setlist_type {
+            Some(SetListType::WhiteList) => {
+                path.add.clear();
+            }
+            Some(SetListType::BlackList) => {
+                path.sub.clear();
+            }
+            _ => unreachable!("Unknown setlist type"),
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn env_whitelist_set(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    options_env: LinkedHashSet<EnvKey>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env whitelist set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut default_env = SEnvOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        match setlist_type {
+            Some(SetListType::WhiteList) => {
+                env.keep = options_env.clone();
+            }
+            Some(SetListType::BlackList) => {
+                env.delete = options_env.clone();
+            }
+            Some(SetListType::CheckList) => {
+                env.check = options_env.clone();
+            }
+            None => {
+                env.default_behavior = EnvBehavior::Delete;
+                env.keep = options_env.clone();
+            }
+            _ => unreachable!("Unknown setlist type"),
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn unset_timeout(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    timeout_arg: [bool; 3],
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o timeout unset");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut timeout = STimeout::default();
+        if timeout_arg[TimeoutOpt::Type as usize] {
+            timeout.type_field = None;
+        }
+        if timeout_arg[TimeoutOpt::Duration as usize] {
+            timeout.duration = None;
+        }
+        if timeout_arg[TimeoutOpt::MaxUsage as usize] {
+            timeout.max_usage = None;
+        }
+        if timeout_arg.iter().all(|b| *b) {
+            opt.as_ref().borrow_mut().timeout = None;
+        } else {
+            opt.as_ref().borrow_mut().timeout = Some(timeout);
+        }
+
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_timeout(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    timeout_type: Option<crate::common::database::options::TimestampType>,
+    timeout_duration: Option<chrono::TimeDelta>,
+    timeout_max_usage: Option<u64>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o timeout set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut timeout = STimeout::default();
+        if let Some(timeout_type) = timeout_type {
+            timeout.type_field = Some(timeout_type);
+        }
+        if let Some(duration) = timeout_duration {
+            timeout.duration = Some(duration);
+        }
+        if let Some(max_usage) = timeout_max_usage {
+            timeout.max_usage = Some(max_usage);
+        }
+        opt.as_ref().borrow_mut().timeout = Some(timeout);
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn path_setlist2(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    action: InputAction,
+    options_path: String,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path set whitelist|blacklist add|del|set path1:path2:path3 22222222222");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut default_path = SPathOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        match setlist_type {
+            Some(SetListType::WhiteList) => match action {
+                InputAction::Add => {
+                    path.add
+                        .extend(options_path.split(':').map(|s| s.to_string()));
+                }
+                InputAction::Del => {
+                    debug!("path.add del {:?}", path.add);
+                    let hashset = options_path
+                        .split(':')
+                        .map(|s| s.to_string())
+                        .collect::<LinkedHashSet<String>>();
+                    path.add = path
+                        .add
+                        .difference(&hashset)
+                        .cloned()
+                        .collect::<LinkedHashSet<String>>();
+                }
+                InputAction::Set => {
+                    path.add = options_path.split(':').map(|s| s.to_string()).collect();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::BlackList) => match action {
+                InputAction::Add => {
+                    path.sub
+                        .extend(options_path.split(':').map(|s| s.to_string()));
+                }
+                InputAction::Del => {
+                    debug!("path.del del {:?}", path.sub);
+                    let hashset = options_path
+                        .split(':')
+                        .map(|s| s.to_string())
+                        .collect::<LinkedHashSet<String>>();
+                    path.sub = path
+                        .sub
+                        .difference(&hashset)
+                        .cloned()
+                        .collect::<LinkedHashSet<String>>();
+                }
+                InputAction::Set => {
+                    path.sub = options_path.split(':').map(|s| s.to_string()).collect();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            _ => unreachable!("Unknown setlist type"),
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn path_setpolicy(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_path_policy: PathBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path setpolicy delete-all");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        if let Some(path) = &mut opt.as_ref().borrow_mut().path {
+            path.default_behavior = options_path_policy;
+        } else {
+            let mut path = SPathOptions::default();
+            path.default_behavior = options_path_policy;
+            opt.as_ref().borrow_mut().path = Some(path);
+        }
+        Ok(())
+    })
+    .map(|_| true)
+}
+
+pub fn env_setlist_add(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    action: InputAction,
+    options_key_env: Option<LinkedHashSet<EnvKey>>,
+    options_env_values: Option<HashMap<String, String>>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!(
+        "chsr o path {:?} {:?} path1 path2 path3",
+        setlist_type, action
+    );
+    perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
+        let mut default_env = SEnvOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        match setlist_type {
+            Some(SetListType::WhiteList) => match action {
+                InputAction::Add => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.keep.extend(options_key_env.as_ref().unwrap().clone());
+                }
+                InputAction::Del => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.keep = env
+                        .keep
+                        .difference(
+                            &options_key_env
+                                .as_ref()
+                                .unwrap()
+                                .iter()
+                                .cloned()
+                                .collect::<LinkedHashSet<EnvKey>>(),
+                        )
+                        .cloned()
+                        .collect::<LinkedHashSet<EnvKey>>();
+                }
+                InputAction::Purge => {
+                    env.keep = LinkedHashSet::new();
+                }
+                InputAction::Set => {
+                    env.keep = options_key_env.as_ref().unwrap().clone();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::BlackList) => match action {
+                InputAction::Add => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.delete.extend(options_key_env.as_ref().unwrap().clone());
+                }
+                InputAction::Del => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.delete = env
+                        .delete
+                        .difference(options_key_env.as_ref().unwrap())
+                        .cloned()
+                        .collect::<LinkedHashSet<EnvKey>>();
+                }
+                InputAction::Purge => {
+                    env.delete = LinkedHashSet::new();
+                }
+                InputAction::Set => {
+                    env.delete = options_key_env.as_ref().unwrap().clone();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::CheckList) => match action {
+                InputAction::Add => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.check.extend(options_key_env.as_ref().unwrap().clone());
+                }
+                InputAction::Del => {
+                    if options_key_env.is_none() {
+                        return Err("Empty list".into());
+                    }
+                    env.check = env
+                        .check
+                        .difference(options_key_env.as_ref().unwrap())
+                        .cloned()
+                        .collect::<LinkedHashSet<EnvKey>>();
+                }
+                InputAction::Set => {
+                    env.check = options_key_env.as_ref().unwrap().clone();
+                }
+                InputAction::Purge => {
+                    env.check = LinkedHashSet::new();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::SetList) => match action {
+                InputAction::Add => {
+                    debug!("options_env_values: {:?}", options_env_values);
+                    env.set.extend(options_env_values.as_ref().unwrap().clone());
+                }
+                InputAction::Del => {
+                    debug!("options_env_values: {:?}", options_env_values);
+                    options_key_env.as_ref().unwrap().into_iter().for_each(|k| {
+                        env.set.remove(&k.to_string());
+                    });
+                }
+                InputAction::Purge => {
+                    debug!("options_env_values: {:?}", options_env_values);
+                    env.set = HashMap::new();
+                }
+                InputAction::Set => {
+                    debug!("options_env_values: {:?}", options_env_values);
+                    env.set = options_env_values.as_ref().unwrap().clone();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            None => match action {
+                InputAction::Set => {
+                    env.keep = options_key_env.as_ref().unwrap().clone();
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn env_setpolicy(
+    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_env_policy: EnvBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env setpolicy delete-all");
+    perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
+        let mut default_env = SEnvOptions::default();
+        let mut binding = opt.as_ref().borrow_mut();
+        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        env.default_behavior = options_env_policy;
+        Ok(())
+    })?;
+    Ok(true)
+}

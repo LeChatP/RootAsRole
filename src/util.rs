@@ -136,13 +136,14 @@ pub fn escape_parser_string<S>(s: S) -> String
 where
     S: AsRef<str>,
 {
-    remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
+    remove_outer_quotes(s.as_ref())
 }
 
 fn remove_outer_quotes(input: &str) -> String {
-    if input.len() >= 2 && input.starts_with('"') && input.ends_with('"') {
-        remove_outer_quotes(&input[1..input.len() - 1])
-    } else if input.len() >= 2 && input.starts_with('\'') && input.ends_with('\'') {
+    if input.len() >= 2
+        && (input.starts_with('"') && input.ends_with('"')
+            || input.starts_with('\'') && input.ends_with('\''))
+    {
         remove_outer_quotes(&input[1..input.len() - 1])
     } else {
         input.to_string()

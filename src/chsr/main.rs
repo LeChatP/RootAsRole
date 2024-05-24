@@ -16,10 +16,12 @@ mod common;
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use common::config::ROOTASROLE;
+
     subsribe("chsr");
     drop_effective()?;
     register_plugins();
-    let settings = config::get_settings().expect("Error on config read");
+    let settings = config::get_settings(ROOTASROLE).expect("Error on config read");
     let config = match settings.clone().as_ref().borrow().storage.method {
         config::StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone())?),
         _ => {

@@ -41,18 +41,19 @@ serde_json = "1.0.116"
 [dependencies]
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-libc = "0.2.153"
+libc = "0.2.155"
 strum = { version = "0.26.2", features = ["derive"] }
-semver = { version = "1.0.22", features = ["serde"] }
+semver = { version = "1.0.23", features = ["serde"] }
 nix = { version = "0.28.0", features = ["user","process", "signal", "fs"] } 
 #sudoers-reader = { path = "sudoers-reader" }
 capctl = "0.2.4"
-pcre2 = "0.2.6"
-serde = { version = "1.0.200", features=["rc"] }
-serde_json = "1.0.116"
+pcre2 = "0.2.7"
+serde = { version = "1.0.202", features=["rc"] }
+serde_json = "1.0.117"
 ciborium = "0.2.2"
 glob = "0.3.1"
 pam-client = { version = "0.5.0", git = "https://gitlab.com/LeChatP/rust-pam-client.git" }
+pam-sys = "1.0.0-alpha5"
 bitflags = { version = "2.5.0" }
 shell-words = "1.1.0"
 syslog-tracing = "0.3.0"
@@ -68,7 +69,6 @@ pest = "2.7.8"
 pest_derive = "2.7.8"
 phf = { version = "0.11.2", features = ["macros"] }
 const_format = "0.2.32"
-rpassword = "7.3.1"
 hex = "0.4.3"
 
 [dev-dependencies]

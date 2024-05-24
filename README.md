@@ -137,6 +137,12 @@ Romain Laborde : <laborde@irit.fr>
 
 This logo were generated using DALL-E 2 AI, for any license issue or plagiarism, please note that is not intentionnal and don't hesitate to contact us.
 
+## Licence notice
+
+This project includes [sudo-rs](https://github.com/memorysafety/sudo-rs) code licensed under the Apache-2 and MIT licenses: 
+We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Indeed, We thought that the password was well managed in this file and we have reused it. As sudo-rs does, rpassword.rs is from the rpassword project (License: Apache-2.0). We use it as a replacement of the rpassword project usage.
+
+
 ## References
 
 [1] PAM repository : <https://github.com/linux-pam/linux-pam>

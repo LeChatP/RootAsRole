@@ -16,7 +16,6 @@ use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
 use capctl::{Cap, CapSet};
-use clap::Parser;
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::unistd::Uid;
@@ -31,29 +30,16 @@ use unshare::Signal;
 
 type Key = i32;
 
-#[derive(Parser, Debug)]
-#[command(
-    about = "Execute command to find out capabilities requests",
-    long_about = "sr is a tool to execute privileged commands with a role-based access control system. 
-It is designed to be used in a multi-user environment, 
-where users can be assigned to different roles, 
-and each role has a set of rights to execute commands."
-)]
-
 struct Cli {
     /// Specify a delay before killing the process
-    #[arg(short, long)]
     sleep: Option<u64>,
     /// collecting data on system and print result at the end
-    #[arg(short, long)]
     daemon: bool,
 
     /// Pass all capabilities when executing the command,
-    #[arg(short, long)]
     privileged: bool,
 
     /// Print output in JSON format, ignore stdin/out/err
-    #[arg(short, long)]
     json: bool,
 
     /// Specify a command to execute with arguments
