@@ -17,9 +17,9 @@ If there are any vulnerabilities in **RootAsRole**, don't hesitate to _report th
 
 ## Supported Versions
 
-We consider versions under v3.0 are unsafe to use in production.
+For now, RootAsRole is not distributed widely on repositories because the software is not meant to be production-ready. The objective of 3.0.0 stable version is to be available on linux distributions repositories. So we'll only consider security issues when the software is broadly distributed.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.0.x   | :white_check_mark: |
-| < 3.0   | :x:                |
+| >=3.0.0 | :white_check_mark: |
+| < 3.0.0 | :x:                |
