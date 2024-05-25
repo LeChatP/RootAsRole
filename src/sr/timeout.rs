@@ -159,7 +159,7 @@ fn write_lockfile(lockfile_path: &Path) {
 const TS_LOCATION: &str = "/var/run/rar/ts";
 
 fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
-    let path = Path::new(TS_LOCATION).join(&user.user.name);
+    let path = Path::new(TS_LOCATION).join(&user.user.uid.as_raw().to_string());
     let lockpath = Path::new(TS_LOCATION)
         .join(user.user.uid.as_raw().to_string()) // Convert u32 to String
         .with_extension("lock");
@@ -176,10 +176,10 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     debug!("Saving cookies: {:?}", cookies);
-    let path = Path::new(TS_LOCATION).join(&user.user.name);
+    let path = Path::new(TS_LOCATION).join(&user.user.uid.as_raw().to_string());
     create_dir_all_with_privileges(path.parent().unwrap())?;
     let lockpath = Path::new(TS_LOCATION)
-        .join(&user.user.name)
+        .join(&user.user.uid.as_raw().to_string())
         .with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     ciborium::ser::into_writer(cookies, &mut file)?;

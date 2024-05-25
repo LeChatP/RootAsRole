@@ -18,6 +18,11 @@ categories = ["command-line-utilities", "os::linux-apis", "config"]
 maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/badge/maintenance-actively%20maintained-brightgreen.svg" }
 
 
+[profile.release]
+strip = "symbols"
+lto = true
+opt-level = "s"
+
 #[features]
 #cursive_lib = [ "cursive" ]
 #srlibs = [ "pam-client", "bitflags" ]
