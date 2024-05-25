@@ -161,7 +161,7 @@ const TS_LOCATION: &str = "/var/run/rar/ts";
 fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(&user.user.name);
     let lockpath = Path::new(TS_LOCATION)
-        .join(&user.user.name)
+        .join(user.user.uid.as_raw().to_string()) // Convert u32 to String
         .with_extension("lock");
     if !path.exists() {
         return Ok(Vec::new());
