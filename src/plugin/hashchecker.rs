@@ -1,15 +1,19 @@
+use std::{fs, io::Read, os::fd::AsRawFd, path::PathBuf};
+
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::common::{
-    api::PluginManager,
-    database::{
+    api::PluginManager, database::{
         finder::{final_path, parse_conf_command},
         structs::SCommand,
-    },
+    }, open_with_privileges, util::toggle_lock_config
 };
 
 use sha2::Digest;
+use libc::FS_IOC_GETFLAGS;
+
+static LOCKED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -24,6 +28,7 @@ pub enum HashType {
 struct HashChecker {
     hash_type: HashType,
     hash: String,
+    immutable: Option<bool>,
     command: SCommand,
 }
 
@@ -52,6 +57,19 @@ fn compute(hashtype: &HashType, hash: &[u8]) -> Vec<u8> {
     }
 }
 
+const FS_IMMUTABLE_FL: u32 = 0x00000010;
+
+fn is_immutable(path: PathBuf) -> Result<bool, Box<dyn std::error::Error>> {
+    let file = open_with_privileges(&path)?;
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        debug!("Error getting flags {:?}", std::io::Error::last_os_error());
+        return Err("Error getting flags".into());
+    }
+    Ok(val & FS_IMMUTABLE_FL != 0)
+}
+
 fn complex_command_parse(
     command: &serde_json::Value,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -61,7 +79,16 @@ fn complex_command_parse(
         Ok(checker) => {
             let cmd = parse_conf_command(&checker.command)?;
             let path = final_path(&cmd[0]);
-            let hash = compute(&checker.hash_type, &std::fs::read(path)?);
+            if !is_immutable(path.clone())? {
+                warn!("Executable file is not immutable, consider to set executable immutable if you wish to use hashchecker");
+                if checker.immutable.is_some_and(|immutable| immutable) {
+                    return Err("Executable file must be immutable".into());
+                }
+            }
+            let mut open = open_with_privileges(&path)?;
+            let mut buf = Vec::new();
+            open.read_to_end(&mut buf)?;
+            let hash = compute(&checker.hash_type, &buf);
             let config_hash = hex::decode(checker.hash.as_bytes())?;
             debug!(
                 "Hash: {:?}, Config Hash: {:?}",
