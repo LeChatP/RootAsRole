@@ -1,4 +1,4 @@
-use std::{fs::{self, File}, io::Read, os::fd::AsRawFd, path::PathBuf};
+use std::{fs::File, io::Read, os::fd::AsRawFd};
 
 use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
@@ -8,13 +8,11 @@ use crate::common::{
     api::PluginManager, database::{
         finder::{final_path, parse_conf_command},
         structs::SCommand,
-    }, open_with_privileges, util::toggle_lock_config
+    }, open_with_privileges
 };
 
 use sha2::Digest;
 use libc::FS_IOC_GETFLAGS;
-
-static LOCKED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
