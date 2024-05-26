@@ -29,6 +29,7 @@ pub enum HashType {
 struct HashChecker {
     hash_type: HashType,
     hash: String,
+    #[serde(alias = "read-only")]
     read_only: Option<bool>,
     immutable: Option<bool>,
     command: SCommand,
