@@ -1,5 +1,6 @@
-use std::{fs, io::Read, os::fd::AsRawFd, path::PathBuf};
+use std::{fs::{self, File}, io::Read, os::fd::AsRawFd, path::PathBuf};
 
+use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -28,6 +29,7 @@ pub enum HashType {
 struct HashChecker {
     hash_type: HashType,
     hash: String,
+    read_only: Option<bool>,
     immutable: Option<bool>,
     command: SCommand,
 }
@@ -59,8 +61,7 @@ fn compute(hashtype: &HashType, hash: &[u8]) -> Vec<u8> {
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
-fn is_immutable(path: PathBuf) -> Result<bool, Box<dyn std::error::Error>> {
-    let file = open_with_privileges(&path)?;
+fn is_immutable(file: &File) -> Result<bool, Box<dyn std::error::Error>> {
     let mut val = 0;
     let fd = file.as_raw_fd();
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
@@ -79,13 +80,16 @@ fn complex_command_parse(
         Ok(checker) => {
             let cmd = parse_conf_command(&checker.command)?;
             let path = final_path(&cmd[0]);
-            if !is_immutable(path.clone())? {
-                warn!("Executable file is not immutable, consider to set executable immutable if you wish to use hashchecker");
-                if checker.immutable.is_some_and(|immutable| immutable) {
-                    return Err("Executable file must be immutable".into());
+            if access(&path, AccessFlags::W_OK).is_ok() {
+                if checker.read_only.is_some_and(|read_only| read_only) {
+                    return Err("Executor must not have write access to the executable".into());
                 }
+                warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
             }
             let mut open = open_with_privileges(&path)?;
+            if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
+                return Err("Executable file must be immutable".into());
+            }
             let mut buf = Vec::new();
             open.read_to_end(&mut buf)?;
             let hash = compute(&checker.hash_type, &buf);
