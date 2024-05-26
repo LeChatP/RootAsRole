@@ -5,14 +5,16 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::common::{
-    api::PluginManager, database::{
+    api::PluginManager,
+    database::{
         finder::{final_path, parse_conf_command},
         structs::SCommand,
-    }, open_with_privileges
+    },
+    open_with_privileges,
 };
 
-use sha2::Digest;
 use libc::FS_IOC_GETFLAGS;
+use sha2::Digest;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
