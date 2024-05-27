@@ -1,5 +1,8 @@
+use std::{fs::File, io::Read, os::fd::AsRawFd};
+
+use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::common::{
     api::PluginManager,
@@ -7,8 +10,10 @@ use crate::common::{
         finder::{final_path, parse_conf_command},
         structs::SCommand,
     },
+    open_with_privileges,
 };
 
+use libc::FS_IOC_GETFLAGS;
 use sha2::Digest;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,6 +29,9 @@ pub enum HashType {
 struct HashChecker {
     hash_type: HashType,
     hash: String,
+    #[serde(alias = "read-only")]
+    read_only: Option<bool>,
+    immutable: Option<bool>,
     command: SCommand,
 }
 
@@ -52,6 +60,18 @@ fn compute(hashtype: &HashType, hash: &[u8]) -> Vec<u8> {
     }
 }
 
+const FS_IMMUTABLE_FL: u32 = 0x00000010;
+
+fn is_immutable(file: &File) -> Result<bool, Box<dyn std::error::Error>> {
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        debug!("Error getting flags {:?}", std::io::Error::last_os_error());
+        return Err("Error getting flags".into());
+    }
+    Ok(val & FS_IMMUTABLE_FL != 0)
+}
+
 fn complex_command_parse(
     command: &serde_json::Value,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -61,7 +81,19 @@ fn complex_command_parse(
         Ok(checker) => {
             let cmd = parse_conf_command(&checker.command)?;
             let path = final_path(&cmd[0]);
-            let hash = compute(&checker.hash_type, &std::fs::read(path)?);
+            if access(&path, AccessFlags::W_OK).is_ok() {
+                if checker.read_only.is_some_and(|read_only| read_only) {
+                    return Err("Executor must not have write access to the executable".into());
+                }
+                warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
+            }
+            let mut open = open_with_privileges(&path)?;
+            if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
+                return Err("Executable file must be immutable".into());
+            }
+            let mut buf = Vec::new();
+            open.read_to_end(&mut buf)?;
+            let hash = compute(&checker.hash_type, &buf);
             let config_hash = hex::decode(checker.hash.as_bytes())?;
             debug!(
                 "Hash: {:?}, Config Hash: {:?}",

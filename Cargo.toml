@@ -3,7 +3,7 @@ members = ["xtask", "capable", "capable-common"]
 
 [package]
 name = "RootAsRole"
-version = "3.0.0-alpha.4"
+version = "3.0.0-alpha.5"
 rust-version = "1.74.1"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
@@ -17,6 +17,11 @@ categories = ["command-line-utilities", "os::linux-apis", "config"]
 [badges]
 maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/badge/maintenance-actively%20maintained-brightgreen.svg" }
 
+
+[profile.release]
+strip = "symbols"
+lto = true
+opt-level = "s"
 
 #[features]
 #cursive_lib = [ "cursive" ]
@@ -37,6 +42,7 @@ pcre2 = "0.2.4"
 regex = "1.9.1"
 serde = { version = "1.0.200" }
 serde_json = "1.0.116"
+toml = "0.8.13"
 
 [dependencies]
 tracing = "0.1.40"
