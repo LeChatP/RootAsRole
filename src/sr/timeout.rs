@@ -280,6 +280,7 @@ pub(crate) fn update_cookie(
 
 #[cfg(test)]
 mod test {
+    use nix::unistd::{Pid, User};
     use test_log::test;
 
     use super::*;
@@ -292,5 +293,26 @@ mod test {
         assert!(wait_for_lockfile(lockpath).is_err());
         std::fs::remove_file(lockpath).unwrap();
         assert!(wait_for_lockfile(lockpath).is_ok());
+    }
+
+    #[test]
+    fn test_cookie() {
+        let cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        let constraint = STimeout {
+            type_field: Some(TimestampType::TTY),
+            duration: Some(chrono::Duration::seconds(10)),
+            max_usage: Some(1),
+            _extra_fields: Default::default(),
+        };
+        assert!(!is_valid(&cred, &cred, &constraint));
+        assert!(update_cookie(&cred, &cred, &constraint).is_ok());
+        assert!(is_valid(&cred, &cred, &constraint));
+        assert!(update_cookie(&cred, &cred, &constraint).is_ok());
+        assert!(!is_valid(&cred, &cred, &constraint));
     }
 }
