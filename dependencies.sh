@@ -41,7 +41,7 @@ elif command -v pacman &>/dev/null; then
     if [ -n "${YES}" ]; then
         NOCONFIRM="--noconfirm"
     fi
-    $PRIV_EXE pacman -S "${NOCONFIRM}" mandb pkgconf openssl curl gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make bpf
+    $PRIV_EXE pacman -S "${NOCONFIRM}" man-db pkgconf openssl curl gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make bpf
     if [ -n "${DEBUG}" ]; then
         $PRIV_EXE pacman -S "${YES}" gdb
     fi;
