@@ -2,10 +2,14 @@
 
 ## Static Separation of Duties
 
-Static separation of duties (SSD) in RBAC is a security feature that restricts users from having conflicting roles. This means that a user cannot have two roles that are in conflict. In RootAsRole, if a user is still assigned to two roles that are in conflict, the user will not be able to execute any command of these roles.
+Static Separation of Duties (SSD) within an RBAC ensures that no single user can hold conflicting administrative roles, enhancing security and operational integrity. For instance, SSD policies would prevent a user assigned as a "System Administrator" from also being a "Network Administrator" or "Backup Administrator," thereby mitigating the risk of entire control of a system and potential fraud.
 
-For example, let's say we have two roles: `admin` and `user`. The `admin` role has the ability to create new users, while the `user` role does not. If a user is assigned to both the `admin` and `user` roles, the user will not be able to execute any command of these roles.
+With RootAsRole, you can implement SSD by creating roles that are mutually exclusive by adding `ssd` array in a role definition. For example, you can create a role for a "System Administrator" and another for a "Network Administrator." You can then assign these roles to different users, ensuring that no single user has both roles at the same time. If a user obtains a new role that conflicts with an existing role, RootAsRole will prevent the user to use any conflicting role.
 
 ## Dynamic Separation of Duties
 
-Dynamic separation of duties (DSD) in RBAC is a security feature that restricts users from having conflicting roles at the same time. This means that a user cannot have two roles that are in conflict at the same time. For now, RootAsRole does not support this feature.
+Dynamic Separation of Duties (DSD) in RBAC ensures that no single user can perform conflicting roles within a system simultaneously, managed at runtime. It verifies users' or system sessions context before allowing them to activate roles, ensuring that they do not have conflicting permissions given the dynamic context of the system.
+
+For example, In a very small business, it may have only one system administrator. In this case the small business can enforce a DSD feature that prevent the unique administrator to simultaneously activate roles that allow both system configuration and audit log management, and cannot perform system configuration if no audit is enforced, ensuring that the administrator cannot cover his tracks.
+
+For now, RootAsRole does not support DSD.

@@ -38,7 +38,10 @@ elif command -v yum &>/dev/null; then
         $PRIV_EXE yum install "${YES}" gcovr
     fi;
 elif command -v pacman &>/dev/null; then
-    $PRIV_EXE pacman -S "${YES}" man pkgconf openssl curl cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make
+    if [ -n "${YES}" ]; then
+        NOCONFIRM="--noconfirm"
+    fi
+    $PRIV_EXE pacman -S "${NOCONFIRM}" mandb pkgconf openssl curl gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make bpf
     if [ -n "${DEBUG}" ]; then
         $PRIV_EXE pacman -S "${YES}" gdb
     fi;
@@ -60,17 +63,8 @@ fi
 . "$HOME/.cargo/env"
 
 # ask for user to install bpf-linker
-if [ "${YES}" == "-y" ]; then
-    echo "cargo install bpf-linker into /usr/local/bin"
-    cargo install --force bpf-linker
-else
-    read -r -p "Install bpf-linker in /usr/local/bin? (mandatory for build) [y/N] " response
-    case "$response" in
-        [yY][eE][sS]|[yY]|[oO])
-            echo "cargo install bpf-linker into /usr/local/bin"
-            cargo install --force bpf-linker
-        ;;
-    esac
-fi
+cargo install --force bpf-linker bindgen-cli
+cargo install --git https://github.com/aya-rs/aya -- aya-tool
+aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
 
 echo "dependencies installed. Ready to compile."

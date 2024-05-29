@@ -78,6 +78,10 @@ pub fn setgid_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::SETGID, enable)
 }
 
+pub fn fowner_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::FOWNER, enable)
+}
+
 pub fn read_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::DAC_READ_SEARCH, enable)
 }
