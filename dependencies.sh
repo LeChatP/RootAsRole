@@ -31,7 +31,7 @@ if command -v apt-get &>/dev/null; then
         $PRIV_EXE apt-get install "${YES}" gcovr
     fi;
 elif command -v yum &>/dev/null; then
-    $PRIV_EXE yum install "${YES}" man pkgconfig openssl-devel curl gcc llvm clang clang-devel libcap libcap-ng libelf libxml2 libxml2-devel make kernel-headers pam-devel
+    $PRIV_EXE yum install ${YES} man pkgconfig openssl-devel curl gcc llvm clang clang-devel libcap libcap-ng elfutils libxml2 libxml2-devel make kernel-headers pam-devel bpftool    
     if [ -n "${DEBUG}" ]; then
         $PRIV_EXE yum install "${YES}" gdb
     fi;
