@@ -1,0 +1,17 @@
+Vagrant.configure("2") do |config|
+    config.vm.box = "generic/centos8"
+  
+    config.vm.provision "shell", inline: <<-SHELL
+      sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*;
+      sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+      yum clean all
+      yum install -y git make
+      sudo -u vagrant sh -c 'git clone -b develop https://github.com/LeChatP/RootAsRole;
+      cd RootAsRole;
+      ./dependencies.sh -y;
+      sudo ./configure.sh -y;
+      PROFILE=debug make install;
+      RUST_LOG=debug capable -j cat /etc/shadow;'
+    SHELL
+  end
+  

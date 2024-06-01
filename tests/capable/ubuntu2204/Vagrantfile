@@ -1,0 +1,15 @@
+Vagrant.configure("2") do |config|
+    config.vm.box = "generic/ubuntu2204"
+  
+    config.vm.provision "shell", inline: <<-SHELL
+      apt-get update
+      apt-get install -y git build-essential
+      sudo -u vagrant sh -c 'git clone -b develop https://github.com/LeChatP/RootAsRole;
+      cd RootAsRole;
+      ./dependencies.sh -y;
+      sudo ./configure.sh -y;
+      PROFILE=debug make install;
+      RUST_LOG=debug capable -j cat /etc/shadow;'
+    SHELL
+  end
+  
