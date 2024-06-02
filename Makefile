@@ -36,7 +36,6 @@ else
 	chown root:root /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	chmod 0555 /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	setcap "=p" /usr/bin/sr
-	setcap cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable
 endif
 
 
