@@ -22,7 +22,7 @@ fi
 if command -v apt-get &>/dev/null; then
     $PRIV_EXE apt-get update
     $PRIV_EXE apt-get install "${YES}" "linux-headers-$(uname -r)" || $PRIV_EXE apt-get install "${YES}" linux-headers-generic
-    $PRIV_EXE apt-get install "${YES}" linux-tools-common linux-tools-generic "linux-tools-$(uname -r)"
+    $PRIV_EXE apt-get install "${YES}" linux-tools-common linux-tools-generic "linux-tools-$(uname -r)" || $PRIV_EXE apt-get install "${YES}" bpftool
     $PRIV_EXE apt-get install "${YES}" man pkg-config openssl libssl-dev curl gcc llvm clang libcap2 libcap2-bin libcap-dev libcap-ng-dev libelf-dev libpam0g-dev libxml2 libxml2-dev libclang-dev make
     if [ -n "${DEBUG}" ]; then
         $PRIV_EXE apt-get install "${YES}" gdb
@@ -66,6 +66,6 @@ fi
 # ask for user to install bpf-linker
 cargo install --force bpf-linker bindgen-cli
 cargo install --git https://github.com/aya-rs/aya -- aya-tool
-aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
+PATH=$PATH:/usr/sbin aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
 
 echo "dependencies installed. Ready to compile."
