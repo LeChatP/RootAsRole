@@ -1,0 +1,28 @@
+Vagrant.configure("2") do |config|
+    config.vm.box = "debian/bullseye64"
+    config.vm.synced_folder '.', '/vagrant', disabled: true
+
+    config.vm.provider "libvirt" do |vb|
+      vb.memory = "2048"
+    end
+
+    config.vm.provision "shell", inline: <<-SHELL
+      apt-get update
+      apt-get install -y git build-essential
+      apt-get upgrade -y
+    SHELL
+    config.vm.provision :shell do |shell|
+      shell.privileged = true
+      shell.inline = 'echo rebooting'
+      shell.reboot = true
+    end
+    config.vm.provision "shell", inline: <<-SHELL
+      sudo -u vagrant sh -c 'git clone -b develop https://github.com/LeChatP/RootAsRole;
+      cd RootAsRole;
+      ./dependencies.sh -y;
+      sudo ./configure.sh -y;
+      PROFILE=debug make install;
+      RUST_LOG=debug capable -j cat /etc/shadow;'
+    SHELL
+end
+  
