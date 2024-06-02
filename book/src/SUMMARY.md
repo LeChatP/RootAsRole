@@ -24,6 +24,7 @@
 - [Configure RootAsRole](chsr/file-config.md)
 - [Continuous Integration](continuous-integration.md)
 - [How to contribute](dev/CONTRIBUTE.md)
+- [FAQ](faq.md)
 - [Code of Conduct](dev/CODE_OF_CONDUCT.md)
 
 -----------
