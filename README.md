@@ -93,7 +93,7 @@ Additionnally, `setcap` is applied to the binary file, which means that the capa
 
 Furthermore, the `pam_cap` module is applied to the PAM user session, which means that the capabilities are fixed for every user's session. This is not ideal as administrator do not need these capabilities for every commands and every sessions.
 
-The RootAsRole project is compatible with LSM (Linux Security Modules) such as SELinux and AppArmor, as well as pam_cap.so. Administrators can continue using pam_cap.so alongside our module. Additionally, the module includes the capable tool, which helps users identify the privileges required by an application.
+The RootAsRole project is compatible with LSM (Linux Security Modules) such as SELinux and AppArmor, as well as pam_cap.so. Administrators can continue using pam_cap.so alongside our project. Additionally, the project includes the capable tool, which helps users identify the privileges required by an application.
 
 ### How to configure RootAsRole
 
@@ -113,13 +113,26 @@ To determine the privileges required for your command, you can use the capable p
 
 By following these steps, you can identify and manage the necessary privileges for your command more effectively.
 
-## Tested Platforms
+## Compatibility
 
-Our module has been tested on:
+Our project has been manually tested on (tests in may 2023):
 
 * Ubuntu>=16.04
 * Debian>=10
 * ArchLinux
+
+In june 2024, we performed automated `capable` tests with Vagrant on the following distributions:
+
+* ❌ Centos 7 → Kernel too old (3.1)
+* ✅ Centos 8
+* ❌ Debian 10 → Dev dependencies unavailable, it should work once compiled
+* ✅ Debian 11
+* ✅ Fedora 37
+* ✅ RedHat 9
+* ✅ Ubuntu 22.04
+* ✅ ArchLinux
+
+This doesn't mean that earlier versions of these distributions are incompatible; it simply indicates they haven't been tested yet. However, if you encounter issues during the compilation process, they are likely due to dependency problems. In theory, the RootAsRole project should work on any Linux distribution with a kernel version of 4.1 or higher. However, since BTF (BPF Type Format) is becoming a mandatory requirement, [the kernel must be compiled with many features enabled](https://github.com/iovisor/bcc/blob/master/INSTALL.md#kernel-configuration).
 
 ## Contributors
 
