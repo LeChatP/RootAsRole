@@ -3,6 +3,7 @@ members = ["xtask", "capable", "capable-common"]
 
 [package]
 name = "RootAsRole"
+# The project version is managed on json file in resources/rootasrole.json
 version = "3.0.0-alpha.5"
 rust-version = "1.74.1"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]

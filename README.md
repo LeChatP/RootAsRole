@@ -13,6 +13,7 @@
  <img alt="GitHub" src="https://img.shields.io/github/license/LeChatP/RootAsRole">
 
 </p>
+<!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
 # RootAsRole (V3.0.0-alpha.5) : A memory-safe and security-oriented alternative to sudo/su commands
