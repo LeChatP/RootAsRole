@@ -9,7 +9,8 @@ Vagrant.configure("2") do |config|
       ./dependencies.sh -y;
       sudo ./configure.sh -y;
       PROFILE=debug make install;
-      RUST_LOG=debug capable -j cat /etc/shadow;'
+      sr chsr role r_root task t_capable o env set RUST_LOG=debug
+      sr capable -j cat /etc/shadow;'
     SHELL
   end
   
