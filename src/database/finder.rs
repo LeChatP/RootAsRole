@@ -352,11 +352,11 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
 
 pub fn final_path(path: &String) -> PathBuf {
     let result;
-    if let Ok(cannon_path) = std::fs::canonicalize(path) {
-        result = cannon_path;
-    } else if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid"))
+    if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid"))
     {
         result = env_path
+    } else if let Ok(cannon_path) = std::fs::canonicalize(path) {
+        result = cannon_path;
     } else {
         result = path.parse().expect("The path is not valid");
     }
@@ -374,6 +374,7 @@ fn match_path(input_path: &String, role_path: &String) -> CmdMin {
     let mut match_status = CmdMin::empty();
     let new_path = final_path(input_path);
     let role_path = final_path(role_path);
+    debug!("Matching path {:?} with {:?}", new_path, role_path);
     if new_path == role_path {
         match_status |= CmdMin::Match;
     } else if let Ok(pattern) = Pattern::new(role_path.to_str().unwrap()) {
