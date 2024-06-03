@@ -15,7 +15,7 @@ use aya::maps::{HashMap, MapData};
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
-use capctl::{Cap, CapSet};
+use capctl::{Cap, CapSet, CapState, ParseCapError};
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::unistd::Uid;
@@ -37,7 +37,10 @@ struct Cli {
     daemon: bool,
 
     /// Pass all capabilities when executing the command,
-    privileged: bool,
+    capabilities: CapSet,
+
+    /// Enforce bounding set
+    bounding: bool,
 
     /// Print output in JSON format, ignore stdin/out/err
     json: bool,
@@ -51,8 +54,9 @@ impl Default for Cli {
         Cli {
             sleep: None,
             daemon: false,
-            privileged: false,
+            capabilities: CapSet::empty(),
             json: false,
+            bounding: true,
             command: Vec::new(),
         }
     }
@@ -307,6 +311,67 @@ where
     remove_outer_quotes(s.as_ref()).replace("\"", "\\\"")
 }
 
+pub fn parse_capset_iter<'a, I>(iter: I) -> Result<CapSet, ParseCapError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    let mut res = CapSet::empty();
+
+    for part in iter {
+        match part.parse() {
+            Ok(cap) => res.add(cap),
+            Err(error) => {
+                return Err(error);
+            }
+        }
+    }
+    Ok(res)
+}
+
+const CAPABILITIES_ERROR: &str =
+    "You need at least setpcap, sys_admin, bpf, sys_resource, sys_ptrace capabilities to run capable";
+fn cap_effective_error(caplist: &str) -> String {
+    format!(
+        "Unable to toggle {} privilege. {}",
+        caplist, CAPABILITIES_ERROR
+    )
+}
+
+fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
+    let mut current = CapState::get_current()?;
+    current.effective.set_state(cap, enable);
+    current.set_current()
+}
+
+fn setpcap_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::SETPCAP, enable)
+}
+
+fn set_capabilities(caps: CapSet, requires_bounding: bool) {
+    //set capabilities
+    // case where capabilities are more than bounding set
+    let bounding = capctl::bounding::probe();
+    if bounding & caps != caps {
+        panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+    }
+    setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+    let mut capstate = CapState::empty();
+    if requires_bounding {
+        for cap in (!caps).iter() {
+            capctl::bounding::drop(cap).expect("Failed to set bounding cap");
+        }
+    }
+    capstate.permitted = caps;
+    capstate.inheritable = caps;
+    debug!("caps : {:?}", caps);
+    capstate.set_current().expect("Failed to set current cap");
+    for cap in caps.iter() {
+        capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
+    }
+    setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+    
+}
+
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
 where
     I: IntoIterator<Item = S>,
@@ -322,8 +387,15 @@ where
             "-d" | "--daemon" => {
                 args.daemon = true;
             }
-            "-p" | "--privileged" => {
-                args.privileged = true;
+            "-c" | "--capabilities" => {
+                args.capabilities = iter.next().and_then(|s| {
+                    Some(parse_capset_iter(s.as_ref().split(','))
+                        .ok()
+                        .unwrap_or(CapSet::empty()))
+                }).unwrap_or(CapSet::empty());
+            }
+            "-b" | "--not-enforce-bounding" => {
+                args.bounding = false;
             }
             "-j" | "--json" => {
                 args.json = true;
@@ -406,20 +478,19 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
-        let namespaces = if cli_args.privileged {
-            vec![unshare::Namespace::Pid]
-        } else {
-            vec![unshare::Namespace::Pid]
-        };
+        let namespaces = vec![unshare::Namespace::Pid];
+        
         let mut cmd = unshare::Command::new(path);
         //avoid output
         let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
             cmd.args(&args)
                 .unshare(namespaces.iter())
                 .before_unfreeze(move |id| {
+                    
                     let fnspid =
                         metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
                     nsclone.as_ref().replace(fnspid.ino() as u32);
+                    set_capabilities(cli_args.capabilities, cli_args.bounding);
                     Ok(())
                 })
                 .stdout(if cli_args.json {

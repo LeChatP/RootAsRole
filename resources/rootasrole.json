@@ -105,22 +105,6 @@
                             "/usr/bin/chsr .*"
                         ]
                     }
-                },
-                {
-                    "name": "t_capable",
-                    "purpose": "Use Capable tool",
-                    "cred": {
-                        "capabilities": {
-                            "default": "none",
-                            "add": ["CAP_DAC_OVERRIDE","CAP_SYS_ADMIN","CAP_SYS_PTRACE"]
-                        }
-                    },
-                    "commands": {
-                        "default": "none",
-                        "add": [
-                            "/usr/bin/capable .*"
-                        ]
-                    }
                 }
             ]
         }

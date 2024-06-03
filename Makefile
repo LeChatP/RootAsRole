@@ -28,7 +28,6 @@ ifneq (0, $(filter $(shell capsh --has-p=CAP_DAC_OVERRIDE,CAP_CHOWN &>/dev/null;
 	$(PRIV_EXE) chown root:root /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	$(PRIV_EXE) chmod 0555 /usr/bin/sr /usr/bin/chsr /usr/bin/capable
 	$(PRIV_EXE) setcap "=p" /usr/bin/sr
-	$(PRIV_EXE) setcap cap_sys_resource,cap_dac_override,cap_sys_admin,cap_sys_ptrace+ep /usr/bin/capable
 else ifneq (0, $(shell capsh --has-p=CAP_SETFCAP &>/dev/null; echo $?))
 	@echo "You must have CAP_SETFCAP privilege to perform installation."
 else
