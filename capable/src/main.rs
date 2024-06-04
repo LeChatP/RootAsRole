@@ -10,13 +10,13 @@ use std::process::{exit, Child, Command, Stdio};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{env, thread};
+use std::{env, thread, vec};
 
 use aya::maps::{HashMap, MapData};
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
-use capctl::{Cap, CapSet, CapState, ParseCapError};
+use capctl::{ambient, bounding, Cap, CapSet, CapState, ParseCapError};
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::unistd::{getpid, Uid};
@@ -39,9 +39,6 @@ struct Cli {
     /// Pass all capabilities when executing the command,
     capabilities: CapSet,
 
-    /// Enforce bounding set
-    bounding: bool,
-
     /// Print output in JSON format, ignore stdin/out/err
     json: bool,
 
@@ -56,7 +53,6 @@ impl Default for Cli {
             daemon: false,
             capabilities: CapSet::empty(),
             json: false,
-            bounding: true,
             command: Vec::new(),
         }
     }
@@ -347,7 +343,7 @@ fn setpcap_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::SETPCAP, enable)
 }
 
-fn set_capabilities(caps: CapSet, requires_bounding: bool) {
+fn set_capabilities(caps: CapSet) {
     //set capabilities
     // case where capabilities are more than bounding set
     let bounding = capctl::bounding::probe();
@@ -355,21 +351,17 @@ fn set_capabilities(caps: CapSet, requires_bounding: bool) {
         panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
     }
     setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    let mut capstate = CapState::empty();
-    if requires_bounding {
-        for cap in (!caps).iter() {
-            capctl::bounding::drop(cap).expect("Failed to set bounding cap");
-        }
-    }
-    capstate.permitted = caps;
+    capctl::ambient::clear().expect("Failed to clear ambiant caps");
+    let mut capstate = CapState::get_current().expect("Failed to get current cap");
     capstate.inheritable = caps;
     debug!("caps : {:?}", caps);
     capstate.set_current().expect("Failed to set current cap");
     for cap in caps.iter() {
         capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
     }
-    capstate.effective = CapSet::empty();
-    capstate.set_current().expect("Failed to set current cap");
+    setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+    // read /proc/self/status to check if capabilities are set
+
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -393,9 +385,6 @@ where
                         .ok()
                         .unwrap_or(CapSet::empty()))
                 }).unwrap_or(CapSet::empty());
-            }
-            "-b" | "--not-enforce-bounding" => {
-                args.bounding = false;
             }
             "-j" | "--json" => {
                 args.json = true;
@@ -478,33 +467,46 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
-        let namespaces = nix::sched::CloneFlags::CLONE_NEWPID;
-        
-        nix::sched::unshare(namespaces).expect("Failed to unshare");
-        let id = getpid();
-        let fnspid =
-        metadata(format!("/proc/{}/ns/pid", id.as_raw())).expect("failed to open pid ns");
-        nsclone.as_ref().replace(fnspid.ino() as u32);
-        set_capabilities(cli_args.capabilities, cli_args.bounding);
-        let mut cmd = Command::new(path);
+        let namespaces = vec![&unshare::Namespace::Pid];
+        let mut cmd = unshare::Command::new(path);
+        unsafe { cmd.pre_exec(move || {
+                    let mut capstate = CapState::empty();
+                    nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
+                    ambient::clear().expect("Failed to clear ambiant caps");
+                    capstate.inheritable = cli_args.capabilities;
+                    capstate.permitted = cli_args.capabilities;
+                    capstate.effective = cli_args.capabilities;
+                    capstate.set_current().expect("Failed to set current cap");
+                    let status = std::fs::read_to_string("/proc/self/status").expect("Failed to read status");
+                    debug!("status: {}", status);
+
+            Ok(())
+        }) };
         //avoid output
-        let child: Arc<Mutex<Child>> = Arc::new(Mutex::new(
+        let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
             cmd.args(&args)
-                //.keep_caps(cli_args.capabilities.iter())
+                .before_unfreeze(move |id| {
+                    
+                    let fnspid =
+                    metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
+                    nsclone.as_ref().replace(fnspid.ino() as u32);
+                    Ok(())
+                })
+                .unshare(namespaces)
                 .stdout(if cli_args.json {
-                    Stdio::null()
+                    unshare::Stdio::null()
                 } else {
-                    Stdio::inherit()
+                    unshare::Stdio::inherit()
                 })
                 .stderr(if cli_args.json {
-                    Stdio::null()
+                    unshare::Stdio::null()
                 } else {
-                    Stdio::inherit()
+                    unshare::Stdio::inherit()
                 })
                 .stdin(if cli_args.json {
-                    Stdio::null()
+                    unshare::Stdio::null()
                 } else {
-                    Stdio::inherit()
+                    unshare::Stdio::inherit()
                 })
                 .spawn()
                 .expect("failed to spawn child"),
