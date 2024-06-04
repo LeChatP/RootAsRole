@@ -3,8 +3,9 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{canonicalize, metadata};
 use std::os::unix::prelude::MetadataExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::exit;
+use std::process::{exit, Child, Command, Stdio};
 
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ use aya_log::EbpfLogger;
 use capctl::{Cap, CapSet, CapState, ParseCapError};
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
-use nix::unistd::Uid;
+use nix::unistd::{getpid, Uid};
 use serde::{Deserialize, Serialize};
 use tabled::settings::object::Columns;
 
@@ -26,7 +27,6 @@ use tabled::settings::{Modify, Style, Width};
 use tabled::{Table, Tabled};
 use tokio::runtime::Runtime;
 use tokio::signal;
-use unshare::Signal;
 
 type Key = i32;
 
@@ -368,8 +368,8 @@ fn set_capabilities(caps: CapSet, requires_bounding: bool) {
     for cap in caps.iter() {
         capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
     }
-    setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    
+    capstate.effective = CapSet::empty();
+    capstate.set_current().expect("Failed to set current cap");
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -478,44 +478,42 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
-        let namespaces = vec![unshare::Namespace::Pid];
+        let namespaces = nix::sched::CloneFlags::CLONE_NEWPID;
         
-        let mut cmd = unshare::Command::new(path);
+        nix::sched::unshare(namespaces).expect("Failed to unshare");
+        let id = getpid();
+        let fnspid =
+        metadata(format!("/proc/{}/ns/pid", id.as_raw())).expect("failed to open pid ns");
+        nsclone.as_ref().replace(fnspid.ino() as u32);
+        set_capabilities(cli_args.capabilities, cli_args.bounding);
+        let mut cmd = Command::new(path);
         //avoid output
-        let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
+        let child: Arc<Mutex<Child>> = Arc::new(Mutex::new(
             cmd.args(&args)
-                .unshare(namespaces.iter())
-                .before_unfreeze(move |id| {
-                    
-                    let fnspid =
-                        metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
-                    nsclone.as_ref().replace(fnspid.ino() as u32);
-                    set_capabilities(cli_args.capabilities, cli_args.bounding);
-                    Ok(())
-                })
+                //.keep_caps(cli_args.capabilities.iter())
                 .stdout(if cli_args.json {
-                    unshare::Stdio::null()
+                    Stdio::null()
                 } else {
-                    unshare::Stdio::inherit()
+                    Stdio::inherit()
                 })
                 .stderr(if cli_args.json {
-                    unshare::Stdio::null()
+                    Stdio::null()
                 } else {
-                    unshare::Stdio::inherit()
+                    Stdio::inherit()
                 })
                 .stdin(if cli_args.json {
-                    unshare::Stdio::null()
+                    Stdio::null()
                 } else {
-                    unshare::Stdio::inherit()
+                    Stdio::inherit()
                 })
                 .spawn()
                 .expect("failed to spawn child"),
         ));
 
         let cloned = child.clone();
-        let pid = child.try_lock().unwrap().pid();
+        let pid = child.try_lock().unwrap().id() as i32;
 
-        thread::spawn(move || {
+        /*thread::spawn(move || {
             let rt = Runtime::new().unwrap();
             rt.block_on(signal::ctrl_c())
                 .expect("failed to wait for ctrl-c");
@@ -536,7 +534,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 child
                     .try_lock()
                     .unwrap()
-                    .signal(Signal::SIGKILL)
+                    .kill()
                     .expect("failed to send SIGKILL");
                 i = 0;
                 while nix::sys::wait::waitpid(nixpid, Some(WaitPidFlag::WNOHANG))
@@ -552,7 +550,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             Ok::<(), ()>(())
-        });
+        });*/
 
         let exit_status = cloned
             .try_lock()

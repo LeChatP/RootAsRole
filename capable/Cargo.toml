@@ -13,14 +13,13 @@ anyhow = "1.0.86"
 env_logger = "0.11.3"
 libc = "0.2.155"
 log = "0.4.21"
-tokio = { version = "1.37.0", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
-unshare = "0.7.0"
-tabled = "0.14.0"
+tokio = { version = "1.38.0", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
+tabled = "0.15.0"
 capctl = "0.2.3"
-nix = { version = "0.27.1", features = ["user", "signal"] }
+nix = { version = "0.29.0", features = ["user", "signal", "sched"] }
 shell-words = "1.1.0"
-serde = { version = "1.0.200", features=["rc", "derive"] }
-serde_json = "1.0.116"
+serde = { version = "1.0.203", features=["rc", "derive"] }
+serde_json = "1.0.117"
 
 [[bin]]
 name = "capable"
