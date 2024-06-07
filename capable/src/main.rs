@@ -361,7 +361,6 @@ fn set_capabilities(caps: CapSet) {
     }
     setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     // read /proc/self/status to check if capabilities are set
-
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -380,11 +379,16 @@ where
                 args.daemon = true;
             }
             "-c" | "--capabilities" => {
-                args.capabilities = iter.next().and_then(|s| {
-                    Some(parse_capset_iter(s.as_ref().split(','))
-                        .ok()
-                        .unwrap_or(CapSet::empty()))
-                }).unwrap_or(CapSet::empty());
+                args.capabilities = iter
+                    .next()
+                    .and_then(|s| {
+                        Some(
+                            parse_capset_iter(s.as_ref().split(','))
+                                .ok()
+                                .unwrap_or(CapSet::empty()),
+                        )
+                    })
+                    .unwrap_or(CapSet::empty());
             }
             "-j" | "--json" => {
                 args.json = true;
@@ -469,26 +473,28 @@ async fn main() -> Result<(), anyhow::Error> {
         let nsclone: Rc<RefCell<u32>> = nsinode.clone();
         let namespaces = vec![&unshare::Namespace::Pid];
         let mut cmd = unshare::Command::new(path);
-        unsafe { cmd.pre_exec(move || {
-                    let mut capstate = CapState::empty();
-                    nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
-                    ambient::clear().expect("Failed to clear ambiant caps");
-                    capstate.inheritable = cli_args.capabilities;
-                    capstate.permitted = cli_args.capabilities;
-                    capstate.effective = cli_args.capabilities;
-                    capstate.set_current().expect("Failed to set current cap");
-                    let status = std::fs::read_to_string("/proc/self/status").expect("Failed to read status");
-                    debug!("status: {}", status);
+        unsafe {
+            cmd.pre_exec(move || {
+                let mut capstate = CapState::empty();
+                nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
+                ambient::clear().expect("Failed to clear ambiant caps");
+                capstate.inheritable = cli_args.capabilities;
+                capstate.permitted = cli_args.capabilities;
+                capstate.effective = cli_args.capabilities;
+                capstate.set_current().expect("Failed to set current cap");
+                let status =
+                    std::fs::read_to_string("/proc/self/status").expect("Failed to read status");
+                debug!("status: {}", status);
 
-            Ok(())
-        }) };
+                Ok(())
+            })
+        };
         //avoid output
         let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
             cmd.args(&args)
                 .before_unfreeze(move |id| {
-                    
                     let fnspid =
-                    metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
+                        metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
                     nsclone.as_ref().replace(fnspid.ino() as u32);
                     Ok(())
                 })

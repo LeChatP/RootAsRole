@@ -352,8 +352,7 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
 
 pub fn final_path(path: &String) -> PathBuf {
     let result;
-    if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid"))
-    {
+    if let Some(env_path) = find_from_envpath(&path.parse().expect("The path is not valid")) {
         result = env_path
     } else if let Ok(cannon_path) = std::fs::canonicalize(path) {
         result = cannon_path;

@@ -5,7 +5,10 @@ use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use pest::{error::LineColLocation, RuleType};
 use tracing::{debug, warn};
 
-use crate::common::{dac_override_effective, fowner_effective, immutable_effective, open_with_privileges, read_effective};
+use crate::common::{
+    dac_override_effective, fowner_effective, immutable_effective, open_with_privileges,
+    read_effective,
+};
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -60,7 +63,9 @@ pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
     debug!("Setting immutable privilege");
     immutable_effective(true).map_err(|e| e.to_string())?;
     debug!("Setting dac override privilege");
-    read_effective(true).or(dac_override_effective(true)).map_err(|e| e.to_string())?;
+    read_effective(true)
+        .or(dac_override_effective(true))
+        .map_err(|e| e.to_string())?;
     fowner_effective(true).map_err(|e| e.to_string())?;
     debug!("Setting immutable flag");
     if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
@@ -68,7 +73,9 @@ pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
     }
     debug!("Resetting immutable privilege");
     immutable_effective(false).map_err(|e| e.to_string())?;
-    read_effective(false).and(dac_override_effective(false)).map_err(|e| e.to_string())?;
+    read_effective(false)
+        .and(dac_override_effective(false))
+        .map_err(|e| e.to_string())?;
     fowner_effective(false).map_err(|e| e.to_string())?;
     Ok(())
 }
