@@ -3,9 +3,8 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{canonicalize, metadata};
 use std::os::unix::prelude::MetadataExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{exit, Child, Command, Stdio};
+use std::process::exit;
 
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -13,14 +12,13 @@ use std::time::Duration;
 use std::{env, thread, vec};
 
 use aya::maps::{HashMap, MapData};
-use aya::programs::kprobe::KProbeLinkId;
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
-use capctl::{ambient, bounding, Cap, CapSet, CapState, ParseCapError};
+use capctl::{ambient, Cap, CapSet, CapState, ParseCapError};
 use log::{debug, warn};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
-use nix::unistd::{getpid, Uid};
+use nix::unistd::Uid;
 use serde::{Deserialize, Serialize};
 use tabled::settings::object::Columns;
 
@@ -416,111 +414,110 @@ where
     Ok(args)
 }
 
-fn run_command(cli_args : &mut Cli, nsclone: Rc<RefCell<u32>>) -> Result<i32, anyhow::Error> {
+fn run_command(cli_args: &mut Cli, nsclone: Rc<RefCell<u32>>) -> Result<i32, anyhow::Error> {
     let (path, args) = get_exec_and_args(&mut cli_args.command);
-        let namespaces = vec![&unshare::Namespace::Pid];
-        let capabilities = cli_args.capabilities.clone();
-        let mut cmd = unshare::Command::new(path);
-        unsafe {
-            cmd.pre_exec(move || {
-                let mut capstate = CapState::empty();
-                nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
-                setpcap_effective(true).expect("Failed to setpcap effective");
-                ambient::clear().expect("Failed to clear ambiant caps");
-                capstate.inheritable = capabilities;
-                capstate.permitted = capabilities;
-                capstate.effective = capabilities;
-                capstate.set_current().expect("Failed to set current cap");
+    let namespaces = vec![&unshare::Namespace::Pid];
+    let capabilities = cli_args.capabilities.clone();
+    let mut cmd = unshare::Command::new(path);
+    unsafe {
+        cmd.pre_exec(move || {
+            let mut capstate = CapState::empty();
+            nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
+            setpcap_effective(true).expect("Failed to setpcap effective");
+            ambient::clear().expect("Failed to clear ambiant caps");
+            capstate.inheritable = capabilities;
+            capstate.permitted = capabilities;
+            capstate.effective = capabilities;
+            capstate.set_current().expect("Failed to set current cap");
+            Ok(())
+        })
+    };
+    setadmin_effective(true)?;
+    //avoid output
+    let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
+        cmd.args(&args)
+            .before_unfreeze(move |id| {
+                setptrace_effective(true)?;
+                let fnspid =
+                    metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
+                setptrace_effective(false)?;
+                nsclone.as_ref().replace(fnspid.ino() as u32);
                 Ok(())
             })
-        };
-        setadmin_effective(true)?;
-        //avoid output
-        let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
-            cmd.args(&args)
-                .before_unfreeze(move |id| {
-                    setptrace_effective(true)?;
-                    let fnspid =
-                        metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
-                    setptrace_effective(false)?;
-                    nsclone.as_ref().replace(fnspid.ino() as u32);
-                    Ok(())
-                })
-                .unshare(namespaces)
-                .stdout(if cli_args.json {
-                    unshare::Stdio::null()
-                } else {
-                    unshare::Stdio::inherit()
-                })
-                .stderr(if cli_args.json {
-                    unshare::Stdio::null()
-                } else {
-                    unshare::Stdio::inherit()
-                })
-                .stdin(if cli_args.json {
-                    unshare::Stdio::null()
-                } else {
-                    unshare::Stdio::inherit()
-                })
-                .spawn()
-                .expect("failed to spawn child"),
-        ));
-        setadmin_effective(false)?;
-        let cloned = child.clone();
-        let pid = child.try_lock().unwrap().id() as i32;
+            .unshare(namespaces)
+            .stdout(if cli_args.json {
+                unshare::Stdio::null()
+            } else {
+                unshare::Stdio::inherit()
+            })
+            .stderr(if cli_args.json {
+                unshare::Stdio::null()
+            } else {
+                unshare::Stdio::inherit()
+            })
+            .stdin(if cli_args.json {
+                unshare::Stdio::null()
+            } else {
+                unshare::Stdio::inherit()
+            })
+            .spawn()
+            .expect("failed to spawn child"),
+    ));
+    setadmin_effective(false)?;
+    let cloned = child.clone();
+    let pid = child.try_lock().unwrap().id() as i32;
 
-        thread::spawn(move || {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(signal::ctrl_c())
-                .expect("failed to wait for ctrl-c");
-            let nixpid = nix::unistd::Pid::from_raw(pid);
-            nix::sys::signal::kill(nixpid, nix::sys::signal::Signal::SIGINT)
-                .expect("failed to send SIGINT");
-            let mut i = 0;
-            if nix::sys::wait::waitpid(nixpid, Some(WaitPidFlag::WNOHANG))
+    thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(signal::ctrl_c())
+            .expect("failed to wait for ctrl-c");
+        let nixpid = nix::unistd::Pid::from_raw(pid);
+        nix::sys::signal::kill(nixpid, nix::sys::signal::Signal::SIGINT)
+            .expect("failed to send SIGINT");
+        let mut i = 0;
+        if nix::sys::wait::waitpid(nixpid, Some(WaitPidFlag::WNOHANG)).expect("Fail to wait pid")
+            == WaitStatus::StillAlive
+            && i < MAX_CHECK
+        {
+            i += 1;
+            thread::sleep(Duration::from_millis(100));
+        }
+        if i >= MAX_CHECK {
+            eprintln!("SIGINT wait is timed-out\n");
+            child
+                .try_lock()
+                .unwrap()
+                .kill()
+                .expect("failed to send SIGKILL");
+            i = 0;
+            while nix::sys::wait::waitpid(nixpid, Some(WaitPidFlag::WNOHANG))
                 .expect("Fail to wait pid")
                 == WaitStatus::StillAlive
                 && i < MAX_CHECK
             {
-                i += 1;
                 thread::sleep(Duration::from_millis(100));
+                i += 1;
             }
             if i >= MAX_CHECK {
-                eprintln!("SIGINT wait is timed-out\n");
-                child
-                    .try_lock()
-                    .unwrap()
-                    .kill()
-                    .expect("failed to send SIGKILL");
-                i = 0;
-                while nix::sys::wait::waitpid(nixpid, Some(WaitPidFlag::WNOHANG))
-                    .expect("Fail to wait pid")
-                    == WaitStatus::StillAlive
-                    && i < MAX_CHECK
-                {
-                    thread::sleep(Duration::from_millis(100));
-                    i += 1;
-                }
-                if i >= MAX_CHECK {
-                    exit(-1);
-                }
+                exit(-1);
             }
-            Ok::<(), ()>(())
-                });
-
-        let exit_status = cloned
-            .try_lock()
-            .unwrap()
-            .wait()
-            .expect("failed to wait on child");
-        debug!("child exited with {:?}", exit_status);
-        //print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
-        
-        if exit_status.success() {
-            Ok(0)
-        } else {
-            Ok(exit_status.code().unwrap_or(-1))
         }
+        Ok::<(), ()>(())
+    });
+
+    let exit_status = cloned
+        .try_lock()
+        .unwrap()
+        .wait()
+        .expect("failed to wait on child");
+    debug!("child exited with {:?}", exit_status);
+    //print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
+
+    if exit_status.success() {
+        Ok(0)
+    } else {
+        Ok(exit_status.code().unwrap_or(-1))
+    }
 }
 
 fn unload_program(bpf: &Rc<RefCell<Ebpf>>) -> Result<(), anyhow::Error> {
@@ -572,18 +569,16 @@ async fn main() -> Result<(), anyhow::Error> {
         "../../target/bpfel-unknown-none/release/capable"
     ))?));
 
-    
-    
     if let Err(e) = EbpfLogger::init(&mut bpf.as_ref().borrow_mut()) {
         // This can happen if you remove all log statements from your eBPF program.
         warn!("failed to initialize eBPF {}", e);
     }
 
     let link = {
-    let mut binding = bpf.as_ref().borrow_mut();
-    let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into()?;
-    program.load()?;
-    program.attach("cap_capable", 0)?
+        let mut binding = bpf.as_ref().borrow_mut();
+        let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into()?;
+        program.load()?;
+        program.attach("cap_capable", 0)?
     };
     let err_bpf = bpf.clone();
     setbpf_effective(false).inspect_err(move |_| {
@@ -600,35 +595,33 @@ async fn main() -> Result<(), anyhow::Error> {
         })
         .map_err(|e| {
             eprintln!("{}", e);
-            
+
             exit(-1);
         })
         .unwrap();
-    
+
     {
         let binding = bpf.as_ref().borrow();
         let err_bpf = bpf.clone();
         let capabilities_map: HashMap<_, Key, u64> =
-            HashMap::try_from(binding.map("CAPABILITIES_MAP").unwrap())
-            .inspect_err(move |_| {
+            HashMap::try_from(binding.map("CAPABILITIES_MAP").unwrap()).inspect_err(move |_| {
                 unload_program(&err_bpf).expect("failed to unload program");
             })?;
         let err_bpf = bpf.clone();
         let pnsid_nsid_map: HashMap<_, Key, u64> =
-            HashMap::try_from(binding.map("PNSID_NSID_MAP").unwrap())
-            .inspect_err(move |_| {
+            HashMap::try_from(binding.map("PNSID_NSID_MAP").unwrap()).inspect_err(move |_| {
                 unload_program(&err_bpf).expect("failed to unload program");
             })?;
         let err_bpf = bpf.clone();
-        let uid_gid_map: HashMap<_, Key, u64> = HashMap::try_from(binding.map("UID_GID_MAP").unwrap())
-            .inspect_err(move |_| {
+        let uid_gid_map: HashMap<_, Key, u64> =
+            HashMap::try_from(binding.map("UID_GID_MAP").unwrap()).inspect_err(move |_| {
                 unload_program(&err_bpf).expect("failed to unload program");
             })?;
         let err_bpf = bpf.clone();
         let ppid_map: HashMap<_, Key, i32> = HashMap::try_from(binding.map("PPID_MAP").unwrap())
-        .inspect_err(move |_| {
-            unload_program(&err_bpf).expect("failed to unload program");
-        })?;
+            .inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
         if cli_args.daemon || cli_args.command.is_empty() {
             println!("Waiting for Ctrl-C...");
             let err_bpf = bpf.clone();
@@ -642,7 +635,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 &uid_gid_map,
                 &ppid_map,
                 cli_args.json,
-            ).inspect_err(move |_| {
+            )
+            .inspect_err(move |_| {
                 unload_program(&err_bpf).expect("failed to unload program");
             })?;
         } else {
@@ -657,19 +651,23 @@ async fn main() -> Result<(), anyhow::Error> {
                 &capabilities_map,
                 &pnsid_nsid_map,
                 cli_args.json,
-            ).inspect_err(move |_| {
+            )
+            .inspect_err(move |_| {
                 unload_program(&err_bpf).expect("failed to unload program");
             })
             .expect("failed to print capabilities");
         }
-
     }
     debug!("unloading program");
     let mut binding = bpf.as_ref().borrow_mut();
     let err_bpf = bpf.clone();
-    let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into().inspect_err(move |_| {
-        unload_program(&err_bpf).expect("failed to unload program");
-    })?;
+    let program: &mut KProbe = binding
+        .program_mut("capable")
+        .unwrap()
+        .try_into()
+        .inspect_err(move |_| {
+            unload_program(&err_bpf).expect("failed to unload program");
+        })?;
     program.detach(link)?;
     program.unload()?;
     Ok(())
