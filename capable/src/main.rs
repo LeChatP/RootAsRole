@@ -13,6 +13,7 @@ use std::time::Duration;
 use std::{env, thread, vec};
 
 use aya::maps::{HashMap, MapData};
+use aya::programs::kprobe::KProbeLinkId;
 use aya::programs::KProbe;
 use aya::{include_bytes_aligned, Ebpf};
 use aya_log::EbpfLogger;
@@ -340,27 +341,33 @@ fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
 }
 
 fn setpcap_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETPCAP, enable)
+    cap_effective(Cap::SETPCAP, enable).inspect_err(|_| {
+        eprintln!("{}", cap_effective_error("SETPCAP"));
+    })
 }
 
-fn set_capabilities(caps: CapSet) {
-    //set capabilities
-    // case where capabilities are more than bounding set
-    let bounding = capctl::bounding::probe();
-    if bounding & caps != caps {
-        panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
-    }
-    setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    capctl::ambient::clear().expect("Failed to clear ambiant caps");
-    let mut capstate = CapState::get_current().expect("Failed to get current cap");
-    capstate.inheritable = caps;
-    debug!("caps : {:?}", caps);
-    capstate.set_current().expect("Failed to set current cap");
-    for cap in caps.iter() {
-        capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
-    }
-    setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-    // read /proc/self/status to check if capabilities are set
+fn setbpf_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::BPF, enable).inspect_err(|_| {
+        eprintln!("{}", cap_effective_error("BPF"));
+    })
+}
+
+fn setadmin_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::SYS_ADMIN, enable).inspect_err(|_| {
+        eprintln!("{}", cap_effective_error("SYS_ADMIN"));
+    })
+}
+
+fn setresource_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::SYS_RESOURCE, enable).inspect_err(|_| {
+        eprintln!("{}", cap_effective_error("SYS_RESOURCE"));
+    })
+}
+
+fn setptrace_effective(enable: bool) -> Result<(), capctl::Error> {
+    cap_effective(Cap::SYS_PTRACE, enable).inspect_err(|_| {
+        eprintln!("{}", cap_effective_error("SYS_PTRACE"));
+    })
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -409,92 +416,33 @@ where
     Ok(args)
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    env_logger::init();
-
-    // Bump the memlock rlimit. This is needed for older kernels that don't use the
-    // new memcg based accounting, see https://lwn.net/Articles/837122/
-    let rlim = libc::rlimit {
-        rlim_cur: libc::RLIM_INFINITY,
-        rlim_max: libc::RLIM_INFINITY,
-    };
-    let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
-    if ret != 0 {
-        debug!("remove limit on locked memory failed, ret is: {}", ret);
-    }
-
-    // This will include your eBPF object file as raw bytes at compile-time and load it at
-    // runtime. This approach is recommended for most real-world use cases. If you would
-    // like to specify the eBPF program at runtime rather than at compile-time, you can
-    // reach for `Bpf::load_file` instead.
-    #[cfg(debug_assertions)]
-    let mut bpf = Ebpf::load(include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/debug/capable"
-    ))?;
-    #[cfg(not(debug_assertions))]
-    let mut bpf = Ebpf::load(include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/release/capable"
-    ))?;
-    if let Err(e) = EbpfLogger::init(&mut bpf) {
-        // This can happen if you remove all log statements from your eBPF program.
-        warn!("failed to initialize eBPF {}", e);
-    }
-    let program: &mut KProbe = bpf.program_mut("capable").unwrap().try_into()?;
-    program.load()?;
-    program.attach("cap_capable", 0)?;
-
-    let mut cli_args = getopt(std::env::args())
-        .map_err(|e| {
-            eprintln!("{}", e);
-            exit(-1);
-        })
-        .unwrap();
-    let capabilities_map: HashMap<_, Key, u64> =
-        HashMap::try_from(bpf.map("CAPABILITIES_MAP").unwrap())?;
-    let pnsid_nsid_map: HashMap<_, Key, u64> =
-        HashMap::try_from(bpf.map("PNSID_NSID_MAP").unwrap())?;
-    let uid_gid_map: HashMap<_, Key, u64> = HashMap::try_from(bpf.map("UID_GID_MAP").unwrap())?;
-    let ppid_map: HashMap<_, Key, i32> = HashMap::try_from(bpf.map("PPID_MAP").unwrap())?;
-    if cli_args.daemon || cli_args.command.is_empty() {
-        println!("Waiting for Ctrl-C...");
-        signal::ctrl_c().await?;
-        print_all(
-            &capabilities_map,
-            &pnsid_nsid_map,
-            &uid_gid_map,
-            &ppid_map,
-            cli_args.json,
-        )?;
-    } else {
-        let (path, args) = get_exec_and_args(&mut cli_args.command);
-
-        let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
-        let nsclone: Rc<RefCell<u32>> = nsinode.clone();
+fn run_command(cli_args : &mut Cli, nsclone: Rc<RefCell<u32>>) -> Result<i32, anyhow::Error> {
+    let (path, args) = get_exec_and_args(&mut cli_args.command);
         let namespaces = vec![&unshare::Namespace::Pid];
+        let capabilities = cli_args.capabilities.clone();
         let mut cmd = unshare::Command::new(path);
         unsafe {
             cmd.pre_exec(move || {
                 let mut capstate = CapState::empty();
                 nix::sys::prctl::set_keepcaps(false).expect("Failed to set keepcaps");
+                setpcap_effective(true).expect("Failed to setpcap effective");
                 ambient::clear().expect("Failed to clear ambiant caps");
-                capstate.inheritable = cli_args.capabilities;
-                capstate.permitted = cli_args.capabilities;
-                capstate.effective = cli_args.capabilities;
+                capstate.inheritable = capabilities;
+                capstate.permitted = capabilities;
+                capstate.effective = capabilities;
                 capstate.set_current().expect("Failed to set current cap");
-                let status =
-                    std::fs::read_to_string("/proc/self/status").expect("Failed to read status");
-                debug!("status: {}", status);
-
                 Ok(())
             })
         };
+        setadmin_effective(true)?;
         //avoid output
         let child: Arc<Mutex<unshare::Child>> = Arc::new(Mutex::new(
             cmd.args(&args)
                 .before_unfreeze(move |id| {
+                    setptrace_effective(true)?;
                     let fnspid =
                         metadata(format!("/proc/{}/ns/pid", id)).expect("failed to open pid ns");
+                    setptrace_effective(false)?;
                     nsclone.as_ref().replace(fnspid.ino() as u32);
                     Ok(())
                 })
@@ -517,11 +465,11 @@ async fn main() -> Result<(), anyhow::Error> {
                 .spawn()
                 .expect("failed to spawn child"),
         ));
-
+        setadmin_effective(false)?;
         let cloned = child.clone();
         let pid = child.try_lock().unwrap().id() as i32;
 
-        /*thread::spawn(move || {
+        thread::spawn(move || {
             let rt = Runtime::new().unwrap();
             rt.block_on(signal::ctrl_c())
                 .expect("failed to wait for ctrl-c");
@@ -558,7 +506,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             Ok::<(), ()>(())
-        });*/
+                });
 
         let exit_status = cloned
             .try_lock()
@@ -567,19 +515,162 @@ async fn main() -> Result<(), anyhow::Error> {
             .expect("failed to wait on child");
         debug!("child exited with {:?}", exit_status);
         //print_all(&capabilities_map, &pnsid_nsid_map, &uid_gid_map, &ppid_map)?;
-        print_program_capabilities(
-            &nsinode.as_ref().borrow(),
-            &capabilities_map,
-            &pnsid_nsid_map,
-            cli_args.json,
-        )
-        .expect("failed to print capabilities");
+        
         if exit_status.success() {
-            exit(0);
+            Ok(0)
         } else {
-            exit(exit_status.code().unwrap_or(-1));
+            Ok(exit_status.code().unwrap_or(-1))
         }
+}
+
+fn unload_program(bpf: &Rc<RefCell<Ebpf>>) -> Result<(), anyhow::Error> {
+    setbpf_effective(true)?;
+    setadmin_effective(true)?;
+    let mut binding = bpf.as_ref().borrow_mut();
+    let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into()?;
+    program.unload()?;
+    setbpf_effective(false)?;
+    setadmin_effective(false)?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    env_logger::init();
+    ambient::clear().expect("Failed to clear ambiant caps");
+    let mut capstate = CapState::get_current().expect("Failed to get current cap");
+    capstate.inheritable = CapSet::empty();
+    capstate.effective = CapSet::empty();
+    capstate.set_current().expect("Failed to set current cap");
+
+    // Bump the memlock rlimit. This is needed for older kernels that don't use the
+    // new memcg based accounting, see https://lwn.net/Articles/837122/
+    let rlim = libc::rlimit {
+        rlim_cur: libc::RLIM_INFINITY,
+        rlim_max: libc::RLIM_INFINITY,
+    };
+    setresource_effective(true)?;
+    let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
+    setresource_effective(false)?;
+    if ret != 0 {
+        debug!("remove limit on locked memory failed, ret is: {}", ret);
     }
 
+    setbpf_effective(true)?;
+    setadmin_effective(true)?;
+
+    // This will include your eBPF object file as raw bytes at compile-time and load it at
+    // runtime. This approach is recommended for most real-world use cases. If you would
+    // like to specify the eBPF program at runtime rather than at compile-time, you can
+    // reach for `Bpf::load_file` instead.
+    #[cfg(debug_assertions)]
+    let bpf = Rc::new(RefCell::new(Ebpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/debug/capable"
+    ))?));
+    #[cfg(not(debug_assertions))]
+    let bpf = Rc::new(RefCell::new(Ebpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/release/capable"
+    ))?));
+
+    
+    
+    if let Err(e) = EbpfLogger::init(&mut bpf.as_ref().borrow_mut()) {
+        // This can happen if you remove all log statements from your eBPF program.
+        warn!("failed to initialize eBPF {}", e);
+    }
+
+    let link = {
+    let mut binding = bpf.as_ref().borrow_mut();
+    let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into()?;
+    program.load()?;
+    program.attach("cap_capable", 0)?
+    };
+    let err_bpf = bpf.clone();
+    setbpf_effective(false).inspect_err(move |_| {
+        unload_program(&err_bpf).expect("failed to unload program");
+    })?;
+    let err_bpf = bpf.clone();
+    setadmin_effective(false).inspect_err(move |_| {
+        unload_program(&err_bpf).expect("failed to unload program");
+    })?;
+    let err_bpf = bpf.clone();
+    let mut cli_args = getopt(std::env::args())
+        .inspect_err(move |_| {
+            unload_program(&err_bpf).expect("failed to unload program");
+        })
+        .map_err(|e| {
+            eprintln!("{}", e);
+            
+            exit(-1);
+        })
+        .unwrap();
+    
+    {
+        let binding = bpf.as_ref().borrow();
+        let err_bpf = bpf.clone();
+        let capabilities_map: HashMap<_, Key, u64> =
+            HashMap::try_from(binding.map("CAPABILITIES_MAP").unwrap())
+            .inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+        let err_bpf = bpf.clone();
+        let pnsid_nsid_map: HashMap<_, Key, u64> =
+            HashMap::try_from(binding.map("PNSID_NSID_MAP").unwrap())
+            .inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+        let err_bpf = bpf.clone();
+        let uid_gid_map: HashMap<_, Key, u64> = HashMap::try_from(binding.map("UID_GID_MAP").unwrap())
+            .inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+        let err_bpf = bpf.clone();
+        let ppid_map: HashMap<_, Key, i32> = HashMap::try_from(binding.map("PPID_MAP").unwrap())
+        .inspect_err(move |_| {
+            unload_program(&err_bpf).expect("failed to unload program");
+        })?;
+        if cli_args.daemon || cli_args.command.is_empty() {
+            println!("Waiting for Ctrl-C...");
+            let err_bpf = bpf.clone();
+            signal::ctrl_c().await.inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+            let err_bpf = bpf.clone();
+            print_all(
+                &capabilities_map,
+                &pnsid_nsid_map,
+                &uid_gid_map,
+                &ppid_map,
+                cli_args.json,
+            ).inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+        } else {
+            let nsinode: Rc<RefCell<u32>> = Rc::new(0.into());
+            let err_bpf = bpf.clone();
+            run_command(&mut cli_args, nsinode.clone()).inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })?;
+            let err_bpf = bpf.clone();
+            print_program_capabilities(
+                &nsinode.as_ref().borrow(),
+                &capabilities_map,
+                &pnsid_nsid_map,
+                cli_args.json,
+            ).inspect_err(move |_| {
+                unload_program(&err_bpf).expect("failed to unload program");
+            })
+            .expect("failed to print capabilities");
+        }
+
+    }
+    debug!("unloading program");
+    let mut binding = bpf.as_ref().borrow_mut();
+    let err_bpf = bpf.clone();
+    let program: &mut KProbe = binding.program_mut("capable").unwrap().try_into().inspect_err(move |_| {
+        unload_program(&err_bpf).expect("failed to unload program");
+    })?;
+    program.detach(link)?;
+    program.unload()?;
     Ok(())
 }
