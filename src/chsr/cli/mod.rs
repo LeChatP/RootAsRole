@@ -13,7 +13,7 @@ use process::process_input;
 use tracing::debug;
 use usage::print_usage;
 
-use crate::common::{config::Storage, util::escape_parser_string_vec};
+use crate::{common::config::Storage, util::escape_parser_string_vec};
 
 pub fn main<I, S>(storage: &Storage, args: I) -> Result<bool, Box<dyn Error>>
 where

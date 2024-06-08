@@ -4,7 +4,10 @@ use const_format::formatcp;
 use tracing::debug;
 
 use super::data::Rule;
-use crate::common::util::{underline, BOLD, RED, RST, UNDERLINE};
+use crate::{
+    common::util::{BOLD, RED, RST, UNDERLINE},
+    util::underline,
+};
 
 const LONG_ABOUT: &str = "Role Manager is a tool to configure RBAC for RootAsRole.
 A role is a set of tasks that can be executed by a user or a group of users.
