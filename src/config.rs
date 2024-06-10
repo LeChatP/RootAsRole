@@ -59,7 +59,8 @@ use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, open_with_privileges, read_effective, util::{toggle_lock_config, ImmutableLock},
+        dac_override_effective, open_with_privileges, read_effective,
+        util::{toggle_lock_config, ImmutableLock},
         write_json_config,
     },
     rc_refcell,
