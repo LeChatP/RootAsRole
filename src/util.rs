@@ -2,6 +2,7 @@ use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf};
 
 use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use strum::EnumIs;
 use tracing::{debug, warn};
 
 use crate::common::{
@@ -44,7 +45,18 @@ macro_rules! rc_refcell {
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
-pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
+#[derive(Debug, EnumIs)]
+pub enum ImmutableLock {
+    Set,
+    Unset,
+}
+
+
+/// Set or unset the immutable flag on a file
+/// # Arguments
+/// * `file` - The file to set the immutable flag on
+/// * `lock` - Whether to set or unset the immutable flag
+pub fn toggle_lock_config(file: &PathBuf, lock: ImmutableLock) -> Result<(), String> {
     let file = match open_with_privileges(file) {
         Err(e) => return Err(e.to_string()),
         Ok(f) => f,
@@ -54,7 +66,7 @@ pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
-    if lock {
+    if lock.is_unset() {
         val &= !(FS_IMMUTABLE_FL);
     } else {
         val |= FS_IMMUTABLE_FL;
@@ -234,14 +246,37 @@ mod test {
     #[test]
     fn test_toggle_lock_config() {
         let path = PathBuf::from("/tmp/test");
-        File::create(&path).expect("Failed to create file");
-        let res = toggle_lock_config(&path, true);
-        let capstate = CapState::get_current().expect("Failed to get current capstate");
-        if capstate.effective.has(Cap::LINUX_IMMUTABLE) {
+        let file = File::create(&path).expect("Failed to create file");
+        let res = toggle_lock_config(&path, ImmutableLock::Set);
+        let status = fs::read_to_string("/proc/self/status").unwrap();
+        let capeff = status
+            .lines()
+            .find(|line| line.starts_with("CapEff:"))
+            .expect("Failed to find CapEff line");
+        let effhex = capeff.split(':').last().expect("Failed to get effective capabilities").trim();
+        let eff = u64::from_str_radix(effhex, 16).expect("Failed to parse effective capabilities");
+        if eff & ((1 << Cap::LINUX_IMMUTABLE as u8) as u64) != 0 {
             assert!(res.is_ok());
         } else {
             assert!(res.is_err());
+            // stop test
+            return;
         }
-        fs::remove_file(&path).expect("Failed to remove file");
+        let mut val = 0;
+        let fd = file.as_raw_fd();
+        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+            panic!("Failed to get flags");
+        }
+        assert_eq!(val & FS_IMMUTABLE_FL, FS_IMMUTABLE_FL);
+        //test to write on file
+        let file = File::create(&path);
+        assert!(file.is_err());
+        let res = toggle_lock_config(&path, ImmutableLock::Unset);
+        assert!(res.is_ok());
+        let file = File::create(&path);
+        assert!(file.is_ok());
+        let res = fs::remove_file(&path);
+        assert!(res.is_ok());
+
     }
 }

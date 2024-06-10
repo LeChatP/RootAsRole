@@ -1,7 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::common::config::save_settings;
-use crate::common::util::toggle_lock_config;
+use crate::common::util::{toggle_lock_config, ImmutableLock};
 use crate::common::version::PACKAGE_VERSION;
 
 use chrono::Duration;
@@ -109,14 +109,14 @@ pub fn save_json(
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable on for config file");
-            toggle_lock_config(path, true)?;
+            toggle_lock_config(path, ImmutableLock::Unset)?;
         }
     }
     write_sconfig(&settings.as_ref().borrow(), versionned)?;
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable off for config file");
-            toggle_lock_config(path, false)?;
+            toggle_lock_config(path, ImmutableLock::Set)?;
         }
     }
     debug!("Resetting immutable privilege");

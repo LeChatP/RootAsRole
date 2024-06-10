@@ -59,7 +59,7 @@ use tracing::debug;
 
 use crate::{
     common::{
-        dac_override_effective, open_with_privileges, read_effective, util::toggle_lock_config,
+        dac_override_effective, open_with_privileges, read_effective, util::{toggle_lock_config, ImmutableLock},
         write_json_config,
     },
     rc_refcell,
@@ -218,7 +218,7 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable on for config file");
-            toggle_lock_config(path, true)?;
+            toggle_lock_config(path, ImmutableLock::Unset)?;
         }
     }
     debug!("Writing config file");
@@ -227,7 +227,7 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable off for config file");
-            toggle_lock_config(path, false)?;
+            toggle_lock_config(path, ImmutableLock::Set)?;
         }
     }
     debug!("Resetting dac privilege");
