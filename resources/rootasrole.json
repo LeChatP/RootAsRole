@@ -105,6 +105,22 @@
                             "/usr/bin/chsr .*"
                         ]
                     }
+                },
+                {
+                    "name": "t_capable",
+                    "purpose": "access to every commands",
+                    "cred": {
+                        "capabilities": {
+                            "default": "all",
+                            "sub": ["CAP_LINUX_IMMUTABLE"]
+                        }
+                    },
+                    "commands": {
+                        "default": "none",
+                        "add": [
+                            "/usr/bin/capable .*"
+                        ]
+                    }
                 }
             ]
         }

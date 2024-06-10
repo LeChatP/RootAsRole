@@ -425,8 +425,9 @@ mod test {
         },
         common::{
             database::structs::SActor,
-            util::{underline, BOLD, RED, RST},
+            util::{BOLD, RED, RST},
         },
+        util::underline,
     };
 
     use super::Inputs;

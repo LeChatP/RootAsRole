@@ -150,6 +150,9 @@ fn main() {
             if let Err(err) = set_cargo_version(package_version, "capable-ebpf/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
+            if let Err(err) = set_cargo_version(package_version, "capable-common/Cargo.toml") {
+                eprintln!("cargo:warning={}", err);
+            }
             if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }

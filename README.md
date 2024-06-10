@@ -13,9 +13,10 @@
  <img alt="GitHub" src="https://img.shields.io/github/license/LeChatP/RootAsRole">
 
 </p>
+<!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-#  RootAsRole (V3.0.0-alpha.4) : A memory-safe and security-oriented alternative to sudo/su commands
+# RootAsRole (V3.0.0-alpha.5) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
@@ -81,6 +82,19 @@ However you won't find out exact same options as sudo, you can use the `--role` 
 
 ## Why do you need this tool ?
 
+|                                     | setcap | sudo             | sr |
+|-------------------------------------|--------|------------------|----|
+| Change user                         |        | ✅ but mandatory  | ✅  |
+| Change groups                       |        | ✅ but mandatory  | ✅  |
+| Manage environment variables        |        | ✅                | ✅  |
+| Strict command matching             |        | ✅ with wildcards      | ✅ with PCRE and glob |
+| Interoperable configuration/policy  |        | ✅ only with LDAP | ✅ with JSON |
+| Set capabilities                    | ✅      |                  | ✅ with Ambient set |
+| Prevent direct privilege escalation |        |                  | ✅ with Bounding set |
+| Do not trust authorized users by default |        |                  | ✅ |
+| Evolvable configuration/policy      |        |                  | ✅ with JSON |
+| Scalable access control             |        |                  | ✅ with RBAC |
+
 Traditional Linux system administration relies on a single powerful user, the superuser (root), who holds all system privileges. This model does not adhere to the principle of least privilege, as any program executed with superuser rights gains far more privileges than necessary. For example, `tcpdump`, a tool for sniffing network packets, only needs network capabilities. However, when run as the superuser, tcpdump gains all system privileges, including the ability to reboot the system. This excessive privilege can be exploited by attackers to compromise the entire system if tcpdump has vulnerabilities or their developers performs a supply chain attack.
 
 The RootAsRole project offers a role-based approach for managing Linux capabilities. It includes the sr (switch role) tool, which allows users to control the specific privileges assigned to programs.
@@ -93,7 +107,7 @@ Additionnally, `setcap` is applied to the binary file, which means that the capa
 
 Furthermore, the `pam_cap` module is applied to the PAM user session, which means that the capabilities are fixed for every user's session. This is not ideal as administrator do not need these capabilities for every commands and every sessions.
 
-The RootAsRole project is compatible with LSM (Linux Security Modules) such as SELinux and AppArmor, as well as pam_cap.so. Administrators can continue using pam_cap.so alongside our module. Additionally, the module includes the capable tool, which helps users identify the privileges required by an application.
+The RootAsRole project is compatible with LSM (Linux Security Modules) such as SELinux and AppArmor, as well as pam_cap.so. Administrators can continue using pam_cap.so alongside our project. Additionally, the project includes the capable tool, which helps users identify the privileges required by an application.
 
 ### How to configure RootAsRole
 
@@ -113,13 +127,26 @@ To determine the privileges required for your command, you can use the capable p
 
 By following these steps, you can identify and manage the necessary privileges for your command more effectively.
 
-## Tested Platforms
+## Compatibility
 
-Our module has been tested on:
+Our project has been manually tested on (tests in may 2023):
 
 * Ubuntu>=16.04
 * Debian>=10
 * ArchLinux
+
+In june 2024, we performed automated `capable` tests with Vagrant on the following distributions:
+
+* ❌ Centos 7 → Kernel too old (3.1)
+* ✅ Centos 8
+* ❌ Debian 10 → Dev dependencies unavailable, it should work once compiled
+* ✅ Debian 11
+* ✅ Fedora 37
+* ✅ RedHat 9
+* ✅ Ubuntu 22.04
+* ✅ ArchLinux
+
+This doesn't mean that earlier versions of these distributions are incompatible; it simply indicates they haven't been tested yet. However, if you encounter issues during the compilation process, they are likely due to dependency problems. In theory, the RootAsRole project should work on any Linux distribution with a kernel version of 4.1 or higher. However, since BTF (BPF Type Format) is becoming a mandatory requirement, [the kernel must be compiled with many features enabled](https://github.com/iovisor/bcc/blob/master/INSTALL.md#kernel-configuration).
 
 ## Contributors
 

@@ -13,6 +13,7 @@ use tracing::{debug, error};
 mod cli;
 #[path = "../mod.rs"]
 mod common;
+mod util;
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {

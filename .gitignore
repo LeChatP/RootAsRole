@@ -71,3 +71,7 @@ Cargo.lock
 # Html results
 *.html
 *.xml
+
+# Vagrant
+*.env
+*.vagrant/

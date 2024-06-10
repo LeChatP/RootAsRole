@@ -1,11 +1,14 @@
-use std::{error::Error, fs::File, mem, os::fd::AsRawFd, path::PathBuf};
+use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf};
 
 use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
-use pest::{error::LineColLocation, RuleType};
+use strum::EnumIs;
 use tracing::{debug, warn};
 
-use crate::common::{immutable_effective, open_with_privileges};
+use crate::common::{
+    dac_override_effective, fowner_effective, immutable_effective, open_with_privileges,
+    read_effective,
+};
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -42,7 +45,17 @@ macro_rules! rc_refcell {
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
-pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
+#[derive(Debug, EnumIs)]
+pub enum ImmutableLock {
+    Set,
+    Unset,
+}
+
+/// Set or unset the immutable flag on a file
+/// # Arguments
+/// * `file` - The file to set the immutable flag on
+/// * `lock` - Whether to set or unset the immutable flag
+pub fn toggle_lock_config(file: &PathBuf, lock: ImmutableLock) -> Result<(), String> {
     let file = match open_with_privileges(file) {
         Err(e) => return Err(e.to_string()),
         Ok(f) => f,
@@ -52,18 +65,28 @@ pub fn toggle_lock_config(file: &PathBuf, lock: bool) -> Result<(), String> {
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
-    if lock {
+    if lock.is_unset() {
         val &= !(FS_IMMUTABLE_FL);
     } else {
         val |= FS_IMMUTABLE_FL;
     }
     debug!("Setting immutable privilege");
     immutable_effective(true).map_err(|e| e.to_string())?;
+    debug!("Setting dac override privilege");
+    read_effective(true)
+        .or(dac_override_effective(true))
+        .map_err(|e| e.to_string())?;
+    fowner_effective(true).map_err(|e| e.to_string())?;
+    debug!("Setting immutable flag");
     if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
     debug!("Resetting immutable privilege");
     immutable_effective(false).map_err(|e| e.to_string())?;
+    read_effective(false)
+        .and(dac_override_effective(false))
+        .map_err(|e| e.to_string())?;
+    fowner_effective(false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -121,17 +144,6 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
-pub fn escape_parser_string_vec<S, I>(s: I) -> String
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    s.into_iter()
-        .map(|s| escape_parser_string(s))
-        .collect::<Vec<String>>()
-        .join(" ")
-}
-
 pub fn escape_parser_string<S>(s: S) -> String
 where
     S: AsRef<str>,
@@ -151,68 +163,122 @@ fn remove_outer_quotes(input: &str) -> String {
 }
 
 #[cfg(test)]
-pub(super) mod test {
-    pub fn test_resources_folder() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("resources")
+mod test {
+    use std::fs;
+
+    use capctl::CapState;
+
+    use super::*;
+
+    #[test]
+    fn test_remove_outer_quotes() {
+        assert_eq!(remove_outer_quotes("'test'"), "test");
+        assert_eq!(remove_outer_quotes("\"test\""), "test");
+        assert_eq!(remove_outer_quotes("test"), "test");
+        assert_eq!(remove_outer_quotes("t'est"), "t'est");
+        assert_eq!(remove_outer_quotes("t\"est"), "t\"est");
     }
-    pub fn test_resources_file(filename: &str) -> String {
-        test_resources_folder().join(filename).display().to_string()
+
+    #[test]
+    fn test_parse_capset_iter() {
+        let capset = parse_capset_iter(
+            vec!["CAP_SYS_ADMIN", "CAP_SYS_PTRACE", "CAP_DAC_READ_SEARCH"].into_iter(),
+        )
+        .expect("Failed to parse capset");
+        assert!(capset.has(Cap::SYS_ADMIN));
+        assert!(capset.has(Cap::SYS_PTRACE));
+        assert!(capset.has(Cap::DAC_READ_SEARCH));
     }
-}
 
-fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
-where
-    R: RuleType,
-{
-    match error.line_col {
-        LineColLocation::Pos(line_col) => line_col,
-        LineColLocation::Span(start_line_col, _) => start_line_col,
+    #[test]
+    fn test_capabilities_are_exploitable() {
+        let mut capset = CapSet::empty();
+        capset.add(Cap::SYS_ADMIN);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SYS_PTRACE);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SYS_MODULE);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::DAC_READ_SEARCH);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::DAC_OVERRIDE);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::FOWNER);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::CHOWN);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SETUID);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SETGID);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SETFCAP);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SYS_RAWIO);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::LINUX_IMMUTABLE);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SYS_CHROOT);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::SYS_BOOT);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::MKNOD);
+        assert!(capabilities_are_exploitable(&capset));
+        capset.clear();
+        capset.add(Cap::WAKE_ALARM);
+        assert!(!capabilities_are_exploitable(&capset));
     }
-}
 
-pub fn underline<R>(error: &pest::error::Error<R>) -> String
-where
-    R: RuleType,
-{
-    let mut underline = String::new();
-
-    let mut start = start(error).1;
-    let end = match error.line_col {
-        LineColLocation::Span(_, (_, mut end)) => {
-            let inverted_cols = start > end;
-            if inverted_cols {
-                mem::swap(&mut start, &mut end);
-                start -= 1;
-                end += 1;
-            }
-
-            Some(end)
+    #[test]
+    fn test_toggle_lock_config() {
+        let path = PathBuf::from("/tmp/test");
+        let file = File::create(&path).expect("Failed to create file");
+        let res = toggle_lock_config(&path, ImmutableLock::Set);
+        let status = fs::read_to_string("/proc/self/status").unwrap();
+        let capeff = status
+            .lines()
+            .find(|line| line.starts_with("CapEff:"))
+            .expect("Failed to find CapEff line");
+        let effhex = capeff
+            .split(':')
+            .last()
+            .expect("Failed to get effective capabilities")
+            .trim();
+        let eff = u64::from_str_radix(effhex, 16).expect("Failed to parse effective capabilities");
+        if eff & ((1 << Cap::LINUX_IMMUTABLE as u8) as u64) != 0 {
+            assert!(res.is_ok());
+        } else {
+            assert!(res.is_err());
+            // stop test
+            return;
         }
-        _ => None,
-    };
-    let offset = start - 1;
-    let line_chars = error.line().chars();
-
-    for c in line_chars.take(offset) {
-        match c {
-            '\t' => underline.push('\t'),
-            _ => underline.push(' '),
+        let mut val = 0;
+        let fd = file.as_raw_fd();
+        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+            panic!("Failed to get flags");
         }
+        assert_eq!(val & FS_IMMUTABLE_FL, FS_IMMUTABLE_FL);
+        //test to write on file
+        let file = File::create(&path);
+        assert!(file.is_err());
+        let res = toggle_lock_config(&path, ImmutableLock::Unset);
+        assert!(res.is_ok());
+        let file = File::create(&path);
+        assert!(file.is_ok());
+        let res = fs::remove_file(&path);
+        assert!(res.is_ok());
     }
-
-    if let Some(end) = end {
-        underline.push('^');
-        if end - start > 1 {
-            for _ in 2..(end - start) {
-                underline.push('-');
-            }
-            underline.push('^');
-        }
-    } else {
-        underline.push_str("^---")
-    }
-
-    underline
 }

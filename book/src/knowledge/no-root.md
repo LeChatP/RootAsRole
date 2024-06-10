@@ -35,7 +35,3 @@ This should install apache2 configuration files owned by apache2 user and group.
 ```bash
 sr systemctl start apache2
 ```
-
-This should start apache2 with the apache2 user. You can also stop it with the apache2 user:
-
-
