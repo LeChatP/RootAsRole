@@ -51,7 +51,6 @@ pub enum ImmutableLock {
     Unset,
 }
 
-
 /// Set or unset the immutable flag on a file
 /// # Arguments
 /// * `file` - The file to set the immutable flag on
@@ -253,7 +252,11 @@ mod test {
             .lines()
             .find(|line| line.starts_with("CapEff:"))
             .expect("Failed to find CapEff line");
-        let effhex = capeff.split(':').last().expect("Failed to get effective capabilities").trim();
+        let effhex = capeff
+            .split(':')
+            .last()
+            .expect("Failed to get effective capabilities")
+            .trim();
         let eff = u64::from_str_radix(effhex, 16).expect("Failed to parse effective capabilities");
         if eff & ((1 << Cap::LINUX_IMMUTABLE as u8) as u64) != 0 {
             assert!(res.is_ok());
@@ -277,6 +280,5 @@ mod test {
         assert!(file.is_ok());
         let res = fs::remove_file(&path);
         assert!(res.is_ok());
-
     }
 }
