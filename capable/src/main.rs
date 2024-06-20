@@ -172,7 +172,10 @@ where
     let mut graph = std::collections::HashMap::new();
     let mut init = CapSet::empty();
     for key in capabilities_map.keys() {
-        let pid = key?;
+        let pid = key.inspect_err(|err| {
+            eprintln!("Failed to get pid : {:?}", err.to_string());
+            exit(-1);
+        })?;
         let pinum_inum = pnsid_nsid_map.get(&pid, 0).unwrap_or(0);
         let child = pinum_inum as u32;
         let parent = (pinum_inum >> 32) as u32;
