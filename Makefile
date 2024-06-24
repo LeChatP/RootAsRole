@@ -12,6 +12,7 @@ $(BIN_DIR)/chsr:
 	cargo build $(RELEASE) --bin chsr || true
 
 $(BIN_DIR)/capable:
+    PATH=$PATH:/usr/sbin aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
 	cargo xtask build-ebpf $(RELEASE) || true
 	cargo build --package capable $(RELEASE) || true
 

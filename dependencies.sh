@@ -66,6 +66,5 @@ fi
 # ask for user to install bpf-linker
 cargo install --force bpf-linker bindgen-cli
 cargo install --git https://github.com/aya-rs/aya -- aya-tool
-PATH=$PATH:/usr/sbin aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
 
 echo "dependencies installed. Ready to compile."
