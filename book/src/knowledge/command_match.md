@@ -2,7 +2,7 @@
 
 ## Role Conflict resolution
 
-As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm to decide which role should be chosen :
+As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm @@abedinDetectionResolutionAnomalies2006 to decide which role should be chosen :
 
 * Find all the roles that match the user id assignment or the group id, and the command input
 * Within the matching roles, select the one that is the most precise and least privileged :

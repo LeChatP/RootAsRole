@@ -1,4 +1,4 @@
-export PATH := $(shell echo $$HOME)/.cargo/bin:$(PATH)
+export PATH := $(shell echo $$HOME)/.cargo/bin:$(PATH):/usr/sbin
 PROFILE ?= release
 RELEASE = $(if $(filter $(PROFILE),release),--release,)
 BIN_DIR := target/$(PROFILE)
@@ -12,6 +12,7 @@ $(BIN_DIR)/chsr:
 	cargo build $(RELEASE) --bin chsr || true
 
 $(BIN_DIR)/capable:
+	aya-tool generate task_struct > capable-ebpf/src/vmlinux.rs
 	cargo xtask build-ebpf $(RELEASE) || true
 	cargo build --package capable $(RELEASE) || true
 

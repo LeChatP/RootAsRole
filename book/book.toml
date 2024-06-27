@@ -14,3 +14,9 @@ edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{pat
 [preprocessor.graphviz]
 command = "mdbook-graphviz"
 output-to-file = false
+
+[preprocessor.bib]
+title="References"
+hb-tpl = "references.hbs"
+cite-hb-tpl = "cite.hbs"
+bibliography = "references.bib"

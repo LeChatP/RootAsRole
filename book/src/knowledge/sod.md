@@ -2,7 +2,7 @@
 
 ## Static Separation of Duties
 
-Static Separation of Duties (SSD) within an RBAC ensures that no single user can hold conflicting administrative roles, enhancing security and operational integrity. For instance, SSD policies would prevent a user assigned as a "System Administrator" from also being a "Network Administrator" or "Backup Administrator," thereby mitigating the risk of entire control of a system and potential fraud.
+Static Separation of Duties (SSD) within an RBAC ensures that no single user can hold conflicting administrative roles, enhancing security and operational integrity@@ferraioloProposedNISTStandard2001. For instance, SSD policies would prevent a user assigned as a "System Administrator" from also being a "Network Administrator" or "Backup Administrator," thereby mitigating the risk of entire control of a system and potential fraud.
 
 With RootAsRole, you can implement SSD by creating roles that are mutually exclusive by adding `ssd` array in a role definition. For example, you can create a role for a "System Administrator" and another for a "Network Administrator." You can then assign these roles to different users, ensuring that no single user has both roles at the same time. If a user obtains a new role that conflicts with an existing role, RootAsRole will prevent the user to use any conflicting role.
 
