@@ -172,30 +172,4 @@ This project includes [sudo-rs](https://github.com/memorysafety/sudo-rs) code li
 We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Indeed, We thought that the password was well managed in this file and we have reused it. As sudo-rs does, rpassword.rs is from the rpassword project (License: Apache-2.0). We use it as a replacement of the rpassword project usage.
 
 
-## References
-
-[1] PAM repository : <https://github.com/linux-pam/linux-pam>
-
-[2] libcap repository : <https://github.com/mhiramat/libcap>
-
-Very helpful site, where you can find some informations about PAM, libcap and the capabilities:
-
-[3] Original paper about capabilities : <https://pdfs.semanticscholar.org/6b63/134abca10b49661fe6a9a590a894f7c5ee7b.pdf>
-
-[4] Article about the capabilities : <https://lwn.net/Articles/632520/>
-
-[5] Article about Ambient : <https://lwn.net/Articles/636533/>
-
-[6] Simple article with test code for Ambient : <https://s3hh.wordpress.com/2015/07/25/ambient-capabilities/>
-
-[7] Article about how PAM is working : <https://artisan.karma-lab.net/petite-introduction-a-pam>
-
-[8] A very helpful code about how to create a PAM module : <https://github.com/beatgammit/simple-pam>
-
-Source of the scenarios code:
-
-[9] Where I have found the simple Python code for HTTP server : <https://docs.python.org/2/library/simplehttpserver.html>
-
-[10] Where I have found the simple PRELOAD code : <https://fishi.devtail.io/weblog/2015/01/25/intercepting-hooking-function-calls-shared-c-libraries/>
-
-[11] Serge E.Hallyn, Andrew G.Morgan, “Linux capabilities: making them work”, The Linux Symposium, Ottawa, ON, Canada (2008), <https://www.kernel.org/doc/ols/2008/ols2008v1.pages-163.172.pdf>
+## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)

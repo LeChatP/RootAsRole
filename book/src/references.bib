@@ -104,3 +104,66 @@
 	langid = {english},
 	file = {Ferraiolo et al_2001_Proposed NIST standard for role-based access control.pdf:/home/ebilloir/Zotero/storage/U5ID298G/Ferraiolo et al_2001_Proposed NIST standard for role-based access control.pdf:application/pdf},
 }
+
+
+@inproceedings{billoirImplementingPrincipleLeast2023,
+	address = {Montreal, QC, Canada},
+	title = {Implementing the {Principle} of {Least} {Privilege} {Using} {Linux} {Capabilities}: {Challenges} and {Perspectives}},
+	isbn = {9798350342871},
+	shorttitle = {Implementing the {Principle} of {Least} {Privilege} {Using} {Linux} {Capabilities}},
+	url = {https://ieeexplore.ieee.org/document/10339753/},
+	doi = {10.1109/CSNet59123.2023.10339753},
+	abstract = {Historically and by default, Linux does not respect the principle of least privilege because it grants all the privileges to administrators to execute their tasks. With the new personal data protection or export control regulations, the principle of least privilege is mandatory and must be applied even for system administrators. The Linux operating system since version 2.2 divides the privileges associated with the superuser into distinct units called capabilities. Linux capabilities allow coarse-grained access control to restricted system features. The â€œRootAsRoleâ€ project is introduced as a solution for delegating administrative tasks while matching the necessary capabilities. However, limitations in user experience and the mapping of Linux capabilities pose significant obstacles. This paper proposes enhancements to achieving a balance between usability and the principle of least privilege, emphasizing the need for precise capability definitions. Future work involves enhancing the RootAsRole access control model and addressing the need for a comprehensive administration access control framework for managing Linux capabilities effectively.},
+	urldate = {2023-12-21},
+	booktitle = {2023 7th {Cyber} {Security} in {Networking} {Conference} ({CSNet})},
+	publisher = {IEEE},
+	author = {Billoir, Eddie and Laborde, Romain and Wazan, Ahmad Samer and RÃ¼tschlÃ©, Yves and Benzekri, Abdelmalek},
+	month = {oct},
+	year = {2023},
+	pages = {130--136},
+}
+
+
+@article{billoirImplementingPrincipleLeast2024,
+	title = {Implementing the principle of least administrative privilege on operating systems: challenges and perspectives},
+	issn = {1958-9395},
+	shorttitle = {Implementing the principle of least administrative privilege on operating systems},
+	url = {https://doi.org/10.1007/s12243-024-01033-5},
+	doi = {10.1007/s12243-024-01033-5},
+	abstract = {With the new personal data protection or export control regulations, the principle of least privilege is mandatory and must be applied even for system administrators. This article explores the different approaches implemented by the main operating systems (namely Linux, Windows, FreeBSD, and Solaris) to control the privileges of system administrators in order to enforce the principle of least privilege. We define a set of requirements to manage these privileges properly, striving to balance adherence to the principle of least privilege and usability. We also present a deep analysis of each administrative privilege system based on these requirements and exhibit their benefits and limitations. This evaluation also covers the efficiency of the currently available solutions to assess the difficulty of performing administrative privileges management tasks. Following the results, the article presents the RootAsRole project, which aims to simplify Linux privilege management. We describe the new features introduced by the project and the difficulties we faced. This concrete experience allows us to highlight research challenges.},
+	language = {en},
+	urldate = {2024-07-03},
+	journal = {Annals of Telecommunications},
+	author = {Billoir, Eddie and Laborde, Romain and Wazan, Ahmad Samer and RÃ¼tschlÃ©, Yves and Benzekri, Abdelmalek},
+	month = {may},
+	year = {2024},
+	keywords = {Access control, Administrative privileges, FreeBSD, Linux, Operating system, Principle of least privilege, Solaris, Windows},
+}
+
+
+@article{wazanRootAsRoleSecurityModule2022,
+	title = {{RootAsRole}: a security module to manage the administrative privileges for {Linux}},
+	issn = {0167-4048},
+	url = {https://www.sciencedirect.com/science/article/pii/S0167404822003753},
+	doi = {https://doi.org/10.1016/j.cose.2022.102983},
+	abstract = {Today, Linux users use sudo/su commands to attribute Linux's administrative privileges to their programs. These commands always give the whole list of administrative privileges to Linux programs, unless there are pre-installed default policies defined by Linux Security Modules(LSM). LSM modules require users to inject the needed privileges into the memory of the process and to declare the needed privileges in an LSM policy. This approach can work for users who have good knowledge of the syntax of LSM modulesâ€™ policies. Adding or editing an existing policy is a very time-consuming process because LSM modules require adding a complete list of traditional permissions as well as administrative privileges. We propose a new Linux module called RootAsRole that is dedicated to the management of administrative privileges. RootAsRole is not proposed to replace LSM modules but to be used as a complementary module to manage Linux administrative privileges. RootAsRole allows Linux administrators to define a set of roles that contain the administrative privileges and restrict their usage to a set of users/groups and programs. Finally, we conduct an empirical performance study to compare RootAsRole tools with sudo/su commands to show that the overhead added by our module remains acceptable.},
+	journal = {Computers \& Security},
+	author = {Wazan, Ahmad Samer and Chadwick, David W. and Venant, Remi and Billoir, Eddie and Laborde, Romain and Ahmad, Liza and Kaiiali, Mustafa},
+	year = {2022},
+	keywords = {Access control, Linux capabilities, Privilege escalation, Sudo/su},
+	pages = {102983},
+}
+
+
+@inproceedings{wazanRootAsRoleSecureAlternative2021,
+	address = {Cham},
+	title = {{RootAsRole}: {Towards} a {Secure} {Alternative} to sudo/su {Commands} for {Home} {Users} and {SME} {Administrators}},
+	isbn = {978-3-030-78120-0},
+	abstract = {The typical way to run an administrative task on Linux is to execute it in the context of a super user. This breaks the principle of least privilege on access control. Other solutions, such as SELinux and AppArmor, are available but complex to use. In this paper, a new Linux module, named RootAsRole, is proposed to allow users to fine-grained control the privileges they grant to Linux commands as capabilities. It adopts a role-based access control (RBAC) [14], in which administrators can define a set of roles and the capabilities that are assigned to them. Administrators can then define the rules controlling what roles users or groups can assign to themselves. Each time a Linux user wants to execute a program that necessitates one or more capabilities, (s)he should assign the role to him/herself that contains the needed capabilities, providing there is a rule that allows it. A pilot implementation on Linux systems is illustrated in detail.},
+	booktitle = {{ICT} {Systems} {Security} and {Privacy} {Protection}},
+	publisher = {Springer International Publishing},
+	author = {Wazan, Ahmad Samer and Chadwick, David W. and Venant, Remi and Laborde, Romain and Benzekri, Abdelmalek},
+	year = {2021},
+	pages = {196--209},
+}
+

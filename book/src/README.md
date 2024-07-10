@@ -27,6 +27,18 @@ You can find more information about this command in the [sr](sr/README.md) secti
 
 The `chsr` command allows you to configure the roles and capabilities of the system. You can find more information about this command in the [Configure RootAsRole](chsr/README.md) section.
 
+## Our Research Articles
+
+In 2021, we published our first research article about RootAsRole project @@wazanRootAsRoleSecureAlternative2021. This article present the pilot implementation of RootAsRole project and the main features of the project.
+
+In 2022, we published a journal article about our finding with the `capable` tool thus to simplify RootAsRole configuration @@wazanRootAsRoleSecurityModule2022. This article was more focused on the eBPF feature, and tool outputs analysis.
+
+In 2023, we published a third article about explaining linux kernel issues @@billoirImplementingPrincipleLeast2023. This article proposes enhancements to achieving a balance between usability and the principle of least privilege, emphasizing the need for precise capability definitions.
+
+In May 2024, we published a more general article about the Administrative privilege on various OS @@billoirImplementingPrincipleLeast2024. This article explores the different approaches implemented by the main operating systems (namely Linux, Windows, FreeBSD, and Solaris) to control the privileges of system administrators in order to enforce the principle of least privilege. We define a set of requirements to manage these privileges properly, striving to balance adherence to the principle of least privilege and usability. We also present a deep analysis of each administrative privilege system based on these requirements and exhibit their benefits and limitations.
+
+In July 2024, we studied how to integrate RootAsRole on today's production environment as the project becomes a mature project. This article presents a semi-automated process that improves Ansible-based deployments to have fine-grained control on administrative privileges granted to Ansible tasks. This article is not yet published.
+
 ## Comparison with sudo 
 
 By using a role-based access control model, this project allows us to better manage administrative tasks. With this project, you could distribute privileges and prevent them from escalating directly. Unlike sudo does, we don't want to give entire privileges for any insignificant administrative task. You can configure our tool easily with `chsr` command. To find out which capability is needed for a administrative command, we provide the `capable` command. With these two tools, administrators could configure its system to respect the least privilege principle.
