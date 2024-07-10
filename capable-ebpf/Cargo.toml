@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 aya-ebpf = { git = "https://github.com/aya-rs/aya" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya" }
-capable-common = { path = "../capable-common" }
+capable-common = { path = "../capable-common", features = ["kernel"] }
 
 [[bin]]
 name = "capable"

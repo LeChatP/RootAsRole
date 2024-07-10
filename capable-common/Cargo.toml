@@ -7,9 +7,12 @@ edition = "2021"
 [features]
 default = []
 user = ["aya"]
+kernel = ["aya-ebpf"]
 
 [dependencies]
 aya = { git = "https://github.com/aya-rs/aya", optional = true }
+aya-ebpf = { git = "https://github.com/aya-rs/aya", optional = true }
+bitflags = "2.6.0"
 
 [lib]
 path = "src/lib.rs"
