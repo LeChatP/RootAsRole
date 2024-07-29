@@ -1,7 +1,7 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::error::Error;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::fs::{canonicalize, metadata};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread, vec};
-
+use std::panic::set_hook;
 use aya::maps::{Array, HashMap, Map, MapData};
 use aya::programs::{KProbe, Program};
 use aya::util::KernelVersion;
@@ -29,6 +29,8 @@ use tabled::settings::{Modify, Style, Width};
 use tabled::{Table, Tabled};
 use tokio::runtime::Runtime;
 use tokio::signal;
+use tracing::Level;
+use tracing_subscriber::util::SubscriberInitExt;
 
 type Key = i32;
 
@@ -546,6 +548,7 @@ fn load_and_attach_program(
     fn_name: &str,
     offset: u64,
 ) -> Result<(), anyhow::Error> {
+    debug!("loading and attaching program {}", call);
     setbpf_effective(true)?;
     setadmin_effective(true)?;
     let program: &mut KProbe = bpf.program_mut(call).unwrap().try_into()?;
@@ -553,13 +556,57 @@ fn load_and_attach_program(
     program.attach(fn_name, offset)?;
     setbpf_effective(false)?;
     setadmin_effective(false)?;
+    debug!("program {} loaded and attached", call);
     Ok(())
+}
+
+#[cfg(debug_assertions)]
+pub fn subsribe(tool: &str) {
+    use std::io;
+    let identity = CString::new(tool).unwrap();
+    let options = syslog_tracing::Options::LOG_PID;
+    let facility = syslog_tracing::Facility::Auth;
+    let _syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .with_file(true)
+        .with_line_number(true)
+        .with_writer(io::stdout)
+        .finish()
+        .init();
+}
+
+#[cfg(not(debug_assertions))]
+pub fn subsribe(tool: &str) {
+    use std::panic::set_hook;
+
+    let identity = CString::new(tool).unwrap();
+    let options = syslog_tracing::Options::LOG_PID;
+    let facility = syslog_tracing::Facility::Auth;
+    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
+    tracing_subscriber::fmt()
+        .compact()
+        .with_max_level(Level::WARN)
+        .with_file(false)
+        .with_timer(false)
+        .with_line_number(false)
+        .with_target(false)
+        .without_time()
+        .with_writer(syslog)
+        .finish()
+        .init();
+    set_hook(Box::new(|info| {
+        if let Some(s) = info.payload().downcast_ref::<String>() {
+            println!("{}", s);
+        }
+    }));
 }
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    env_logger::init();
+    subsribe("capable");
     ambient::clear().expect("Failed to clear ambiant caps");
+    debug!("capable started");
 
     if KernelVersion::current()?.code() != version::LINUX_VERSION_CODE {
         let major = version::LINUX_VERSION_CODE >> 16;
@@ -573,6 +620,8 @@ async fn main() -> Result<(), anyhow::Error> {
               major, minor, patch, current_major, current_minor, current_patch);
         warn!("This may cause the program to fail or behave unexpectedly");
     }
+
+    debug!("setting capabilities");
 
     let mut capstate = CapState::get_current().expect("Failed to get current cap");
     capstate.inheritable = CapSet::empty();
@@ -612,14 +661,13 @@ async fn main() -> Result<(), anyhow::Error> {
         // This can happen if you remove all log statements from your eBPF program.
         warn!("failed to initialize eBPF {}", e);
     }
-
-    load_and_attach_program(&mut bpf, "capable", "try_capable", 0)?;
-    load_and_attach_program(&mut bpf, "may_open", "acl_may_open", 0)?;
-    load_and_attach_program(&mut bpf, "may_create", "acl_may_create", 0)?;
-    load_and_attach_program(&mut bpf, "may_delete", "acl_may_delete", 0)?;
-    load_and_attach_program(&mut bpf, "may_linkat", "acl_may_linkat", 0)?;
-    load_and_attach_program(&mut bpf, "may_lookup", "acl_may_lookup", 0)?;
-    load_and_attach_program(&mut bpf, "may_follow_link", "acl_may_follow_link", 0)?;
+    load_and_attach_program(&mut bpf, "capable", "cap_capable", 0)?;
+    load_and_attach_program(&mut bpf, "acl_may_open", "may_open", 0)?;
+    load_and_attach_program(&mut bpf, "acl_may_create", "may_create", 0)?;
+    load_and_attach_program(&mut bpf, "acl_may_delete", "may_delete", 0)?;
+    load_and_attach_program(&mut bpf, "acl_may_linkat", "may_linkat", 0)?;
+    load_and_attach_program(&mut bpf, "acl_link_path_walk", "link_path_walk", 0)?;
+    load_and_attach_program(&mut bpf, "acl_pick_link", "pick_link", 0)?;
     let config_map: Rc<RefCell<Array<MapData, _>>> = Rc::new(RefCell::new(Array::try_from(
         bpf.take_map("NAMESPACE_ID").unwrap(),
     )?));

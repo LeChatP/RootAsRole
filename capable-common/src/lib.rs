@@ -83,14 +83,15 @@ impl Access {
         }
     }
 }
-
-
+pub const MAX_REQUESTS: u32 = 256;
+pub const PATH_SIZE: usize = 4096;
+pub const FILENAME_SIZE: usize = 255;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Request {
     pub f_mode: Access,
-    pub f_path: [u8; 8188],
+    pub f_path: [u8; PATH_SIZE],
 }
 
 #[cfg(feature = "aya")]
