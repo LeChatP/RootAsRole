@@ -6,12 +6,10 @@ use serde_json::Error;
 
 use crate::{
     as_borrow,
-    common::{
-        api::{PluginManager, PluginResult},
-        database::{
-            finder::Cred,
-            structs::{SActor, SConfig, SGroups, SRole},
-        },
+    api::{PluginManager, PluginResult},
+    database::{
+        finder::Cred,
+        structs::{SActor, SConfig, SGroups, SRole},
     },
 };
 
@@ -146,7 +144,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::database::structs::{SActor, SConfig, SRole},
+        database::structs::{SActor, SConfig, SRole},
         rc_refcell,
     };
     use nix::unistd::{Group, Pid};

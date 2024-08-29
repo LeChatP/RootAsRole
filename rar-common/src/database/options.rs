@@ -1181,9 +1181,9 @@ mod tests {
     use nix::unistd::User;
 
     use crate::as_borrow_mut;
-    use crate::common::database::wrapper::SConfigWrapper;
-    use crate::common::database::wrapper::SRoleWrapper;
-    use crate::common::database::wrapper::STaskWrapper;
+    use crate::database::wrapper::SConfigWrapper;
+    use crate::database::wrapper::SRoleWrapper;
+    use crate::database::wrapper::STaskWrapper;
     use crate::rc_refcell;
 
     use super::super::options::*;

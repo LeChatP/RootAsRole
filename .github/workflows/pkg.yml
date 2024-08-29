@@ -1,0 +1,37 @@
+name: Deploy pkg to GitHub Packages
+
+## only triger manual
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: clippy
+          override: true
+
+      - name: Install Dependencies
+        run: ./dependencies.sh -yd
+
+      - name: Configure
+        run: sudo ./configure.sh -yd
+
+      - name: Install cargo deb
+        run: cargo install cargo-deb
+
+      - name: Build
+        run: cargo deb
+
+      - name: Upload to GitHub 

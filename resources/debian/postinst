@@ -1,0 +1,63 @@
+#!/bin/sh
+#DEBHELPER#
+set -e
+
+log() {
+    echo "RootAsRole: $1"
+}
+
+
+configure() {
+
+    TARGET_PATH="/etc/security/rootasrole.json"
+
+    if [ ! -f "$TARGET_PATH" ]; then
+        cp "/usr/share/rootasrole/default.json" "$TARGET_PATH" || log "Failed to copy the default configuration file to $TARGET_PATH" && exit 1
+    elif ! diff -q "/usr/share/rootasrole/default.json" "$TARGET_PATH" > /dev/null; then
+        return 0
+    fi
+
+    # Check the file system type
+    FS_TYPE=$(df -T "$TARGET_PATH" | awk 'NR==2 {print $2}')
+
+    # Supported file systems for immutable flag
+    # It may not work on all file systems, but it is supported on the most common ones.
+    case "$FS_TYPE" in
+        ext2|ext3|ext4|xfs|btrfs|ocfs2|jfs|reiserfs)
+            if ! grep -q '"immutable": true' "$TARGET_PATH"; then
+                sed -i 's/"immutable": false/"immutable": true/' "$TARGET_PATH"
+                log "The file $TARGET_PATH is now immutable, and sr will check that immutable is enforced before executing."
+            fi
+            # Attempt to set the immutable flag
+            if ! chattr +i "$TARGET_PATH" > /dev/null 2>&1; then
+                log "Failed to set the immutable flag on $TARGET_PATH"
+                sed -i 's/"immutable": true/"immutable": false/' "$TARGET_PATH"
+                sed -i "s;\"CAP_LINUX_IMMUTABLE\";;g" "$TARGET_PATH"
+            fi
+            ;;
+        *)
+            log "The file system $FS_TYPE does not support the immutable flag. Avoid checking the immutable flag during sr execution."
+            sed -i "s/\"immutable\": true/\"immutable\": false/g" "$TARGET_PATH"
+            sed -i "s;\"CAP_LINUX_IMMUTABLE\";;g" "$TARGET_PATH"
+            exit 1
+            ;;
+    esac
+}
+
+setcap "=p" "/usr/bin/sr" || (log "Failed to set capabilities on /usr/bin/sr" && exit 1)
+
+case "$1" in
+    configure|abort-remove|abort-deconfigure)
+        configure
+        ;;
+
+    abort-upgrade|upgrade|triggers-only|disappear)
+        exit 0
+        ;;
+
+    *)
+        log "postinst called with unknown argument \`$1'"
+        exit 1
+        ;;
+esac
+

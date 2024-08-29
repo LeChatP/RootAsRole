@@ -13,7 +13,8 @@ use process::process_input;
 use tracing::debug;
 use usage::print_usage;
 
-use crate::{common::config::Storage, util::escape_parser_string_vec};
+use rar_common::Storage;
+use crate::util::escape_parser_string_vec;
 
 pub fn main<I, S>(storage: &Storage, args: I) -> Result<bool, Box<dyn Error>>
 where
@@ -40,19 +41,11 @@ where
 mod tests {
     use std::{io::Write, rc::Rc};
 
-    use crate::common::{
-        config,
-        database::{read_json_config, structs::SCredentials},
-        remove_with_privileges,
-    };
-
-    use super::super::common::{
-        config::{RemoteStorageSettings, SettingsFile, Storage, ROOTASROLE},
-        database::{options::*, structs::*, version::Versioning},
+    use rar_common::{
+        database::{options::*, read_json_config, structs::{SCredentials, *}, versionning::Versioning}, get_settings, rc_refcell, util::remove_with_privileges, RemoteStorageSettings, SettingsFile, Storage, StorageMethod, ROOTASROLE
     };
 
     use super::*;
-    use crate::rc_refcell;
     use capctl::Cap;
     use chrono::TimeDelta;
     use tracing::error;
@@ -71,7 +64,7 @@ mod tests {
         let path = format!("{}.{}", ROOTASROLE, name);
         let mut file = std::fs::File::create(path.clone()).unwrap();
         let mut settings = SettingsFile::default();
-        settings.storage.method = config::StorageMethod::JSON;
+        settings.storage.method = StorageMethod::JSON;
         settings.storage.settings = Some(RemoteStorageSettings::default());
         settings.storage.settings.as_mut().unwrap().path = Some(path.into());
         settings.storage.settings.as_mut().unwrap().immutable = Some(false);
@@ -223,7 +216,7 @@ mod tests {
     #[test]
     fn test_all_main() {
         setup("all_main");
-        let settings = config::get_settings(&format!("{}.{}", ROOTASROLE, "all_main"))
+        let settings = get_settings(&format!("{}.{}", ROOTASROLE, "all_main"))
             .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(&Storage::JSON(config.clone()), vec!["--help"],)
@@ -262,7 +255,7 @@ mod tests {
     fn test_r_complete_show_actors() {
         setup("r_complete_show_actors");
         let settings =
-            config::get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_show_actors"))
+            get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_show_actors"))
                 .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(
@@ -314,7 +307,7 @@ mod tests {
     #[test]
     fn test_purge_tasks() {
         setup("purge_tasks");
-        let settings = config::get_settings(&format!("{}.{}", ROOTASROLE, "purge_tasks"))
+        let settings = get_settings(&format!("{}.{}", ROOTASROLE, "purge_tasks"))
             .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(
@@ -333,7 +326,7 @@ mod tests {
     #[test]
     fn test_r_complete_purge_all() {
         setup("r_complete_purge_all");
-        let settings = config::get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_purge_all"))
+        let settings = get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_purge_all"))
             .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(
@@ -352,7 +345,7 @@ mod tests {
     #[test]
     fn test_r_complete_grant_u_user1_g_group1_g_group2_group3() {
         setup("r_complete_grant_u_user1_g_group1_g_group2_group3");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
         ))
@@ -415,7 +408,7 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_show_all() {
         setup("r_complete_task_t_complete_show_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_task_t_complete_show_all"
         ))
@@ -470,7 +463,7 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_purge_cmd() {
         setup("r_complete_task_t_complete_purge_cmd");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_task_t_complete_purge_cmd"
         ))
@@ -492,7 +485,7 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_purge_cred() {
         setup("r_complete_task_t_complete_purge_cred");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_task_t_complete_purge_cred"
         ))
@@ -510,7 +503,7 @@ mod tests {
         })
         .is_ok_and(|b| b));
         debug!("=====");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_task_t_complete_purge_cred"
         ))
@@ -552,7 +545,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_deny_all() {
         setup("r_complete_t_t_complete_cmd_setpolicy_deny_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
         ))
@@ -582,7 +575,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_allow_all() {
         setup("r_complete_t_t_complete_cmd_setpolicy_allow_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
         ))
@@ -612,7 +605,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces() {
         setup("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
         ))
@@ -674,7 +667,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {
         setup("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
         ))
@@ -715,7 +708,7 @@ mod tests {
     fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2(
     ) {
         setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
-        let settings = config::get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2")).expect("Failed to get settings");
+        let settings = get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2")).expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(&Storage::JSON(config.clone()), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
         )
@@ -823,7 +816,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_deny_all() {
         setup("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
         ))
@@ -856,7 +849,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_allow_all() {
         setup("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
         ))
@@ -890,7 +883,7 @@ mod tests {
     fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
         setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = config::get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot")).expect("Failed to get settings");
+        let settings = get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot")).expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(&Storage::JSON(config.clone()), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "))
         .inspect_err(|e| {
@@ -933,7 +926,7 @@ mod tests {
     fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
         setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = config::get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot")).expect("Failed to get settings");
+        let settings = get_settings(&format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot")).expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(&Storage::JSON(config.clone()), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
         )
@@ -1054,7 +1047,7 @@ mod tests {
     #[test]
     fn test_options_show_all() {
         setup("options_show_all");
-        let settings = config::get_settings(&format!("{}.{}", ROOTASROLE, "options_show_all"))
+        let settings = get_settings(&format!("{}.{}", ROOTASROLE, "options_show_all"))
             .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(
@@ -1095,7 +1088,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_options_show_env() {
         setup("r_complete_t_t_complete_options_show_env");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
         ))
@@ -1161,7 +1154,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_delete_all() {
         setup("r_complete_t_t_complete_o_path_setpolicy_delete_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
         ))
@@ -1196,7 +1189,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_keep_unsafe() {
         setup("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
         ))
@@ -1280,7 +1273,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_path_whitelist_add() {
         setup("r_complete_t_t_complete_o_path_whitelist_add");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
         ))
@@ -1562,7 +1555,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_path_blacklist_purge() {
         setup("r_complete_t_t_complete_o_path_blacklist_purge");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
         ))
@@ -1584,7 +1577,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
         setup("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
         ))
@@ -1661,7 +1654,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_delete_only_myvar_var2() {
         setup("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
         ))
@@ -1738,7 +1731,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
         setup("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
         ))
@@ -1810,7 +1803,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_add_myvar_value_var2_value2() {
         setup("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
         ))
@@ -1989,7 +1982,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
         setup("r_complete_t_t_complete_o_env_setpolicy_delete_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
         ))
@@ -2026,7 +2019,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_keep_all() {
         setup("r_complete_t_t_complete_o_env_setpolicy_keep_all");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
         ))
@@ -2063,7 +2056,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_inherit() {
         setup("r_complete_t_t_complete_o_env_setpolicy_inherit");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
         ))
@@ -2100,7 +2093,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
         setup("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
         ))
@@ -2216,7 +2209,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_purge() {
         setup("r_complete_t_t_complete_o_env_whitelist_purge");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
         ))
@@ -2251,7 +2244,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_add_myvar() {
         setup("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
         ))
@@ -2310,7 +2303,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_set_myvar() {
         setup("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
         ))
@@ -2361,7 +2354,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_purge() {
         setup("r_complete_t_t_complete_o_env_blacklist_purge");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
         ))
@@ -2396,7 +2389,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_checklist_add_myvar() {
         setup("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
         ))
@@ -2522,7 +2515,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_root_privileged() {
         setup("r_complete_t_t_complete_o_root_privileged");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
         ))
@@ -2610,7 +2603,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
         setup("r_complete_t_t_complete_o_bounding_strict");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
         ))
@@ -2646,7 +2639,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
         setup("r_complete_t_t_complete_o_bounding_ignore");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
         ))
@@ -2682,7 +2675,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
         setup("r_complete_t_t_complete_o_bounding_inherit");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
         ))
@@ -2718,7 +2711,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
         setup("r_complete_t_t_complete_o_auth_skip");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_auth_skip"
         ))
@@ -2806,7 +2799,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_wildcard_denied_set() {
         setup("r_complete_t_t_complete_o_wildcard_denied_set");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         ))
@@ -2890,7 +2883,7 @@ mod tests {
             "~"
         );
         debug!("=====");
-        let settings = config::get_settings(&format!(
+        let settings = get_settings(&format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         ))

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::common::{
+use crate::{
     api::{PluginManager, PluginResultAction},
     database::{
         finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
@@ -81,7 +81,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::database::{
+        database::{
             finder::UserMin,
             structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask},
         },

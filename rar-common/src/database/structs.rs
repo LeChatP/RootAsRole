@@ -20,9 +20,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::common::database::is_default;
-
 use super::{
+    is_default,
     options::Opt,
     wrapper::{OptWrapper, STaskWrapper},
 };
@@ -684,7 +683,7 @@ mod tests {
 
     use crate::{
         as_borrow,
-        common::database::options::{EnvBehavior, PathBehavior, SAuthentication, TimestampType},
+        database::options::{EnvBehavior, PathBehavior, SAuthentication, TimestampType},
     };
 
     use super::*;

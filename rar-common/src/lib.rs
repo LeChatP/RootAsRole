@@ -57,19 +57,23 @@ use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::{
-    common::{
+pub mod util;
+pub mod database;
+pub mod api;
+pub mod version;
+pub mod plugin;
+
+
+use util::{ 
         dac_override_effective, open_with_privileges, read_effective,
-        util::{toggle_lock_config, ImmutableLock},
-        write_json_config,
-    },
-    rc_refcell,
+        toggle_lock_config, ImmutableLock,
+        write_json_config, 
 };
 
-use super::database::{
+use database::{
     migration::Migration,
     structs::SConfig,
-    version::{self, Versioning},
+    versionning::{Versioning, JSON_MIGRATIONS, SETTINGS_MIGRATIONS},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -257,7 +261,7 @@ where
     if Migration::migrate(
         &value.version,
         &mut *settingsfile.as_ref().borrow_mut(),
-        version::SETTINGS_MIGRATIONS,
+        SETTINGS_MIGRATIONS,
     )? {
         Migration::migrate(
             &value.version,
@@ -267,7 +271,7 @@ where
                 .config
                 .as_ref()
                 .borrow_mut(),
-            version::JSON_MIGRATIONS,
+            JSON_MIGRATIONS,
         )?;
         save_settings(settingsfile.clone())?;
     }

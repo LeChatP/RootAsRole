@@ -6,15 +6,13 @@ use linked_hash_set::LinkedHashSet;
 use pest::iterators::Pair;
 use tracing::{debug, warn};
 
-use crate::{
-    cli::data::{RoleType, TaskType},
-    common::database::{
-        options::{
-            EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
-            TimestampType,
-        },
-        structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
+use crate::cli::data::{RoleType, TaskType};
+use rar_common::database::{
+    options::{
+        EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
+        TimestampType,
     },
+    structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
 };
 
 use super::data::*;
@@ -423,11 +421,12 @@ mod test {
             data::RoleType,
             pair::{recurse_pair, Cli, InputAction, Rule},
         },
-        common::{
-            database::structs::SActor,
-            util::{BOLD, RED, RST},
-        },
         util::underline,
+    };
+
+    use rar_common::{
+        database::structs::SActor,
+        util::{BOLD, RED, RST},
     };
 
     use super::Inputs;

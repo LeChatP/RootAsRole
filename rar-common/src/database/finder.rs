@@ -17,20 +17,15 @@ use pcre2::bytes::RegexBuilder;
 use strum::EnumIs;
 use tracing::{debug, warn};
 
-use crate::{
-    as_borrow,
-    common::{
-        api::{PluginManager, PluginResultAction},
-        database::{
-            options::{Opt, OptStack},
-            structs::{
-                SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask,
-                SetBehavior,
-            },
+use crate::{api::{PluginManager, PluginResultAction}, as_borrow};
+use crate::database::{
+        options::{Opt, OptStack},
+        structs::{
+            SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask,
+            SetBehavior,
         },
-        util::capabilities_are_exploitable,
-    },
-};
+    };
+use crate::util::capabilities_are_exploitable;
 use bitflags::bitflags;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -1000,11 +995,11 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        common::database::{
+        database::{
             make_weak_config,
             options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
             structs::IdTask,
-            version::Versioning,
+            versionning::Versioning,
         },
         rc_refcell,
     };

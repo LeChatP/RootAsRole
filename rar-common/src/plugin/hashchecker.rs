@@ -4,7 +4,7 @@ use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::common::{
+use crate::{
     api::PluginManager,
     database::{
         finder::{final_path, parse_conf_command},
@@ -128,7 +128,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::database::{
+        database::{
             finder::{Cred, TaskMatcher},
             structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
         },

@@ -6,8 +6,8 @@ use json::*;
 
 use tracing::debug;
 
-use crate::common::{
-    config::Storage,
+use rar_common::{
+    Storage,
     database::{
         options::{Opt, OptType},
         structs::IdTask,
@@ -394,7 +394,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
 }
 
 pub fn perform_on_target_opt(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,

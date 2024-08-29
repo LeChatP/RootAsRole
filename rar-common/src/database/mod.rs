@@ -1,30 +1,29 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::common::config::save_settings;
-use crate::common::util::{toggle_lock_config, ImmutableLock};
-use crate::common::version::PACKAGE_VERSION;
+use crate::save_settings;
+use crate::util::{toggle_lock_config, ImmutableLock};
+use crate::version::PACKAGE_VERSION;
 
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
 
-use self::{migration::Migration, options::EnvKey, structs::SConfig, version::Versioning};
+use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 
-use super::config::SettingsFile;
-use super::util::warn_if_mutable;
-use super::{
-    config::{RemoteStorageSettings, ROOTASROLE},
-    immutable_effective,
-    util::parse_capset_iter,
+use crate::SettingsFile;
+use crate::util::warn_if_mutable;
+use crate::{
+    RemoteStorageSettings, ROOTASROLE,
+    util::{parse_capset_iter, immutable_effective},
 };
-use super::{open_with_privileges, write_json_config};
+use crate::{open_with_privileges, write_json_config};
 
 pub mod finder;
 pub mod migration;
 pub mod options;
 pub mod structs;
-pub mod version;
+pub mod versionning;
 pub mod wrapper;
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
@@ -72,7 +71,7 @@ pub fn read_json_config(
         if Migration::migrate(
             &versionned_config.version,
             &mut *config.as_ref().borrow_mut(),
-            version::JSON_MIGRATIONS,
+            versionning::JSON_MIGRATIONS,
         )? {
             save_json(settings.clone(), config.clone())?;
         }

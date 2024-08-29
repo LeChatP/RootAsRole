@@ -9,22 +9,24 @@ use std::{
 use linked_hash_set::LinkedHashSet;
 use tracing::debug;
 
-use crate::{
-    cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt},
-    common::database::{
-        options::{
-            EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-            STimeout,
-        },
-        structs::{IdTask, SCapabilities, SCommand, SRole, STask},
+use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
+
+use rar_common::{
+    database::{
+    options::{
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
+        STimeout,
     },
-    rc_refcell,
+    structs::{IdTask, SCapabilities, SCommand, SRole, STask},
+    
+},
+rc_refcell,
 };
 
 use super::perform_on_target_opt;
 
 pub fn list_json(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     options: bool,
@@ -48,7 +50,7 @@ pub fn list_json(
 
 fn list_task(
     task_id: Option<IdTask>,
-    role: &Rc<RefCell<crate::common::database::structs::SRole>>,
+    role: &Rc<RefCell<rar_common::database::structs::SRole>>,
     options: bool,
     options_type: Option<OptType>,
     task_type: Option<TaskType>,
@@ -103,7 +105,7 @@ fn list_task(
 }
 
 fn print_task(
-    task: &std::rc::Rc<std::cell::RefCell<crate::common::database::structs::STask>>,
+    task: &std::rc::Rc<std::cell::RefCell<rar_common::database::structs::STask>>,
     task_type: TaskType,
 ) {
     match task_type {
@@ -126,7 +128,7 @@ fn print_task(
 }
 
 fn print_role(
-    role: &std::rc::Rc<std::cell::RefCell<crate::common::database::structs::SRole>>,
+    role: &std::rc::Rc<std::cell::RefCell<rar_common::database::structs::SRole>>,
     role_type: &RoleType,
 ) {
     match role_type {
@@ -149,7 +151,7 @@ fn print_role(
 }
 
 pub fn role_add_del(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     action: InputAction,
     role_id: String,
     role_type: Option<RoleType>,
@@ -198,7 +200,7 @@ pub fn role_add_del(
 }
 
 pub fn task_add_del(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     action: InputAction,
     task_id: IdTask,
@@ -271,10 +273,10 @@ pub fn task_add_del(
 }
 
 pub fn grant_revoke(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     action: InputAction,
-    mut actors: Vec<crate::common::database::structs::SActor>,
+    mut actors: Vec<rar_common::database::structs::SActor>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 grant|revoke");
     let config = rconfig.as_ref().borrow_mut();
@@ -310,12 +312,12 @@ pub fn grant_revoke(
 }
 
 pub fn cred_set(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<crate::common::database::structs::SActorType>,
-    cred_setgid: Option<crate::common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::structs::SActorType>,
+    cred_setgid: Option<rar_common::database::structs::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
     let config = rconfig.as_ref().borrow_mut();
@@ -337,12 +339,12 @@ pub fn cred_set(
 }
 
 pub fn cred_unset(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<crate::common::database::structs::SActorType>,
-    cred_setgid: Option<crate::common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::structs::SActorType>,
+    cred_setgid: Option<rar_common::database::structs::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
     let config = rconfig.as_ref().borrow_mut();
@@ -370,7 +372,7 @@ pub fn cred_unset(
 }
 
 pub fn cred_caps(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
     setlist_type: SetListType,
@@ -450,10 +452,10 @@ pub fn cred_caps(
 }
 
 pub fn cred_setpolicy(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
-    cred_policy: crate::common::database::structs::SetBehavior,
+    cred_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred setpolicy");
     let config = rconfig.as_ref().borrow_mut();
@@ -476,7 +478,7 @@ pub fn cred_setpolicy(
 }
 
 pub fn json_wildcard(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     action: InputAction,
@@ -521,7 +523,7 @@ pub fn json_wildcard(
 }
 
 pub fn cmd_whitelist_action(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
     cmd_id: Vec<String>,
@@ -580,10 +582,10 @@ pub fn cmd_whitelist_action(
 }
 
 pub fn cmd_setpolicy(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     task_id: IdTask,
-    cmd_policy: crate::common::database::structs::SetBehavior,
+    cmd_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command setpolicy");
     let config = rconfig.as_ref().borrow_mut();
@@ -597,7 +599,7 @@ pub fn cmd_setpolicy(
 }
 
 pub fn env_set_policylist(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     options_env: LinkedHashSet<EnvKey>,
@@ -623,10 +625,10 @@ pub fn env_set_policylist(
 }
 
 pub fn set_privileged(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_root: crate::common::database::options::SPrivileged,
+    options_root: rar_common::database::options::SPrivileged,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o root set privileged");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
@@ -637,10 +639,10 @@ pub fn set_privileged(
 }
 
 pub fn set_bounding(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_bounding: crate::common::database::options::SBounding,
+    options_bounding: rar_common::database::options::SBounding,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o bounding set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
@@ -651,10 +653,10 @@ pub fn set_bounding(
 }
 
 pub fn set_authentication(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_auth: crate::common::database::options::SAuthentication,
+    options_auth: rar_common::database::options::SAuthentication,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o auth set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
@@ -665,7 +667,7 @@ pub fn set_authentication(
 }
 
 pub fn path_set(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -695,7 +697,7 @@ pub fn path_set(
 }
 
 pub fn path_purge(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -720,7 +722,7 @@ pub fn path_purge(
 }
 
 pub fn env_whitelist_set(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -753,7 +755,7 @@ pub fn env_whitelist_set(
 }
 
 pub fn unset_timeout(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     timeout_arg: [bool; 3],
@@ -782,10 +784,10 @@ pub fn unset_timeout(
 }
 
 pub fn set_timeout(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    timeout_type: Option<crate::common::database::options::TimestampType>,
+    timeout_type: Option<rar_common::database::options::TimestampType>,
     timeout_duration: Option<chrono::TimeDelta>,
     timeout_max_usage: Option<u64>,
 ) -> Result<bool, Box<dyn Error>> {
@@ -808,7 +810,7 @@ pub fn set_timeout(
 }
 
 pub fn path_setlist2(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -873,7 +875,7 @@ pub fn path_setlist2(
 }
 
 pub fn path_setpolicy(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     options_path_policy: PathBehavior,
@@ -893,7 +895,7 @@ pub fn path_setpolicy(
 }
 
 pub fn env_setlist_add(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -1026,7 +1028,7 @@ pub fn env_setlist_add(
 }
 
 pub fn env_setpolicy(
-    rconfig: &Rc<RefCell<crate::common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     options_env_policy: EnvBehavior,

@@ -3,7 +3,7 @@ use std::error::Error;
 use semver::Version;
 use tracing::debug;
 
-use crate::common::version::PACKAGE_VERSION;
+use crate::version::PACKAGE_VERSION;
 
 pub struct Migration<T> {
     pub from: fn() -> Version,

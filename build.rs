@@ -38,6 +38,22 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn set_pkgbuild_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
+    let pkgbuild = File::open(std::path::Path::new(file)).expect("PKGBUILD not found");
+    let reader = BufReader::new(pkgbuild);
+    let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
+    let mut pkgbuild = File::create(std::path::Path::new(file)).expect("PKGBUILD not found");
+    for line in lines {
+        if line.starts_with("pkgver") {
+            writeln!(pkgbuild, "pkgver={}", package_version)?;
+        } else {
+            writeln!(pkgbuild, "{}", line)?;
+        }
+    }
+    pkgbuild.sync_all()?;
+    Ok(())
+}
+
 fn write_doc(f: &mut File) -> Result<(), Box<dyn Error>> {
     let docresp = reqwest::blocking::get(
         "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man7/capabilities.7",
@@ -171,4 +187,6 @@ fn main() {
     // }
 
     f.flush().unwrap();
+
+    
 }

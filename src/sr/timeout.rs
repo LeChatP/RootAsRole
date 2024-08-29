@@ -15,13 +15,12 @@ use nix::{
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::common::{
-    create_dir_all_with_privileges, create_with_privileges,
+use rar_common::{
+    util::{create_dir_all_with_privileges, create_with_privileges,open_with_privileges, remove_with_privileges},
     database::{
         finder::Cred,
         options::{STimeout, TimestampType},
     },
-    open_with_privileges, remove_with_privileges,
 };
 
 /// This module checks the validity of a user's credentials

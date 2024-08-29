@@ -1,12 +1,10 @@
-#[path = "../mod.rs"]
-mod common;
 pub mod pam;
 mod timeout;
 
 use capctl::CapState;
-use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
-use common::database::{options::OptStack, structs::SConfig};
-use common::util::escape_parser_string;
+use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
+use rar_common::database::{options::OptStack, structs::SConfig};
+use rar_common::util::escape_parser_string;
 use const_format::formatcp;
 use nix::{
     libc::dev_t,
@@ -21,16 +19,13 @@ use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use tracing::{debug, error};
 
-use crate::common::plugin::register_plugins;
-use crate::common::{
-    activates_no_new_privs,
-    config::{self, Storage},
-    dac_override_effective,
+use rar_common::plugin::register_plugins;
+use rar_common::{
+    util::{dac_override_effective,activates_no_new_privs, setgid_effective, setpcap_effective, setuid_effective,
+        drop_effective, read_effective, subsribe, BOLD, RST, UNDERLINE},
+    self, Storage,
     database::{read_json_config, structs::SGroups},
-    read_effective, setgid_effective, setpcap_effective, setuid_effective,
-    util::{BOLD, RST, UNDERLINE},
 };
-use crate::common::{drop_effective, subsribe};
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -184,7 +179,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::{common::config::ROOTASROLE, pam::check_auth};
+    use crate::{rar_common::ROOTASROLE, pam::check_auth};
 
     subsribe("sr");
     drop_effective()?;
@@ -198,12 +193,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     read_effective(true)
         .or(dac_override_effective(true))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
-    let settings = config::get_settings(ROOTASROLE).expect("Failed to get settings");
+    let settings = rar_common::get_settings(ROOTASROLE).expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
-        config::StorageMethod::JSON => {
+        rar_common::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
         }
         _ => {
@@ -326,7 +321,7 @@ fn make_cred() -> Cred {
     user
 }
 
-fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
+fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optstack: &OptStack) {
     //set capabilities
     if let Some(caps) = execcfg.caps {
         // case where capabilities are more than bounding set
@@ -360,7 +355,7 @@ fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: 
     }
 }
 
-fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
+fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
     let uid = execcfg.setuid.as_ref().and_then(|u| {
         let res = u.into_user().unwrap_or(None);
         if let Some(user) = res {
@@ -419,10 +414,11 @@ fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
 mod tests {
     use libc::getgid;
     use nix::unistd::Pid;
+    use rar_common::rc_refcell;
 
     use super::*;
-    use crate::common::database::make_weak_config;
-    use crate::common::database::structs::{
+    use rar_common::database::make_weak_config;
+    use rar_common::database::structs::{
         IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
     };
 
