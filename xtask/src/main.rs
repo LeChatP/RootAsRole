@@ -1,10 +1,10 @@
-mod build_ebpf;
-mod run;
+mod ebpf;
 mod install;
 
 use std::process::exit;
 
 use clap::Parser;
+use install::OsTarget;
 
 #[derive(Debug, Parser)]
 pub struct Options {
@@ -14,9 +14,16 @@ pub struct Options {
 
 #[derive(Debug, Parser)]
 enum Command {
-    BuildEbpf(build_ebpf::Options),
-    Run(run::Options),
-    PostInstall,
+    BuildEbpf(install::BuildOptions),
+    RunEbpf(ebpf::run::RunOptions),
+    Build(install::BuildOptions),
+    Install(install::InstallOptions),
+    Configure {
+        /// The OS target
+        #[clap(long)]
+        os: Option<OsTarget>,
+    },
+    Uninstall(install::UninstallOptions),
 }
 
 fn main() {
@@ -24,9 +31,12 @@ fn main() {
 
     use Command::*;
     let ret = match opts.command {
-        BuildEbpf(opts) => build_ebpf::build_ebpf(opts),
-        Run(opts) => run::run(opts),
-        PostInstall => install::post_install(),
+        BuildEbpf(opts) => ebpf::build_all(&opts),
+        RunEbpf(opts) => ebpf::run(&opts),
+        Build(opts) => install::build(&opts),
+        Install(opts) => install::install(&opts),
+        Configure{ os } => install::configure(&os),
+        Uninstall(opts) => install::uninstall(&opts),
     };
 
     if let Err(e) = ret {
