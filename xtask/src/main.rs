@@ -14,6 +14,7 @@ pub struct Options {
 
 #[derive(Debug, Parser)]
 enum Command {
+    Dependencies(install::InstallDependenciesOptions),
     BuildEbpf(install::BuildOptions),
     RunEbpf(ebpf::run::RunOptions),
     Build(install::BuildOptions),
@@ -31,6 +32,7 @@ fn main() {
 
     use Command::*;
     let ret = match opts.command {
+        Dependencies(opts) => install::dependencies(opts),
         BuildEbpf(opts) => ebpf::build_all(&opts),
         RunEbpf(opts) => ebpf::run(&opts),
         Build(opts) => install::build(&opts),

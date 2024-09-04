@@ -161,7 +161,8 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
 
     match status {
         ConfigState::Unchanged => {
-            println!("Config file newly created or has not been modified checking if filesystem allows immutability");
+            println!("Config file newly created or has not been modified.");
+            println!("Checking if filesystem allows immutability.");
             let res = check_filesystem().context("Failed to configure the filesystem parameter");
             if res.is_err() {
                 // If the filesystem check fails, ignore the error if running in a container as it may not have immutable access

@@ -3,6 +3,7 @@ mod build;
 mod uninstall;
 mod configure;
 mod util;
+mod dependencies;
 
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -34,13 +35,35 @@ pub struct InstallOptions {
     #[clap(flatten)]
     pub build : BuildOptions,
 
-    /// The OS target for PAM configuration (default tries to autodetect it)
+    /// The OS target for PAM configuration and dependencies installation (if -i is set)
+    /// By default, it tries to autodetect it
     #[clap(long, short)]
     pub os: Option<OsTarget>,
+
+    /// Do not build the binaries
+    #[clap(long, short = 'n')]
+    pub no_build: bool,
+
+    /// Install dependencies before building
+    #[clap(long, short = 'i')]
+    pub install_dependencies: bool,
 
     /// Clean the target directory after installing
     #[clap(long, short = 'a')]
     pub clean_after: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct InstallDependenciesOptions {
+    
+    /// The OS target for PAM configuration and dependencies installation (if -i is set)
+    /// By default, it tries to autodetect it
+    #[clap(long, short)]
+    pub os: Option<OsTarget>,
+
+    /// Install dependencies before building
+    #[clap(long, short = 'i')]
+    pub install_dependencies: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -247,8 +270,20 @@ pub(crate) fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     configure::configure(os)
 }
 
+pub(crate) fn dependencies(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
+    dependencies::install(opts)
+}
+
 pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
-    build(&opts.build)?;
+    if opts.install_dependencies {
+        dependencies(InstallDependenciesOptions {
+            os: opts.os.clone(),
+            install_dependencies: true,
+        })?;
+    }
+    if ! opts.no_build {
+        build(&opts.build)?;
+    }
     if opts.build.ebpf.is_some() {
         let mut opts = opts.clone();
         opts.build.toolchain.channel = Channel::Nightly;

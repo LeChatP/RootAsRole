@@ -13,6 +13,7 @@ use nix::{
     libc::dev_t,
     unistd::{Group, Pid, User},
 };
+#[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
 use strum::EnumIs;
 use tracing::{debug, warn};
@@ -397,14 +398,26 @@ fn match_args(input_args: &[String], role_args: &[String]) -> Result<CmdMin, Box
     debug!("Matching args {:?} with {:?}", commandline, role_args);
     if commandline != role_args {
         debug!("test regex");
-        let regex = RegexBuilder::new().build(&role_args)?;
-        if regex.is_match(commandline.as_bytes())? {
-            return Ok(CmdMin::RegexArgs);
-        }
+        return evaluate_regex_cmd(role_args, commandline).inspect_err(|e| {
+            debug!("No match for args {:?}", input_args);
+        });
     } else {
         return Ok(CmdMin::Match);
     }
-    debug!("No match for args {:?}", input_args);
+}
+
+#[cfg(feature = "pcre2")]
+fn evaluate_regex_cmd(role_args: String, commandline: String) -> Result<CmdMin, Box<dyn Error>> {
+    let regex = RegexBuilder::new().build(&role_args)?;
+    if regex.is_match(commandline.as_bytes())? {
+        Ok(CmdMin::RegexArgs)
+    } else {
+        Err(Box::new(MatchError::NoMatch))
+    }
+}
+
+#[cfg(not(feature = "pcre2"))]
+fn evaluate_regex_cmd(_role_args: String, _commandline: String) -> Result<CmdMin, Box<dyn Error>> {
     Err(Box::new(MatchError::NoMatch))
 }
 

@@ -44,3 +44,6 @@ tracing-subscriber = { version = "0.3.16", default-features = false, features = 
 pest-test-gen = "0.1.7"
 pest-test = "0.1.6"
 lazy_static = "1.4.0"
+
+[features]
+pcre2 = []

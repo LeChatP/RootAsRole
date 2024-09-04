@@ -33,6 +33,7 @@ opt-level = "s"
 [[bin]]
 name = "sr"
 path = "src/sr/main.rs"
+required-features = ["rar-common/pcre2"]
 
 
 [[bin]]

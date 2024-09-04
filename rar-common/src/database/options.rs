@@ -6,6 +6,7 @@ use chrono::Duration;
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 
+#[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -325,32 +326,49 @@ impl Default for SPathOptions {
     }
 }
 
+fn is_valid_env_name(s: &str) -> bool {
+    let mut chars = s.chars();
+
+    // Check if the first character is a letter or underscore
+    if let Some(first_char) = chars.next() {
+        if !(first_char.is_ascii_alphabetic() || first_char == '_') {
+            return false;
+        }
+    } else {
+        return false; // Empty string
+    }
+
+    // Check if the remaining characters are alphanumeric or underscores
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(feature = "pcre2")]
+fn is_regex(s: &str) -> bool {
+    Regex::new(s).is_ok()
+}
+
+#[cfg(not(feature = "pcre2"))]
+fn is_regex(_s: &str) -> bool {
+    true // Always return true if regex feature is disabled
+}
+
 impl EnvKey {
     pub fn new(s: String) -> Result<Self, String> {
         //debug!("Creating env key: {}", s);
-        if Regex::new("^[a-zA-Z_]+[a-zA-Z0-9_]*$") // check if it is a valid env name
-            .unwrap()
-            .is_match(s.as_bytes())
-            .is_ok_and(|m| m)
+        if is_valid_env_name(&s)
         {
             Ok(EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if Regex::new("^[a-zA-Z_*?]+.*$") // check if it is a valid env name
-            .unwrap()
-            .is_match(s.as_bytes())
-            .is_ok_and(|m| m)
+        } else if is_regex(&s)
         {
             Ok(EnvKey {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
-            Err(format!(
-                "Invalid env key {}, must start with letter or underscore following by a regex",
-                s
-            ))
+            Err(format!("env key {}, must be a valid env, or a valid regex", s))
         }
     }
 }
@@ -428,13 +446,7 @@ impl<T> EnvSet for HashMap<String, T> {
             EnvKeyType::Normal => self.contains_key(&wildcarded.value),
             EnvKeyType::Wildcarded => {
                 self.keys().any(|s| {
-                    Regex::new(&format!(
-                        "^{}$",
-                        wildcarded.value.replace('*', ".*").replace('?', ".")
-                    )) // convert to regex
-                    .unwrap()
-                    .is_match(s.as_bytes())
-                    .is_ok_and(|m| m)
+                    check_wildcarded(wildcarded, s)
                 })
             }
         }
@@ -447,14 +459,24 @@ impl EnvSet for LinkedHashSet<EnvKey> {
             EnvKeyType::Normal => self.contains(wildcarded),
             EnvKeyType::Wildcarded => {
                 self.iter().any(|s| {
-                    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
-                        .unwrap()
-                        .is_match(s.value.as_bytes())
-                        .is_ok_and(|m| m)
+                    check_wildcarded(wildcarded, &s.value)
                 })
             }
         }
     }
+}
+
+#[cfg(feature = "pcre2")]
+fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
+    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
+        .unwrap()
+        .is_match(s.as_bytes())
+        .is_ok_and(|m| m)
+}
+
+#[cfg(not(feature = "pcre2"))]
+fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
+    true
 }
 
 fn tz_is_safe(tzval: &str) -> bool {
