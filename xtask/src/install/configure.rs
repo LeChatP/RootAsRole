@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use nix::unistd::{getresuid, getuid};
+use rar_common::util::toggle_lock_config;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::EnumIs;
@@ -42,7 +43,6 @@ pub const CONFIG_FILE: &str = "/etc/security/rootasrole.json";
 const DEFAULT_PATH: &str = "resources/rootasrole.json";
 pub const PAM_CONFIG_PATH: &str = "/etc/pam.d/sr";
 
-
 fn is_running_in_container() -> bool {
     // Check for environment files that might indicate a container
     let container_env_files = ["/run/.containerenv", "/.dockerenv", "/run/container_type"];
@@ -64,7 +64,11 @@ fn is_running_in_container() -> bool {
         let reader = io::BufReader::new(file);
         for line in reader.lines() {
             if let Ok(line) = line {
-                if line.contains("docker") || line.contains("kubepods") || line.contains("lxc") || line.contains("containerd") {
+                if line.contains("docker")
+                    || line.contains("kubepods")
+                    || line.contains("lxc")
+                    || line.contains("containerd")
+                {
                     return true;
                 }
             }
@@ -81,15 +85,26 @@ fn check_filesystem() -> io::Result<()> {
     if let Some(fs_type) = get_filesystem_type(CONFIG_FILE)? {
         match fs_type.as_str() {
             "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
+                println!(
+                    "{} is compatble for immutability, setting immutable flag",
+                    fs_type
+                );
                 set_immutable(&mut config, true);
+                toggle_lock_config(
+                    &CONFIG_FILE.to_string(),
+                    rar_common::util::ImmutableLock::Set,
+                )?;
+                return Ok(());
             }
-            _ => {
-                set_immutable(&mut config, false);
-            }
+            _ => println!(
+                "{} is not compatible for immutability, removing immutable flag",
+                fs_type
+            ),
         }
     } else {
-        set_immutable(&mut config, false);
+        println!("Failed to get filesystem type, removing immutable flag");
     }
+    set_immutable(&mut config, false);
     Ok(())
 }
 
@@ -137,10 +152,28 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     let mut status = ConfigState::Unchanged;
     // Check if the target file exists
     if !Path::new(CONFIG_FILE).exists() {
+        println!("Config file does not exist, deploying default file");
         // If the target file does not exist, copy the default file
         deploy_config(CONFIG_FILE)?;
     } else {
         status = config_state()?;
+    }
+
+    match status {
+        ConfigState::Unchanged => {
+            println!("Config file newly created or has not been modified checking if filesystem allows immutability");
+            let res = check_filesystem().context("Failed to configure the filesystem parameter");
+            if res.is_err() {
+                // If the filesystem check fails, ignore the error if running in a container as it may not have immutable access
+                if is_running_in_container() {
+                    return Ok(status);
+                }
+                res?;
+            }
+        }
+        ConfigState::Modified => {
+            println!("Config file has been modified by the user, skipping immutable configuration");
+        }
     }
     Ok(status)
 }
@@ -157,22 +190,19 @@ pub fn config_state() -> Result<ConfigState, anyhow::Error> {
     Ok(status)
 }
 
-fn deploy_config<P:AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
+fn deploy_config<P: AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
     let config = File::open(DEFAULT_PATH)?;
     let mut buf = BufReader::new(config);
     let mut content = String::new();
     // Read the default config file
     buf.read_to_string(&mut content)?;
     // Get the real user
-    
+
     let user = retrieve_real_user()?;
     // Replace the placeholder with the current user, which will act as the main administrator
     match user {
         Some(user) => {
-            content = content.replace(
-                "\"ROOTADMINISTRATOR\"",
-                &format!("\"{}\"", user.name),
-            );
+            content = content.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name));
         }
         None => {
             eprintln!("Failed to get the current user from passwd file, using UID instead");
@@ -189,19 +219,17 @@ fn deploy_config<P:AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
 fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     // if sudo_user is not set, get the real user
     if let Ok(sudo_user) = env::var("SUDO_USER") {
-        let user = nix::unistd::User::from_name(&sudo_user)
-            .context("Failed to get the sudo user")?;
+        let user =
+            nix::unistd::User::from_name(&sudo_user).context("Failed to get the sudo user")?;
         return Ok(user);
     } else {
         let ruid = getresuid()?.real;
-        let user = nix::unistd::User::from_uid(ruid)
-        .context("Failed to get the real user")?;
+        let user = nix::unistd::User::from_uid(ruid).context("Failed to get the real user")?;
         Ok(user)
     }
-
 }
 
-pub fn default_pam_path(os : &OsTarget) -> &'static str {
+pub fn default_pam_path(os: &OsTarget) -> &'static str {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => "resources/debian/deb_sr_pam.conf",
         OsTarget::RedHat | OsTarget::CentOS | OsTarget::Fedora => "resources/redhat/rh_sr_pam.conf",
@@ -211,34 +239,25 @@ pub fn default_pam_path(os : &OsTarget) -> &'static str {
 
 fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
     if fs::metadata(PAM_CONFIG_PATH).is_err() {
+        println!("Deploying PAM configuration file");
         return fs::copy(default_pam_path(os), PAM_CONFIG_PATH);
     }
     Ok(0)
 }
 
-pub fn configure(os: &Option<OsTarget>) -> Result<(), anyhow::Error> {
+pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     let os = if let Some(os) = os {
         os
     } else {
-        &OsTarget::detect().context("Failed to detect the OS")?
+        OsTarget::detect()
+            .and_then(|t| {
+                println!("Detected OS is : {}", t);
+                Ok(t)
+            })
+            .context("Failed to detect the OS")?
     };
-    deploy_pam_config(os).context("Failed to deploy the PAM configuration file")?;
+    deploy_pam_config(&os).context("Failed to deploy the PAM configuration file")?;
 
-    deploy_config_file()
-        .context("Failed to configure the config file")
-        .and_then(|state| match state {
-            ConfigState::Unchanged => {
-                let res = check_filesystem().context("Failed to configure the filesystem parameter");
-                if res.is_err() {
-                    // If the filesystem check fails, ignore the error if running in a container as it may not have immutable access
-                    if is_running_in_container() {
-                        return Ok(());
-                    }
-                }
-                res
-            }
-            ConfigState::Modified => Ok(()),
-        })
-
-    
+    deploy_config_file().context("Failed to configure the config file")?;
+    Ok(())
 }

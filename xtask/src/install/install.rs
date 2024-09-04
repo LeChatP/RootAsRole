@@ -13,10 +13,15 @@ use super::util::{cap_clear, cap_effective};
 use super::{InstallOptions, CAPABLE_DEST, CHSR_DEST, SR_DEST};
 
 fn copy_files(profile: &Profile, ebpf: Option<EbpfArchitecture>) -> Result<(), anyhow::Error> {
-    fs::copy(format!("target/{}/sr", profile), SR_DEST)?;
-    fs::copy(format!("target/{}/chsr", profile), CHSR_DEST)?;
+    let binding = std::env::current_dir()?;
+    let cwd = binding.to_str().context("unable to get current dir as string")?;
+    println!("Current working directory: {}", cwd);
+    println!("Copying files {}/target/{}/sr to {} and {}", cwd, profile, SR_DEST, CHSR_DEST);
+    fs::rename(format!("{}/target/{}/sr", cwd, profile), SR_DEST)?;
+    fs::rename(format!("{}/target/{}/chsr", cwd, profile), CHSR_DEST)?;
     if let Some(ebpf) = ebpf {
-        fs::copy(format!("target/{}/capable", ebpf), CAPABLE_DEST)?;
+        println!("Copying file {}/target/{}/capable to {}", cwd, ebpf, CAPABLE_DEST);
+        fs::rename(format!("{}/target/{}/capable", cwd, ebpf), CAPABLE_DEST)?;
     }
 
     chmod()?;
@@ -64,7 +69,7 @@ pub fn install(options: &InstallOptions) -> Result<(), anyhow::Error> {
         // cp target/{release}/sr,chsr,capable /usr/bin
         copy_files(
             &options.build.profile,
-            options.ebpf_build,
+            if options.build_ebpf { Some(options.ebpf_build) } else { None },
         )
         .context("Failed to copy sr and chsr files")?;
 

@@ -1,19 +1,22 @@
-use std::{error::Error, fs::File, os::fd::AsRawFd, path::PathBuf, ffi::CString, path::Path};
+use std::{
+    error::Error, ffi::CString, fs::File, io, os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, PermissionsExt},
+    }, path::{Path, PathBuf}
+};
 
+use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use serde::Serialize;
 use strum::EnumIs;
 use tracing::{debug, warn, Level};
-use capctl::{prctl, CapState};
-use serde::Serialize;
 use tracing_subscriber::util::SubscriberInitExt;
-
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
 pub const UNDERLINE: &str = "\x1B[4m";
 pub const RED: &str = "\x1B[31m";
-
 
 #[macro_export]
 macro_rules! upweak {
@@ -51,19 +54,45 @@ pub enum ImmutableLock {
     Unset,
 }
 
+fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), capctl::Error> {
+    //get file owner
+    let metadata = file.metadata().unwrap();
+    let uid = metadata.uid();
+    let gid = metadata.gid();
+    immutable_effective(effective)?;
+    // check if the current user is the owner
+    if nix::unistd::Uid::effective() != nix::unistd::Uid::from_raw(uid)
+        && nix::unistd::Gid::effective() != nix::unistd::Gid::from_raw(gid)
+    {
+        read_or_dac_override(effective)?;
+        fowner_effective(effective)?;
+    }
+    Ok(())
+}
+
+fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
+    Ok(match effective {
+        false => {
+            read_effective(false)
+                .and(dac_override_effective(false))?;
+        }
+        true => {
+            read_effective(true)
+                .or(dac_override_effective(true))?;
+        }
+    })
+}
+
 /// Set or unset the immutable flag on a file
 /// # Arguments
 /// * `file` - The file to set the immutable flag on
 /// * `lock` - Whether to set or unset the immutable flag
-pub fn toggle_lock_config(file: &PathBuf, lock: ImmutableLock) -> Result<(), String> {
-    let file = match open_with_privileges(file) {
-        Err(e) => return Err(e.to_string()),
-        Ok(f) => f,
-    };
+pub fn toggle_lock_config<P:AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
+    let file = open_with_privileges(file)?;
     let mut val = 0;
     let fd = file.as_raw_fd();
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+        return Err(std::io::Error::last_os_error());
     }
     if lock.is_unset() {
         val &= !(FS_IMMUTABLE_FL);
@@ -71,22 +100,13 @@ pub fn toggle_lock_config(file: &PathBuf, lock: ImmutableLock) -> Result<(), Str
         val |= FS_IMMUTABLE_FL;
     }
     debug!("Setting immutable privilege");
-    immutable_effective(true).map_err(|e| e.to_string())?;
-    debug!("Setting dac override privilege");
-    read_effective(true)
-        .or(dac_override_effective(true))
-        .map_err(|e| e.to_string())?;
-    fowner_effective(true).map_err(|e| e.to_string())?;
-    debug!("Setting immutable flag");
+
+    immutable_required_privileges(&file, true)?;
     if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+        return Err(std::io::Error::last_os_error());
     }
     debug!("Resetting immutable privilege");
-    immutable_effective(false).map_err(|e| e.to_string())?;
-    read_effective(false)
-        .and(dac_override_effective(false))
-        .map_err(|e| e.to_string())?;
-    fowner_effective(false).map_err(|e| e.to_string())?;
+    immutable_required_privileges(&file, false)?;
     Ok(())
 }
 

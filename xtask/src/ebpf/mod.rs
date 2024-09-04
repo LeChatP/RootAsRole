@@ -10,7 +10,7 @@ pub mod run;
 
 
 pub fn build_all(opts: &BuildOptions) -> Result<(), anyhow::Error> {
-    build_ebpf(&opts.ebpf, &opts.profile).context("Error while building eBPF program")?;
+    build_ebpf(&opts.ebpf_toolchain, &opts.profile).context("Error while building eBPF program")?;
     build(opts).context("Error while building userspace application")
 }
 

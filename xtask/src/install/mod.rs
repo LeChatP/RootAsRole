@@ -37,7 +37,7 @@ pub struct InstallOptions {
 
     /// Set the endianness of the BPF target
     #[clap(default_value = "bpfel-unknown-none", long)]
-    pub ebpf_build: Option<EbpfArchitecture>,
+    pub ebpf_build: EbpfArchitecture,
 
     /// Executable to elevate privileges for installing (e.g. sr, sudo or doas)
     /// Default is sr, if not found, it will use sudo or doas.
@@ -46,7 +46,7 @@ pub struct InstallOptions {
 
     /// Build the eBPF, requires nightly toolchain. Asks to install the nightly toolchain with rustup if not found.
     #[clap(long)]
-    pub ebpf: bool,
+    pub build_ebpf: bool,
 
     /// The OS target for PAM configuration
     #[clap(long)]
@@ -59,7 +59,19 @@ pub struct InstallOptions {
 
 #[derive(Debug, Parser)]
 pub struct UninstallOptions {
+    /// Delete all configuration files
+    #[clap(long, short = 'c')]
     pub clean_config: bool,
+
+    pub kind: UninstallKind,
+}
+
+#[derive(Clone, Debug, ValueEnum, EnumIs, EnumString, Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum UninstallKind {
+    All,
+    Sr,
+    Capable,
 }
 
 #[derive(Debug, Copy, Clone, EnumIs, EnumString, Display)]
@@ -81,7 +93,7 @@ pub struct BuildOptions {
     pub toolchain: Toolchain,
 
     #[clap(default_value = "bpfel-unknown-none", long)]
-    pub ebpf: EbpfArchitecture,
+    pub ebpf_toolchain: EbpfArchitecture,
 
     /// Clean the target directory before building
     #[clap(long = "clean", short = 'b')]
@@ -89,7 +101,7 @@ pub struct BuildOptions {
 
 }
 
-#[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter)]
+#[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display)]
 #[clap(rename_all = "lowercase")]
 pub enum OsTarget {
     #[clap(alias = "deb")]
@@ -243,12 +255,14 @@ impl FromStr for Toolchain {
     }
 }
 
-pub(crate) fn configure(os: &Option<OsTarget>) -> Result<(), anyhow::Error> {
+pub(crate) fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     configure::configure(os)
 }
 
 pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
-    install::install(opts)
+    build(&opts.build)?;
+    install::install(&opts)?;
+    configure(opts.os.clone())
 }
 
 pub(crate) fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {

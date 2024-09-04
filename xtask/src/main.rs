@@ -35,7 +35,7 @@ fn main() {
         RunEbpf(opts) => ebpf::run(&opts),
         Build(opts) => install::build(&opts),
         Install(opts) => install::install(&opts),
-        Configure{ os } => install::configure(&os),
+        Configure{ os } => install::configure(os),
         Uninstall(opts) => install::uninstall(&opts),
     };
 
