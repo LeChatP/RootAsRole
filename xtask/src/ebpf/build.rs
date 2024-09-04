@@ -13,17 +13,24 @@ pub enum EbpfArchitecture {
     BpfebUnknownNone,
 }
 
-// execute aya-tool generate task_struct > 
+impl Default for EbpfArchitecture {
+    fn default() -> Self {
+        EbpfArchitecture::BpfelUnknownNone
+    }
+}
+
+// execute aya-tool generate task_struct
 fn generate_task_struct() -> Result<(), anyhow::Error> {
     let output = Command::new("aya-tool")
         .args(&["generate", "task_struct"])
         .output()?;
+    let string = String::from_utf8(output.stdout)?.replace("aya_bpf::", "aya_ebpf::");
     // write to file
-    std::fs::write("capable-ebpf/src/vmlinux.rs", output.stdout)?;
+    std::fs::write("capable-ebpf/src/vmlinux.rs", string)?;
     Ok(())
 }
 
-/// Build the project
+/// Build the user-space binary
 pub fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
     let toolchain = format!("+{}", opts.toolchain.to_string());
     let mut args = vec![ toolchain.as_str(), "build", "--package", "capable"];

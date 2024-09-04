@@ -37,15 +37,47 @@
 
 ## Installation
 
-### How to Build
+### Prerequisites
+
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.70.0
+  * You can install Rust by running the following command:
+    ```sh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+
+### How to Install sr and chsr
 
 Requirement: rustc >= 1.70.0
 
   1. `git clone <https://github.com/LeChatP/RootAsRole>`
   1. `cd RootAsRole`
-  1. `. ./dependencies.sh`
-  1. `sudo ./configure.sh`
-  1. `make install`
+  1. `cargo xtask install`
+
+### Additional Installation Options
+
+<pre>
+<u><b>Usage</b></u>: cargo xtask install [OPTIONS]
+
+<u><b>Options</b></u>:
+      <b>--debug</b>
+          Build the target with debug profile (default is release)
+  <b>-t, --toolchain</b> &lt;TOOLCHAIN&gt;
+          The toolchain to use for building sr and chsr [default: stable]
+      <b>--ebpf-toolchain</b> &lt;EBPF_TOOLCHAIN&gt;
+          [default: bpfel-unknown-none] [possible values: bpfel-unknown-none, bpfeb-unknown-none]
+  <b>-b, --clean</b>
+          Clean the target directory before building
+      <b>--ebpf-build</b> &lt;EBPF_BUILD&gt;
+          Set the endianness of the BPF target [default: bpfel-unknown-none] [possible values: bpfel-unknown-none, bpfeb-unknown-none]
+      <b>--build-ebpf</b>
+          Build the eBPF, requires nightly toolchain. Asks to install the nightly toolchain with rustup if not found
+      <b>--os</b> &lt;OS&gt;
+          The OS target for PAM configuration [possible values: debian, ubuntu, redhat, fedora, centos, archlinux]
+  <b>-a, --clean-after</b>
+          Clean the target directory after installing
+  <b>-h, --help</b>
+          Print help
+</pre>
 
 **[What does the installation do?](https://lechatp.github.io/RootAsRole/guide/installation.html#what-does-the-installation-script-do)**
 

@@ -3374,10 +3374,7 @@ pub struct math_emu_info {
 #[derive(Debug, Copy, Clone)]
 pub struct seq_operations {
     pub start: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut seq_file,
-            arg2: *mut loff_t,
-        ) -> *mut ::aya_ebpf::cty::c_void,
+        unsafe extern "C" fn(arg1: *mut seq_file, arg2: *mut loff_t) -> *mut ::aya_ebpf::cty::c_void,
     >,
     pub stop: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut seq_file, arg2: *mut ::aya_ebpf::cty::c_void),
@@ -4498,10 +4495,7 @@ pub struct vm_operations_struct {
         ) -> *mut mempolicy,
     >,
     pub find_special_page: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut vm_area_struct,
-            arg2: ::aya_ebpf::cty::c_ulong,
-        ) -> *mut page,
+        unsafe extern "C" fn(arg1: *mut vm_area_struct, arg2: ::aya_ebpf::cty::c_ulong) -> *mut page,
     >,
 }
 #[repr(C)]
@@ -4579,10 +4573,7 @@ pub struct kernfs_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub seq_start: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut seq_file,
-            arg2: *mut loff_t,
-        ) -> *mut ::aya_ebpf::cty::c_void,
+        unsafe extern "C" fn(arg1: *mut seq_file, arg2: *mut loff_t) -> *mut ::aya_ebpf::cty::c_void,
     >,
     pub seq_next: ::core::option::Option<
         unsafe extern "C" fn(
@@ -4728,8 +4719,7 @@ pub struct kobj_ns_type_operations {
     pub netlink_ns: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut sock) -> *const ::aya_ebpf::cty::c_void,
     >,
-    pub initial_ns:
-        ::core::option::Option<unsafe extern "C" fn() -> *const ::aya_ebpf::cty::c_void>,
+    pub initial_ns: ::core::option::Option<unsafe extern "C" fn() -> *const ::aya_ebpf::cty::c_void>,
     pub drop_ns: ::core::option::Option<unsafe extern "C" fn(arg1: *mut ::aya_ebpf::cty::c_void)>,
 }
 #[repr(C)]
@@ -4863,9 +4853,8 @@ pub struct kobj_uevent_env {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct kset_uevent_ops {
-    pub filter: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *const kobject) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub filter:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *const kobject) -> ::aya_ebpf::cty::c_int>,
     pub name: ::core::option::Option<
         unsafe extern "C" fn(arg1: *const kobject) -> *const ::aya_ebpf::cty::c_char,
     >,
@@ -6253,9 +6242,8 @@ pub struct super_operations {
         ::core::option::Option<unsafe extern "C" fn(arg1: *mut super_block) -> *mut inode>,
     pub destroy_inode: ::core::option::Option<unsafe extern "C" fn(arg1: *mut inode)>,
     pub free_inode: ::core::option::Option<unsafe extern "C" fn(arg1: *mut inode)>,
-    pub dirty_inode: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut inode, arg2: ::aya_ebpf::cty::c_int),
-    >,
+    pub dirty_inode:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut inode, arg2: ::aya_ebpf::cty::c_int)>,
     pub write_inode: ::core::option::Option<
         unsafe extern "C" fn(
             arg1: *mut inode,
@@ -9866,10 +9854,7 @@ pub struct cftype {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub seq_start: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut seq_file,
-            arg2: *mut loff_t,
-        ) -> *mut ::aya_ebpf::cty::c_void,
+        unsafe extern "C" fn(arg1: *mut seq_file, arg2: *mut loff_t) -> *mut ::aya_ebpf::cty::c_void,
     >,
     pub seq_next: ::core::option::Option<
         unsafe extern "C" fn(
@@ -11619,9 +11604,8 @@ pub struct pmu {
             arg3: ::aya_ebpf::cty::c_ulong,
         ) -> ::aya_ebpf::cty::c_long,
     >,
-    pub addr_filters_validate: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut list_head) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub addr_filters_validate:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut list_head) -> ::aya_ebpf::cty::c_int>,
     pub addr_filters_sync: ::core::option::Option<unsafe extern "C" fn(arg1: *mut perf_event)>,
     pub aux_output_match: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut perf_event) -> ::aya_ebpf::cty::c_int,
@@ -13342,9 +13326,7 @@ impl perf_event_pmu_context {
         }
     }
     #[inline]
-    pub fn new_bitfield_1(
-        embedded: ::aya_ebpf::cty::c_uint,
-    ) -> __BindgenBitfieldUnit<[u8; 1usize]> {
+    pub fn new_bitfield_1(embedded: ::aya_ebpf::cty::c_uint) -> __BindgenBitfieldUnit<[u8; 1usize]> {
         let mut __bindgen_bitfield_unit: __BindgenBitfieldUnit<[u8; 1usize]> = Default::default();
         __bindgen_bitfield_unit.set(0usize, 1u8, {
             let embedded: u32 = unsafe { ::core::mem::transmute(embedded) };
@@ -14067,10 +14049,7 @@ pub struct fc_log {
 pub struct fs_context_operations {
     pub free: ::core::option::Option<unsafe extern "C" fn(arg1: *mut fs_context)>,
     pub dup: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut fs_context,
-            arg2: *mut fs_context,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut fs_context, arg2: *mut fs_context) -> ::aya_ebpf::cty::c_int,
     >,
     pub parse_param: ::core::option::Option<
         unsafe extern "C" fn(
@@ -18385,10 +18364,7 @@ pub struct proto_ops {
     >,
     pub splice_eof: ::core::option::Option<unsafe extern "C" fn(arg1: *mut socket)>,
     pub set_peek_off: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sock,
-            arg2: ::aya_ebpf::cty::c_int,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
     >,
     pub peek_len:
         ::core::option::Option<unsafe extern "C" fn(arg1: *mut socket) -> ::aya_ebpf::cty::c_int>,
@@ -18410,10 +18386,7 @@ pub struct proto_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub set_rcvlowat: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sock,
-            arg2: ::aya_ebpf::cty::c_int,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
     >,
 }
 #[repr(C)]
@@ -19688,11 +19661,7 @@ pub struct dcbnl_rtnl_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub getapp: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut net_device,
-            arg2: u8_,
-            arg3: u16_,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut net_device, arg2: u8_, arg3: u16_) -> ::aya_ebpf::cty::c_int,
     >,
     pub getfeatcfg: ::core::option::Option<
         unsafe extern "C" fn(
@@ -20459,10 +20428,7 @@ pub struct net_device_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub ndo_del_slave: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut net_device,
-            arg2: *mut net_device,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut net_device, arg2: *mut net_device) -> ::aya_ebpf::cty::c_int,
     >,
     pub ndo_get_xmit_slave: ::core::option::Option<
         unsafe extern "C" fn(
@@ -20648,10 +20614,7 @@ pub struct net_device_ops {
         unsafe extern "C" fn(arg1: *mut net_device, arg2: ::aya_ebpf::cty::c_int),
     >,
     pub ndo_bpf: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut net_device,
-            arg2: *mut netdev_bpf,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut net_device, arg2: *mut netdev_bpf) -> ::aya_ebpf::cty::c_int,
     >,
     pub ndo_xdp_xmit: ::core::option::Option<
         unsafe extern "C" fn(
@@ -20714,9 +20677,8 @@ pub struct neigh_parms {
     pub dev: *mut net_device,
     pub dev_tracker: netdevice_tracker,
     pub list: list_head,
-    pub neigh_setup: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut neighbour) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub neigh_setup:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut neighbour) -> ::aya_ebpf::cty::c_int>,
     pub tbl: *mut neigh_table,
     pub sysctl_table: *mut ::aya_ebpf::cty::c_void,
     pub dead: ::aya_ebpf::cty::c_int,
@@ -21501,10 +21463,8 @@ pub struct rtnl_link_ops {
     pub fill_xstats: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut sk_buff, arg2: *const net_device) -> ::aya_ebpf::cty::c_int,
     >,
-    pub get_num_tx_queues:
-        ::core::option::Option<unsafe extern "C" fn() -> ::aya_ebpf::cty::c_uint>,
-    pub get_num_rx_queues:
-        ::core::option::Option<unsafe extern "C" fn() -> ::aya_ebpf::cty::c_uint>,
+    pub get_num_tx_queues: ::core::option::Option<unsafe extern "C" fn() -> ::aya_ebpf::cty::c_uint>,
+    pub get_num_rx_queues: ::core::option::Option<unsafe extern "C" fn() -> ::aya_ebpf::cty::c_uint>,
     pub slave_maxtype: ::aya_ebpf::cty::c_uint,
     pub slave_policy: *const nla_policy,
     pub slave_changelink: ::core::option::Option<
@@ -21684,9 +21644,8 @@ pub struct neigh_table {
     pub key_eq: ::core::option::Option<
         unsafe extern "C" fn(arg1: *const neighbour, arg2: *const ::aya_ebpf::cty::c_void) -> bool_,
     >,
-    pub constructor: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut neighbour) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub constructor:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut neighbour) -> ::aya_ebpf::cty::c_int>,
     pub pconstructor: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut pneigh_entry) -> ::aya_ebpf::cty::c_int,
     >,
@@ -21867,9 +21826,8 @@ pub struct smc_hashinfo {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct proto {
-    pub close: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_long),
-    >,
+    pub close:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_long)>,
     pub pre_connect: ::core::option::Option<
         unsafe extern "C" fn(
             arg1: *mut sock,
@@ -21885,10 +21843,7 @@ pub struct proto {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub disconnect: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sock,
-            arg2: ::aya_ebpf::cty::c_int,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
     >,
     pub accept: ::core::option::Option<
         unsafe extern "C" fn(
@@ -22027,10 +21982,7 @@ pub struct proto {
     pub name: [::aya_ebpf::cty::c_char; 32usize],
     pub node: list_head,
     pub diag_destroy: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sock,
-            arg2: ::aya_ebpf::cty::c_int,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
     >,
 }
 #[repr(C)]
@@ -23170,9 +23122,8 @@ pub mod irqchip_irq_state {
 #[derive(Debug, Copy, Clone)]
 pub struct irq_chip {
     pub name: *const ::aya_ebpf::cty::c_char,
-    pub irq_startup: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut irq_data) -> ::aya_ebpf::cty::c_uint,
-    >,
+    pub irq_startup:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_data) -> ::aya_ebpf::cty::c_uint>,
     pub irq_shutdown: ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_data)>,
     pub irq_enable: ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_data)>,
     pub irq_disable: ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_data)>,
@@ -23375,9 +23326,8 @@ pub struct irq_chip_generic {
     pub reg_base: *mut ::aya_ebpf::cty::c_void,
     pub reg_readl:
         ::core::option::Option<unsafe extern "C" fn(arg1: *mut ::aya_ebpf::cty::c_void) -> u32_>,
-    pub reg_writel: ::core::option::Option<
-        unsafe extern "C" fn(arg1: u32_, arg2: *mut ::aya_ebpf::cty::c_void),
-    >,
+    pub reg_writel:
+        ::core::option::Option<unsafe extern "C" fn(arg1: u32_, arg2: *mut ::aya_ebpf::cty::c_void)>,
     pub suspend: ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_chip_generic)>,
     pub resume: ::core::option::Option<unsafe extern "C" fn(arg1: *mut irq_chip_generic)>,
     pub irq_base: ::aya_ebpf::cty::c_uint,
@@ -23551,9 +23501,8 @@ pub struct gpio_irq_chip {
     pub per_parent_data: bool_,
     pub initialized: bool_,
     pub domain_is_allocated_externally: bool_,
-    pub init_hw: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut gpio_chip) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub init_hw:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut gpio_chip) -> ::aya_ebpf::cty::c_int>,
     pub init_valid_mask: ::core::option::Option<
         unsafe extern "C" fn(
             arg1: *mut gpio_chip,
@@ -23659,9 +23608,8 @@ pub struct gpio_chip {
             arg3: ::aya_ebpf::cty::c_uint,
         ) -> ::aya_ebpf::cty::c_int,
     >,
-    pub add_pin_ranges: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut gpio_chip) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub add_pin_ranges:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut gpio_chip) -> ::aya_ebpf::cty::c_int>,
     pub en_hw_timestamp: ::core::option::Option<
         unsafe extern "C" fn(
             arg1: *mut gpio_chip,
@@ -23864,10 +23812,7 @@ pub struct tty_operations {
         ) -> *mut tty_struct,
     >,
     pub install: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut tty_driver,
-            arg2: *mut tty_struct,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut tty_driver, arg2: *mut tty_struct) -> ::aya_ebpf::cty::c_int,
     >,
     pub remove:
         ::core::option::Option<unsafe extern "C" fn(arg1: *mut tty_driver, arg2: *mut tty_struct)>,
@@ -24100,9 +24045,7 @@ impl tty_port {
         }
     }
     #[inline]
-    pub fn new_bitfield_1(
-        console: ::aya_ebpf::cty::c_uchar,
-    ) -> __BindgenBitfieldUnit<[u8; 1usize]> {
+    pub fn new_bitfield_1(console: ::aya_ebpf::cty::c_uchar) -> __BindgenBitfieldUnit<[u8; 1usize]> {
         let mut __bindgen_bitfield_unit: __BindgenBitfieldUnit<[u8; 1usize]> = Default::default();
         __bindgen_bitfield_unit.set(0usize, 1u8, {
             let console: u8 = unsafe { ::core::mem::transmute(console) };
@@ -24711,10 +24654,7 @@ pub struct block_device_operations {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub devnode: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut gendisk,
-            arg2: *mut umode_t,
-        ) -> *mut ::aya_ebpf::cty::c_char,
+        unsafe extern "C" fn(arg1: *mut gendisk, arg2: *mut umode_t) -> *mut ::aya_ebpf::cty::c_char,
     >,
     pub get_unique_id: ::core::option::Option<
         unsafe extern "C" fn(
@@ -25701,9 +25641,8 @@ pub struct tcf_proto_ops {
             arg3: *mut tcf_result,
         ) -> ::aya_ebpf::cty::c_int,
     >,
-    pub init: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut tcf_proto) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub init:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut tcf_proto) -> ::aya_ebpf::cty::c_int>,
     pub destroy: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut tcf_proto, arg2: bool_, arg3: *mut netlink_ext_ack),
     >,
@@ -27129,8 +27068,7 @@ pub struct bpf_link_ops {
 #[derive(Debug, Copy, Clone)]
 pub struct bpf_struct_ops {
     pub verifier_ops: *const bpf_verifier_ops,
-    pub init:
-        ::core::option::Option<unsafe extern "C" fn(arg1: *mut btf) -> ::aya_ebpf::cty::c_int>,
+    pub init: ::core::option::Option<unsafe extern "C" fn(arg1: *mut btf) -> ::aya_ebpf::cty::c_int>,
     pub check_member: ::core::option::Option<
         unsafe extern "C" fn(
             arg1: *const btf_type,
@@ -37008,9 +36946,8 @@ pub struct ib_device_ops {
     pub fill_res_srq_entry_raw: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut sk_buff, arg2: *mut ib_srq) -> ::aya_ebpf::cty::c_int,
     >,
-    pub enable_driver: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut ib_device) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub enable_driver:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut ib_device) -> ::aya_ebpf::cty::c_int>,
     pub dealloc_driver: ::core::option::Option<unsafe extern "C" fn(arg1: *mut ib_device)>,
     pub iw_add_ref: ::core::option::Option<unsafe extern "C" fn(arg1: *mut ib_qp)>,
     pub iw_rem_ref: ::core::option::Option<unsafe extern "C" fn(arg1: *mut ib_qp)>,
@@ -37066,9 +37003,8 @@ pub struct ib_device_ops {
             arg2: *mut uverbs_attr_bundle,
         ) -> ::aya_ebpf::cty::c_int,
     >,
-    pub get_numa_node: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut ib_device) -> ::aya_ebpf::cty::c_int,
-    >,
+    pub get_numa_node:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut ib_device) -> ::aya_ebpf::cty::c_int>,
     pub size_ib_ah: usize,
     pub size_ib_counters: usize,
     pub size_ib_cq: usize,
@@ -37823,10 +37759,7 @@ pub struct devlink_ops {
     >,
 }
 pub type irq_poll_fn = ::core::option::Option<
-    unsafe extern "C" fn(
-        arg1: *mut irq_poll,
-        arg2: ::aya_ebpf::cty::c_int,
-    ) -> ::aya_ebpf::cty::c_int,
+    unsafe extern "C" fn(arg1: *mut irq_poll, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
 >;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -40933,9 +40866,8 @@ pub struct rpc_xprt_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub bc_maxpayload: ::core::option::Option<unsafe extern "C" fn(arg1: *mut rpc_xprt) -> usize>,
-    pub bc_num_slots: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut rpc_xprt) -> ::aya_ebpf::cty::c_uint,
-    >,
+    pub bc_num_slots:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut rpc_xprt) -> ::aya_ebpf::cty::c_uint>,
     pub bc_free_rqst: ::core::option::Option<unsafe extern "C" fn(arg1: *mut rpc_rqst)>,
     pub bc_destroy: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut rpc_xprt, arg2: ::aya_ebpf::cty::c_uint),
@@ -42044,10 +41976,7 @@ pub struct nfs_rpc_ops {
         ) -> ::aya_ebpf::cty::c_int,
     >,
     pub submount: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut fs_context,
-            arg2: *mut nfs_server,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut fs_context, arg2: *mut nfs_server) -> ::aya_ebpf::cty::c_int,
     >,
     pub try_get_tree: ::core::option::Option<
         unsafe extern "C" fn(arg1: *mut fs_context) -> ::aya_ebpf::cty::c_int,
@@ -42911,10 +42840,7 @@ pub struct elevator_type {
 pub struct elv_fs_entry {
     pub attr: attribute,
     pub show: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut elevator_queue,
-            arg2: *mut ::aya_ebpf::cty::c_char,
-        ) -> isize,
+        unsafe extern "C" fn(arg1: *mut elevator_queue, arg2: *mut ::aya_ebpf::cty::c_char) -> isize,
     >,
     pub store: ::core::option::Option<
         unsafe extern "C" fn(
@@ -43151,8 +43077,7 @@ pub struct page_pool {
     pub frag_offset: ::aya_ebpf::cty::c_uint,
     pub pages_state_hold_cnt: u32_,
     pub release_dw: delayed_work,
-    pub disconnect:
-        ::core::option::Option<unsafe extern "C" fn(arg1: *mut ::aya_ebpf::cty::c_void)>,
+    pub disconnect: ::core::option::Option<unsafe extern "C" fn(arg1: *mut ::aya_ebpf::cty::c_void)>,
     pub defer_start: ::aya_ebpf::cty::c_ulong,
     pub defer_warn: ::aya_ebpf::cty::c_ulong,
     pub alloc_stats: page_pool_alloc_stats,
@@ -43614,9 +43539,8 @@ pub struct sk_psock {
     pub refcnt: refcount_t,
     pub saved_unhash: ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock)>,
     pub saved_destroy: ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock)>,
-    pub saved_close: ::core::option::Option<
-        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_long),
-    >,
+    pub saved_close:
+        ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_long)>,
     pub saved_write_space: ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock)>,
     pub saved_data_ready: ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock)>,
     pub psock_update_sk_prot: ::core::option::Option<
@@ -43750,10 +43674,7 @@ pub struct tls_context {
     pub _bitfield_align_1: [u8; 0],
     pub _bitfield_1: __BindgenBitfieldUnit<[u8; 1usize]>,
     pub push_pending_record: ::core::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sock,
-            arg2: ::aya_ebpf::cty::c_int,
-        ) -> ::aya_ebpf::cty::c_int,
+        unsafe extern "C" fn(arg1: *mut sock, arg2: ::aya_ebpf::cty::c_int) -> ::aya_ebpf::cty::c_int,
     >,
     pub sk_write_space: ::core::option::Option<unsafe extern "C" fn(arg1: *mut sock)>,
     pub priv_ctx_tx: *mut ::aya_ebpf::cty::c_void,

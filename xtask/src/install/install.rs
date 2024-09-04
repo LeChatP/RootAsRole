@@ -69,7 +69,7 @@ pub fn install(options: &InstallOptions) -> Result<(), anyhow::Error> {
         // cp target/{release}/sr,chsr,capable /usr/bin
         copy_files(
             &options.build.profile,
-            if options.build_ebpf { Some(options.ebpf_build) } else { None },
+            options.build.ebpf,
         )
         .context("Failed to copy sr and chsr files")?;
 
@@ -93,6 +93,11 @@ pub fn install(options: &InstallOptions) -> Result<(), anyhow::Error> {
 
         // drop all capabilities
         cap_clear(&mut state).context("Failed to drop effective capabilities")?;
+
+        if options.clean_after {
+            fs::remove_dir_all(format!("{:?}/target", std::env::current_dir()?))
+                .context("Failed to remove target directory")?;
+        }
     } else {
         eprintln!(
             "You need to have CAP_DAC_OVERRIDE and CAP_CHOWN capabilities to install rootasrole"

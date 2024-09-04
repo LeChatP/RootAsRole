@@ -9,6 +9,9 @@ pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
     if options.profile.is_release() {
         args.push("--release");
     }
+    if options.clean_before {
+        args.push("--clean");
+    }
     println!("Building sr and chsr with {:?}", &args);
     Command::new("cargo")
         .args(args)

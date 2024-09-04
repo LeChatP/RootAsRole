@@ -12,7 +12,7 @@ use clap::{Parser, ValueEnum};
 use semver::Version;
 use strum::{Display, EnumIs, EnumIter, EnumString};
 
-use crate::ebpf::build::EbpfArchitecture;
+use crate::ebpf::{self, build::EbpfArchitecture};
 use anyhow::anyhow;
 
 
@@ -28,28 +28,14 @@ pub const CAPABLE_DEST: &str = "/usr/bin/capable";
 /// Nightly toolchain are not recommended for production use, as they are not stable. So `capable` is for testing purposes.
 /// Indeed, capable purpose is to obtain a set of Linux capabilities from a generic command, to help people to configure their RootAsRole configuration.
 /// But if you don't want several toolchains installed, you can use the nightly toolchain for everything, or just not compile the eBPF program.
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 pub struct InstallOptions {
 
     #[clap(flatten)]
     pub build : BuildOptions,
 
-
-    /// Set the endianness of the BPF target
-    #[clap(default_value = "bpfel-unknown-none", long)]
-    pub ebpf_build: EbpfArchitecture,
-
-    /// Executable to elevate privileges for installing (e.g. sr, sudo or doas)
-    /// Default is sr, if not found, it will use sudo or doas.
-    #[clap(short, long, default_value = "sr")]
-    pub priv_exe: String,
-
-    /// Build the eBPF, requires nightly toolchain. Asks to install the nightly toolchain with rustup if not found.
-    #[clap(long)]
-    pub build_ebpf: bool,
-
-    /// The OS target for PAM configuration
-    #[clap(long)]
+    /// The OS target for PAM configuration (default tries to autodetect it)
+    #[clap(long, short)]
     pub os: Option<OsTarget>,
 
     /// Clean the target directory after installing
@@ -82,18 +68,20 @@ pub enum Profile {
 }
 
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 pub struct BuildOptions {
-    /// Build the release target
-    #[clap(long, name = "debug", default_value_t = Profile::Release, default_missing_value = "debug", num_args = 0)]
+    /// Build the target with debug profile (default is release)
+    #[clap(short = 'd', long = "debug", default_value_t = Profile::Release, default_missing_value = "debug", num_args = 0)]
     pub profile: Profile,
 
     /// The toolchain to use for building sr and chsr.
     #[clap(short, long, default_value = "stable")]
     pub toolchain: Toolchain,
 
-    #[clap(default_value = "bpfel-unknown-none", long)]
-    pub ebpf_toolchain: EbpfArchitecture,
+    /// The eBPF architecture to build.
+    /// Accepts no value (default is bpfel-unknown-none)
+    #[clap(default_missing_value = "bpfel-unknown-none", long, short )]
+    pub ebpf: Option<EbpfArchitecture>,
 
     /// Clean the target directory before building
     #[clap(long = "clean", short = 'b')]
@@ -261,6 +249,11 @@ pub(crate) fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
 
 pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
     build(&opts.build)?;
+    if opts.build.ebpf.is_some() {
+        let mut opts = opts.clone();
+        opts.build.toolchain.channel = Channel::Nightly;
+        ebpf::build_all(&opts.build)?;
+    }
     install::install(&opts)?;
     configure(opts.os.clone())
 }
