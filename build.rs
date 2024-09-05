@@ -160,13 +160,13 @@ fn main() {
             if let Err(err) = set_cargo_version(package_version, "Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
-            if let Err(err) = set_cargo_version(package_version, "capable/Cargo.toml") {
+            if let Err(err) = set_cargo_version(package_version, "capable/capable/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
-            if let Err(err) = set_cargo_version(package_version, "capable-ebpf/Cargo.toml") {
+            if let Err(err) = set_cargo_version(package_version, "capable/capable-ebpf/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
-            if let Err(err) = set_cargo_version(package_version, "capable-common/Cargo.toml") {
+            if let Err(err) = set_cargo_version(package_version, "capable/capable-common/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
             if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
