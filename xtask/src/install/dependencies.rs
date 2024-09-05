@@ -13,7 +13,7 @@ fn update_package_manager() -> Result<(), anyhow::Error> {
                 .arg("update")
                 .status()?;
         },
-        OsTarget::RedHat | OsTarget::Fedora | OsTarget::AlmaLinux | OsTarget::RockyLinux => {
+        OsTarget::RedHat | OsTarget::Fedora => {
             let _ = std::process::Command::new("yum")
                 .arg("update")
                 .arg("-y")
