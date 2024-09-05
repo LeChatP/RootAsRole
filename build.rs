@@ -162,7 +162,7 @@ fn main() {
                 eprintln!("cargo:warning={}", err);
             }
             //if folder capable/ exists
-            if Path::new("capable").is_dir() {
+            if Path::new("capable/capable").is_dir() {
                 if let Err(err) = set_cargo_version(package_version, "capable/capable/Cargo.toml") {
                     eprintln!("cargo:warning={}", err);
                 }
