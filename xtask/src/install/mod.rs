@@ -54,7 +54,7 @@ pub struct InstallDependenciesOptions {
     #[clap(long, short)]
     pub os: Option<OsTarget>,
 
-    /// Install dependencies before building
+    /// Install dependencies before installing
     #[clap(long, short = 'i')]
     pub install_dependencies: bool,
 

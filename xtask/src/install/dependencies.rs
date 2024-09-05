@@ -37,8 +37,8 @@ fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g-dev", "libpcre2-dev"],
         OsTarget::RedHat => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel"],
-        OsTarget::Fedora => &["pam-devel", "pcre2-devel", "clang", "openssl-devel"],
-        OsTarget::ArchLinux => &["pam-devel", "pcre2-devel", "clang", "libssl", "pkg-config"],
+        OsTarget::Fedora => &["clang-devel", "openssl-devel", "pam-devel"],
+        OsTarget::ArchLinux => &["clang", "pkg-config"],
     }
 }
 
@@ -89,7 +89,7 @@ pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
         }
         OsTarget::ArchLinux => {
             let _ = std::process::Command::new("pacman")
-                .arg("-Sy")
+                .arg("-Syu")
                 .arg("--noconfirm")
                 .args(get_dependencies(&os, &opts.dev))
                 .status()?;
