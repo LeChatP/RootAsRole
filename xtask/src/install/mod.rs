@@ -137,8 +137,6 @@ impl OsTarget {
                 return Ok(OsTarget::Debian);
             } else if os.contains("ubuntu") {
                 return Ok(OsTarget::Ubuntu);
-            } else if os.contains("redhat") || os.contains("rhel") {
-                return Ok(OsTarget::RedHat);
             } else if os.contains("fedora") {
                 return Ok(OsTarget::Fedora);
             } else if os.contains("almalinux") {
@@ -147,7 +145,9 @@ impl OsTarget {
                 return Ok(OsTarget::RockyLinux);
             } else if os.contains("arch") {
                 return Ok(OsTarget::ArchLinux);
-            }
+            } else if os.contains("redhat") || os.contains("rhel") {
+                return Ok(OsTarget::RedHat);
+            } 
         }
         Err(anyhow!("Unsupported OS"))
     }
