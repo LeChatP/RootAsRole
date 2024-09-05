@@ -25,6 +25,22 @@ fn update_package_manager() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+fn required_dependencies(os: &OsTarget) -> Vec<&str> {
+    match os {
+        OsTarget::Debian | OsTarget::Ubuntu => vec!["libpam0g", "libpcre2-8-0"],
+        OsTarget::RedHat => vec!["pcre2"],
+        OsTarget::ArchLinux | OsTarget::Fedora | OsTarget::CentOS => vec!["pam", "pcre2"],
+    }
+}
+
+fn development_dependencies(os: &OsTarget) -> Vec<&str> {
+    match os {
+        OsTarget::Debian | OsTarget::Ubuntu => vec!["libpam0g-dev", "libpcre2-dev"],
+        OsTarget::RedHat => vec!["pcre2-devel"],
+        OsTarget::ArchLinux | OsTarget::Fedora | OsTarget::CentOS => vec!["pam-devel", "pcre2-devel"],
+    }
+}
+
 pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
     update_package_manager()?;
     // dependencies are : libpam and libpcre2
@@ -40,7 +56,6 @@ pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
             })
             .context("Failed to detect the OS")?
     };
-
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
             let _ = std::process::Command::new("apt-get")

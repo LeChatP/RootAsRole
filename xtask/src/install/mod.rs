@@ -21,14 +21,7 @@ pub const SR_DEST: &str = "/usr/bin/sr";
 pub const CHSR_DEST: &str = "/usr/bin/chsr";
 pub const CAPABLE_DEST: &str = "/usr/bin/capable";
 
-/// Options for the install command
 
-/// This command may use multiple toolchains.
-/// By default `capable` use the nightly toolchain and `sr` and `chsr` use the stable toolchain.
-/// `capable` eBPF requires nightly, but binaries like `sr` and `chsr` can be built at >=version 1.70.0.
-/// Nightly toolchain are not recommended for production use, as they are not stable. So `capable` is for testing purposes.
-/// Indeed, capable purpose is to obtain a set of Linux capabilities from a generic command, to help people to configure their RootAsRole configuration.
-/// But if you don't want several toolchains installed, you can use the nightly toolchain for everything, or just not compile the eBPF program.
 #[derive(Debug, Parser, Clone)]
 pub struct InstallOptions {
 
@@ -64,6 +57,10 @@ pub struct InstallDependenciesOptions {
     /// Install dependencies before building
     #[clap(long, short = 'i')]
     pub install_dependencies: bool,
+
+    /// Install development dependencies for compiling
+    #[clap(long, short = 'd')]
+    pub dev: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -279,6 +276,7 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         dependencies(InstallDependenciesOptions {
             os: opts.os.clone(),
             install_dependencies: true,
+            dev: true,
         })?;
     }
     if ! opts.no_build {
