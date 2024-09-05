@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 
+use std::path::Path;
 use std::process::Command;
 
 fn write_version<'a>(f: &'a mut File, doc: &'a Value) -> Result<&'a str, Box<dyn Error>> {
@@ -160,14 +161,17 @@ fn main() {
             if let Err(err) = set_cargo_version(package_version, "Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
             }
-            if let Err(err) = set_cargo_version(package_version, "capable/capable/Cargo.toml") {
-                eprintln!("cargo:warning={}", err);
-            }
-            if let Err(err) = set_cargo_version(package_version, "capable/capable-ebpf/Cargo.toml") {
-                eprintln!("cargo:warning={}", err);
-            }
-            if let Err(err) = set_cargo_version(package_version, "capable/capable-common/Cargo.toml") {
-                eprintln!("cargo:warning={}", err);
+            //if folder capable/ exists
+            if Path::new("capable").is_dir() {
+                if let Err(err) = set_cargo_version(package_version, "capable/capable/Cargo.toml") {
+                    eprintln!("cargo:warning={}", err);
+                }
+                if let Err(err) = set_cargo_version(package_version, "capable/capable-ebpf/Cargo.toml") {
+                    eprintln!("cargo:warning={}", err);
+                }
+                if let Err(err) = set_cargo_version(package_version, "capable/capable-common/Cargo.toml") {
+                    eprintln!("cargo:warning={}", err);
+                }
             }
             if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
                 eprintln!("cargo:warning={}", err);
