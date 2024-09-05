@@ -1,0 +1,3 @@
+[submodule "capable"]
+	path = capable
+	url = https://github.com/LeChatP/RootAsRole-capable

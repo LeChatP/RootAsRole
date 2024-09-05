@@ -1,5 +1,5 @@
 [workspace]
-members = ["xtask", "capable", "capable-common", "rar-common"]
+members = ["xtask", "rar-common"]
 
 [package]
 name = "RootAsRole"
