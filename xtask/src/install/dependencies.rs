@@ -28,7 +28,7 @@ fn update_package_manager() -> Result<(), anyhow::Error> {
 fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g", "libpcre2-8-0"],
-        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => &["pcre2"],
+        OsTarget::RedHat => &["pcre2"],
         OsTarget::ArchLinux | OsTarget::Fedora => &["pam", "pcre2"],
     }
 }
@@ -36,7 +36,7 @@ fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
 fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g-dev", "libpcre2-dev"],
-        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel"],
+        OsTarget::RedHat => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel"],
         OsTarget::Fedora => &["pam-devel", "pcre2-devel", "clang", "openssl-devel"],
         OsTarget::ArchLinux => &["pam-devel", "pcre2-devel", "clang", "libssl", "pkg-config"],
     }

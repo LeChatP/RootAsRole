@@ -120,10 +120,6 @@ pub enum OsTarget {
     RedHat,
     #[clap(alias = "fed")]
     Fedora,
-    #[clap(alias = "alma")]
-    AlmaLinux,
-    #[clap(alias = "rocky")]
-    RockyLinux,
     #[clap(alias = "arch")]
     ArchLinux,
 }
@@ -139,10 +135,6 @@ impl OsTarget {
                 return Ok(OsTarget::Ubuntu);
             } else if os.contains("fedora") {
                 return Ok(OsTarget::Fedora);
-            } else if os.contains("almalinux") {
-                return Ok(OsTarget::AlmaLinux);
-            } else if os.contains("rocky") {
-                return Ok(OsTarget::RockyLinux);
             } else if os.contains("arch") {
                 return Ok(OsTarget::ArchLinux);
             } else if os.contains("redhat") || os.contains("rhel") {
