@@ -73,7 +73,7 @@ pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
                 .args(get_dependencies(&os, &opts.dev))
                 .status()?;
         },
-        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => {
+        OsTarget::RedHat => {
             let _ = std::process::Command::new("yum")
                 .arg("install")
                 .arg("-y")
