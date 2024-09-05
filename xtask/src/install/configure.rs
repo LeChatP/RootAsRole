@@ -233,7 +233,7 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
 pub fn default_pam_path(os: &OsTarget) -> &'static str {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => "resources/debian/deb_sr_pam.conf",
-        OsTarget::RedHat | OsTarget::CentOS | OsTarget::Fedora => "resources/redhat/rh_sr_pam.conf",
+        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux | OsTarget::Fedora => "resources/rh/rh_sr_pam.conf",
         OsTarget::ArchLinux => "resources/arch/arch_sr_pam.conf",
     }
 }

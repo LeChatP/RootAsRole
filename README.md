@@ -146,14 +146,14 @@ Our project has been manually tested on (tests in may 2023):
 
 In june 2024, we performed automated `capable` tests with Vagrant on the following distributions:
 
-* ❌ Centos 7 → Kernel too old (3.1)
-* ✅ Centos 8
 * ❌ Debian 10 → Dev dependencies unavailable, it should work once compiled
 * ✅ Debian 11
 * ✅ Fedora 37
 * ✅ RedHat 9
 * ✅ Ubuntu 22.04
 * ✅ ArchLinux
+* ✅ Almalinux 8
+* ✅ RockyLinux 8
 
 This doesn't mean that earlier versions of these distributions are incompatible; it simply indicates they haven't been tested yet. However, if you encounter issues during the compilation process, they are likely due to dependency problems. In theory, the RootAsRole project should work on any Linux distribution with a kernel version of 4.1 or higher. However, since BTF (BPF Type Format) is becoming a mandatory requirement, [the kernel must be compiled with many features enabled](https://github.com/iovisor/bcc/blob/master/INSTALL.md#kernel-configuration).
 

@@ -13,7 +13,7 @@ fn update_package_manager() -> Result<(), anyhow::Error> {
                 .arg("update")
                 .status()?;
         },
-        OsTarget::RedHat | OsTarget::Fedora | OsTarget::CentOS => {
+        OsTarget::RedHat | OsTarget::Fedora | OsTarget::AlmaLinux | OsTarget::RockyLinux => {
             let _ = std::process::Command::new("yum")
                 .arg("update")
                 .arg("-y")
@@ -25,19 +25,28 @@ fn update_package_manager() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn required_dependencies(os: &OsTarget) -> Vec<&str> {
+fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => vec!["libpam0g", "libpcre2-8-0"],
-        OsTarget::RedHat => vec!["pcre2"],
-        OsTarget::ArchLinux | OsTarget::Fedora | OsTarget::CentOS => vec!["pam", "pcre2"],
+        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g", "libpcre2-8-0"],
+        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => &["pcre2"],
+        OsTarget::ArchLinux | OsTarget::Fedora => &["pam", "pcre2"],
     }
 }
 
-fn development_dependencies(os: &OsTarget) -> Vec<&str> {
+fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => vec!["libpam0g-dev", "libpcre2-dev"],
-        OsTarget::RedHat => vec!["pcre2-devel"],
-        OsTarget::ArchLinux | OsTarget::Fedora | OsTarget::CentOS => vec!["pam-devel", "pcre2-devel"],
+        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g-dev", "libpcre2-dev"],
+        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel"],
+        OsTarget::Fedora => &["pam-devel", "pcre2-devel", "clang", "openssl-devel"],
+        OsTarget::ArchLinux => &["pam-devel", "pcre2-devel", "clang", "libssl", "pkg-config"],
+    }
+}
+
+fn get_dependencies(os: &OsTarget, dev: &bool) -> &'static [&'static str] {
+    if *dev {
+        development_dependencies(os)
+    } else {
+        required_dependencies(os)
     }
 }
 
@@ -61,39 +70,28 @@ pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
             let _ = std::process::Command::new("apt-get")
                 .arg("install")
                 .arg("-y")
-                .arg("libpam0g")
-                .arg("libpcre2-8-0")
+                .args(get_dependencies(&os, &opts.dev))
                 .status()?;
         },
-        OsTarget::RedHat => {
+        OsTarget::RedHat | OsTarget::AlmaLinux | OsTarget::RockyLinux => {
             let _ = std::process::Command::new("yum")
                 .arg("install")
                 .arg("-y")
-                .arg("pcre2")
-                .status()?;
-        },
-        OsTarget::CentOS => {
-            let _ = std::process::Command::new("yum")
-                .arg("install")
-                .arg("-y")
-                .arg("pam")
-                .arg("pcre2")
+                .args(get_dependencies(&os, &opts.dev))
                 .status()?;
         },
         OsTarget::Fedora => {
             let _ = std::process::Command::new("dnf")
                 .arg("install")
                 .arg("-y")
-                .arg("pam")
-                .arg("pcre2")
+                .args(get_dependencies(&os, &opts.dev))
                 .status()?;
         }
         OsTarget::ArchLinux => {
             let _ = std::process::Command::new("pacman")
                 .arg("-Sy")
                 .arg("--noconfirm")
-                .arg("pam")
-                .arg("pcre2")
+                .args(get_dependencies(&os, &opts.dev))
                 .status()?;
         },
     }
