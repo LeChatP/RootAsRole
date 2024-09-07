@@ -1,5 +1,5 @@
 use std::{
-    error::Error, ffi::CString, fs::File, io, os::{
+    env, error::Error, ffi::CString, fs::File, io, os::{
         fd::AsRawFd,
         unix::fs::{MetadataExt, PermissionsExt},
     }, path::{Path, PathBuf}
@@ -12,6 +12,8 @@ use serde::Serialize;
 use strum::EnumIs;
 use tracing::{debug, warn, Level};
 use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::{api::PluginManager, database::structs::SCommand};
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -180,6 +182,75 @@ fn remove_outer_quotes(input: &str) -> String {
     } else {
         input.to_string()
     }
+}
+
+pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Error>> {
+    match command {
+        SCommand::Simple(command) => Ok(shell_words::split(command)?),
+        SCommand::Complex(command) => {
+            if let Some(array) = command.as_array() {
+                let mut result = Vec::new();
+                if !array.iter().all(|item| {
+                    // if it is a string
+                    item.is_string() && {
+                        //add to result
+                        result.push(item.as_str().unwrap().to_string());
+                        true // continue
+                    }
+                }) {
+                    // if any of the items is not a string
+                    return Err("Invalid command".into());
+                }
+                Ok(result)
+            } else {
+                // call PluginManager
+                #[cfg(feature = "finder")]
+                {
+                    let res = PluginManager::notify_complex_command_parser(command);
+                    debug!("Parsed command {:?}", res);
+                    res
+                }
+                #[cfg(not(feature = "finder"))]
+                {
+                    Err("Invalid command".into())
+                }
+            }
+        }
+    }
+}
+
+pub fn find_from_envpath<P>(exe_name: &P) -> Option<PathBuf>
+where
+    P: AsRef<Path>,
+{
+    env::var_os("PATH").and_then(|paths| {
+        env::split_paths(&paths)
+            .filter_map(|dir| {
+                let full_path = dir.join(exe_name);
+                if full_path.is_file() {
+                    Some(full_path)
+                } else {
+                    None
+                }
+            })
+            .next()
+    })
+}
+
+pub fn final_path(path: &String) -> PathBuf {
+    let result;
+    if let Some(env_path) = find_from_envpath(&path) {
+        result = env_path
+    } else if let Ok(cannon_path) = std::fs::canonicalize(path) {
+        result = cannon_path;
+    } else {
+        result = path.parse().expect("The path is not valid");
+    }
+    result
+        .to_str()
+        .expect("The path is not valid")
+        .parse()
+        .expect("The path is not valid")
 }
 
 #[cfg(debug_assertions)]

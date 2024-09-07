@@ -25,6 +25,7 @@ maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/
 strip = "symbols"
 lto = true
 opt-level = "s"
+codegen-units = 1
 
 #[features]
 #cursive_lib = [ "cursive" ]
@@ -33,12 +34,17 @@ opt-level = "s"
 [[bin]]
 name = "sr"
 path = "src/sr/main.rs"
-required-features = ["rar-common/pcre2"]
+required-features = ["finder"]
 
 
 [[bin]]
 name = "chsr"
 path = "src/chsr/main.rs"
+
+[features]
+default = ["finder"]
+finder = ["dep:pcre2", "rar-common/pcre2", "rar-common/finder"]
+
 
 [build-dependencies]
 reqwest = { version = "0.12.4", features = ["blocking", "json"] }
@@ -58,7 +64,7 @@ semver = { version = "1.0.23", features = ["serde"] }
 nix = { version = "0.29.0", features = ["user","process", "signal", "fs"] } 
 #sudoers-reader = { path = "sudoers-reader" }
 capctl = "0.2.4"
-pcre2 = "0.2.7"
+pcre2 = { version = "0.2.7", optional = true }
 serde = { version = "1.0.202", features=["rc"] }
 serde_json = "1.0.117"
 ciborium = "0.2.2"
@@ -72,13 +78,13 @@ linked_hash_set = { version = "0.1.4" }
 derivative = "2.2.0"
 sha2 = "0.10.8"
 sha1 = "0.10.6"
-md5 = "0.7.0"
+#md5 = "0.7.0"
 chrono = "0.4.38"
 pty-process = "0.4.0"
 once_cell = "1.19.0"
 pest = "2.7.8"
 pest_derive = "2.7.8"
-phf = { version = "0.11.2", features = ["macros"] }
+#phf = { version = "0.11.2", features = ["macros"] }
 const_format = "0.2.32"
 hex = "0.4.3"
 
@@ -95,17 +101,17 @@ lazy_static = "1.4.0"
 [package.metadata.deb]
 maintainer = "Eddie Billoir <lechatp@outlook.fr>"
 license-file = "LICENSE"
-depends = "libpam0g, e2fsprogs, libcap2-bin, libpam-modules, libpcre2-8-0"
+depends = "libpam0g, libpam-modules, libpcre2-8-0"
 section = "admin"
 priority = "optional"
-assets =    [ 
+assets =    [
     ["target/release/sr", "usr/bin/sr", "0555"],
     ["target/release/chsr", "usr/bin/chsr", "0555"],
-    ["resources/rootasrole.json", "usr/share/rootasrole/default.json", "0640"],
-    ["resources/debian/deb_sr_pam.conf", "usr/share/rootasrole/pam_sr.conf", "0644"]
+    ["resources/rootasrole.json", "DEBIAN/resources/rootasrole.json", "0640"],
+    ["resources/debian/deb_sr_pam.conf", "DEBIAN/resources/debian/deb_sr_pam.conf", "0644"]
 ]
-conf-files = ["/etc/pam.d/sr"]
-maintainer-scripts = "resources/debian/"
+conf-files = ["/etc/pam.d/sr", "/etc/security/rootasrole.json"]
+maintainer-scripts = "target/release/"
 extended-description = "RootAsRole is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to multiple co-administrators through RBAC model and Linux Capabilities features."
 
 [package.metadata.generate-rpm]

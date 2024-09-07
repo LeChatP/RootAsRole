@@ -19,6 +19,7 @@ use crate::{
 };
 use crate::{open_with_privileges, write_json_config};
 
+#[cfg(feature = "finder")]
 pub mod finder;
 pub mod migration;
 pub mod options;

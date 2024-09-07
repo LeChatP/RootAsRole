@@ -9,9 +9,6 @@ fn build_binary(name: &str, options: &BuildOptions, additionnal_args: Vec<&str>)
     if options.profile.is_release() {
         args.push("--release");
     }
-    if options.clean_before {
-        args.push("--clean");
-    }
     args.extend(additionnal_args);
     Command::new("cargo")
         .args(args)
@@ -20,9 +17,14 @@ fn build_binary(name: &str, options: &BuildOptions, additionnal_args: Vec<&str>)
 }
 
 pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
-    
-    build_binary("sr", options, vec!["--features", "rar-common/pcre2"]);
-    build_binary("chsr", options, vec![]);
+    if options.clean_before {
+        Command::new("cargo")
+            .arg("clean")
+            .status()
+            .expect("failed to clean");
+    }
+    build_binary("sr", options, vec![]);
+    build_binary("chsr", options, vec!["--no-default-features"]);
 
     Ok(())
 }

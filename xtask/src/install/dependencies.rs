@@ -1,3 +1,5 @@
+use std::process::ExitStatus;
+
 use anyhow::Context;
 
 use crate::install::OsTarget;
@@ -50,6 +52,39 @@ fn get_dependencies(os: &OsTarget, dev: &bool) -> &'static [&'static str] {
     }
 }
 
+pub fn install_dependencies(os: &OsTarget, deps:&[&str]) -> Result<ExitStatus,std::io::Error> {
+    match os {
+        OsTarget::Debian | OsTarget::Ubuntu => {
+            std::process::Command::new("apt-get")
+                .arg("install")
+                .arg("-y")
+                .args(deps)
+                .status()
+        },
+        OsTarget::RedHat => {
+            std::process::Command::new("yum")
+                .arg("install")
+                .arg("-y")
+                .args(deps)
+                .status()
+        },
+        OsTarget::Fedora => {
+            std::process::Command::new("dnf")
+                .arg("install")
+                .arg("-y")
+                .args(deps)
+                .status()
+        }
+        OsTarget::ArchLinux => {
+            std::process::Command::new("pacman")
+                .arg("-Syu")
+                .arg("--noconfirm")
+                .args(deps)
+                .status()
+        },
+    }
+}
+
 pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
     update_package_manager()?;
     // dependencies are : libpam and libpcre2
@@ -65,36 +100,7 @@ pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
             })
             .context("Failed to detect the OS")?
     };
-    match os {
-        OsTarget::Debian | OsTarget::Ubuntu => {
-            let _ = std::process::Command::new("apt-get")
-                .arg("install")
-                .arg("-y")
-                .args(get_dependencies(&os, &opts.dev))
-                .status()?;
-        },
-        OsTarget::RedHat => {
-            let _ = std::process::Command::new("yum")
-                .arg("install")
-                .arg("-y")
-                .args(get_dependencies(&os, &opts.dev))
-                .status()?;
-        },
-        OsTarget::Fedora => {
-            let _ = std::process::Command::new("dnf")
-                .arg("install")
-                .arg("-y")
-                .args(get_dependencies(&os, &opts.dev))
-                .status()?;
-        }
-        OsTarget::ArchLinux => {
-            let _ = std::process::Command::new("pacman")
-                .arg("-Syu")
-                .arg("--noconfirm")
-                .args(get_dependencies(&os, &opts.dev))
-                .status()?;
-        },
-    }
+    install_dependencies(&os, get_dependencies(&os, &opts.dev))?;
 
     println!("Dependencies installed successfully");
     Ok(())

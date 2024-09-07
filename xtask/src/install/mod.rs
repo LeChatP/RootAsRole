@@ -1,9 +1,8 @@
-mod install;
+pub(crate) mod install;
 mod build;
 mod uninstall;
-mod configure;
 mod util;
-mod dependencies;
+pub(crate) mod dependencies;
 
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -11,15 +10,15 @@ use std::str::FromStr;
 use chrono::{Datelike, NaiveDate, Utc};
 use clap::{Parser, ValueEnum};
 use semver::Version;
-use strum::{Display, EnumIs, EnumIter, EnumString};
+use strum::{Display, EnumIs, EnumString};
 
-use crate::ebpf::{self, build::EbpfArchitecture};
 use anyhow::anyhow;
+
+use crate::{configure, util::OsTarget};
 
 
 pub const SR_DEST: &str = "/usr/bin/sr";
 pub const CHSR_DEST: &str = "/usr/bin/chsr";
-pub const CAPABLE_DEST: &str = "/usr/bin/capable";
 
 
 #[derive(Debug, Parser, Clone)]
@@ -98,51 +97,10 @@ pub struct BuildOptions {
     #[clap(short, long, default_value = "stable")]
     pub toolchain: Toolchain,
 
-    /// The eBPF architecture to build.
-    /// Accepts no value (default is bpfel-unknown-none)
-    #[clap(default_missing_value = "bpfel-unknown-none", long, short )]
-    pub ebpf: Option<EbpfArchitecture>,
-
     /// Clean the target directory before building
     #[clap(long = "clean", short = 'b')]
     pub clean_before: bool,
 
-}
-
-#[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display)]
-#[clap(rename_all = "lowercase")]
-pub enum OsTarget {
-    #[clap(alias = "deb")]
-    Debian,
-    #[clap(alias = "ubu")]
-    Ubuntu,
-    #[clap(alias = "rh")]
-    RedHat,
-    #[clap(alias = "fed")]
-    Fedora,
-    #[clap(alias = "arch")]
-    ArchLinux,
-}
-
-impl OsTarget {
-    pub fn detect() -> Result<Self, anyhow::Error> {
-        for file in glob::glob("/etc/*-release")? {
-            let file = file?;
-            let os = std::fs::read_to_string(&file)?.to_ascii_lowercase();
-            if os.contains("debian") {
-                return Ok(OsTarget::Debian);
-            } else if os.contains("ubuntu") {
-                return Ok(OsTarget::Ubuntu);
-            } else if os.contains("fedora") {
-                return Ok(OsTarget::Fedora);
-            } else if os.contains("arch") {
-                return Ok(OsTarget::ArchLinux);
-            } else if os.contains("redhat") || os.contains("rhel") {
-                return Ok(OsTarget::RedHat);
-            } 
-        }
-        Err(anyhow!("Unsupported OS"))
-    }
 }
 
 impl ToString for Toolchain {
@@ -278,12 +236,7 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
     if ! opts.no_build {
         build(&opts.build)?;
     }
-    if opts.build.ebpf.is_some() {
-        let mut opts = opts.clone();
-        opts.build.toolchain.channel = Channel::Nightly;
-        ebpf::build_all(&opts.build)?;
-    }
-    install::install(&opts)?;
+    install::install(opts.build.profile, opts.clean_after, true)?;
     configure(opts.os.clone())
 }
 

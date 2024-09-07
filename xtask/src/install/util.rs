@@ -14,10 +14,3 @@ pub fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyho
     state.set_current()?;
     Ok(())
 }
-
-pub fn files_are_equal(path1: &str, path2: &str) -> io::Result<bool> {
-    let file1_content = fs::read(path1)?;
-    let file2_content = fs::read(path2)?;
-
-    Ok(file1_content == file2_content)
-}

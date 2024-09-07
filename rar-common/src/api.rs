@@ -6,12 +6,10 @@ use serde_json::Value;
 use strum::EnumIs;
 use tracing::debug;
 
-use crate::database::finder::{Cred, ExecSettings, TaskMatch, UserMin};
+#[cfg(feature = "finder")]
+use crate::database::finder::{Cred, ExecSettings, TaskMatch, UserMin, FilterMatcher};
 
-use crate::database::{
-    finder::FilterMatcher,
-    structs::{SActor, SConfig, SRole, STask},
-};
+use crate::database::structs::{SActor, SConfig, SRole, STask};
 use once_cell::sync::Lazy;
 static API: Lazy<Mutex<PluginManager>> = Lazy::new(|| Mutex::new(PluginManager::new()));
 
@@ -36,6 +34,7 @@ pub enum PluginResult {
 
 pub type ConfigLoaded = fn(config: &SConfig);
 
+#[cfg(feature = "finder")]
 pub type RoleMatcher = fn(
     role: &SRole,
     user: &Cred,
@@ -43,23 +42,27 @@ pub type RoleMatcher = fn(
     command: &[String],
     matcher: &mut TaskMatch,
 ) -> PluginResultAction;
+#[cfg(feature = "finder")]
 pub type TaskMatcher = fn(
     task: &STask,
     user: &Cred,
     command: &[String],
     matcher: &mut TaskMatch,
 ) -> PluginResultAction;
-
+#[cfg(feature = "finder")]
 pub type UserMatcher = fn(role: &SRole, user: &Cred, user_struct: &Value) -> UserMin;
 
 pub type RoleInformation = fn(role: &SRole) -> Option<String>;
 pub type ActorInformation = fn(actor: &SActor) -> Option<String>;
 pub type TaskInformation = fn(task: &STask) -> Option<String>;
 
+#[cfg(feature = "finder")]
 pub type DutySeparation = fn(role: &SRole, actor: &Cred) -> PluginResult;
+#[cfg(feature = "finder")]
 pub type TaskSeparation = fn(task: &STask, actor: &Cred) -> PluginResult;
 
 pub type CapsFilter = fn(task: &STask, capabilities: &mut CapSet) -> PluginResultAction;
+#[cfg(feature = "finder")]
 pub type ExecutionChecker = fn(user: &Cred, exec: &mut ExecSettings) -> PluginResult;
 
 pub type ComplexCommandParser =
@@ -74,12 +77,18 @@ macro_rules! plugin_subscribe {
 
 // Define a struct to hold the plugins
 pub struct PluginManager {
+    #[cfg(feature = "finder")]
     role_matcher_plugins: Vec<RoleMatcher>,
+    #[cfg(feature = "finder")]
     task_matcher_plugins: Vec<TaskMatcher>,
+    #[cfg(feature = "finder")]
     user_matcher_plugins: Vec<UserMatcher>,
+    #[cfg(feature = "finder")]
     duty_separation_plugins: Vec<DutySeparation>,
+    #[cfg(feature = "finder")]
     task_separation_plugins: Vec<TaskSeparation>,
     caps_filter_plugins: Vec<CapsFilter>,
+    #[cfg(feature = "finder")]
     execution_checker_plugins: Vec<ExecutionChecker>,
     complex_command_parsers: Vec<ComplexCommandParser>,
 }
@@ -87,33 +96,44 @@ pub struct PluginManager {
 impl PluginManager {
     pub fn new() -> Self {
         PluginManager {
+            #[cfg(feature = "finder")]
             role_matcher_plugins: Vec::new(),
+            #[cfg(feature = "finder")]
             task_matcher_plugins: Vec::new(),
+            #[cfg(feature = "finder")]
             user_matcher_plugins: Vec::new(),
+            #[cfg(feature = "finder")]
             duty_separation_plugins: Vec::new(),
+            #[cfg(feature = "finder")]
             task_separation_plugins: Vec::new(),
             caps_filter_plugins: Vec::new(),
+            #[cfg(feature = "finder")]
             execution_checker_plugins: Vec::new(),
             complex_command_parsers: Vec::new(),
         }
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_role_matcher(plugin: RoleMatcher) {
         plugin_subscribe!(role_matcher_plugins, RoleMatcher, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_task_matcher(plugin: TaskMatcher) {
         plugin_subscribe!(task_matcher_plugins, TaskMatcher, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_user_matcher(plugin: UserMatcher) {
         plugin_subscribe!(user_matcher_plugins, UserMatcher, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_duty_separation(plugin: DutySeparation) {
         plugin_subscribe!(duty_separation_plugins, DutySeparation, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_task_separation(plugin: TaskSeparation) {
         plugin_subscribe!(task_separation_plugins, TaskSeparation, plugin);
     }
@@ -122,6 +142,7 @@ impl PluginManager {
         plugin_subscribe!(caps_filter_plugins, CapsFilter, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn subscribe_privilege_checker(plugin: ExecutionChecker) {
         plugin_subscribe!(execution_checker_plugins, ExecutionChecker, plugin);
     }
@@ -130,6 +151,7 @@ impl PluginManager {
         plugin_subscribe!(complex_command_parsers, ComplexCommandParser, plugin);
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_role_matcher(
         role: &SRole,
         user: &Cred,
@@ -151,6 +173,7 @@ impl PluginManager {
         result
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_task_matcher(
         task: &STask,
         user: &Cred,
@@ -168,6 +191,7 @@ impl PluginManager {
         PluginResultAction::Ignore
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_user_matcher(role: &SRole, user: &Cred, user_struct: &Value) -> UserMin {
         let api = API.lock().unwrap();
         for plugin in api.user_matcher_plugins.iter() {
@@ -179,6 +203,7 @@ impl PluginManager {
         UserMin::NoMatch
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_duty_separation(role: &SRole, actor: &Cred) -> PluginResult {
         let api = API.lock().unwrap();
         for plugin in api.duty_separation_plugins.iter() {
@@ -190,6 +215,7 @@ impl PluginManager {
         PluginResult::Neutral
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_task_separation(task: &STask, actor: &Cred) -> PluginResult {
         let api = API.lock().unwrap();
         for plugin in api.task_separation_plugins.iter() {
@@ -213,6 +239,7 @@ impl PluginManager {
         PluginResultAction::Ignore
     }
 
+    #[cfg(feature = "finder")]
     pub fn notify_privilege_checker(user: &Cred, exec: &mut ExecSettings) -> PluginResult {
         let api = API.lock().unwrap();
         for plugin in api.execution_checker_plugins.iter() {

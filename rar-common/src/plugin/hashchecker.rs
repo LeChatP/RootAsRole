@@ -3,14 +3,10 @@ use std::{fs::File, io::Read, os::fd::AsRawFd};
 use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
-
 use crate::{
     api::PluginManager,
-    database::{
-        finder::{final_path, parse_conf_command},
-        structs::SCommand,
-    },
-    open_with_privileges,
+    database::structs::SCommand,
+    open_with_privileges, util::{final_path, parse_conf_command},
 };
 
 use libc::FS_IOC_GETFLAGS;
@@ -119,6 +115,7 @@ pub fn register() {
     PluginManager::subscribe_complex_command_parser(complex_command_parse)
 }
 
+#[cfg(feature = "finder")]
 #[cfg(test)]
 mod tests {
 
@@ -127,11 +124,10 @@ mod tests {
     use nix::unistd::{Pid, User};
 
     use super::*;
+    
+    use crate::finder::{Cred, TaskMatcher};
     use crate::{
-        database::{
-            finder::{Cred, TaskMatcher},
-            structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
-        },
+        database::structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
         rc_refcell,
     };
 

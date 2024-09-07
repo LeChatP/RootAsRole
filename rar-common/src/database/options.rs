@@ -6,6 +6,7 @@ use chrono::Duration;
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 
+use nix::features;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -15,6 +16,7 @@ use tracing::{debug, warn};
 
 use crate::rc_refcell;
 
+#[cfg(feature = "finder")]
 use super::finder::Cred;
 use super::{deserialize_duration, is_default, serialize_duration};
 
@@ -801,6 +803,7 @@ impl OptStack {
         (final_behavior, final_add, final_sub)
     }
 
+    #[cfg(feature = "finder")]
     pub fn calculate_filtered_env<I>(
         &self,
         target: Cred,
@@ -1469,6 +1472,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "finder")]
     #[test]
     fn test_check_env() {
         let mut env_options = SEnvOptions::new(EnvBehavior::Inherit);

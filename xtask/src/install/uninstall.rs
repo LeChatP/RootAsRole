@@ -1,11 +1,11 @@
 use anyhow::Context;
-use rar_common::util::toggle_lock_config;
 use std::fs;
 
+use crate::util::{files_are_equal, toggle_lock_config, ImmutableLock, ROOTASROLE};
+
 use super::{
-    configure::{config_state, CONFIG_FILE, PAM_CONFIG_PATH},
-    util::files_are_equal,
-    UninstallOptions, CAPABLE_DEST, CHSR_DEST, SR_DEST,
+    configure::{config_state, PAM_CONFIG_PATH},
+    UninstallOptions, CHSR_DEST, SR_DEST,
 };
 
 pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
@@ -23,16 +23,13 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
         if opts.clean_config || config_state()?.is_unchanged() {
             errors.push(
                 toggle_lock_config(
-                    &CONFIG_FILE.to_string(),
-                    rar_common::util::ImmutableLock::Unset,
+                    &ROOTASROLE.to_string(),
+                    ImmutableLock::Unset,
                 )
                 .context("Error while removing lock from config file"),
             );
-            errors.push(fs::remove_file(CONFIG_FILE).context(CONFIG_FILE));
+            errors.push(fs::remove_file(ROOTASROLE).context(ROOTASROLE));
         }
-    }
-    if opts.kind.is_all() || opts.kind.is_capable() {
-        errors.push(fs::remove_file(CAPABLE_DEST).context(CAPABLE_DEST));
     }
     for error in errors {
         if let Err(e) = error {

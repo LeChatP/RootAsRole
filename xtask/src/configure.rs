@@ -1,46 +1,18 @@
-use std::env;
+use std::env::{self, current_exe};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
 use anyhow::Context;
 use nix::unistd::{getresuid, getuid};
-use rar_common::util::toggle_lock_config;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use strum::EnumIs;
 
-use super::util::files_are_equal;
-use super::OsTarget;
+use crate::util::{files_are_equal, toggle_lock_config, ImmutableLock, OsTarget, SettingsFile, ROOTASROLE};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct SettingsFile {
-    pub storage: Settings,
-    #[serde(default)]
-    #[serde(flatten, skip)]
-    pub _extra_fields: Value,
-}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Settings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub settings: Option<RemoteStorageSettings>,
-    #[serde(default)]
-    #[serde(flatten)]
-    pub _extra_fields: Value,
-}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RemoteStorageSettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub immutable: Option<bool>,
-    #[serde(default)]
-    #[serde(flatten)]
-    pub _extra_fields: Value,
-}
 
-pub const CONFIG_FILE: &str = "/etc/security/rootasrole.json";
-const DEFAULT_PATH: &str = "resources/rootasrole.json";
+const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
 pub const PAM_CONFIG_PATH: &str = "/etc/pam.d/sr";
 
 fn is_running_in_container() -> bool {
@@ -78,11 +50,11 @@ fn is_running_in_container() -> bool {
     false
 }
 
-fn check_filesystem() -> io::Result<()> {
-    let config = BufReader::new(File::open(CONFIG_FILE)?);
+pub fn check_filesystem() -> io::Result<()> {
+    let config = BufReader::new(File::open(ROOTASROLE)?);
     let mut config: SettingsFile = serde_json::from_reader(config)?;
     // Get the filesystem type
-    if let Some(fs_type) = get_filesystem_type(CONFIG_FILE)? {
+    if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
         match fs_type.as_str() {
             "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
                 println!(
@@ -91,8 +63,8 @@ fn check_filesystem() -> io::Result<()> {
                 );
                 set_immutable(&mut config, true);
                 toggle_lock_config(
-                    &CONFIG_FILE.to_string(),
-                    rar_common::util::ImmutableLock::Set,
+                    &ROOTASROLE.to_string(),
+                    ImmutableLock::Set,
                 )?;
                 return Ok(());
             }
@@ -151,10 +123,10 @@ pub enum ConfigState {
 fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     let mut status = ConfigState::Unchanged;
     // Check if the target file exists
-    if !Path::new(CONFIG_FILE).exists() {
+    if !Path::new(ROOTASROLE).exists() {
         println!("Config file does not exist, deploying default file");
         // If the target file does not exist, copy the default file
-        deploy_config(CONFIG_FILE)?;
+        deploy_config(ROOTASROLE)?;
     } else {
         status = config_state()?;
     }
@@ -182,7 +154,7 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
 pub fn config_state() -> Result<ConfigState, anyhow::Error> {
     let temporary_config_file = "/tmp/rar.json";
     deploy_config(temporary_config_file)?;
-    let status = if files_are_equal(temporary_config_file, CONFIG_FILE)? {
+    let status = if files_are_equal(temporary_config_file, ROOTASROLE)? {
         ConfigState::Unchanged
     } else {
         ConfigState::Modified
@@ -192,12 +164,8 @@ pub fn config_state() -> Result<ConfigState, anyhow::Error> {
 }
 
 fn deploy_config<P: AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
-    let config = File::open(DEFAULT_PATH)?;
-    let mut buf = BufReader::new(config);
-    let mut content = String::new();
-    // Read the default config file
-    buf.read_to_string(&mut content)?;
-    // Get the real user
+
+    let mut content = TEMPLATE.to_string();
 
     let user = retrieve_real_user()?;
     // Replace the placeholder with the current user, which will act as the main administrator
@@ -259,6 +227,6 @@ pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     };
     deploy_pam_config(&os).context("Failed to deploy the PAM configuration file")?;
 
-    deploy_config_file().context("Failed to configure the config file")?;
+    deploy_config_file()?;
     Ok(())
 }

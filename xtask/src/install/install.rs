@@ -5,24 +5,19 @@ use capctl::{Cap, CapSet};
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
 
-use crate::ebpf::build::EbpfArchitecture;
 use crate::install::Profile;
 use anyhow::Context;
 
 use super::util::{cap_clear, cap_effective};
-use super::{InstallOptions, CAPABLE_DEST, CHSR_DEST, SR_DEST};
+use super::{CHSR_DEST, SR_DEST};
 
-fn copy_files(profile: &Profile, ebpf: Option<EbpfArchitecture>) -> Result<(), anyhow::Error> {
+fn copy_files(profile: &Profile) -> Result<(), anyhow::Error> {
     let binding = std::env::current_dir()?;
     let cwd = binding.to_str().context("unable to get current dir as string")?;
     println!("Current working directory: {}", cwd);
     println!("Copying files {}/target/{}/sr to {} and {}", cwd, profile, SR_DEST, CHSR_DEST);
     fs::rename(format!("{}/target/{}/sr", cwd, profile), SR_DEST)?;
     fs::rename(format!("{}/target/{}/chsr", cwd, profile), CHSR_DEST)?;
-    if let Some(ebpf) = ebpf {
-        println!("Copying file {}/target/{}/capable to {}", cwd, ebpf, CAPABLE_DEST);
-        fs::rename(format!("{}/target/{}/capable", cwd, ebpf), CAPABLE_DEST)?;
-    }
 
     chmod()?;
 
@@ -56,25 +51,27 @@ fn setfcap() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn install(options: &InstallOptions) -> Result<(), anyhow::Error> {
+pub fn install(profile: Profile, clean_after: bool, copy: bool) -> Result<(), anyhow::Error> {
     // test if current process has CAP_DAC_OVERRIDE,CAP_CHOWN capabilities
     let mut state = capctl::CapState::get_current()?;
     if state.permitted.has(Cap::DAC_OVERRIDE)
         && state.permitted.has(Cap::CHOWN)
         && state.permitted.has(Cap::SETFCAP)
     {
-        //raise dac_override to copy files
-        cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
+        if copy {
+            //raise dac_override to copy files
+            cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
 
-        // cp target/{release}/sr,chsr,capable /usr/bin
-        copy_files(
-            &options.build.profile,
-            options.build.ebpf,
-        )
-        .context("Failed to copy sr and chsr files")?;
+            // cp target/{release}/sr,chsr,capable /usr/bin
+            copy_files(
+                &profile,
+            )
+            .context("Failed to copy sr and chsr files")?;
 
-        // drop dac_override
-        cap_clear(&mut state).context("Failed to drop effective DAC_OVERRIDE")?;
+            // drop dac_override
+            cap_clear(&mut state).context("Failed to drop effective DAC_OVERRIDE")?;
+        }
+        
 
         // set file mode to 555 for sr and chsr
         chmod().context("Failed to set file mode for sr and chsr")?;
@@ -94,7 +91,7 @@ pub fn install(options: &InstallOptions) -> Result<(), anyhow::Error> {
         // drop all capabilities
         cap_clear(&mut state).context("Failed to drop effective capabilities")?;
 
-        if options.clean_after {
+        if clean_after {
             fs::remove_dir_all(format!("{:?}/target", std::env::current_dir()?))
                 .context("Failed to remove target directory")?;
         }
