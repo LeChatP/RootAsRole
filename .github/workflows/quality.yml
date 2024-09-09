@@ -37,13 +37,7 @@ jobs:
           profile: minimal
           toolchain: stable
           components: clippy
-          override: true
-
-      - name: Install Dependencies
-        run: ./dependencies.sh -yd
-      
-      - name: Configure
-        run: sudo ./configure.sh -yd
+          override: false
 
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master

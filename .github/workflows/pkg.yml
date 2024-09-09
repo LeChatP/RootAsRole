@@ -1,9 +1,10 @@
 name: Deploy pkg to GitHub Packages
 
-## only triger manual
+## never trigger this workflow automatically
 on:
-  workflow_dispatch:
-  
+  push: 
+    branches:
+      - no-trigger
 
 jobs:
   deploy:

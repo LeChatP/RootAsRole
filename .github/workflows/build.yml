@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
     - name: Configure PAM
       run: |
         sudo bash -c 'echo "#%PAM-1.0
@@ -25,7 +28,7 @@ jobs:
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
     - name: Install RootAsRole
-      run: cargo xtask install -d -i -p sudo
+      run: cargo xtask install -bia
     - name: Add read access on config on rootasrole... Because Github Actions...
       run: sudo chmod a+r /etc/security/rootasrole.json
     - name: print config

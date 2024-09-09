@@ -60,7 +60,7 @@ fn get_dependencies(os: &OsTarget, dev: &bool) -> &'static [&'static str] {
 
 fn is_priv_bin_necessary(os: &OsTarget) -> Result<bool, anyhow::Error> {
     match os {
-        OsTarget::ArchLinux => Ok(geteuid().is_root()),
+        OsTarget::ArchLinux => Ok(!geteuid().is_root()),
         _ => {
             let mut state = CapState::get_current()?;
             if state.permitted.has(capctl::Cap::DAC_OVERRIDE)
