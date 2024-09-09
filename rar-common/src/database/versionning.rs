@@ -38,6 +38,11 @@ pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[Migration {
     to: || Version::parse("3.0.0-alpha.5").unwrap(),
     up: |_, _| Ok(()),
     down: |_, _| Ok(()),
+}, Migration {
+    from: || Version::parse("3.0.0-alpha.5").unwrap(),
+    to: || Version::parse("3.0.0").unwrap(),
+    up: |_, _| Ok(()),
+    down: |_, _| Ok(()),
 }];
 
 pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[Migration {
@@ -45,4 +50,10 @@ pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[Migration {
     to: || Version::parse("3.0.0-alpha.5").unwrap(),
     up: |_, _| Ok(()),
     down: |_, _| Ok(()),
-}];
+},
+    Migration {
+        from: || Version::parse("3.0.0-alpha.5").unwrap(),
+        to: || Version::parse("3.0.0").unwrap(),
+        up: |_, _| Ok(()),
+        down: |_, _| Ok(()),
+    }];
