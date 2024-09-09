@@ -40,6 +40,9 @@ jobs:
           components: clippy
           override: false
 
+      - name: Install Dependencies
+        run: sudo -E cargo xtask dependencies -di
+
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master
         with:
