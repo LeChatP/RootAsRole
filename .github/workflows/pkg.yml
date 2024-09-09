@@ -25,7 +25,7 @@ jobs:
           override: true
 
       - name: Install Dependencies
-        run: sudo $(command -v cargo) xtask dependencies -i -d
+        run: cargo xtask dependencies -dip sudo
 
       - name: Build
         run: cargo xtask deploy debian redhat

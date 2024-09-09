@@ -1,15 +1,18 @@
+use std::env::{self, current_exe};
 use std::fs::{self, File};
 use std::os::fd::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
-use capctl::{Cap, CapSet};
+use capctl::{Cap, CapSet, CapState};
 use clap::Command;
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
+use strum::EnumIs;
 use tracing::{debug, error, info};
 
 use crate::install::Profile;
-use crate::util::{BOLD, RED, RST};
+use crate::util::{detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
 use super::util::{cap_clear, cap_effective};
@@ -78,18 +81,48 @@ fn setfcap() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn install(profile: Profile, clean_after: bool, copy: bool) -> Result<(), anyhow::Error> {
+#[derive(Debug, EnumIs)]
+pub enum Elevated {
+    Yes,
+    No,
+}
+
+pub fn install(priv_exe: &Option<String>,profile: Profile, clean_after: bool, copy: bool) -> Result<Elevated, anyhow::Error> {
     // test if current process has CAP_DAC_OVERRIDE,CAP_CHOWN capabilities
     let mut state = capctl::CapState::get_current()?;
     if !state.permitted.has(Cap::DAC_OVERRIDE)
         || !state.permitted.has(Cap::CHOWN)
         || !state.permitted.has(Cap::SETFCAP)
     {
-        return Err(anyhow!(
-            "You need CAP_DAC_OVERRIDE, CAP_CHOWN and CAP_SETFCAP capabilities to install rootasrole.
-            \nConsider using `sr cargo xtask install` or use sudo if sr is currently not installed."
-        ));
+        let bounding = capctl::bounding::probe();
+        // get parent process
+        if !bounding.has(Cap::DAC_OVERRIDE) ||
+            !bounding.has(Cap::CHOWN) ||
+            !bounding.has(Cap::SETFCAP)
+        {
+            return Err(anyhow!("The bounding set misses DAC_OVERRIDE, CHOWN or SETFCAP capabilities"));
+        } else if env::var("ROOTASROLE_INSTALLER_NESTED").is_ok_and(|v| v == "1") {
+            env::remove_var("ROOTASROLE_INSTALLER_NESTED");
+            return Err(anyhow!("Unable to elevate required capabilities, is LSM blocking installation?"));
+        }
+
+        let priv_bin = detect_priv_bin();
+        let priv_exe = priv_exe.as_ref().or(priv_bin.as_ref()).context("Privileged binary is required").map_err(|e|{
+            return anyhow::Error::msg(format!("Please run {} as an administrator.", current_exe().unwrap_or(PathBuf::from_str("the command").unwrap()).to_str().unwrap()));
+        })?;
+        env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
+        tracing::warn!("Elevating privileges...");
+        std::process::Command::new(priv_exe)
+            .arg(current_exe()?.to_str().context("Failed to get current exe path")?)
+            .arg("install")
+            .status()
+            .context("Failed to run privileged binary").map_err(|e|{
+                error!("{}", e);
+                return anyhow::Error::msg(format!("Failed to run privileged binary. Please run {} as an administrator.", current_exe().unwrap_or(PathBuf::from_str("the command").unwrap()).to_str().unwrap()));
+            })?;
+        return Ok(Elevated::Yes);
     }
+    env::remove_var("ROOTASROLE_INSTALLER_NESTED");
     if copy {
         //raise dac_override to copy files
         cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
@@ -101,7 +134,7 @@ pub fn install(profile: Profile, clean_after: bool, copy: bool) -> Result<(), an
         cap_clear(&mut state).context("Failed to drop effective DAC_OVERRIDE")?;
     }
 
-    cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise CHOWN")?;
+    cap_effective(&mut state, Cap::FOWNER).context("Failed to raise CHOWN")?;
 
     // set file mode to 555 for sr and chsr
     chmod().context("Failed to set file mode for sr and chsr")?;
@@ -127,5 +160,5 @@ pub fn install(profile: Profile, clean_after: bool, copy: bool) -> Result<(), an
             .status()
             .context("Failed to clean the project")?;
     }
-    Ok(())
+    Ok(Elevated::No)
 }

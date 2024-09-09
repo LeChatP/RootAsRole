@@ -245,13 +245,16 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
             priv_bin: opts.build_opts.privbin.clone().or(detect_priv_bin()),
         })?;
     }
-    debug!("AAAAAAAAAAAAAAAaa {:?}", opts.build);
     if opts.build {
         debug!("Building sr and chsr");
         build(&opts.build_opts)?;
     }
-    install::install(opts.build_opts.profile, opts.clean_after, true)?;
-    configure(Some(os))
+    if install::install(&opts.priv_bin, opts.build_opts.profile, opts.clean_after, true)?.is_yes(){
+        Ok(())
+    } else {
+        configure(Some(os))
+    }
+    
 }
 
 pub(crate) fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {

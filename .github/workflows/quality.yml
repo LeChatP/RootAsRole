@@ -40,8 +40,8 @@ jobs:
           components: clippy
           override: false
 
-      - name: Install Dependencies
-        run: sudo $(command -v cargo) xtask dependencies -di
+      - name: Install RootAsRole
+        run: cargo xtask dependencies -dip sudo
 
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master
