@@ -30,10 +30,8 @@ jobs:
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
     - name: Install RootAsRole
       run: cargo xtask install -bip sudo
-    - name: Add read access on config on rootasrole... Because Github Actions...
-      run: sudo chmod a+r /etc/security/rootasrole.json
     - name: print config
-      run: cat /etc/security/rootasrole.json
+      run: sr cat /etc/security/rootasrole.json
     - name: getenv
       run: env
     - name: Run Sr

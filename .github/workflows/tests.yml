@@ -26,7 +26,7 @@ jobs:
       run: apt install sudo -y
 
     - name: Install Dependencies
-        run: cargo xtask dependencies -dip sudo
+      run: cargo xtask dependencies -dip sudo
     
     - name: run tests with coverage
       run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files build.rs xtask* --out Xml
