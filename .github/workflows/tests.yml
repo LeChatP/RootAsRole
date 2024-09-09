@@ -25,9 +25,6 @@ jobs:
     - name: Install sudo
       run: apt install sudo -y
     
-    - name: Install RootAsRole
-      run: cargo xtask install -bia
-    
     - name: run tests with coverage
       run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files build.rs xtask* --out Xml
 

@@ -86,7 +86,7 @@ pub fn install(profile: Profile, clean_after: bool, copy: bool) -> Result<(), an
         || !state.permitted.has(Cap::SETFCAP)
     {
         return Err(anyhow!(
-            "You need CAP_DAC_OVERRIDE, CAP_CHOWN and CAP_CHOWN capabilities to install rootasrole.
+            "You need CAP_DAC_OVERRIDE, CAP_CHOWN and CAP_SETFCAP capabilities to install rootasrole.
             \nConsider using `sr cargo xtask install` or use sudo if sr is currently not installed."
         ));
     }
