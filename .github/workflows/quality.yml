@@ -41,7 +41,7 @@ jobs:
           override: false
 
       - name: Install Dependencies
-        run: sudo -E cargo xtask dependencies -di
+        run: sudo $(command -v cargo) xtask dependencies -di
 
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master
