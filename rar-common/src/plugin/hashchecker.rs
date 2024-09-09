@@ -1,13 +1,14 @@
 use std::{fs::File, io::Read, os::fd::AsRawFd};
 
-use nix::unistd::{access, AccessFlags};
-use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
 use crate::{
     api::PluginManager,
     database::structs::SCommand,
-    open_with_privileges, util::{final_path, parse_conf_command},
+    open_with_privileges,
+    util::{final_path, parse_conf_command},
 };
+use nix::unistd::{access, AccessFlags};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 use libc::FS_IOC_GETFLAGS;
 use sha2::Digest;
@@ -124,7 +125,7 @@ mod tests {
     use nix::unistd::{Pid, User};
 
     use super::*;
-    
+
     use crate::finder::{Cred, TaskMatcher};
     use crate::{
         database::structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},

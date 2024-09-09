@@ -166,10 +166,14 @@ fn main() {
                 if let Err(err) = set_cargo_version(package_version, "capable/capable/Cargo.toml") {
                     eprintln!("cargo:warning={}", err);
                 }
-                if let Err(err) = set_cargo_version(package_version, "capable/capable-ebpf/Cargo.toml") {
+                if let Err(err) =
+                    set_cargo_version(package_version, "capable/capable-ebpf/Cargo.toml")
+                {
                     eprintln!("cargo:warning={}", err);
                 }
-                if let Err(err) = set_cargo_version(package_version, "capable/capable-common/Cargo.toml") {
+                if let Err(err) =
+                    set_cargo_version(package_version, "capable/capable-common/Cargo.toml")
+                {
                     eprintln!("cargo:warning={}", err);
                 }
             }
@@ -179,9 +183,9 @@ fn main() {
             if let Err(err) = set_readme_version(package_version, "README.md") {
                 eprintln!("cargo:warning={}", err);
             }
-            if let Err(err) = set_pkgbuild_version(package_version, "PKGBUILD") {
-                eprintln!("cargo:warning={}", err);
-            }
+            //if let Err(err) = set_pkgbuild_version(package_version, "PKGBUILD") {
+            //eprintln!("cargo:warning={}", err);
+            //}
         }
         Err(err) => {
             eprintln!("cargo:warning={}", err);
@@ -194,6 +198,4 @@ fn main() {
     // }
 
     f.flush().unwrap();
-
-    
 }

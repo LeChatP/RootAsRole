@@ -1,8 +1,8 @@
-pub(crate) mod install;
 mod build;
+pub(crate) mod dependencies;
+pub(crate) mod install;
 mod uninstall;
 mod util;
-pub(crate) mod dependencies;
 
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -13,28 +13,29 @@ use semver::Version;
 use strum::{Display, EnumIs, EnumString};
 
 use anyhow::anyhow;
+use tracing::debug;
 
-use crate::{configure, util::OsTarget};
-
+use crate::{
+    configure,
+    util::{detect_priv_bin, get_os, OsTarget},
+};
 
 pub const SR_DEST: &str = "/usr/bin/sr";
 pub const CHSR_DEST: &str = "/usr/bin/chsr";
 
-
 #[derive(Debug, Parser, Clone)]
 pub struct InstallOptions {
-
     #[clap(flatten)]
-    pub build : BuildOptions,
+    pub build_opts: BuildOptions,
 
     /// The OS target for PAM configuration and dependencies installation (if -i is set)
     /// By default, it tries to autodetect it
     #[clap(long, short)]
     pub os: Option<OsTarget>,
 
-    /// Do not build the binaries
-    #[clap(long, short = 'n')]
-    pub no_build: bool,
+    /// Build the binaries
+    #[clap(long, short = 'b')]
+    pub build: bool,
 
     /// Install dependencies before building
     #[clap(long, short = 'i')]
@@ -43,11 +44,14 @@ pub struct InstallOptions {
     /// Clean the target directory after installing
     #[clap(long, short = 'a')]
     pub clean_after: bool,
+
+    /// The binary to elevate privileges
+    #[clap(long, short = 'p')]
+    pub priv_bin: Option<String>,
 }
 
 #[derive(Debug, Parser)]
 pub struct InstallDependenciesOptions {
-    
     /// The OS target for PAM configuration and dependencies installation (if -i is set)
     /// By default, it tries to autodetect it
     #[clap(long, short)]
@@ -60,6 +64,10 @@ pub struct InstallDependenciesOptions {
     /// Install development dependencies for compiling
     #[clap(long, short = 'd')]
     pub dev: bool,
+
+    /// The binary to elevate privileges
+    #[clap(long, short = 'p')]
+    pub priv_bin: Option<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -86,9 +94,11 @@ pub enum Profile {
     Debug,
 }
 
-
 #[derive(Debug, Parser, Clone)]
 pub struct BuildOptions {
+    /// The binary to elevate privileges
+    pub privbin: Option<String>,
+
     /// Build the target with debug profile (default is release)
     #[clap(short = 'd', long = "debug", default_value_t = Profile::Release, default_missing_value = "debug", num_args = 0)]
     pub profile: Profile,
@@ -98,9 +108,8 @@ pub struct BuildOptions {
     pub toolchain: Toolchain,
 
     /// Clean the target directory before building
-    #[clap(long = "clean", short = 'b')]
+    #[clap(long = "clean")]
     pub clean_before: bool,
-
 }
 
 impl ToString for Toolchain {
@@ -205,7 +214,7 @@ impl FromStr for Toolchain {
                 parts.pop_front();
             }
         }
-        
+
         let host = parts
             .iter()
             .fold(String::new(), |acc, x| format!("{}-{}", acc, x));
@@ -226,24 +235,29 @@ pub(crate) fn dependencies(opts: InstallDependenciesOptions) -> Result<(), anyho
 }
 
 pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
+    let os = get_os(opts.os.clone())?;
     if opts.install_dependencies {
+        debug!("Installing dependencies");
         dependencies(InstallDependenciesOptions {
-            os: opts.os.clone(),
+            os: Some(os.clone()),
             install_dependencies: true,
-            dev: !opts.no_build,
+            dev: opts.build,
+            priv_bin: opts.build_opts.privbin.clone().or(detect_priv_bin()),
         })?;
     }
-    if ! opts.no_build {
-        build(&opts.build)?;
+    debug!("AAAAAAAAAAAAAAAaa {:?}", opts.build);
+    if opts.build {
+        debug!("Building sr and chsr");
+        build(&opts.build_opts)?;
     }
-    install::install(opts.build.profile, opts.clean_after, true)?;
-    configure(opts.os.clone())
+    install::install(opts.build_opts.profile, opts.clean_after, true)?;
+    configure(Some(os))
 }
 
 pub(crate) fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
     build::build(opts)
 }
 
-pub(crate) fn uninstall(opts : &UninstallOptions) -> Result<(), anyhow::Error> {
+pub(crate) fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     uninstall::uninstall(opts)
 }

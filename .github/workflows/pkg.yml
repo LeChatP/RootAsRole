@@ -24,15 +24,9 @@ jobs:
           override: true
 
       - name: Install Dependencies
-        run: ./dependencies.sh -yd
-
-      - name: Configure
-        run: sudo ./configure.sh -yd
-
-      - name: Install cargo deb
-        run: cargo install cargo-deb
+        run: sudo cargo xtask dependencies -i -d
 
       - name: Build
-        run: cargo deb
+        run: cargo xtask deploy debian redhat
 
-      - name: Upload to GitHub 
+        

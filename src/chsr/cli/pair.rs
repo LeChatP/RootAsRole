@@ -9,8 +9,7 @@ use tracing::{debug, warn};
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::database::{
     options::{
-        EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
-        TimestampType,
+        EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged, TimestampType,
     },
     structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
 };

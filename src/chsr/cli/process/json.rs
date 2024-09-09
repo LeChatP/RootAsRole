@@ -13,14 +13,13 @@ use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt}
 
 use rar_common::{
     database::{
-    options::{
-        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout,
+        options::{
+            EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
+            STimeout,
+        },
+        structs::{IdTask, SCapabilities, SCommand, SRole, STask},
     },
-    structs::{IdTask, SCapabilities, SCommand, SRole, STask},
-    
-},
-rc_refcell,
+    rc_refcell,
 };
 
 use super::perform_on_target_opt;

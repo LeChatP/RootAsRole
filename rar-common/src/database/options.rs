@@ -357,20 +357,21 @@ fn is_regex(_s: &str) -> bool {
 impl EnvKey {
     pub fn new(s: String) -> Result<Self, String> {
         //debug!("Creating env key: {}", s);
-        if is_valid_env_name(&s)
-        {
+        if is_valid_env_name(&s) {
             Ok(EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if is_regex(&s)
-        {
+        } else if is_regex(&s) {
             Ok(EnvKey {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
-            Err(format!("env key {}, must be a valid env, or a valid regex", s))
+            Err(format!(
+                "env key {}, must be a valid env, or a valid regex",
+                s
+            ))
         }
     }
 }
@@ -446,11 +447,7 @@ impl<T> EnvSet for HashMap<String, T> {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool {
         match wildcarded.env_type {
             EnvKeyType::Normal => self.contains_key(&wildcarded.value),
-            EnvKeyType::Wildcarded => {
-                self.keys().any(|s| {
-                    check_wildcarded(wildcarded, s)
-                })
-            }
+            EnvKeyType::Wildcarded => self.keys().any(|s| check_wildcarded(wildcarded, s)),
         }
     }
 }
@@ -459,11 +456,7 @@ impl EnvSet for LinkedHashSet<EnvKey> {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool {
         match wildcarded.env_type {
             EnvKeyType::Normal => self.contains(wildcarded),
-            EnvKeyType::Wildcarded => {
-                self.iter().any(|s| {
-                    check_wildcarded(wildcarded, &s.value)
-                })
-            }
+            EnvKeyType::Wildcarded => self.iter().any(|s| check_wildcarded(wildcarded, &s.value)),
         }
     }
 }

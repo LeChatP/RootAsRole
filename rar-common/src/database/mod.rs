@@ -11,13 +11,13 @@ use tracing::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 
-use crate::SettingsFile;
 use crate::util::warn_if_mutable;
-use crate::{
-    RemoteStorageSettings, ROOTASROLE,
-    util::{parse_capset_iter, immutable_effective},
-};
+use crate::SettingsFile;
 use crate::{open_with_privileges, write_json_config};
+use crate::{
+    util::{immutable_effective, parse_capset_iter},
+    RemoteStorageSettings, ROOTASROLE,
+};
 
 #[cfg(feature = "finder")]
 pub mod finder;

@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use tracing::debug;
 
 use super::BuildOptions;
 
@@ -10,6 +11,7 @@ fn build_binary(name: &str, options: &BuildOptions, additionnal_args: Vec<&str>)
         args.push("--release");
     }
     args.extend(additionnal_args);
+    debug!("Building {} binary with args: {:?}", name, args);
     Command::new("cargo")
         .args(args)
         .status()

@@ -1,28 +1,34 @@
 use std::process::ExitStatus;
 
 use anyhow::Context;
+use capctl::CapState;
+use nix::unistd::geteuid;
+use tracing::info;
 
-use crate::install::OsTarget;
+use crate::{install::OsTarget, util::get_os};
 
 use super::InstallDependenciesOptions;
 
-fn update_package_manager() -> Result<(), anyhow::Error> {
-    let os = OsTarget::detect()?;
+fn update_package_manager(os: &OsTarget, priv_bin: &Option<String>) -> Result<(), anyhow::Error> {
+    let mut command = Vec::new();
+    if is_priv_bin_necessary(os)? {
+        if let Some(priv_bin) = priv_bin {
+            command.push(priv_bin.as_str());
+        } else {
+            return Err(anyhow::anyhow!("Privileged binary is required"));
+        }
+    }
 
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => {
-            let _ = std::process::Command::new("apt-get")
-                .arg("update")
-                .status()?;
-        },
-        OsTarget::RedHat | OsTarget::Fedora => {
-            let _ = std::process::Command::new("yum")
-                .arg("update")
-                .arg("-y")
-                .status()?;
-        },
-        OsTarget::ArchLinux => {},
-    }
+        OsTarget::Debian | OsTarget::Ubuntu => command.extend(&["apt-get", "update"]),
+        OsTarget::RedHat => command.extend(&["yum", "update", "-y"]),
+        OsTarget::ArchLinux => command.extend(&["pacman", "-Syu"]),
+        OsTarget::Fedora => command.extend(&["dnf", "update", "-y"]),
+    };
+    std::process::Command::new(command[0])
+        .args(&command[1..])
+        .status()
+        .context("Failed to update package manager")?;
 
     Ok(())
 }
@@ -52,56 +58,58 @@ fn get_dependencies(os: &OsTarget, dev: &bool) -> &'static [&'static str] {
     }
 }
 
-pub fn install_dependencies(os: &OsTarget, deps:&[&str]) -> Result<ExitStatus,std::io::Error> {
+fn is_priv_bin_necessary(os: &OsTarget) -> Result<bool, anyhow::Error> {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => {
-            std::process::Command::new("apt-get")
-                .arg("install")
-                .arg("-y")
-                .args(deps)
-                .status()
-        },
-        OsTarget::RedHat => {
-            std::process::Command::new("yum")
-                .arg("install")
-                .arg("-y")
-                .args(deps)
-                .status()
-        },
-        OsTarget::Fedora => {
-            std::process::Command::new("dnf")
-                .arg("install")
-                .arg("-y")
-                .args(deps)
-                .status()
+        OsTarget::ArchLinux => Ok(geteuid().is_root()),
+        _ => {
+            let mut state = CapState::get_current()?;
+            if state.permitted.has(capctl::Cap::DAC_OVERRIDE)
+                && !state.effective.has(capctl::Cap::DAC_OVERRIDE)
+            {
+                state.effective.add(capctl::Cap::DAC_OVERRIDE);
+                state.set_current()?;
+                Ok(false)
+            } else {
+                Ok(true)
+            }
         }
-        OsTarget::ArchLinux => {
-            std::process::Command::new("pacman")
-                .arg("-Syu")
-                .arg("--noconfirm")
-                .args(deps)
-                .status()
-        },
     }
 }
 
+pub fn install_dependencies(
+    os: &OsTarget,
+    deps: &[&str],
+    priv_bin: Option<String>,
+) -> Result<ExitStatus, anyhow::Error> {
+    let mut command = Vec::new();
+
+    if is_priv_bin_necessary(os)? {
+        if let Some(priv_bin) = &priv_bin {
+            command.push(priv_bin.as_str());
+        } else {
+            return Err(anyhow::anyhow!("Privileged binary is required"));
+        }
+    }
+    command.extend(match os {
+        OsTarget::Debian | OsTarget::Ubuntu => ["apt-get", "install", "-y"],
+        OsTarget::RedHat => ["yum", "install", "-y"],
+        OsTarget::Fedora => ["dnf", "install", "-y"],
+        OsTarget::ArchLinux => ["pacman", "-Syu", "--noconfirm"],
+    });
+    command.extend(deps);
+    Ok(std::process::Command::new(command[0])
+        .args(&command[1..])
+        .status()?)
+}
+
 pub fn install(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
-    update_package_manager()?;
+    let os = get_os(opts.os)?;
+    update_package_manager(&os, &opts.priv_bin)?;
     // dependencies are : libpam and libpcre2
-    println!("Installing dependencies: libpam.so and libpcre2.so for running the application");
+    info!("Installing dependencies: libpam.so and libpcre2.so for running the application");
 
-    let os = if let Some(os) = opts.os {
-        os
-    } else {
-        OsTarget::detect()
-            .and_then(|t| {
-                println!("Detected OS is : {}", t);
-                Ok(t)
-            })
-            .context("Failed to detect the OS")?
-    };
-    install_dependencies(&os, get_dependencies(&os, &opts.dev))?;
+    install_dependencies(&os, get_dependencies(&os, &opts.dev), opts.priv_bin)?;
 
-    println!("Dependencies installed successfully");
+    info!("Dependencies installed successfully");
     Ok(())
 }

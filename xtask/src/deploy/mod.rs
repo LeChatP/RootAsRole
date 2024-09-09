@@ -4,8 +4,8 @@ use clap::Parser;
 
 use crate::{install::Profile, util::OsTarget};
 
-mod debian;
 mod arch;
+mod debian;
 mod redhat;
 
 #[derive(Debug, Parser)]
@@ -20,10 +20,16 @@ pub struct MakeOptions {
 
     /// The OS target for package generation
     pub target: Vec<OsTarget>,
+
+    /// The binary to elevate privileges
+    #[clap(long, short = 'p')]
+    pub priv_bin: Option<String>,
 }
 
 fn all() -> HashSet<OsTarget> {
-    vec![OsTarget::Debian, OsTarget::ArchLinux, OsTarget::RedHat].into_iter().collect()
+    vec![OsTarget::Debian, OsTarget::ArchLinux, OsTarget::RedHat]
+        .into_iter()
+        .collect()
 }
 
 pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
@@ -35,13 +41,9 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
 
     for target in targets {
         match target {
-            OsTarget::Debian => {
-                debian::dependencies()?;
-                debian::make_deb(opts.profile)?;
-                
-            },
+            OsTarget::Debian => debian::make_deb(opts.os.clone(), opts.profile, &opts.priv_bin)?,
             OsTarget::ArchLinux => arch::make_pkg(opts.profile)?,
-            OsTarget::RedHat => redhat::make_rpm(opts.profile)?,
+            OsTarget::RedHat => redhat::make_rpm(opts.os.clone(), opts.profile, &opts.priv_bin)?,
             _ => anyhow::bail!("Unsupported OS target"),
         }
     }

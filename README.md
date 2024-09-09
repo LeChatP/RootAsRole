@@ -50,7 +50,7 @@
 
   1. `git clone <https://github.com/LeChatP/RootAsRole>`
   1. `cd RootAsRole`
-  1. `cargo xtask install -i`
+  1. `sudo cargo xtask install -i -b`
 
 ### Additional Installation Options
 

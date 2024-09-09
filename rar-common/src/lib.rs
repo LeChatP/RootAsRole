@@ -57,17 +57,15 @@ use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-pub mod util;
-pub mod database;
 pub mod api;
-pub mod version;
+pub mod database;
 pub mod plugin;
+pub mod util;
+pub mod version;
 
-
-use util::{ 
-        dac_override_effective, open_with_privileges, read_effective,
-        toggle_lock_config, ImmutableLock,
-        write_json_config, 
+use util::{
+    dac_override_effective, open_with_privileges, read_effective, toggle_lock_config,
+    write_json_config, ImmutableLock,
 };
 
 use database::{

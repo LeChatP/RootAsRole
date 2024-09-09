@@ -1,8 +1,14 @@
 use std::{
-    env, error::Error, ffi::CString, fs::File, io, os::{
+    env,
+    error::Error,
+    ffi::CString,
+    fs::File,
+    io,
+    os::{
         fd::AsRawFd,
         unix::fs::{MetadataExt, PermissionsExt},
-    }, path::{Path, PathBuf}
+    },
+    path::{Path, PathBuf},
 };
 
 use capctl::{prctl, CapState};
@@ -75,12 +81,10 @@ fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), cap
 fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
     Ok(match effective {
         false => {
-            read_effective(false)
-                .and(dac_override_effective(false))?;
+            read_effective(false).and(dac_override_effective(false))?;
         }
         true => {
-            read_effective(true)
-                .or(dac_override_effective(true))?;
+            read_effective(true).or(dac_override_effective(true))?;
         }
     })
 }
@@ -89,7 +93,7 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
 /// # Arguments
 /// * `file` - The file to set the immutable flag on
 /// * `lock` - Whether to set or unset the immutable flag
-pub fn toggle_lock_config<P:AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
+pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
     let file = open_with_privileges(file)?;
     let mut val = 0;
     let fd = file.as_raw_fd();

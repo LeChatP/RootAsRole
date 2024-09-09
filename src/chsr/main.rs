@@ -1,14 +1,10 @@
 //extern crate sudoers_reader;
 
 use rar_common::{
-    Storage,
     database::{read_json_config, save_json},
-    util::{
-        drop_effective, read_effective,
-        subsribe,
-    },
     plugin::register_plugins,
-    
+    util::{drop_effective, read_effective, subsribe},
+    Storage,
 };
 use tracing::{debug, error};
 

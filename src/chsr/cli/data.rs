@@ -4,6 +4,7 @@ use capctl::CapSet;
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 
+use pest_derive::Parser;
 use rar_common::database::{
     options::{
         EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
@@ -11,7 +12,6 @@ use rar_common::database::{
     },
     structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
 };
-use pest_derive::Parser;
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]

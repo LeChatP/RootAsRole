@@ -5,8 +5,8 @@ use nix::unistd::{getgrouplist, Group, User};
 use serde_json::Error;
 
 use crate::{
-    as_borrow,
     api::{PluginManager, PluginResult},
+    as_borrow,
     database::{
         finder::Cred,
         structs::{SActor, SConfig, SGroups, SRole},

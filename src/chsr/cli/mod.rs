@@ -13,8 +13,8 @@ use process::process_input;
 use tracing::debug;
 use usage::print_usage;
 
-use rar_common::Storage;
 use crate::util::escape_parser_string_vec;
+use rar_common::Storage;
 
 pub fn main<I, S>(storage: &Storage, args: I) -> Result<bool, Box<dyn Error>>
 where
@@ -42,7 +42,15 @@ mod tests {
     use std::{io::Write, rc::Rc};
 
     use rar_common::{
-        database::{options::*, read_json_config, structs::{SCredentials, *}, versionning::Versioning}, get_settings, rc_refcell, util::remove_with_privileges, RemoteStorageSettings, SettingsFile, Storage, StorageMethod, ROOTASROLE
+        database::{
+            options::*,
+            read_json_config,
+            structs::{SCredentials, *},
+            versionning::Versioning,
+        },
+        get_settings, rc_refcell,
+        util::remove_with_privileges,
+        RemoteStorageSettings, SettingsFile, Storage, StorageMethod, ROOTASROLE,
     };
 
     use super::*;
@@ -254,9 +262,8 @@ mod tests {
     #[test]
     fn test_r_complete_show_actors() {
         setup("r_complete_show_actors");
-        let settings =
-            get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_show_actors"))
-                .expect("Failed to get settings");
+        let settings = get_settings(&format!("{}.{}", ROOTASROLE, "r_complete_show_actors"))
+            .expect("Failed to get settings");
         let config = read_json_config(settings.clone()).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),

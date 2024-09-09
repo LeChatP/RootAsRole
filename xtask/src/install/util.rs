@@ -1,5 +1,3 @@
-use std::{fs, io};
-
 use capctl::Cap;
 
 pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {

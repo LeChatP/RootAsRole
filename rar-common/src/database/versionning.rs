@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 use super::migration::Migration;
-use crate::SettingsFile;
 use crate::version;
+use crate::SettingsFile;
 
 use super::structs::*;
 

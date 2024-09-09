@@ -18,15 +18,17 @@ use pcre2::bytes::RegexBuilder;
 use strum::EnumIs;
 use tracing::{debug, warn};
 
-use crate::{api::{PluginManager, PluginResultAction}, as_borrow};
 use crate::database::{
-        options::{Opt, OptStack},
-        structs::{
-            SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask,
-            SetBehavior,
-        },
-    };
-use crate::util::{final_path, capabilities_are_exploitable, parse_conf_command};
+    options::{Opt, OptStack},
+    structs::{
+        SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask, SetBehavior,
+    },
+};
+use crate::util::{capabilities_are_exploitable, final_path, parse_conf_command};
+use crate::{
+    api::{PluginManager, PluginResultAction},
+    as_borrow,
+};
 use bitflags::bitflags;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -306,8 +308,6 @@ pub trait TaskMatcher<T> {
 pub trait CredMatcher {
     fn user_matches(&self, user: &Cred) -> UserMin;
 }
-
-
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     let env_path = std::env::var_os("PATH").unwrap();

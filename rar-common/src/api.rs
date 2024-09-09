@@ -7,7 +7,7 @@ use strum::EnumIs;
 use tracing::debug;
 
 #[cfg(feature = "finder")]
-use crate::database::finder::{Cred, ExecSettings, TaskMatch, UserMin, FilterMatcher};
+use crate::database::finder::{Cred, ExecSettings, FilterMatcher, TaskMatch, UserMin};
 
 use crate::database::structs::{SActor, SConfig, SRole, STask};
 use once_cell::sync::Lazy;

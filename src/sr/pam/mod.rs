@@ -8,11 +8,11 @@ use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
 use tracing::{debug, error, info, warn};
 
-use rar_common::{
-    Storage,
-    database::{finder::Cred, options::OptStack},
-};
 use crate::timeout;
+use rar_common::{
+    database::{finder::Cred, options::OptStack},
+    Storage,
+};
 
 use self::rpassword::Terminal;
 

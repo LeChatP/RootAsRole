@@ -2,15 +2,15 @@ pub mod pam;
 mod timeout;
 
 use capctl::CapState;
-use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
-use rar_common::database::{options::OptStack, structs::SConfig};
-use rar_common::util::escape_parser_string;
 use const_format::formatcp;
 use nix::{
     libc::dev_t,
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
+use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
+use rar_common::database::{options::OptStack, structs::SConfig};
+use rar_common::util::escape_parser_string;
 
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
@@ -21,10 +21,13 @@ use tracing::{debug, error};
 
 use rar_common::plugin::register_plugins;
 use rar_common::{
-    util::{dac_override_effective,activates_no_new_privs, setgid_effective, setpcap_effective, setuid_effective,
-        drop_effective, read_effective, subsribe, BOLD, RST, UNDERLINE},
-    self, Storage,
+    self,
     database::{read_json_config, structs::SGroups},
+    util::{
+        activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
+        setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
+    },
+    Storage,
 };
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
@@ -179,7 +182,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::{rar_common::ROOTASROLE, pam::check_auth};
+    use crate::{pam::check_auth, rar_common::ROOTASROLE};
 
     subsribe("sr");
     drop_effective()?;

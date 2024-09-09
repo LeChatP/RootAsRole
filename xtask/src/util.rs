@@ -1,18 +1,22 @@
 use std::{
-    fs::{self, File}, io, os::{
-        fd::AsRawFd,
-        unix::fs::MetadataExt,
-    }, path::Path
+    fs::{self, File},
+    io,
+    os::{fd::AsRawFd, unix::fs::MetadataExt},
+    path::Path,
 };
 
-use capctl::CapState;
+use anyhow::{anyhow, Context};
 use capctl::Cap;
+use capctl::CapState;
 use clap::ValueEnum;
-use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use nix::{
+    libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS},
+    unistd::geteuid,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter};
-use anyhow::anyhow;
+use tracing::debug;
 
 #[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display, PartialEq, Eq, Hash)]
 #[clap(rename_all = "lowercase")]
@@ -44,7 +48,7 @@ impl OsTarget {
                 return Ok(OsTarget::ArchLinux);
             } else if os.contains("redhat") || os.contains("rhel") {
                 return Ok(OsTarget::RedHat);
-            } 
+            }
         }
         Err(anyhow!("Unsupported OS"))
     }
@@ -109,12 +113,10 @@ fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), cap
 fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
     Ok(match effective {
         false => {
-            read_effective(false)
-                .and(dac_override_effective(false))?;
+            read_effective(false).and(dac_override_effective(false))?;
         }
         true => {
-            read_effective(true)
-                .or(dac_override_effective(true))?;
+            read_effective(true).or(dac_override_effective(true))?;
         }
     })
 }
@@ -123,7 +125,7 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
 /// # Arguments
 /// * `file` - The file to set the immutable flag on
 /// * `lock` - Whether to set or unset the immutable flag
-pub fn toggle_lock_config<P:AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
+pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
     let file = open_with_privileges(file)?;
     let mut val = 0;
     let fd = file.as_raw_fd();
@@ -183,12 +185,37 @@ pub fn files_are_equal(path1: &str, path2: &str) -> io::Result<bool> {
     Ok(file1_content == file2_content)
 }
 
+pub fn get_os(os: Option<OsTarget>) -> Result<OsTarget, anyhow::Error> {
+    Ok(if let Some(os) = os {
+        os
+    } else {
+        OsTarget::detect()
+            .and_then(|t| {
+                debug!("Detected OS is : {}", t);
+                Ok(t)
+            })
+            .context("Failed to detect the OS")?
+    })
+}
+
+pub fn detect_priv_bin() -> Option<String> {
+    // is /usr/bin/sr exist ?
+    if std::fs::metadata("/usr/bin/sr").is_ok() {
+        return Some("/usr/bin/sr".to_string());
+    } else if std::fs::metadata("/usr/bin/sudo").is_ok() {
+        return Some("/usr/bin/sudo".to_string());
+    } else if std::fs::metadata("/usr/bin/doas").is_ok() {
+        return Some("/usr/bin/doas".to_string());
+    } else {
+        return None;
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{fs, path::PathBuf};
 
     use super::*;
-
 
     #[test]
     fn test_toggle_lock_config() {
