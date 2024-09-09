@@ -87,7 +87,12 @@ pub enum Elevated {
     No,
 }
 
-pub fn install(priv_exe: &Option<String>,profile: Profile, clean_after: bool, copy: bool) -> Result<Elevated, anyhow::Error> {
+pub fn install(
+    priv_exe: &Option<String>,
+    profile: Profile,
+    clean_after: bool,
+    copy: bool,
+) -> Result<Elevated, anyhow::Error> {
     // test if current process has CAP_DAC_OVERRIDE,CAP_CHOWN capabilities
     let mut state = capctl::CapState::get_current()?;
     if !state.permitted.has(Cap::DAC_OVERRIDE)
@@ -96,29 +101,54 @@ pub fn install(priv_exe: &Option<String>,profile: Profile, clean_after: bool, co
     {
         let bounding = capctl::bounding::probe();
         // get parent process
-        if !bounding.has(Cap::DAC_OVERRIDE) ||
-            !bounding.has(Cap::CHOWN) ||
-            !bounding.has(Cap::SETFCAP)
+        if !bounding.has(Cap::DAC_OVERRIDE)
+            || !bounding.has(Cap::CHOWN)
+            || !bounding.has(Cap::SETFCAP)
         {
-            return Err(anyhow!("The bounding set misses DAC_OVERRIDE, CHOWN or SETFCAP capabilities"));
+            return Err(anyhow!(
+                "The bounding set misses DAC_OVERRIDE, CHOWN or SETFCAP capabilities"
+            ));
         } else if env::var("ROOTASROLE_INSTALLER_NESTED").is_ok_and(|v| v == "1") {
             env::remove_var("ROOTASROLE_INSTALLER_NESTED");
-            return Err(anyhow!("Unable to elevate required capabilities, is LSM blocking installation?"));
+            return Err(anyhow!(
+                "Unable to elevate required capabilities, is LSM blocking installation?"
+            ));
         }
 
         let priv_bin = detect_priv_bin();
-        let priv_exe = priv_exe.as_ref().or(priv_bin.as_ref()).context("Privileged binary is required").map_err(|e|{
-            return anyhow::Error::msg(format!("Please run {} as an administrator.", current_exe().unwrap_or(PathBuf::from_str("the command").unwrap()).to_str().unwrap()));
-        })?;
+        let priv_exe = priv_exe
+            .as_ref()
+            .or(priv_bin.as_ref())
+            .context("Privileged binary is required")
+            .map_err(|e| {
+                return anyhow::Error::msg(format!(
+                    "Please run {} as an administrator.",
+                    current_exe()
+                        .unwrap_or(PathBuf::from_str("the command").unwrap())
+                        .to_str()
+                        .unwrap()
+                ));
+            })?;
         env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
         tracing::warn!("Elevating privileges...");
         std::process::Command::new(priv_exe)
-            .arg(current_exe()?.to_str().context("Failed to get current exe path")?)
+            .arg(
+                current_exe()?
+                    .to_str()
+                    .context("Failed to get current exe path")?,
+            )
             .arg("install")
             .status()
-            .context("Failed to run privileged binary").map_err(|e|{
+            .context("Failed to run privileged binary")
+            .map_err(|e| {
                 error!("{}", e);
-                return anyhow::Error::msg(format!("Failed to run privileged binary. Please run {} as an administrator.", current_exe().unwrap_or(PathBuf::from_str("the command").unwrap()).to_str().unwrap()));
+                return anyhow::Error::msg(format!(
+                    "Failed to run privileged binary. Please run {} as an administrator.",
+                    current_exe()
+                        .unwrap_or(PathBuf::from_str("the command").unwrap())
+                        .to_str()
+                        .unwrap()
+                ));
             })?;
         return Ok(Elevated::Yes);
     }

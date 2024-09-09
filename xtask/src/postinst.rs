@@ -13,7 +13,7 @@ fn main() {
     match action {
         Some(action) => match action.as_str() {
             "configure" => {
-                let res = install::install::install(&None,install::Profile::Release, false, false);
+                let res = install::install::install(&None, install::Profile::Release, false, false);
                 if let Err(e) = res {
                     warn!("{:#}", e);
                     std::process::exit(1);
