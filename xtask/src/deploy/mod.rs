@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, process::Command};
 
 use clap::Parser;
 
@@ -46,5 +46,30 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
         }
     }
 
+    Ok(())
+}
+
+pub fn setup_maint_scripts() -> Result<(), anyhow::Error> {
+    Command::new("cargo")
+        .arg("build")
+        .arg("--package")
+        .arg("xtask")
+        .arg("--no-default-features")
+        .arg("--release")
+        .arg("--bin")
+        .arg("postinst")
+        .arg("--bin")
+        .arg("prerm")
+        .status()?;
+    compress("target/release/postinst")?;
+    compress("target/release/prerm")
+}
+
+fn compress(script: &str) -> Result<(), anyhow::Error> {
+    Command::new("upx")
+        .arg("--best")
+        .arg("--lzma")
+        .arg(script)
+        .status()?;
     Ok(())
 }

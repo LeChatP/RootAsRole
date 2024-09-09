@@ -230,7 +230,7 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         dependencies(InstallDependenciesOptions {
             os: opts.os.clone(),
             install_dependencies: true,
-            dev: true,
+            dev: !opts.no_build,
         })?;
     }
     if ! opts.no_build {

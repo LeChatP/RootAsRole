@@ -3,6 +3,7 @@ name: Deploy pkg to GitHub Packages
 ## only triger manual
 on:
   workflow_dispatch:
+  
 
 jobs:
   deploy:

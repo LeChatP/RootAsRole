@@ -18,10 +18,15 @@ fn main() {
                     eprintln!("{:#}", e);
                     std::process::exit(1);
                 }
+                let res = configure::configure(Some(OsTarget::Debian));
+                if let Err(e) = res {
+                    eprintln!("{:#}", e);
+                    std::process::exit(1);
+                }
             }
             "abort-remove" | "abort-deconfigure" => {
                 // We replace the immutable flag if it was set in config file
-                if Ok(f) = File::open(ROOTASROLE) {
+                if let Ok(f) = File::open(ROOTASROLE) {
                     let config = BufReader::new(f);
                     let config: SettingsFile = serde_json::from_reader(config).expect("Failed to parse config file");
                     if config.storage.settings.is_some_and(|s| s.immutable.unwrap_or(false)) {

@@ -4,7 +4,7 @@ members = ["xtask", "rar-common"]
 [package]
 name = "RootAsRole"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.0.0-alpha.5"
+version = "3.0.0"
 rust-version = "1.74.1"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
@@ -106,9 +106,7 @@ section = "admin"
 priority = "optional"
 assets =    [
     ["target/release/sr", "usr/bin/sr", "0555"],
-    ["target/release/chsr", "usr/bin/chsr", "0555"],
-    ["resources/rootasrole.json", "DEBIAN/resources/rootasrole.json", "0640"],
-    ["resources/debian/deb_sr_pam.conf", "DEBIAN/resources/debian/deb_sr_pam.conf", "0644"]
+    ["target/release/chsr", "usr/bin/chsr", "0555"]
 ]
 conf-files = ["/etc/pam.d/sr", "/etc/security/rootasrole.json"]
 maintainer-scripts = "target/release/"
@@ -116,24 +114,18 @@ extended-description = "RootAsRole is a project to allow Linux/Unix administrato
 
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/sr", target = "/usr/bin/sr", mode = "0555" },
-    { source = "target/release/chsr", target = "/usr/bin/chsr", mode = "0555" },
-    { source = "resources/rootasrole.json", target = "/etc/security/rootasrole.json", mode = "0640" }
+    { source = "target/release/sr", dest = "/usr/bin/sr", user = "root", group = "root", mode = "0555", caps = "=p" },
+    { source = "target/release/chsr", dest = "/usr/bin/chsr", user = "root", group = "root", mode = "0555" },
+    { source = "resources/rh/rh_sr_pam.conf", dest = "/etc/pam.d/sr", user = "root", group = "root", mode = "0644", config = true },
+    { source = "resources/rootasrole.json", dest = "/etc/security/rootasrole.json", user = "root", group = "root", mode = "0644", config = true },
 ]
+post_install_script = "resources/rh/postinst.sh"
+post_install_script_prog = [ "/bin/sh", "-c" ]
+
+pre_uninstall_script = "resources/rh/prerm.sh"
+pre_uninstall_script_prog = [ "/bin/sh", "-c" ]
 
 [package.metadata.generate-rpm.requires]
-libcap = "*"
-e2fsprogs = "*"
-coreutils = "*"
-gawk = "*"
-sed = "*"
-
-[package.metadata.aur]
-depends = ["libcap", "e2fsprogs", "pcre2", "pam"]
-files = [ ["target/release/sr", "/usr/bin/sr"],
-          ["target/release/chsr", "/usr/bin/chsr"],
-          ["resources/arch_sr_pam.conf", "/usr/share/rootasrole/pam_sr.conf"],
-          ["resources/rootasrole.json", "/usr/share/rootasrole/default.json"],
-          ["resources/debian/postinst", "/usr/share/rootasrole/postinst" ] ]
-custom = [ "$pkgdir/usr/share/rootasrole/postinst" ]
+pam = "*"
+pcre2 = "*"
 

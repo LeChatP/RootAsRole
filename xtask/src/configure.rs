@@ -86,6 +86,27 @@ fn set_immutable(config: &mut SettingsFile, value: bool) {
             _immutable = value;
         }
     }
+    
+    if !value {
+        let roles = config._extra_fields.as_object_mut().unwrap().get_mut("roles").unwrap().as_object_mut().unwrap();
+        for role in roles.values_mut() {
+            let tasks = role.as_object_mut().unwrap().get_mut("tasks");
+            if let Some(tasks) = tasks {
+                for task in tasks.as_array_mut().unwrap() {
+                    let cred = task.as_object_mut().unwrap().get_mut("cred").unwrap().as_object_mut().unwrap();
+                    let caps = cred.get_mut("capabilities").unwrap().as_object_mut().unwrap();
+                    if let Some(add) = caps.get_mut("add") {
+                        add.as_array_mut().unwrap().retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
+                    }
+                    if let Some(sub) = caps.get_mut("sub") {
+                        sub.as_array_mut().unwrap().retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
+                    }
+                }
+            }
+        }
+    }
+    
+
 }
 
 fn get_filesystem_type<P: AsRef<Path>>(path: P) -> io::Result<Option<String>> {
@@ -200,9 +221,9 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
 
 pub fn default_pam_path(os: &OsTarget) -> &'static str {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => "resources/debian/deb_sr_pam.conf",
-        OsTarget::RedHat | OsTarget::Fedora => "resources/rh/rh_sr_pam.conf",
-        OsTarget::ArchLinux => "resources/arch/arch_sr_pam.conf",
+        OsTarget::Debian | OsTarget::Ubuntu => include_str!("../../resources/debian/deb_sr_pam.conf"),
+        OsTarget::RedHat | OsTarget::Fedora => include_str!("../../resources/rh/rh_sr_pam.conf"),
+        OsTarget::ArchLinux => include_str!("../../resources/arch/arch_sr_pam.conf"),
     }
 }
 

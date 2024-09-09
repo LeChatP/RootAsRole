@@ -179,6 +179,9 @@ fn main() {
             if let Err(err) = set_readme_version(package_version, "README.md") {
                 eprintln!("cargo:warning={}", err);
             }
+            if let Err(err) = set_pkgbuild_version(package_version, "PKGBUILD") {
+                eprintln!("cargo:warning={}", err);
+            }
         }
         Err(err) => {
             eprintln!("cargo:warning={}", err);
