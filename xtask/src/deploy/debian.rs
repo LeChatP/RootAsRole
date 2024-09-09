@@ -10,8 +10,7 @@ use crate::{
 use super::setup_maint_scripts;
 
 fn dependencies(os: &OsTarget, priv_bin: Option<String>) -> Result<ExitStatus, anyhow::Error> {
-    install_dependencies(os, &["upx"], priv_bin)
-        .context("failed to install packaging dependencies")
+    install_dependencies(os, &["upx"], priv_bin).context("failed to install packaging dependencies")
 }
 
 pub fn make_deb(
