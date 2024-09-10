@@ -30,6 +30,11 @@ use rar_common::{
     Storage,
 };
 
+#[cfg(not(test))]
+const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+#[cfg(test)]
+const ROOTASROLE: &str = "target/rootasrole.json";
+
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
 //    "sr is a tool to execute privileged commands with a role-based access control system.
@@ -182,7 +187,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::{pam::check_auth, rar_common::ROOTASROLE};
+    use crate::{pam::check_auth, ROOTASROLE};
 
     subsribe("sr");
     drop_effective()?;

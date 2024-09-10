@@ -1370,7 +1370,7 @@ mod tests {
     #[test]
     fn test_two_role_default() {
         let config: Versioning<Rc<RefCell<SConfig>>> =
-            serde_json::from_str(&fs::read_to_string("resources/rootasrole.json").unwrap())
+            serde_json::from_str(&fs::read_to_string("../resources/rootasrole.json").unwrap())
                 .unwrap();
         let config = config.data;
         make_weak_config(&config);

@@ -39,7 +39,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Write, rc::Rc};
+    use std::{env::current_dir, io::Write, rc::Rc};
 
     use rar_common::{
         database::{
@@ -50,8 +50,10 @@ mod tests {
         },
         get_settings, rc_refcell,
         util::remove_with_privileges,
-        RemoteStorageSettings, SettingsFile, Storage, StorageMethod, ROOTASROLE,
+        RemoteStorageSettings, SettingsFile, Storage, StorageMethod,
     };
+
+    use crate::ROOTASROLE;
 
     use super::*;
     use capctl::Cap;
@@ -69,8 +71,8 @@ mod tests {
             .finish()
             .try_init();
         //Write json test json file
-        let path = format!("{}.{}", ROOTASROLE, name);
-        let mut file = std::fs::File::create(path.clone()).unwrap();
+        let path = format!("{}.{}", ROOTASROLE , name);
+        let mut file = std::fs::File::create(path.clone()).expect(format!("Failed to create {:?}/{} file at", current_dir().unwrap(), path).as_str());
         let mut settings = SettingsFile::default();
         settings.storage.method = StorageMethod::JSON;
         settings.storage.settings = Some(RemoteStorageSettings::default());

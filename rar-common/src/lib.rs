@@ -48,9 +48,9 @@
 //   }
 
 #[cfg(not(test))]
-pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+const ROOTASROLE: &str = "/etc/security/rootasrole.json";
 #[cfg(test)]
-pub const ROOTASROLE: &str = "target/rootasrole.json";
+const ROOTASROLE: &str = "target/rootasrole.json";
 
 use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 

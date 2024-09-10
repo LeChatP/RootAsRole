@@ -126,7 +126,7 @@ mod tests {
 
     use super::*;
 
-    use crate::finder::{Cred, TaskMatcher};
+    use crate::database::finder::{Cred, TaskMatcher};
     use crate::{
         database::structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
         rc_refcell,

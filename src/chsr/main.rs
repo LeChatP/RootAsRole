@@ -11,9 +11,14 @@ use tracing::{debug, error};
 mod cli;
 mod util;
 
+#[cfg(not(test))]
+const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+#[cfg(test)]
+const ROOTASROLE: &str = "target/rootasrole.json";
+
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use rar_common::{get_settings, StorageMethod, ROOTASROLE};
+    use rar_common::{get_settings, StorageMethod};
 
     subsribe("chsr");
     drop_effective()?;
