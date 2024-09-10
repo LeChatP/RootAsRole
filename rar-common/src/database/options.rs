@@ -1088,7 +1088,6 @@ impl OptStack {
         .unwrap_or((Level::None, STimeout::default()))
     }
 
-
     pub fn to_opt(&self) -> Opt {
         let mut res = Opt::default();
         let (final_behavior, final_add, final_sub) = self.get_final_path();
