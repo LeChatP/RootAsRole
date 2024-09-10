@@ -267,7 +267,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let pty = Pty::new().expect("Failed to create pty");
 
-    debug!("Command: {:?} {:?}", execcfg.exec_path, execcfg.exec_args.join(" "));
+    debug!(
+        "Command: {:?} {:?}",
+        execcfg.exec_path,
+        execcfg.exec_args.join(" ")
+    );
     let command = Command::new(&execcfg.exec_path)
         .args(execcfg.exec_args.iter())
         .env_clear()
@@ -319,7 +323,6 @@ fn make_cred() -> Cred {
     // get parent pid
     let ppid = nix::unistd::getppid();
 
-    
     Cred {
         user,
         groups,

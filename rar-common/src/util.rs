@@ -16,9 +16,9 @@ use strum::EnumIs;
 use tracing::{debug, warn, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::database::structs::SCommand;
 #[cfg(feature = "finder")]
 use crate::api::PluginManager;
+use crate::database::structs::SCommand;
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
