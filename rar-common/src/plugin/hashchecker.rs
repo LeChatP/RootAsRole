@@ -32,6 +32,7 @@ struct HashChecker {
     command: SCommand,
 }
 
+#[cfg(feature = "finder")]
 fn compute(hashtype: &HashType, hash: &[u8]) -> Vec<u8> {
     match hashtype {
         HashType::SHA224 => {

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
-use std::{borrow::Borrow, cell::RefCell, path::PathBuf, rc::Rc};
+use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+#[cfg(feature = "finder")]
+use std::path::PathBuf;
 
 use chrono::Duration;
 
+#[cfg(feature = "finder")]
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 
@@ -11,7 +14,10 @@ use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
-use tracing::{debug, warn};
+
+use tracing::debug;
+#[cfg(feature = "finder")]
+use tracing::warn;
 
 use crate::rc_refcell;
 
@@ -129,9 +135,9 @@ pub struct EnvKey {
     value: String,
 }
 
-impl ToString for EnvKey {
-    fn to_string(&self) -> String {
-        self.value.clone()
+impl std::fmt::Display for EnvKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 
@@ -222,9 +228,10 @@ pub struct Opt {
 
 impl Opt {
     pub fn new(level: Level) -> Self {
-        let mut opt = Self::default();
-        opt.level = level;
-        opt
+        Opt {
+            level,
+            ..Default::default()
+        }
     }
 
     pub fn level_default() -> Self {
@@ -274,9 +281,11 @@ impl Opt {
         .into_iter()
         .collect();
         opt.env = Some(env);
-        let mut timeout = STimeout::default();
-        timeout.type_field = Some(TimestampType::PPID);
-        timeout.duration = Some(Duration::minutes(5));
+        let timeout = STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(Duration::minutes(5)),
+            ..Default::default()
+        };
         opt.timeout = Some(timeout);
         opt.wildcard_denied = Some(";&|".to_string());
         opt
@@ -433,9 +442,10 @@ impl Default for SEnvOptions {
 
 impl SEnvOptions {
     pub fn new(behavior: EnvBehavior) -> Self {
-        let mut res = SEnvOptions::default();
-        res.default_behavior = behavior;
-        res
+        SEnvOptions {
+            default_behavior: behavior,
+            ..Default::default()
+        }
     }
 }
 
@@ -474,10 +484,11 @@ fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
     true
 }
 
+#[cfg(feature = "finder")]
 fn tz_is_safe(tzval: &str) -> bool {
     // tzcode treats a value beginning with a ':' as a path.
-    let tzval = if tzval.starts_with(':') {
-        &tzval[1..]
+    let tzval = if let Some(val) = tzval.strip_prefix(':') {
+        val
     } else {
         tzval
     };
@@ -522,6 +533,7 @@ fn tz_is_safe(tzval: &str) -> bool {
     true
 }
 
+#[cfg(feature = "finder")]
 fn check_env(key: &str, value: &str) -> bool {
     debug!("Checking env: {}={}", key, value);
     match key {
@@ -537,6 +549,20 @@ pub struct OptStack {
     role: Option<Rc<RefCell<SRole>>>,
     task: Option<Rc<RefCell<STask>>>,
 }
+
+type FinalPath = (
+        PathBehavior,
+        Rc<RefCell<LinkedHashSet<String>>>,
+        Rc<RefCell<LinkedHashSet<String>>>,
+    );
+
+type FinalEnv = (
+        EnvBehavior,
+        HashMap<String, String>,
+        LinkedHashSet<EnvKey>,
+        LinkedHashSet<EnvKey>,
+        LinkedHashSet<EnvKey>,
+    );
 
 impl OptStack {
     pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
@@ -584,10 +610,12 @@ impl OptStack {
 
     fn new(roles: Rc<RefCell<SConfig>>) -> OptStack {
         let mut res = OptStack::default();
-        let mut opt = Opt::default();
-        opt.level = Level::Global;
-        opt.root = Some(SPrivileged::User);
-        opt.bounding = Some(SBounding::Strict);
+        let mut opt = Opt{
+            level: Level::Global,
+            root: Some(SPrivileged::User),
+            bounding: Some(SBounding::Strict),
+            ..Default::default()
+        };
         let mut env = SEnvOptions::new(EnvBehavior::Delete);
         env.check = ["TZ".into(), "LOGNAME".into(), "LOGIN".into(), "USER".into()]
             .iter()
@@ -633,6 +661,7 @@ impl OptStack {
         }
     }
 
+    #[cfg(feature = "finder")]
     fn calculate_path(&self) -> String {
         let (final_behavior, final_add, final_sub) = self.get_final_path();
         let final_add = final_add
@@ -669,11 +698,7 @@ impl OptStack {
 
     fn get_final_path(
         &self,
-    ) -> (
-        PathBehavior,
-        Rc<RefCell<LinkedHashSet<String>>>,
-        Rc<RefCell<LinkedHashSet<String>>>,
-    ) {
+    ) -> FinalPath {
         let mut final_behavior = PathBehavior::Delete;
         let final_add = rc_refcell!(LinkedHashSet::new());
         // Cannot use HashSet as we need to keep order
@@ -724,11 +749,7 @@ impl OptStack {
     #[cfg(not(tarpaulin_include))]
     fn union_all_path(
         &self,
-    ) -> (
-        PathBehavior,
-        Rc<RefCell<LinkedHashSet<String>>>,
-        Rc<RefCell<LinkedHashSet<String>>>,
-    ) {
+    ) -> FinalPath {
         let mut final_behavior = PathBehavior::Delete;
         let final_add = rc_refcell!(LinkedHashSet::new());
         // Cannot use HashSet as we need to keep order
@@ -858,13 +879,7 @@ impl OptStack {
 
     fn get_final_env(
         &self,
-    ) -> (
-        EnvBehavior,
-        HashMap<String, String>,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-    ) {
+    ) -> FinalEnv {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();

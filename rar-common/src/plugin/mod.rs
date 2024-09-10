@@ -1,3 +1,4 @@
+#[cfg(feature = "finder")]
 mod hashchecker;
 #[cfg(feature = "finder")]
 mod hierarchy;

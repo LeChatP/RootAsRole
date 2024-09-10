@@ -14,8 +14,6 @@ use rar_common::util::escape_parser_string;
 
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-#[cfg(not(debug_assertions))]
-use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use tracing::{debug, error};
 
@@ -179,7 +177,7 @@ where
             }
         }
     }
-    while let Some(arg) = iter.next() {
+    for arg in iter {
         args.command.push(escape_parser_string(arg));
     }
     Ok(args)
@@ -269,6 +267,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let pty = Pty::new().expect("Failed to create pty");
 
+    debug!("Command: {:?} {:?}", execcfg.exec_path, execcfg.exec_args.join(" "));
     let command = Command::new(&execcfg.exec_path)
         .args(execcfg.exec_args.iter())
         .env_clear()
@@ -281,7 +280,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e.to_string());
+            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e);
             std::process::exit(1);
         }
     };
@@ -320,13 +319,13 @@ fn make_cred() -> Cred {
     // get parent pid
     let ppid = nix::unistd::getppid();
 
-    let user = Cred {
+    
+    Cred {
         user,
         groups,
         tty,
         ppid,
-    };
-    user
+    }
 }
 
 fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optstack: &OptStack) {
@@ -402,10 +401,8 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
         SGroups::Multiple(g) => {
             let res = g.iter().map(|g| g.into_group().unwrap_or(None));
             let mut groups = Vec::new();
-            for group in res {
-                if let Some(group) = group {
-                    groups.push(group.gid.as_raw());
-                }
+            for group in res.flatten() {
+                groups.push(group.gid.as_raw());
             }
             Some(groups)
         }
@@ -506,8 +503,8 @@ mod tests {
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
         assert_eq!(args.prompt, "prompt");
-        assert_eq!(args.info, true);
-        assert_eq!(args.help, true);
+        assert!(args.info);
+        assert!(args.help);
         assert_eq!(args.command, vec!["ls".to_string(), "-l".to_string()]);
     }
 
@@ -517,7 +514,7 @@ mod tests {
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
-        assert!(user.groups.len() > 0);
+        assert!(!user.groups.is_empty());
         assert_eq!(user.groups[0].gid.as_raw(), gid);
         assert_eq!(user.ppid, Pid::parent());
     }

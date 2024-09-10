@@ -5,11 +5,13 @@ use tracing::debug;
 
 use crate::version::PACKAGE_VERSION;
 
+type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), Box<dyn Error>>;
+
 pub struct Migration<T> {
     pub from: fn() -> Version,
     pub to: fn() -> Version,
-    pub up: fn(&Self, &mut T) -> Result<(), Box<dyn Error>>,
-    pub down: fn(&Self, &mut T) -> Result<(), Box<dyn Error>>,
+    pub up: MigrationFn<T>,
+    pub down: MigrationFn<T>,
 }
 
 #[derive(PartialEq, Eq, Debug)]

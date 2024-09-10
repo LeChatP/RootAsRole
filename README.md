@@ -39,7 +39,7 @@
 
 ### Prerequisites
 
-* [Rust](https://www.rust-lang.org/tools/install) >= 1.70.0
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.76.0
   * You can install Rust by running the following command:
     ```sh
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

@@ -16,10 +16,12 @@ use rar_common::database::{
 
 use super::data::*;
 
+type MatchingFunction = dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>;
+
 fn recurse_pair_with_action(
     pair: Pair<Rule>,
     inputs: &mut Inputs,
-    do_matching: &dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>,
+    do_matching: &MatchingFunction,
 ) -> Result<(), Box<dyn Error>> {
     for inner_pair in pair.into_inner() {
         do_matching(&inner_pair, inputs)?;
@@ -53,16 +55,16 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.action = InputAction::Purge;
         }
         Rule::whitelist => {
-            inputs.setlist_type = Some(SetListType::WhiteList);
+            inputs.setlist_type = Some(SetListType::White);
         }
         Rule::blacklist => {
-            inputs.setlist_type = Some(SetListType::BlackList);
+            inputs.setlist_type = Some(SetListType::Black);
         }
         Rule::checklist => {
-            inputs.setlist_type = Some(SetListType::CheckList);
+            inputs.setlist_type = Some(SetListType::Check);
         }
         Rule::setlist => {
-            inputs.setlist_type = Some(SetListType::SetList);
+            inputs.setlist_type = Some(SetListType::Set);
         }
         // === setpolicies ===
         Rule::cmd_policy => {
@@ -292,7 +294,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.options_key_env = Some(LinkedHashSet::new());
         }
         Rule::opt_env_setlisting => {
-            inputs.setlist_type = Some(SetListType::SetList);
+            inputs.setlist_type = Some(SetListType::Set);
             inputs.options_env_values = Some(HashMap::new());
             inputs.options_key_env = Some(LinkedHashSet::new());
         }
@@ -308,7 +310,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::opt_env_set => {
             inputs.action = InputAction::Set;
-            inputs.setlist_type = Some(SetListType::SetList);
+            inputs.setlist_type = Some(SetListType::Set);
             inputs.options_env_values = Some(HashMap::new());
         }
 

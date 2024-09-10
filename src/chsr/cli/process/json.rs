@@ -382,7 +382,7 @@ pub fn cred_caps(
     let config = rconfig.as_ref().borrow_mut();
     let task = config.task(&role_id, &task_id)?;
     match setlist_type {
-        SetListType::WhiteList => match action {
+        SetListType::White => match action {
             InputAction::Add => {
                 if task.as_ref().borrow().cred.capabilities.is_none() {
                     task.as_ref()
@@ -418,7 +418,7 @@ pub fn cred_caps(
             }
             _ => unreachable!("Unknown action {:?}", action),
         },
-        SetListType::BlackList => match action {
+        SetListType::Black => match action {
             InputAction::Add => {
                 let caps = &mut task.as_ref().borrow_mut().cred.capabilities;
 
@@ -534,7 +534,7 @@ pub fn cmd_whitelist_action(
     let task = config.task(&role_id, &task_id)?;
     let cmd = SCommand::Simple(shell_words::join(cmd_id.iter()));
     match setlist_type {
-        SetListType::WhiteList => match action {
+        SetListType::White => match action {
             InputAction::Add => {
                 //verify if command exists
                 if task.as_ref().borrow().commands.add.contains(&cmd) {
@@ -554,7 +554,7 @@ pub fn cmd_whitelist_action(
             }
             _ => unreachable!("Unknown action {:?}", action),
         },
-        SetListType::BlackList => match action {
+        SetListType::Black => match action {
             InputAction::Add => {
                 //verify if command exists
                 if task.as_ref().borrow().commands.sub.contains(&cmd) {
@@ -606,18 +606,20 @@ pub fn env_set_policylist(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o env set keep-only|delete-only {:?}", options_env);
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut env = SEnvOptions::default();
-        env.default_behavior = options_env_policy;
-        match options_env_policy {
-            EnvBehavior::Delete => {
-                env.keep = options_env.clone();
-            }
-            EnvBehavior::Keep => {
-                env.delete = options_env.clone();
-            }
-            _ => unreachable!("Unknown env policy"),
-        }
-        opt.as_ref().borrow_mut().env = Some(env);
+        opt.as_ref().borrow_mut().env = Some(SEnvOptions {
+            default_behavior: options_env_policy,
+            keep: if options_env_policy.is_delete() {
+                options_env.clone()
+            } else {
+                LinkedHashSet::new()
+            },
+            delete: if options_env_policy.is_keep() {
+                options_env.clone()
+            } else {
+                LinkedHashSet::new()
+            },
+            ..Default::default()
+        });
         Ok(())
     })?;
     Ok(true)
@@ -678,10 +680,10 @@ pub fn path_set(
         let mut binding = opt.as_ref().borrow_mut();
         let path = binding.path.as_mut().unwrap_or(&mut default_path);
         match setlist_type {
-            Some(SetListType::WhiteList) => {
+            Some(SetListType::White) => {
                 path.add = options_path.split(':').map(|s| s.to_string()).collect();
             }
-            Some(SetListType::BlackList) => {
+            Some(SetListType::Black) => {
                 path.sub = options_path.split(':').map(|s| s.to_string()).collect();
             }
             None => {
@@ -707,10 +709,10 @@ pub fn path_purge(
         let mut binding = opt.as_ref().borrow_mut();
         let path = binding.path.as_mut().unwrap_or(&mut default_path);
         match setlist_type {
-            Some(SetListType::WhiteList) => {
+            Some(SetListType::White) => {
                 path.add.clear();
             }
-            Some(SetListType::BlackList) => {
+            Some(SetListType::Black) => {
                 path.sub.clear();
             }
             _ => unreachable!("Unknown setlist type"),
@@ -733,13 +735,13 @@ pub fn env_whitelist_set(
         let mut binding = opt.as_ref().borrow_mut();
         let env = binding.env.as_mut().unwrap_or(&mut default_env);
         match setlist_type {
-            Some(SetListType::WhiteList) => {
+            Some(SetListType::White) => {
                 env.keep = options_env.clone();
             }
-            Some(SetListType::BlackList) => {
+            Some(SetListType::Black) => {
                 env.delete = options_env.clone();
             }
-            Some(SetListType::CheckList) => {
+            Some(SetListType::Check) => {
                 env.check = options_env.clone();
             }
             None => {
@@ -822,7 +824,7 @@ pub fn path_setlist2(
         let mut binding = opt.as_ref().borrow_mut();
         let path = binding.path.as_mut().unwrap_or(&mut default_path);
         match setlist_type {
-            Some(SetListType::WhiteList) => match action {
+            Some(SetListType::White) => match action {
                 InputAction::Add => {
                     path.add
                         .extend(options_path.split(':').map(|s| s.to_string()));
@@ -844,7 +846,7 @@ pub fn path_setlist2(
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
-            Some(SetListType::BlackList) => match action {
+            Some(SetListType::Black) => match action {
                 InputAction::Add => {
                     path.sub
                         .extend(options_path.split(':').map(|s| s.to_string()));
@@ -884,9 +886,10 @@ pub fn path_setpolicy(
         if let Some(path) = &mut opt.as_ref().borrow_mut().path {
             path.default_behavior = options_path_policy;
         } else {
-            let mut path = SPathOptions::default();
-            path.default_behavior = options_path_policy;
-            opt.as_ref().borrow_mut().path = Some(path);
+            opt.as_ref().borrow_mut().path = Some(SPathOptions {
+                default_behavior: options_path_policy,
+                ..Default::default()
+            });
         }
         Ok(())
     })
@@ -911,7 +914,7 @@ pub fn env_setlist_add(
         let mut binding = opt.as_ref().borrow_mut();
         let env = binding.env.as_mut().unwrap_or(&mut default_env);
         match setlist_type {
-            Some(SetListType::WhiteList) => match action {
+            Some(SetListType::White) => match action {
                 InputAction::Add => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
@@ -943,7 +946,7 @@ pub fn env_setlist_add(
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
-            Some(SetListType::BlackList) => match action {
+            Some(SetListType::Black) => match action {
                 InputAction::Add => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
@@ -968,7 +971,7 @@ pub fn env_setlist_add(
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
-            Some(SetListType::CheckList) => match action {
+            Some(SetListType::Check) => match action {
                 InputAction::Add => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
@@ -993,7 +996,7 @@ pub fn env_setlist_add(
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
-            Some(SetListType::SetList) => match action {
+            Some(SetListType::Set) => match action {
                 InputAction::Add => {
                     debug!("options_env_values: {:?}", options_env_values);
                     env.set.extend(options_env_values.as_ref().unwrap().clone());

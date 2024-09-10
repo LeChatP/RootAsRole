@@ -44,10 +44,10 @@ pub enum InputAction {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SetListType {
-    WhiteList,
-    BlackList,
-    CheckList,
-    SetList,
+    White,
+    Black,
+    Check,
+    Set,
 }
 
 #[derive(Debug, PartialEq, Eq)]

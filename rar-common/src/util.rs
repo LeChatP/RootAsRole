@@ -16,7 +16,9 @@ use strum::EnumIs;
 use tracing::{debug, warn, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::{api::PluginManager, database::structs::SCommand};
+use crate::database::structs::SCommand;
+#[cfg(feature = "finder")]
+use crate::api::PluginManager;
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -76,14 +78,15 @@ fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), cap
 }
 
 fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
-    Ok(match effective {
+    match effective {
         false => {
             read_effective(false).and(dac_override_effective(false))?;
         }
         true => {
             read_effective(true).or(dac_override_effective(true))?;
         }
-    })
+    }
+    Ok(())
 }
 
 /// Set or unset the immutable flag on a file

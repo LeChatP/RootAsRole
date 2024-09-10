@@ -32,8 +32,6 @@ pub struct SConfig {
     pub options: OptWrapper,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
-    #[serde(skip)]
-    storage: (),
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
@@ -86,6 +84,9 @@ impl SGroups {
             SGroups::Single(_) => 1,
             SGroups::Multiple(groups) => groups.len(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -220,7 +221,6 @@ impl Default for SConfig {
         SConfig {
             options: Some(Rc::new(RefCell::new(Opt::default()))),
             roles: Vec::new(),
-            storage: (),
             _extra_fields: Map::default(),
         }
     }
@@ -323,9 +323,10 @@ impl From<&str> for SCommand {
 
 impl From<CapSet> for SCapabilities {
     fn from(capset: CapSet) -> Self {
-        let mut c = SCapabilities::default();
-        c.add = capset;
-        c
+        SCapabilities {
+            add: capset,
+            ..Default::default()
+        }
     }
 }
 
@@ -388,10 +389,11 @@ impl SConfig {
 
 impl SRole {
     pub fn new(name: String, config: Weak<RefCell<SConfig>>) -> Self {
-        let mut ret = SRole::default();
-        ret.name = name;
-        ret._config = Some(config);
-        ret
+        SRole {
+            name,
+            _config: Some(config),
+            ..Default::default()
+        }
     }
     pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
         self._config.as_ref()?.upgrade()
@@ -405,10 +407,11 @@ impl SRole {
 
 impl STask {
     pub fn new(name: IdTask, role: Weak<RefCell<SRole>>) -> Self {
-        let mut ret = STask::default();
-        ret.name = name;
-        ret._role = Some(role);
-        ret
+        STask {
+            name,
+            _role: Some(role),
+            ..Default::default()
+        }
     }
     pub fn role(&self) -> Option<Rc<RefCell<SRole>>> {
         self._role.as_ref()?.upgrade()
@@ -597,7 +600,9 @@ impl PartialOrd<Vec<SActorType>> for SGroups {
                 }
             }
             SGroups::Multiple(groups) => {
-                if groups.len() == other.len() {
+                if groups.is_empty() && other.is_empty() {
+                    return Some(Ordering::Equal);
+                } else if groups.len() == other.len() {
                     if groups.iter().all(|x| other.iter().any(|y| x == y)) {
                         return Some(Ordering::Equal);
                     }

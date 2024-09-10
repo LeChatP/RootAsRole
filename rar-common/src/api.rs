@@ -2,8 +2,10 @@ use std::sync::Mutex;
 
 use capctl::CapSet;
 
+#[cfg(feature = "finder")]
 use serde_json::Value;
 use strum::EnumIs;
+#[cfg(feature = "finder")]
 use tracing::debug;
 
 #[cfg(feature = "finder")]
@@ -91,6 +93,12 @@ pub struct PluginManager {
     #[cfg(feature = "finder")]
     execution_checker_plugins: Vec<ExecutionChecker>,
     complex_command_parsers: Vec<ComplexCommandParser>,
+}
+
+impl Default for PluginManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginManager {

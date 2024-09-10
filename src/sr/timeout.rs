@@ -35,17 +35,18 @@ enum CookieVersion {
     V1(Cookiev1) = 56,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "UPPERCASE")]
 enum ParentRecord {
-    TTY(dev_t),
-    PPID(pid_t),
+    Tty(dev_t),
+    Ppid(pid_t),
     None,
 }
 
 impl Default for ParentRecord {
     fn default() -> Self {
         match TimestampType::default() {
-            TimestampType::TTY => Self::TTY(0),
-            TimestampType::PPID => Self::PPID(0),
+            TimestampType::TTY => Self::Tty(0),
+            TimestampType::PPID => Self::Ppid(0),
             TimestampType::UID => Self::None,
         }
     }
@@ -56,12 +57,12 @@ impl ParentRecord {
         match ttype {
             TimestampType::TTY => {
                 if let Some(tty) = user.tty {
-                    Self::TTY(tty)
+                    Self::Tty(tty)
                 } else {
                     Self::None
                 }
             }
-            TimestampType::PPID => Self::PPID(user.ppid.as_raw()),
+            TimestampType::PPID => Self::Ppid(user.ppid.as_raw()),
             TimestampType::UID => Self::None,
         }
     }
@@ -161,7 +162,7 @@ fn write_lockfile(lockfile_path: &Path) {
 const TS_LOCATION: &str = "/var/run/rar/ts";
 
 fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
-    let path = Path::new(TS_LOCATION).join(&user.user.uid.as_raw().to_string());
+    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
     let lockpath = Path::new(TS_LOCATION)
         .join(user.user.uid.as_raw().to_string()) // Convert u32 to String
         .with_extension("lock");
@@ -178,10 +179,10 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     debug!("Saving cookies: {:?}", cookies);
-    let path = Path::new(TS_LOCATION).join(&user.user.uid.as_raw().to_string());
+    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
     create_dir_all_with_privileges(path.parent().unwrap())?;
     let lockpath = Path::new(TS_LOCATION)
-        .join(&user.user.uid.as_raw().to_string())
+        .join(user.user.uid.as_raw().to_string())
         .with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     ciborium::ser::into_writer(cookies, &mut file)?;

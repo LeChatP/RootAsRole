@@ -72,14 +72,9 @@ mod tests {
             .try_init();
         //Write json test json file
         let path = format!("{}.{}", ROOTASROLE, name);
-        let mut file = std::fs::File::create(path.clone()).expect(
-            format!(
-                "Failed to create {:?}/{} file at",
+        let mut file = std::fs::File::create(path.clone()).unwrap_or_else(|_| panic!("Failed to create {:?}/{} file at",
                 current_dir().unwrap(),
-                path
-            )
-            .as_str(),
-        );
+                path));
         let mut settings = SettingsFile::default();
         settings.storage.method = StorageMethod::JSON;
         settings.storage.settings = Some(RemoteStorageSettings::default());
