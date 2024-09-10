@@ -310,6 +310,9 @@ pub trait CredMatcher {
 }
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
+    if needle.is_absolute() {
+        return None;
+    }
     let env_path = std::env::var_os("PATH").unwrap();
     for path in std::env::split_paths(&env_path) {
         let path = path.join(needle);
