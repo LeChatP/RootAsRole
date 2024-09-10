@@ -409,6 +409,7 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
+#[cfg(test)]
 impl SPathOptions {
     fn new(behavior: PathBehavior) -> Self {
         let mut res = SPathOptions::default();
@@ -609,10 +610,6 @@ impl OptStack {
         } else {
             self.stack[level as usize] = Some(Rc::new(Opt::new(level).into()));
         }
-    }
-
-    fn get_opt(&self, level: Level) -> Option<Rc<RefCell<Opt>>> {
-        self.stack[level as usize].to_owned()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, V)>, V>(&self, f: F) -> Option<(Level, V)> {
@@ -1091,15 +1088,6 @@ impl OptStack {
         .unwrap_or((Level::None, STimeout::default()))
     }
 
-    fn get_lowest_level(&self) -> Level {
-        if self.task.is_some() {
-            Level::Task
-        } else if self.role.is_some() {
-            Level::Role
-        } else {
-            Level::Global
-        }
-    }
 
     pub fn to_opt(&self) -> Opt {
         let mut res = Opt::default();
@@ -1349,21 +1337,6 @@ mod tests {
         as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
         let options = OptStack::from_role(role).to_opt();
         assert_eq!(options.path.unwrap().add.len(), 2);
-    }
-
-    #[test]
-    fn test_get_lowest_level() {
-        let config = SConfigWrapper::default();
-        let role = SRoleWrapper::default();
-        as_borrow_mut!(role)._config = Some(Rc::downgrade(&config));
-        let task = STaskWrapper::default();
-        as_borrow_mut!(task)._role = Some(Rc::downgrade(&role));
-        let options = OptStack::from_task(task);
-        assert_eq!(options.get_lowest_level(), Level::Task);
-        let options = OptStack::from_role(role);
-        assert_eq!(options.get_lowest_level(), Level::Role);
-        let options = OptStack::from_roles(config);
-        assert_eq!(options.get_lowest_level(), Level::Global);
     }
 
     #[test]

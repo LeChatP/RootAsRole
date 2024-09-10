@@ -119,7 +119,7 @@ pub fn install(
             .as_ref()
             .or(priv_bin.as_ref())
             .context("Privileged binary is required")
-            .map_err(|e| {
+            .map_err(|_| {
                 return anyhow::Error::msg(format!(
                     "Please run {} as an administrator.",
                     current_exe()

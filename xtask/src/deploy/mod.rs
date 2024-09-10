@@ -4,7 +4,6 @@ use clap::Parser;
 
 use crate::{install::Profile, util::OsTarget};
 
-mod arch;
 mod debian;
 mod redhat;
 
@@ -42,7 +41,6 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
     for target in targets {
         match target {
             OsTarget::Debian => debian::make_deb(opts.os.clone(), opts.profile, &opts.priv_bin)?,
-            OsTarget::ArchLinux => arch::make_pkg(opts.profile)?,
             OsTarget::RedHat => redhat::make_rpm(opts.os.clone(), opts.profile, &opts.priv_bin)?,
             _ => anyhow::bail!("Unsupported OS target"),
         }
