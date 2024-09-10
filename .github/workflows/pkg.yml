@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Rust
+      - name: Set up Rust x86_64
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -30,9 +30,14 @@ jobs:
         run: cargo xtask dependencies -dip sudo
 
       - name: Build deb and rpm packages
-        run: cargo xtask deploy debian redhat
+        run: cargo xtask deploy -p sudo debian redhat
 
-      - name: Publish to GitHub Packages
-        run: cargo publish --manifest-path xtask/Cargo.toml --token ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootAsRole
+          path: | 
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
         if: startsWith(github.ref, 'refs/tags/')
         
