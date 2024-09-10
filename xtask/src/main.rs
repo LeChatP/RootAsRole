@@ -3,7 +3,7 @@ mod deploy;
 mod install;
 pub mod util;
 
-use std::{process::exit};
+use std::process::exit;
 
 use clap::Parser;
 use tracing::{error, Level};

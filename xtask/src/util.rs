@@ -9,9 +9,7 @@ use anyhow::{anyhow, Context};
 use capctl::Cap;
 use capctl::CapState;
 use clap::ValueEnum;
-use nix::{
-    libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS},
-};
+use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter};

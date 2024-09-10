@@ -4,10 +4,7 @@ use std::{
     ffi::CString,
     fs::File,
     io,
-    os::{
-        fd::AsRawFd,
-        unix::fs::{MetadataExt},
-    },
+    os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
 };
 

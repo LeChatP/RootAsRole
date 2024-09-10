@@ -5,7 +5,6 @@ use crate::{
     util::{get_os, OsTarget},
 };
 
-
 pub fn make_rpm(
     os: Option<OsTarget>,
     profile: Profile,
