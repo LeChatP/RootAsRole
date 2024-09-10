@@ -1,11 +1,9 @@
-use pcre2::bytes::RegexBuilder;
 use serde_json::Value;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 
 use std::path::Path;
-use std::process::Command;
 
 fn write_version<'a>(f: &'a mut File, doc: &'a Value) -> Result<&'a str, Box<dyn Error>> {
     let package_version = doc
@@ -36,90 +34,6 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
         }
     }
     cargo_toml.sync_all()?;
-    Ok(())
-}
-
-fn set_pkgbuild_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
-    let pkgbuild = File::open(std::path::Path::new(file)).expect("PKGBUILD not found");
-    let reader = BufReader::new(pkgbuild);
-    let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
-    let mut pkgbuild = File::create(std::path::Path::new(file)).expect("PKGBUILD not found");
-    for line in lines {
-        if line.starts_with("pkgver") {
-            writeln!(pkgbuild, "pkgver={}", package_version)?;
-        } else {
-            writeln!(pkgbuild, "{}", line)?;
-        }
-    }
-    pkgbuild.sync_all()?;
-    Ok(())
-}
-
-fn write_doc(f: &mut File) -> Result<(), Box<dyn Error>> {
-    let docresp = reqwest::blocking::get(
-        "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man7/capabilities.7",
-    )
-    .expect("request failed");
-    let haystack = docresp.text()?;
-
-    //write to new temporary file
-    let temp = std::path::Path::new("temp.7");
-    let mut tempf = File::create(temp)?;
-    tempf.write_all(haystack.as_bytes())?;
-    tempf.flush()?;
-    //now execute man command to convert to ascii
-    let res = String::from_utf8(
-        Command::new("/usr/bin/man")
-            .args(["--nh", "--nj", "-al", "-P", "/usr/bin/cat", "temp.7"])
-            .output()?
-            .stdout,
-    )?;
-    //delete temp file
-    std::fs::remove_file(temp)?;
-    //now parse the output
-    let mut re = RegexBuilder::new();
-    re.multi_line(true);
-    let re = re.build(r"^       (CAP_[A-Z_]+)\K((?!^       CAP_[A-Z_]+|^   Past).|\R)+")?;
-    let spacere = regex::Regex::new(r" +")?;
-    f.write_all(
-        r#"use capctl::Cap;
-"#
-        .as_bytes(),
-    )?;
-    f.write_all(
-        r#"#[rustfmt::skip]
-#[allow(clippy::all)] 
-pub fn get_capability_description(cap : &Cap) -> &'static str {
-    match *cap {
-"#
-        .as_bytes(),
-    )?;
-    let mut caplist = Vec::new();
-    for cap in re.captures_iter(res.as_bytes()) {
-        let cap = cap?;
-        let name = std::str::from_utf8(cap.get(1).unwrap().as_bytes())?;
-        if caplist.contains(&name) {
-            continue;
-        }
-        caplist.push(name);
-        let mut desc = std::string::String::from_utf8(cap.get(0).unwrap().as_bytes().to_vec())?;
-        desc = spacere.replace_all(&desc, " ").to_string();
-        let desc = desc.trim().to_string();
-        f.write_all(
-            format!(
-                "        Cap::{} => r#{:#?}#,\n",
-                name.replace("CAP_", ""),
-                desc.replace('\n', "")
-            )
-            .as_bytes(),
-        )?;
-    }
-    f.write_all(
-        r#"       _ => "Unknown capability",
-    }
-}"#
-        .as_bytes(),
-    )?;
     Ok(())
 }
 

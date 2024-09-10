@@ -37,3 +37,6 @@ lazy_static = "1.4.0"
 [features]
 pcre2 = ["dep:pcre2"]
 finder = ["dep:glob"]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }

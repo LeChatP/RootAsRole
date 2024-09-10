@@ -45,6 +45,9 @@ path = "src/chsr/main.rs"
 default = ["finder"]
 finder = ["dep:pcre2", "rar-common/pcre2", "rar-common/finder"]
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }
+
 
 [build-dependencies]
 reqwest = { version = "0.12.4", features = ["blocking", "json"] }

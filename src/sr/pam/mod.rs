@@ -16,8 +16,11 @@ use rar_common::{
 
 use self::rpassword::Terminal;
 
+#[allow(dead_code, reason ="This file is part of sudo-rs.")]
 mod cutils;
+#[allow(dead_code, reason ="This file is part of sudo-rs.")]
 mod rpassword;
+#[allow(dead_code, reason ="This file is part of sudo-rs.")]
 mod securemem;
 
 #[cfg(not(test))]

@@ -32,3 +32,6 @@ default = ["cli", "ebpf", "deploy"]
 cli = []
 ebpf = []
 deploy = []
+
+[lints.rust]
+dead-code = { level = "allow" }

@@ -409,6 +409,7 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
+#[cfg(test)]
 impl SPathOptions {
     fn new(behavior: PathBehavior) -> Self {
         let mut res = SPathOptions::default();
@@ -609,10 +610,6 @@ impl OptStack {
         } else {
             self.stack[level as usize] = Some(Rc::new(Opt::new(level).into()));
         }
-    }
-
-    fn get_opt(&self, level: Level) -> Option<Rc<RefCell<Opt>>> {
-        self.stack[level as usize].to_owned()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, V)>, V>(&self, f: F) -> Option<(Level, V)> {
@@ -1089,16 +1086,6 @@ impl OptStack {
             None
         })
         .unwrap_or((Level::None, STimeout::default()))
-    }
-
-    fn get_lowest_level(&self) -> Level {
-        if self.task.is_some() {
-            Level::Task
-        } else if self.role.is_some() {
-            Level::Role
-        } else {
-            Level::Global
-        }
     }
 
     pub fn to_opt(&self) -> Opt {

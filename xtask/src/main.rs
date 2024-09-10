@@ -34,7 +34,7 @@ enum Command {
     #[cfg(feature = "deploy")]
     Deploy(deploy::MakeOptions),
 }
-fn subsribe(tool: &str) {
+fn subsribe() {
     use std::io;
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
@@ -46,7 +46,7 @@ fn subsribe(tool: &str) {
 }
 
 fn main() {
-    subsribe("xtask");
+    subsribe();
     let opts = Options::parse();
     use Command::*;
     let ret = match opts.command {

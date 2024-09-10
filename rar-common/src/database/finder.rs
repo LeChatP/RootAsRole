@@ -357,7 +357,7 @@ fn match_args(input_args: &[String], role_args: &[String]) -> Result<CmdMin, Box
     if commandline != role_args {
         debug!("test regex");
         return evaluate_regex_cmd(role_args, commandline).inspect_err(|e| {
-            debug!("No match for args {:?}", input_args);
+            debug!("{:?},No match for args {:?}", e, input_args);
         });
     } else {
         return Ok(CmdMin::Match);
