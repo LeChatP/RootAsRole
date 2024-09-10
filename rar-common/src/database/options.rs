@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 #[cfg(feature = "finder")]
 use std::path::PathBuf;
+use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 use chrono::Duration;
 
@@ -551,18 +551,18 @@ pub struct OptStack {
 }
 
 type FinalPath = (
-        PathBehavior,
-        Rc<RefCell<LinkedHashSet<String>>>,
-        Rc<RefCell<LinkedHashSet<String>>>,
-    );
+    PathBehavior,
+    Rc<RefCell<LinkedHashSet<String>>>,
+    Rc<RefCell<LinkedHashSet<String>>>,
+);
 
 type FinalEnv = (
-        EnvBehavior,
-        HashMap<String, String>,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-    );
+    EnvBehavior,
+    HashMap<String, String>,
+    LinkedHashSet<EnvKey>,
+    LinkedHashSet<EnvKey>,
+    LinkedHashSet<EnvKey>,
+);
 
 impl OptStack {
     pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
@@ -610,7 +610,7 @@ impl OptStack {
 
     fn new(roles: Rc<RefCell<SConfig>>) -> OptStack {
         let mut res = OptStack::default();
-        let mut opt = Opt{
+        let mut opt = Opt {
             level: Level::Global,
             root: Some(SPrivileged::User),
             bounding: Some(SBounding::Strict),
@@ -696,9 +696,7 @@ impl OptStack {
         }
     }
 
-    fn get_final_path(
-        &self,
-    ) -> FinalPath {
+    fn get_final_path(&self) -> FinalPath {
         let mut final_behavior = PathBehavior::Delete;
         let final_add = rc_refcell!(LinkedHashSet::new());
         // Cannot use HashSet as we need to keep order
@@ -747,9 +745,7 @@ impl OptStack {
 
     #[allow(dead_code)]
     #[cfg(not(tarpaulin_include))]
-    fn union_all_path(
-        &self,
-    ) -> FinalPath {
+    fn union_all_path(&self) -> FinalPath {
         let mut final_behavior = PathBehavior::Delete;
         let final_add = rc_refcell!(LinkedHashSet::new());
         // Cannot use HashSet as we need to keep order
@@ -877,9 +873,7 @@ impl OptStack {
         Ok(final_env)
     }
 
-    fn get_final_env(
-        &self,
-    ) -> FinalEnv {
+    fn get_final_env(&self) -> FinalEnv {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();
