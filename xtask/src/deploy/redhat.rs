@@ -5,7 +5,6 @@ use crate::{
     util::{get_os, OsTarget},
 };
 
-use super::setup_maint_scripts;
 
 pub fn make_rpm(
     os: Option<OsTarget>,

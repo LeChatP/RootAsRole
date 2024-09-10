@@ -4,8 +4,7 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use capctl::{Cap, CapSet, CapState};
-use clap::Command;
+use capctl::{Cap, CapSet};
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
 use strum::EnumIs;

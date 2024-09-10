@@ -6,7 +6,7 @@ use std::{
     io,
     os::{
         fd::AsRawFd,
-        unix::fs::{MetadataExt, PermissionsExt},
+        unix::fs::{MetadataExt},
     },
     path::{Path, PathBuf},
 };

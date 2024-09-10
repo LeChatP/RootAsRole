@@ -3,10 +3,10 @@ mod deploy;
 mod install;
 pub mod util;
 
-use std::{ffi::CString, process::exit};
+use std::{process::exit};
 
 use clap::Parser;
-use tracing::{error, warn, Level};
+use tracing::{error, Level};
 use tracing_subscriber::util::SubscriberInitExt;
 use util::OsTarget;
 

@@ -1,4 +1,4 @@
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus};
 
 use anyhow::Context;
 

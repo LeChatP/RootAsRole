@@ -6,7 +6,6 @@ use chrono::Duration;
 use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 
-use nix::features;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};

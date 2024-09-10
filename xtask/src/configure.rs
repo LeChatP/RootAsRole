@@ -1,6 +1,6 @@
-use std::env::{self, current_exe};
+use std::env::{self};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
 use anyhow::Context;

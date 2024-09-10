@@ -11,7 +11,6 @@ use capctl::CapState;
 use clap::ValueEnum;
 use nix::{
     libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS},
-    unistd::geteuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
