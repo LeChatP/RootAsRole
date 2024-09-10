@@ -3,8 +3,10 @@ name: Deploy pkg to GitHub Packages
 ## never trigger this workflow automatically
 on:
   push: 
+    tags:
+      - 'v*.*.*'
     branches:
-      - no-trigger
+      - 'reorganisation'
 
 jobs:
   deploy:
@@ -27,7 +29,12 @@ jobs:
       - name: Install Dependencies
         run: cargo xtask dependencies -dip sudo
 
-      - name: Build
+      - name: Build deb and rpm packages
         run: cargo xtask deploy debian redhat
 
+      - name: Publish to GitHub Packages
+        run: cargo publish --manifest-path xtask/Cargo.toml --token ${{ secrets.GITHUB_TOKEN }}
+        when: # only publish if the tag is a release
+          startsWith: ${{ github.ref }} # this is the tag name
+          value: 'refs/tags/v'
         
