@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'reorganisation'
   pull_request:
     branches:
       - 'main'
@@ -12,14 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Update version
-      run: sudo apt-get update
-    - name: Install Dependencies
-      run: |
-        . ./dependencies.sh -yd
-        sudo ./configure.sh -yd
-        sudo sed -i 's/"immutable": true/"immutable": false/g' /etc/security/rootasrole.json
-        echo "/home/runner/.cargo/bin" >> $GITHUB_PATH
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
     - name: Configure PAM
       run: |
         sudo bash -c 'echo "#%PAM-1.0
@@ -32,16 +28,12 @@ jobs:
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/sr'
-    - name: Add read access on config on rootasrole... Because Github Actions...
-      run: sudo chmod a+r /etc/security/rootasrole.json
+    - name: Install RootAsRole
+      run: cargo xtask install -bip sudo
     - name: print config
-      run: cat /etc/security/rootasrole.json
+      run: sr cat /etc/security/rootasrole.json
     - name: getenv
       run: env
-    - name: Install Project
-      env:
-        PROFILE: debug
-      run: make -e install
     - name: Run Sr
       env:
         RUST_LOG: debug

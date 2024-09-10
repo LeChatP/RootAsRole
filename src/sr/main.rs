@@ -1,36 +1,37 @@
-#[path = "../mod.rs"]
-mod common;
 pub mod pam;
 mod timeout;
 
 use capctl::CapState;
-use common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
-use common::database::{options::OptStack, structs::SConfig};
-use common::util::escape_parser_string;
 use const_format::formatcp;
 use nix::{
     libc::dev_t,
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
+use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
+use rar_common::database::{options::OptStack, structs::SConfig};
+use rar_common::util::escape_parser_string;
 
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-#[cfg(not(debug_assertions))]
-use std::panic::set_hook;
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use tracing::{debug, error};
 
-use crate::common::plugin::register_plugins;
-use crate::common::{
-    activates_no_new_privs,
-    config::{self, Storage},
-    dac_override_effective,
+use rar_common::plugin::register_plugins;
+use rar_common::{
+    self,
     database::{read_json_config, structs::SGroups},
-    read_effective, setgid_effective, setpcap_effective, setuid_effective,
-    util::{BOLD, RST, UNDERLINE},
+    util::{
+        activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
+        setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
+    },
+    Storage,
 };
-use crate::common::{drop_effective, subsribe};
+
+#[cfg(not(test))]
+const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+#[cfg(test)]
+const ROOTASROLE: &str = "target/rootasrole.json";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -176,7 +177,7 @@ where
             }
         }
     }
-    while let Some(arg) = iter.next() {
+    for arg in iter {
         args.command.push(escape_parser_string(arg));
     }
     Ok(args)
@@ -184,7 +185,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
-    use crate::{common::config::ROOTASROLE, pam::check_auth};
+    use crate::{pam::check_auth, ROOTASROLE};
 
     subsribe("sr");
     drop_effective()?;
@@ -198,12 +199,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     read_effective(true)
         .or(dac_override_effective(true))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
-    let settings = config::get_settings(ROOTASROLE).expect("Failed to get settings");
+    let settings = rar_common::get_settings(ROOTASROLE).expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
-        config::StorageMethod::JSON => {
+        rar_common::StorageMethod::JSON => {
             Storage::JSON(read_json_config(settings).expect("Failed to read config"))
         }
         _ => {
@@ -266,6 +267,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let pty = Pty::new().expect("Failed to create pty");
 
+    debug!(
+        "Command: {:?} {:?}",
+        execcfg.exec_path,
+        execcfg.exec_args.join(" ")
+    );
     let command = Command::new(&execcfg.exec_path)
         .args(execcfg.exec_args.iter())
         .env_clear()
@@ -278,7 +284,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e.to_string());
+            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e);
             std::process::exit(1);
         }
     };
@@ -317,16 +323,15 @@ fn make_cred() -> Cred {
     // get parent pid
     let ppid = nix::unistd::getppid();
 
-    let user = Cred {
+    Cred {
         user,
         groups,
         tty,
         ppid,
-    };
-    user
+    }
 }
 
-fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: &OptStack) {
+fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optstack: &OptStack) {
     //set capabilities
     if let Some(caps) = execcfg.caps {
         // case where capabilities are more than bounding set
@@ -360,7 +365,7 @@ fn set_capabilities(execcfg: &common::database::finder::ExecSettings, optstack: 
     }
 }
 
-fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
+fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
     let uid = execcfg.setuid.as_ref().and_then(|u| {
         let res = u.into_user().unwrap_or(None);
         if let Some(user) = res {
@@ -399,10 +404,8 @@ fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
         SGroups::Multiple(g) => {
             let res = g.iter().map(|g| g.into_group().unwrap_or(None));
             let mut groups = Vec::new();
-            for group in res {
-                if let Some(group) = group {
-                    groups.push(group.gid.as_raw());
-                }
+            for group in res.flatten() {
+                groups.push(group.gid.as_raw());
             }
             Some(groups)
         }
@@ -419,10 +422,11 @@ fn setuid_setgid(execcfg: &common::database::finder::ExecSettings) {
 mod tests {
     use libc::getgid;
     use nix::unistd::Pid;
+    use rar_common::rc_refcell;
 
     use super::*;
-    use crate::common::database::make_weak_config;
-    use crate::common::database::structs::{
+    use rar_common::database::make_weak_config;
+    use rar_common::database::structs::{
         IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
     };
 
@@ -502,8 +506,8 @@ mod tests {
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
         assert_eq!(args.prompt, "prompt");
-        assert_eq!(args.info, true);
-        assert_eq!(args.help, true);
+        assert!(args.info);
+        assert!(args.help);
         assert_eq!(args.command, vec!["ls".to_string(), "-l".to_string()]);
     }
 
@@ -513,7 +517,7 @@ mod tests {
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
-        assert!(user.groups.len() > 0);
+        assert!(!user.groups.is_empty());
         assert_eq!(user.groups[0].gid.as_raw(), gid);
         assert_eq!(user.ppid, Pid::parent());
     }

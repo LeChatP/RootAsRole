@@ -16,7 +16,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0-alpha.5) : A memory-safe and security-oriented alternative to sudo/su commands
+# RootAsRole (V3.0.0) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
@@ -37,15 +37,24 @@
 
 ## Installation
 
-### How to Build
+### Prerequisites
 
-Requirement: rustc >= 1.70.0
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.76.0
+  * You can install Rust by running the following command:
+    ```sh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+* [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)  
+
+### How to install sr and chsr
 
   1. `git clone <https://github.com/LeChatP/RootAsRole>`
   1. `cd RootAsRole`
-  1. `. ./dependencies.sh`
-  1. `sudo ./configure.sh`
-  1. `make install`
+  1. `sudo cargo xtask install -i -b`
+
+### Additional Installation Options
+
+To know more about options, you can run `cargo xtask install --help`.
 
 **[What does the installation do?](https://lechatp.github.io/RootAsRole/guide/installation.html#what-does-the-installation-script-do)**
 
@@ -137,14 +146,14 @@ Our project has been manually tested on (tests in may 2023):
 
 In june 2024, we performed automated `capable` tests with Vagrant on the following distributions:
 
-* ❌ Centos 7 → Kernel too old (3.1)
-* ✅ Centos 8
 * ❌ Debian 10 → Dev dependencies unavailable, it should work once compiled
 * ✅ Debian 11
 * ✅ Fedora 37
 * ✅ RedHat 9
 * ✅ Ubuntu 22.04
 * ✅ ArchLinux
+* ✅ Almalinux 8
+* ✅ RockyLinux 8
 
 This doesn't mean that earlier versions of these distributions are incompatible; it simply indicates they haven't been tested yet. However, if you encounter issues during the compilation process, they are likely due to dependency problems. In theory, the RootAsRole project should work on any Linux distribution with a kernel version of 4.1 or higher. However, since BTF (BPF Type Format) is becoming a mandatory requirement, [the kernel must be compiled with many features enabled](https://github.com/iovisor/bcc/blob/master/INSTALL.md#kernel-configuration).
 

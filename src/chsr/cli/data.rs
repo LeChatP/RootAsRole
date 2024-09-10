@@ -4,14 +4,14 @@ use capctl::CapSet;
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 
-use crate::common::database::{
+use pest_derive::Parser;
+use rar_common::database::{
     options::{
         EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
         TimestampType,
     },
     structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
 };
-use pest_derive::Parser;
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]
@@ -44,10 +44,10 @@ pub enum InputAction {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SetListType {
-    WhiteList,
-    BlackList,
-    CheckList,
-    SetList,
+    White,
+    Black,
+    Check,
+    Set,
 }
 
 #[derive(Debug, PartialEq, Eq)]

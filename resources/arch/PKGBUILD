@@ -1,0 +1,43 @@
+# Maintainer: Eddie Billoir <lechatp@outlook.fr>
+
+pkgname=rootasrole
+pkgver=3.0.0_alpha.5
+pkgrel=1
+pkgdesc='Alternative to sudo to run some administrative commands that uses Linux capabilities and RBAC for scalability.'
+url='https://lechatp.github.io/RootAsRole/'
+license=('GPL-3.0-or-later')
+arch=('x86_64')
+source=("https://github.com/LeChatP/RootAsRole/archive/v${pkgver//_/-}.tar.gz")
+sha256sums=('SKIP')
+depends=('libcap' 'e2fsprogs' 'pcre2' 'pam')
+backup=('etc/pam.d/sr' 'etc/security/rootasrole.json')
+validpgpkeys=('74F43C5774BE1F3527DEFA4835C155EA0525104D')
+makedepends=(cargo)
+source=("$pkgname-$pkgver.tar.gz::https://static.crates.io/crates/$pkgname/$pkgname-$pkgver.crate")
+#source=('https://github.com/LeChatP/RootAsRole/releases/download/v${pkgver//_/-}/RootAsRole-${pkgver//_/-}-$arch.tar.gz')
+install=rootasrole.install
+
+prepare() {
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release --all-features
+}
+
+check() {
+    export RUSTUP_TOOLCHAIN=stable
+    cargo test --frozen --all-features
+}
+
+package() {
+    cd $pkgname-$pkgver
+    install -Dm755 'target/release/sr' -t "$pkgdir/usr/bin"
+    install -Dm755 'target/release/chsr' -t "$pkgdir/usr/bin"
+    install -Dm644 'resources/arch/arch_sr_pam.conf' -t "$pkgdir/etc/pam.d/sr"
+    install -Dm644 'resources/rootasrole.json' -t "$pkgdir/usr/share/rootasrole/default.json"
+    setcap '=p' "$pkgdir/usr/bin/sr"
+}

@@ -8,18 +8,19 @@ use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
 use tracing::{debug, error, info, warn};
 
-use crate::{
-    common::{
-        config::Storage,
-        database::{finder::Cred, options::OptStack},
-    },
-    timeout,
+use crate::timeout;
+use rar_common::{
+    database::{finder::Cred, options::OptStack},
+    Storage,
 };
 
 use self::rpassword::Terminal;
 
+#[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod cutils;
+#[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod rpassword;
+#[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod securemem;
 
 #[cfg(not(test))]

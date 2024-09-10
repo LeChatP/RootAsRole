@@ -17,6 +17,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'reorganisation'
   pull_request:
     branches:
       - 'main'
@@ -37,13 +38,10 @@ jobs:
           profile: minimal
           toolchain: stable
           components: clippy
-          override: true
+          override: false
 
-      - name: Install Dependencies
-        run: ./dependencies.sh -yd
-      
-      - name: Configure
-        run: sudo ./configure.sh -yd
+      - name: Install RootAsRole
+        run: cargo xtask dependencies -dip sudo
 
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master

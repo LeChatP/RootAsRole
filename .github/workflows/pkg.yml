@@ -1,0 +1,41 @@
+name: Deploy pkg to GitHub Packages
+
+## never trigger this workflow automatically
+on:
+  push: 
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust x86_64
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: clippy
+          override: true
+
+      - name: Install Dependencies
+        run: cargo xtask dependencies -dip sudo
+
+      - name: Build deb and rpm packages
+        run: cargo xtask deploy -p sudo debian redhat
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootAsRole
+          path: | 
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+        if: startsWith(github.ref, 'refs/tags/')
+        

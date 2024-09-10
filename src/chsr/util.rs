@@ -2,7 +2,7 @@ use std::mem;
 
 use pest::{error::LineColLocation, RuleType};
 
-use crate::common::util::escape_parser_string;
+use rar_common::util::escape_parser_string;
 
 fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
 where
