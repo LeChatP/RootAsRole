@@ -1,30 +1,31 @@
 //extern crate sudoers_reader;
 
-use common::subsribe;
-use common::{
-    config::{self, Storage},
+use rar_common::{
     database::{read_json_config, save_json},
-    drop_effective,
     plugin::register_plugins,
-    read_effective,
+    util::{drop_effective, read_effective, subsribe},
+    Storage,
 };
 use tracing::{debug, error};
 
 mod cli;
-#[path = "../mod.rs"]
-mod common;
 mod util;
+
+#[cfg(not(test))]
+const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+#[cfg(test)]
+const ROOTASROLE: &str = "target/rootasrole.json";
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use common::config::ROOTASROLE;
+    use rar_common::{get_settings, StorageMethod};
 
     subsribe("chsr");
     drop_effective()?;
     register_plugins();
-    let settings = config::get_settings(ROOTASROLE).expect("Error on config read");
+    let settings = get_settings(ROOTASROLE).expect("Error on config read");
     let config = match settings.clone().as_ref().borrow().storage.method {
-        config::StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone())?),
+        StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone())?),
         _ => {
             error!("Unsupported storage method");
             std::process::exit(1);

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'reorganisation'
   pull_request:
     branches:
       - 'main'
@@ -23,15 +24,12 @@ jobs:
     
     - name: Install sudo
       run: apt install sudo -y
-    
+
     - name: Install Dependencies
-      run: ./dependencies.sh -yd
-    
-    - name: Install file configuration
-      run: sudo bash ./configure.sh -yd
+      run: cargo xtask dependencies -dip sudo
     
     - name: run tests with coverage
-      run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
+      run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --exclude-files build.rs xtask/src/* -e xtask --out Xml
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3
@@ -42,7 +40,7 @@ jobs:
         flags: unittests
 
     - name: run tests with coverage as Admin
-      run: sudo -E /usr/local/cargo/bin/cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --bin chsr --bin sr --exclude-files capable* capable-ebpf/src/vmlinux.rs capable/src/main.rs build.rs --out Xml
+      run: sudo -E /usr/local/cargo/bin/cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --exclude-files build.rs xtask/src/* -e xtask --out Xml
 
     - name: Upload coverage reports to Codecov as Admin
       uses: codecov/codecov-action@v3

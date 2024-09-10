@@ -16,7 +16,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0-alpha.5) : A memory-safe and security-oriented alternative to sudo/su commands
+# RootAsRole (V3.0.0) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
@@ -37,15 +37,24 @@
 
 ## Installation
 
-### How to Build
+### Prerequisites
 
-Requirement: rustc >= 1.70.0
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.76.0
+  * You can install Rust by running the following command:
+    ```sh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+* [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)  
+
+### How to install sr and chsr
 
   1. `git clone <https://github.com/LeChatP/RootAsRole>`
   1. `cd RootAsRole`
-  1. `. ./dependencies.sh`
-  1. `sudo ./configure.sh`
-  1. `make install`
+  1. `sudo cargo xtask install -i -b`
+
+### Additional Installation Options
+
+To know more about options, you can run `cargo xtask install --help`.
 
 **[What does the installation do?](https://lechatp.github.io/RootAsRole/guide/installation.html#what-does-the-installation-script-do)**
 
@@ -137,14 +146,14 @@ Our project has been manually tested on (tests in may 2023):
 
 In june 2024, we performed automated `capable` tests with Vagrant on the following distributions:
 
-* ❌ Centos 7 → Kernel too old (3.1)
-* ✅ Centos 8
 * ❌ Debian 10 → Dev dependencies unavailable, it should work once compiled
 * ✅ Debian 11
 * ✅ Fedora 37
 * ✅ RedHat 9
 * ✅ Ubuntu 22.04
 * ✅ ArchLinux
+* ✅ Almalinux 8
+* ✅ RockyLinux 8
 
 This doesn't mean that earlier versions of these distributions are incompatible; it simply indicates they haven't been tested yet. However, if you encounter issues during the compilation process, they are likely due to dependency problems. In theory, the RootAsRole project should work on any Linux distribution with a kernel version of 4.1 or higher. However, since BTF (BPF Type Format) is becoming a mandatory requirement, [the kernel must be compiled with many features enabled](https://github.com/iovisor/bcc/blob/master/INSTALL.md#kernel-configuration).
 
@@ -172,30 +181,4 @@ This project includes [sudo-rs](https://github.com/memorysafety/sudo-rs) code li
 We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Indeed, We thought that the password was well managed in this file and we have reused it. As sudo-rs does, rpassword.rs is from the rpassword project (License: Apache-2.0). We use it as a replacement of the rpassword project usage.
 
 
-## References
-
-[1] PAM repository : <https://github.com/linux-pam/linux-pam>
-
-[2] libcap repository : <https://github.com/mhiramat/libcap>
-
-Very helpful site, where you can find some informations about PAM, libcap and the capabilities:
-
-[3] Original paper about capabilities : <https://pdfs.semanticscholar.org/6b63/134abca10b49661fe6a9a590a894f7c5ee7b.pdf>
-
-[4] Article about the capabilities : <https://lwn.net/Articles/632520/>
-
-[5] Article about Ambient : <https://lwn.net/Articles/636533/>
-
-[6] Simple article with test code for Ambient : <https://s3hh.wordpress.com/2015/07/25/ambient-capabilities/>
-
-[7] Article about how PAM is working : <https://artisan.karma-lab.net/petite-introduction-a-pam>
-
-[8] A very helpful code about how to create a PAM module : <https://github.com/beatgammit/simple-pam>
-
-Source of the scenarios code:
-
-[9] Where I have found the simple Python code for HTTP server : <https://docs.python.org/2/library/simplehttpserver.html>
-
-[10] Where I have found the simple PRELOAD code : <https://fishi.devtail.io/weblog/2015/01/25/intercepting-hooking-function-calls-shared-c-libraries/>
-
-[11] Serge E.Hallyn, Andrew G.Morgan, “Linux capabilities: making them work”, The Linux Symposium, Ottawa, ON, Canada (2008), <https://www.kernel.org/doc/ols/2008/ols2008v1.pages-163.172.pdf>
+## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
