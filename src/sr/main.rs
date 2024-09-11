@@ -190,7 +190,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     subsribe("sr");
     drop_effective()?;
     register_plugins();
-    let args = getopt(std::env::args())?;
+    let args = std::env::args();
+    if args.len() < 2 {
+        println!("{}", USAGE);
+        return Ok(());
+    }
+    let args = getopt(args)?;
 
     if args.help {
         println!("{}", USAGE);
