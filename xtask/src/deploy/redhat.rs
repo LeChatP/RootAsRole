@@ -5,11 +5,20 @@ use crate::{
     util::{detect_priv_bin, get_os, OsTarget},
 };
 
+fn install_dependencies() -> Result<(), anyhow::Error> {
+    Command::new("cargo")
+        .arg("install")
+        .arg("cargo-generate-rpm")
+        .status()?;
+    Ok(())
+}
+
 pub fn make_rpm(
     os: Option<OsTarget>,
     profile: Profile,
     exe: &Option<String>,
 ) -> Result<(), anyhow::Error> {
+    install_dependencies()?;
     let os = get_os(os)?;
     let exe: Option<String> = exe.clone().or(detect_priv_bin());
 
