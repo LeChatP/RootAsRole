@@ -2,7 +2,7 @@ use std::{collections::HashSet, process::Command};
 
 use clap::Parser;
 
-use crate::{install::Profile, util::OsTarget};
+use crate::{installer::Profile, util::OsTarget};
 
 mod debian;
 mod redhat;

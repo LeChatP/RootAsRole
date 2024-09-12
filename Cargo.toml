@@ -109,8 +109,13 @@ section = "admin"
 priority = "optional"
 assets =    [
     ["target/release/sr", "usr/bin/sr", "0555"],
-    ["target/release/chsr", "usr/bin/chsr", "0555"]
+    ["target/release/chsr", "usr/bin/chsr", "0555"],
+    ["target/man/sr.8.gz",      "usr/share/man/man8/sr.8.gz", "0644"],
+    ["target/man/chsr.8.gz",    "usr/share/man/man8/chsr.8.gz", "0644"],
+    ["target/man/fr/sr.8.gz",   "usr/share/man/fr/man8/sr.8.gz", "0644"],
+    ["target/man/fr/chsr.8.gz", "usr/share/man/fr/man8/chsr.8.gz", "0644"]
 ]
+preserve-symlinks = true
 conf-files = ["/etc/pam.d/sr", "/etc/security/rootasrole.json"]
 maintainer-scripts = "target/release/"
 extended-description = "RootAsRole is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to multiple co-administrators through RBAC model and Linux Capabilities features."
@@ -121,6 +126,10 @@ assets = [
     { source = "target/release/chsr", dest = "/usr/bin/chsr", user = "root", group = "root", mode = "0555" },
     { source = "resources/rh/rh_sr_pam.conf", dest = "/etc/pam.d/sr", user = "root", group = "root", mode = "0644", config = true },
     { source = "resources/rootasrole.json", dest = "/etc/security/rootasrole.json", user = "root", group = "root", mode = "0644", config = true },
+    { source = "target/man/sr.8.gz", dest = "/usr/share/man/man8/sr.8.gz", user = "root", group = "root", mode = "0644", doc = true },
+    { source = "target/man/chsr.8.gz", dest = "/usr/share/man/man8/chsr.8.gz" , user = "root", group = "root", mode = "0644", doc = true },
+    { source = "target/man/fr/sr.8.gz", dest = "/usr/share/man/fr/man8/sr.8.gz", user = "root", group = "root", mode = "0644", doc = true },
+    { source = "target/man/fr/chsr.8.gz", dest = "/usr/share/man/fr/man8/chsr.8.gz", user = "root", group = "root", mode = "0644", doc = true }
 ]
 post_install_script = "resources/rh/postinst.sh"
 post_install_script_prog = [ "/bin/sh", "-c" ]

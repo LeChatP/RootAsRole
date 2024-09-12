@@ -2,10 +2,9 @@ mod build;
 pub(crate) mod dependencies;
 pub(crate) mod install;
 mod uninstall;
-mod util;
 
-use std::collections::VecDeque;
 use std::str::FromStr;
+use std::{collections::VecDeque, fmt::Display};
 
 use chrono::{Datelike, NaiveDate, Utc};
 use clap::{Parser, ValueEnum};
@@ -112,8 +111,8 @@ pub struct BuildOptions {
     pub clean_before: bool,
 }
 
-impl ToString for Toolchain {
-    fn to_string(&self) -> String {
+impl Display for Toolchain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = self.channel.to_string();
         if let Some(ref date) = self.date {
             s.push_str(&format!(
@@ -126,7 +125,7 @@ impl ToString for Toolchain {
         if let Some(ref host) = self.host {
             s.push_str(&format!("-{}", host));
         }
-        s
+        write!(f, "{}", s)
     }
 }
 
@@ -155,13 +154,13 @@ pub enum Channel {
     Version(Version),
 }
 
-impl ToString for Channel {
-    fn to_string(&self) -> String {
+impl Display for Channel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Channel::Stable => "stable".to_string(),
-            Channel::Beta => "beta".to_string(),
-            Channel::Nightly => "nightly".to_string(),
-            Channel::Version(version) => version.to_string(),
+            Channel::Stable => write!(f, "stable"),
+            Channel::Beta => write!(f, "beta"),
+            Channel::Nightly => write!(f, "nightly"),
+            Channel::Version(v) => write!(f, "{}", v),
         }
     }
 }
@@ -196,7 +195,7 @@ impl FromStr for Toolchain {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, anyhow::Error> {
         let mut parts: VecDeque<&str> = s.split('-').collect();
-        if parts.len() < 1 {
+        if parts.is_empty() {
             return Ok(Toolchain::default());
         }
         let channel = parts
@@ -218,11 +217,11 @@ impl FromStr for Toolchain {
         let host = parts
             .iter()
             .fold(String::new(), |acc, x| format!("{}-{}", acc, x));
-        return Ok(Toolchain {
+        Ok(Toolchain {
             channel,
             date,
             host: if host.is_empty() { None } else { Some(host) },
-        });
+        })
     }
 }
 

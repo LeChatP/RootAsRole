@@ -8,9 +8,7 @@ Install git
 
   1. git clone <https://github.com/LeChatP/RootAsRole>
   1. cd RootAsRole
-  1. . ./dependencies.sh
-  1. sudo ./configure.sh
-  1. make install
+  1. cargo xtask install -bip sudo
 
 <div class="warning">
 <b>
@@ -20,21 +18,22 @@ The installation process requires CAP_SETFCAP privileges and also grants full pr
 
 ### What does the installation script do?
 
-The installation script does the following:
-- dependencies.sh
-  - Installs Rust and Cargo
-  - Copy cargo binary to /usr/local/bin directory
-  - Create a link /usr/local/bin/cargo to /bin/cargo
-  - Installs `pkgconf openssl curl cargo-make gcc llvm clang libcap libcap-ng libelf libxml2 linux-headers linux-api-headers make`
-  - Installs `bpf-linker` tool for `capable` eBPF tool
-- configure.sh
-  - Deploy `sr` PAM module to /etc/pam.d directory
-  - Deploy `rootasrole.json` to /etc/security directory
-  - Set immutable attribute to `rootasrole.json` file. Note : It requires a compatible filesystem like ext2/3/4, xfs, btrfs, reisefs, etc. 
-  - Define the user who installs the project in a role which has all capabilities for all commands.
-- Executes make install  
-  - Compiles `sr`, `chsr` and `capable` binaries
-  - Deploy `sr`, `chsr` and `capable` binaries to /usr/bin directory
-  - Set user and group ownership of `sr`, `chsr` and `capable` binaries to root
-  - Set file access permissions of `sr`, `chsr` and `capable` binaries to `r-xr-xr-x`
-  - Set file capabilities of `sr`, `chsr` and `capable` binaries
+The installation script parameters explaination:
+- cargo xtask install -bip sudo
+  - (-b) Builds the project
+  - (-i) Installs necessary dependencies
+  - (-p) Use the `sudo` command to perform administrative tasks
+
+Install script does the following:
+- Dependency Step :
+  - Installing necessary dependencies considering if compiling from source.
+- Build Step :
+  - Building sr and chsr binaries
+- Install Step : 
+  - Copying sr and chsr binaries to /usr/bin
+  - Setting all capabilities on /usr/bin/sr
+  - Setting owners and permissions on /usr/bin/sr
+- Configuration Step :
+  - Deploying /etc/pam.d/sr for PAM configuration
+  - Deploying /etc/security/rootasrole.json for configuration
+  - Setting immutable on /etc/security/rootasrole.json if filesytem supports it

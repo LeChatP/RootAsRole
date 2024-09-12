@@ -1,6 +1,6 @@
 mod configure;
 mod deploy;
-mod install;
+mod installer;
 pub mod util;
 
 use std::process::exit;
@@ -19,18 +19,18 @@ pub struct Options {
 #[derive(Debug, Parser)]
 enum Command {
     #[cfg(feature = "cli")]
-    Dependencies(install::InstallDependenciesOptions),
+    Dependencies(installer::InstallDependenciesOptions),
     #[cfg(feature = "cli")]
-    Build(install::BuildOptions),
+    Build(installer::BuildOptions),
     #[cfg(feature = "cli")]
-    Install(install::InstallOptions),
+    Install(installer::InstallOptions),
 
     Configure {
         /// The OS target
         #[clap(long)]
         os: Option<OsTarget>,
     },
-    Uninstall(install::UninstallOptions),
+    Uninstall(installer::UninstallOptions),
     #[cfg(feature = "deploy")]
     Deploy(deploy::MakeOptions),
 }
@@ -50,11 +50,11 @@ fn main() {
     let opts = Options::parse();
     use Command::*;
     let ret = match opts.command {
-        Dependencies(opts) => install::dependencies(opts),
-        Build(opts) => install::build(&opts),
-        Install(opts) => install::install(&opts),
-        Configure { os } => install::configure(os),
-        Uninstall(opts) => install::uninstall(&opts),
+        Dependencies(opts) => installer::dependencies(opts),
+        Build(opts) => installer::build(&opts),
+        Install(opts) => installer::install(&opts),
+        Configure { os } => installer::configure(os),
+        Uninstall(opts) => installer::uninstall(&opts),
         Deploy(opts) => deploy::deploy(&opts),
     };
 

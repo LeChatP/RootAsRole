@@ -108,14 +108,15 @@ fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), cap
 }
 
 fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
-    Ok(match effective {
+    match effective {
         false => {
             read_effective(false).and(dac_override_effective(false))?;
         }
         true => {
             read_effective(true).or(dac_override_effective(true))?;
         }
-    })
+    }
+    Ok(())
 }
 
 /// Set or unset the immutable flag on a file
@@ -187,9 +188,9 @@ pub fn get_os(os: Option<OsTarget>) -> Result<OsTarget, anyhow::Error> {
         os
     } else {
         OsTarget::detect()
-            .and_then(|t| {
+            .map(|t| {
                 debug!("Detected OS is : {}", t);
-                Ok(t)
+                t
             })
             .context("Failed to detect the OS")?
     })
@@ -198,14 +199,20 @@ pub fn get_os(os: Option<OsTarget>) -> Result<OsTarget, anyhow::Error> {
 pub fn detect_priv_bin() -> Option<String> {
     // is /usr/bin/sr exist ?
     if std::fs::metadata("/usr/bin/sr").is_ok() {
-        return Some("/usr/bin/sr".to_string());
+        Some("/usr/bin/sr".to_string())
     } else if std::fs::metadata("/usr/bin/sudo").is_ok() {
-        return Some("/usr/bin/sudo".to_string());
+        Some("/usr/bin/sudo".to_string())
     } else if std::fs::metadata("/usr/bin/doas").is_ok() {
-        return Some("/usr/bin/doas".to_string());
+        Some("/usr/bin/doas".to_string())
     } else {
-        return None;
+        None
     }
+}
+
+pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
+    state.effective.clear();
+    state.set_current()?;
+    Ok(())
 }
 
 #[cfg(test)]

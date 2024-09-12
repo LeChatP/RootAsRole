@@ -1,5 +1,6 @@
-use std::env::{self, current_exe};
+use std::env::{self, current_exe, set_current_dir};
 use std::fs::{self, File};
+use std::io;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -7,17 +8,18 @@ use std::str::FromStr;
 use capctl::{Cap, CapSet};
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
+use nix::NixPath;
 use strum::EnumIs;
 use tracing::{debug, error, info};
 
-use crate::install::Profile;
+use crate::installer::Profile;
 use crate::util::{detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
-use super::util::{cap_clear, cap_effective};
 use super::{CHSR_DEST, SR_DEST};
+use crate::util::cap_clear;
 
-fn copy_files(profile: &Profile) -> Result<(), anyhow::Error> {
+fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     let binding = std::env::current_dir()?;
     let cwd = binding
         .to_str()
@@ -50,6 +52,68 @@ fn copy_files(profile: &Profile) -> Result<(), anyhow::Error> {
     debug!("Renaming chsr.tmp to chsr");
     fs::rename(format!("{}.tmp", s_chsr), chsr)?;
 
+    Ok(())
+}
+
+fn copy_docs() -> Result<(), anyhow::Error> {
+    fn exit_directory() -> io::Result<()> {
+        set_current_dir("../..")
+    }
+    fn enter_directory() -> io::Result<()> {
+        set_current_dir("target/man/")
+    }
+    enter_directory()?;
+
+    for file in glob::glob("**/*")
+        .map_err(|_| exit_directory())
+        .expect("Failed to read glob pattern")
+    {
+        let file = file.inspect_err(|_| {
+            exit_directory().expect("Failed to exit directory");
+        })?;
+        if file.is_dir() {
+            continue;
+        }
+        // file = "{code}/{file}"
+        //and copy the files to "/usr/share/man/{code}/man8/{file}"
+
+        let file_name = &file
+            .file_name()
+            .ok_or_else(|| {
+                exit_directory().expect("Failed to exit directory");
+                anyhow!("Failed to get the file name")
+            })?
+            .to_str()
+            .ok_or_else(|| {
+                exit_directory().expect("Failed to exit directory");
+                anyhow!("Failed to get the file name")
+            })?;
+        let lang = file.parent();
+        if lang.is_some_and(|p| !p.is_empty()) {
+            let lang = lang.unwrap();
+            println!("lang: {:?}", lang);
+            let lang = lang.file_name().ok_or_else(|| {
+                exit_directory().expect("Failed to exit directory");
+                anyhow!("Failed to get the language")
+            })?;
+            let lang = lang.to_str().ok_or_else(|| {
+                exit_directory().expect("Failed to exit directory");
+                anyhow!("Failed to get the language")
+            })?;
+            let dest = format!("/usr/share/man/{}/man8/{}", lang, file_name);
+            debug!("Copying file: {:?} to {}", &file, dest);
+            fs::copy(&file, &dest).inspect_err(|_| {
+                exit_directory().expect("Failed to exit directory");
+            })?;
+        } else {
+            let dest = format!("/usr/share/man/man8/{}", file_name);
+            debug!("Copying file: {:?} to {}", &file, dest);
+            fs::copy(&file, &dest).inspect_err(|_| {
+                exit_directory().expect("Failed to exit directory");
+            })?;
+        }
+    }
+    exit_directory()?;
     Ok(())
 }
 
@@ -86,6 +150,13 @@ pub enum Elevated {
     No,
 }
 
+fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyhow::Error> {
+    state.effective.clear();
+    state.effective.add(cap);
+    state.set_current()?;
+    Ok(())
+}
+
 pub fn install(
     priv_exe: &Option<String>,
     profile: Profile,
@@ -120,13 +191,13 @@ pub fn install(
             .or(priv_bin.as_ref())
             .context("Privileged binary is required")
             .map_err(|_| {
-                return anyhow::Error::msg(format!(
+                anyhow::Error::msg(format!(
                     "Please run {} as an administrator.",
                     current_exe()
                         .unwrap_or(PathBuf::from_str("the command").unwrap())
                         .to_str()
                         .unwrap()
-                ));
+                ))
             })?;
         env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
         tracing::warn!("Elevating privileges...");
@@ -141,13 +212,13 @@ pub fn install(
             .context("Failed to run privileged binary")
             .map_err(|e| {
                 error!("{}", e);
-                return anyhow::Error::msg(format!(
+                anyhow::Error::msg(format!(
                     "Failed to run privileged binary. Please run {} as an administrator.",
                     current_exe()
                         .unwrap_or(PathBuf::from_str("the command").unwrap())
                         .to_str()
                         .unwrap()
-                ));
+                ))
             })?;
         return Ok(Elevated::Yes);
     }
@@ -157,7 +228,9 @@ pub fn install(
         cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
 
         // cp target/{release}/sr,chsr,capable /usr/bin
-        copy_files(&profile).context("Failed to copy sr and chsr files")?;
+        copy_executables(&profile).context("Failed to copy sr and chsr files")?;
+
+        copy_docs().context("Failed to copy documentation files")?;
 
         // drop dac_override
         cap_clear(&mut state).context("Failed to drop effective DAC_OVERRIDE")?;
@@ -185,7 +258,7 @@ pub fn install(
 
     if clean_after {
         std::process::Command::new("cargo")
-            .args(&["clean"])
+            .args(["clean"])
             .status()
             .context("Failed to clean the project")?;
     }
