@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](README.md)
+[History](HISTORY.md)
 
 # User Guide
 

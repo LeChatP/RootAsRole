@@ -5,7 +5,7 @@ use capctl::CapState;
 use nix::unistd::geteuid;
 use tracing::info;
 
-use crate::{install::OsTarget, util::get_os};
+use crate::{installer::OsTarget, util::get_os};
 
 use super::InstallDependenciesOptions;
 
@@ -43,10 +43,10 @@ fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
 
 fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g-dev", "libpcre2-dev", "libclang-dev"],
-        OsTarget::RedHat => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel"],
-        OsTarget::Fedora => &["clang-devel", "openssl-devel", "pam-devel"],
-        OsTarget::ArchLinux => &["clang", "pkg-config"],
+        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g-dev", "libpcre2-dev", "libclang-dev", "pandoc"],
+        OsTarget::RedHat => &["pcre2-devel", "clang-devel", "openssl-devel", "pam-devel", "pandoc"],
+        OsTarget::Fedora => &["clang-devel", "openssl-devel", "pam-devel", "pandoc"],
+        OsTarget::ArchLinux => &["clang", "pkg-config", "pandoc"],
     }
 }
 

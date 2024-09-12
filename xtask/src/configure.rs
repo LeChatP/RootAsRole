@@ -34,15 +34,13 @@ fn is_running_in_container() -> bool {
     // Check cgroups for container-specific patterns
     if let Ok(file) = File::open("/proc/1/cgroup") {
         let reader = io::BufReader::new(file);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.contains("docker")
-                    || line.contains("kubepods")
-                    || line.contains("lxc")
-                    || line.contains("containerd")
-                {
-                    return true;
-                }
+        for line in reader.lines().map_while(Result::ok) {
+            if line.contains("docker")
+                || line.contains("kubepods")
+                || line.contains("lxc")
+                || line.contains("containerd")
+            {
+                return true;
             }
         }
     }
@@ -226,7 +224,7 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     if let Ok(sudo_user) = env::var("SUDO_USER") {
         let user =
             nix::unistd::User::from_name(&sudo_user).context("Failed to get the sudo user")?;
-        return Ok(user);
+        Ok(user)
     } else {
         let ruid = getresuid()?.real;
         let user = nix::unistd::User::from_uid(ruid).context("Failed to get the real user")?;
@@ -257,9 +255,9 @@ pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
         os
     } else {
         OsTarget::detect()
-            .and_then(|t| {
+            .map(|t| {
                 info!("Detected OS is : {}", t);
-                Ok(t)
+                t
             })
             .context("Failed to detect the OS")?
     };

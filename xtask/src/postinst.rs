@@ -5,15 +5,15 @@ use tracing::warn;
 use util::{OsTarget, SettingsFile, ROOTASROLE};
 
 mod configure;
-mod install;
+mod installer;
 mod util;
 
 fn main() {
     let action = args().nth(1);
-    match action {
-        Some(action) => match action.as_str() {
+    if let Some(action) = action {
+        match action.as_str() {
             "configure" => {
-                let res = install::install::install(&None, install::Profile::Release, false, false);
+                let res = installer::install::install(&None, installer::Profile::Release, false, false);
                 if let Err(e) = res {
                     warn!("{:#}", e);
                     std::process::exit(1);
@@ -44,7 +44,6 @@ fn main() {
                 }
             }
             _ => {}
-        },
-        None => {}
+        }
     }
 }

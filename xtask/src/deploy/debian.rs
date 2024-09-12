@@ -3,7 +3,7 @@ use std::process::{Command, ExitStatus};
 use anyhow::Context;
 
 use crate::{
-    install::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},
+    installer::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},
     util::{detect_priv_bin, get_os, OsTarget},
 };
 
@@ -19,20 +19,20 @@ pub fn make_deb(
     priv_bin: &Option<String>,
 ) -> Result<(), anyhow::Error> {
     let os = get_os(os)?;
+    let priv_bin = priv_bin.clone().or(detect_priv_bin());
+    dependencies(&os, priv_bin.clone())?;
 
-    dependencies(&os, priv_bin.clone().or(detect_priv_bin()))?;
-
-    install::dependencies(InstallDependenciesOptions {
+    installer::dependencies(InstallDependenciesOptions {
         os: Some(os),
         install_dependencies: true,
         dev: true,
         priv_bin: priv_bin.clone(),
     })?;
-    install::build(&install::BuildOptions {
+    installer::build(&installer::BuildOptions {
         profile,
-        toolchain: install::Toolchain::default(),
+        toolchain: installer::Toolchain::default(),
         clean_before: false,
-        privbin: Some("sudo".to_string()),
+        privbin: priv_bin,
     })?;
     setup_maint_scripts()?;
 
