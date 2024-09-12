@@ -13,7 +13,8 @@ fn main() {
     if let Some(action) = action {
         match action.as_str() {
             "configure" => {
-                let res = installer::install::install(&None, installer::Profile::Release, false, false);
+                let res =
+                    installer::install::install(&None, installer::Profile::Release, false, false);
                 if let Err(e) = res {
                     warn!("{:#}", e);
                     std::process::exit(1);

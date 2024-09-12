@@ -3,8 +3,8 @@ pub(crate) mod dependencies;
 pub(crate) mod install;
 mod uninstall;
 
-use std::{collections::VecDeque, fmt::Display};
 use std::str::FromStr;
+use std::{collections::VecDeque, fmt::Display};
 
 use chrono::{Datelike, NaiveDate, Utc};
 use clap::{Parser, ValueEnum};

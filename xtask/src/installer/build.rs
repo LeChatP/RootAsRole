@@ -5,7 +5,11 @@ use tracing::debug;
 
 use super::BuildOptions;
 
-fn build_binary(name: &str, options: &BuildOptions, additionnal_args: Vec<&str>) -> Result<(), anyhow::Error> { 
+fn build_binary(
+    name: &str,
+    options: &BuildOptions,
+    additionnal_args: Vec<&str>,
+) -> Result<(), anyhow::Error> {
     let toolchain = format!("+{}", options.toolchain);
     let mut args = vec![&toolchain, "build", "--bin", name];
     if options.profile.is_release() {
@@ -13,9 +17,7 @@ fn build_binary(name: &str, options: &BuildOptions, additionnal_args: Vec<&str>)
     }
     args.extend(additionnal_args);
     debug!("Building {} binary with args: {:?}", name, args);
-    Command::new("cargo")
-        .args(args)
-        .status()?;
+    Command::new("cargo").args(args).status()?;
     Ok(())
 }
 
@@ -39,11 +41,25 @@ fn build_manpages() -> Result<(), anyhow::Error> {
     let _ = fs::remove_dir_all("target/man/");
     fs::create_dir_all("target/man/")?;
     Command::new("pandoc")
-        .args(["-s", "-t", "man", "resources/man/en_US.md", "-o", "target/man/sr.8"])
+        .args([
+            "-s",
+            "-t",
+            "man",
+            "resources/man/en_US.md",
+            "-o",
+            "target/man/sr.8",
+        ])
         .status()?;
     fs::create_dir_all("target/man/fr")?;
     Command::new("pandoc")
-        .args(["-s", "-t", "man", "resources/man/fr_FR.md", "-o", "target/man/fr/sr.8"])
+        .args([
+            "-s",
+            "-t",
+            "man",
+            "resources/man/fr_FR.md",
+            "-o",
+            "target/man/fr/sr.8",
+        ])
         .status()?;
     debug!("Compressing manpages");
     Command::new("gzip")

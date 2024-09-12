@@ -215,7 +215,6 @@ pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod test {
     use std::{fs, path::PathBuf};

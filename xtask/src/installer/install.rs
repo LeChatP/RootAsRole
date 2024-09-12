@@ -16,8 +16,8 @@ use crate::installer::Profile;
 use crate::util::{detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
-use crate::util::cap_clear;
 use super::{CHSR_DEST, SR_DEST};
+use crate::util::cap_clear;
 
 fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     let binding = std::env::current_dir()?;
@@ -102,11 +102,7 @@ fn copy_docs() -> Result<(), anyhow::Error> {
             })?;
             let dest = format!("/usr/share/man/{}/man8/{}", lang, file_name);
             debug!("Copying file: {:?} to {}", &file, dest);
-            fs::copy(
-                &file,
-                &dest,
-            )
-            .inspect_err(|_| {
+            fs::copy(&file, &dest).inspect_err(|_| {
                 exit_directory().expect("Failed to exit directory");
             })?;
         } else {
