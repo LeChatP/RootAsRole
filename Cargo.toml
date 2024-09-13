@@ -132,10 +132,10 @@ assets = [
     { source = "target/man/fr/chsr.8.gz", dest = "/usr/share/man/fr/man8/chsr.8.gz", user = "root", group = "root", mode = "0644", doc = true }
 ]
 post_install_script = "resources/rh/postinst.sh"
-post_install_script_prog = [ "/bin/sh", "-c" ]
+post_install_script_flags = 0b101
 
 pre_uninstall_script = "resources/rh/prerm.sh"
-pre_uninstall_script_prog = [ "/bin/sh", "-c" ]
+pre_uninstall_script_flags = 0b101
 
 [package.metadata.generate-rpm.requires]
 pam = "*"

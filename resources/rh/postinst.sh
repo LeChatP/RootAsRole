@@ -1,4 +1,5 @@
-if [[ -z ${SUDO_USER+x} ]]; then INSTALL_USER=`id -urn`; else INSTALL_USER=$SUDO_USER; fi
+#!/bin/sh
+if [ -z ${SUDO_USER+x} ]; then INSTALL_USER=$(id -urn); else INSTALL_USER=$SUDO_USER; fi
 
 filesystem() {
     df -T "$1" | awk 'NR==2 {print $2}'
