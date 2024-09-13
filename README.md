@@ -52,7 +52,7 @@
     Ubuntu : `sudo apt-get install clang`, RedHat : `sudo yum install clang`, ArchLinux : `sudo pacman -S clang`
 
 
-### How to install sr and chsr
+### How to install sr and chsr by building from source
 
   1. `git clone <https://github.com/LeChatP/RootAsRole>`
   1. `cd RootAsRole`
