@@ -37,20 +37,44 @@
 
 ## Installation
 
-### Prerequisites
+### Prerequisites (for compilation)
 
 * [Rust](https://www.rust-lang.org/tools/install) >= 1.76.0
   * You can install Rust by running the following command:
     ```sh
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     ```
-* [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)  
+    (Do not forget to add the cargo bin directory to your PATH with `. "$HOME/.cargo/env"` command)
+* [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+  * You can install git by running the following commands depending on your distribution:
+    Ubuntu : `sudo apt-get install git`, RedHat : `sudo yum install git`, ArchLinux : `sudo pacman -S git`
+* [clang](https://clang.llvm.org/get_started.html) (or gcc, but clang is highly recommended)
+  * You can install clang by running the following commands depending on your distribution:
+    Ubuntu : `sudo apt-get install clang`, RedHat : `sudo yum install clang`, ArchLinux : `sudo pacman -S clang`
 
-### How to install sr and chsr
+Then the xtask installation will install the rest of the dependencies for you.
 
-  1. `git clone <https://github.com/LeChatP/RootAsRole>`
+### Install from source
+
+  1. `git clone https://github.com/LeChatP/RootAsRole`
   1. `cd RootAsRole`
-  1. `sudo cargo xtask install -i -b`
+  1. `cargo xtask install -bip sudo`
+
+
+### Install from precompiled binaries
+
+You can download the precompiled binaries from the [release page](https://github.com/LeChatP/RootAsRole/releases).
+
+Then you can install the package with the following commands:
+
+```sh
+sudo apt install rootasrole_3.0.0_amd64.deb
+```
+
+```sh
+sudo rpm -i rootasrole-3.0.0-1.x86_64.rpm
+```
+
 
 ### Additional Installation Options
 
@@ -159,15 +183,13 @@ This doesn't mean that earlier versions of these distributions are incompatible;
 
 ## Contributors
 
-Ahmad Samer Wazan : <ahmad-samer.wazan@irit.fr>
+Eddie Billoir : <eddie.billoir@gmail.com>
+
+Ahmad Samer Wazan : <ahmad.wazan@zu.ac.ae>
 
 Rémi Venant: <remi.venant@gmail.com>
 
 Guillaume Daumas : <guillaume.daumas@univ-tlse3.fr>
-
-Eddie Billoir : <eddie.billoir@gmail.com>
-
-Anderson Hemlee : <anderson.hemlee@protonmail.com>
 
 Romain Laborde : <laborde@irit.fr>
 
