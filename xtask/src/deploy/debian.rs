@@ -25,6 +25,10 @@ fn dependencies(os: &OsTarget, priv_bin: Option<String>) -> Result<ExitStatus, a
 }
 
 fn generate_changelog() -> Result<(), anyhow::Error> {
+    let changelog_path = "target/debian/changelog";
+    if std::path::Path::new(changelog_path).exists() {
+        return Ok(());
+    }
     let binding = Command::new("git")
         .args(["tag", "--sort=-creatordate"])
         .output()?;
@@ -63,7 +67,7 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
         changes = String::from_utf8(changes.stdout).unwrap(),
         date = chrono::Local::now().format("%a, %d %b %Y %T %z")
     );
-    File::create("target/debian/changelog")?.write_all(changelog.as_bytes())?;
+    File::create(changelog_path)?.write_all(changelog.as_bytes())?;
 
     Ok(())
 }
