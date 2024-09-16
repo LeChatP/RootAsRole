@@ -1,5 +1,5 @@
-% RootAsRole(8) Manuel de l'administrateur système
-% Version 3.0.0
+% RootAsRole(8) RootAsRole 3.0.0 | Manuel de l'administrateur système
+%
 % Septembre 2024
 
 # NAME

@@ -119,6 +119,7 @@ preserve-symlinks = true
 conf-files = ["/etc/pam.d/sr", "/etc/security/rootasrole.json"]
 maintainer-scripts = "target/release/"
 extended-description = "RootAsRole is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to multiple co-administrators through RBAC model and Linux Capabilities features."
+changelog = "target/debian/changelog"
 
 [package.metadata.generate-rpm]
 assets = [

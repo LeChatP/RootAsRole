@@ -1,6 +1,11 @@
-use std::process::{Command, ExitStatus};
+use std::{
+    fs::File,
+    io::{BufRead, Write},
+    process::{Command, ExitStatus},
+};
 
 use anyhow::Context;
+use tracing::debug;
 
 use crate::{
     installer::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},
@@ -17,6 +22,50 @@ fn dependencies(os: &OsTarget, priv_bin: Option<String>) -> Result<ExitStatus, a
         .arg("cargo-deb")
         .status()
         .context("failed to install cargo-deb")
+}
+
+fn generate_changelog() -> Result<(), anyhow::Error> {
+    let binding = Command::new("git")
+        .args(["tag", "--sort=-creatordate"])
+        .output()?;
+    let mut ordered_tags = binding.stdout.lines();
+
+    let from = ordered_tags
+        .next()
+        .expect("Are you in the git repository ?")?;
+
+    let to = ordered_tags
+        .next()
+        .expect("Are you in the git repository ?")?;
+
+    debug!("Generating changelog from {} to {}", from, to);
+
+    let changes = Command::new("git")
+        .args([
+            "log",
+            "--pretty=format:  * %s",
+            &format!("{}..{}", to, from),
+        ])
+        .output()?;
+    debug!(
+        "Changes: {}",
+        String::from_utf8(changes.stdout.clone()).unwrap()
+    );
+    let changelog = format!(
+        r#"rootasrole ({version}) {dist}; urgency={urgency}
+
+{changes}
+
+-- Eddie Billoir <lechatp@outlook.fr>  {date}"#,
+        version = env!("CARGO_PKG_VERSION"),
+        dist = "unstable",
+        urgency = "low",
+        changes = String::from_utf8(changes.stdout).unwrap(),
+        date = chrono::Local::now().format("%a, %d %b %Y %T %z")
+    );
+    File::create("target/debian/changelog")?.write_all(changelog.as_bytes())?;
+
+    Ok(())
 }
 
 pub fn make_deb(
@@ -41,6 +90,7 @@ pub fn make_deb(
         privbin: priv_bin,
     })?;
     setup_maint_scripts()?;
+    generate_changelog()?;
 
     Command::new("cargo")
         .arg("deb")
