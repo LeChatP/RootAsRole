@@ -47,7 +47,7 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
     let changes = Command::new("git")
         .args([
             "log",
-            "--pretty=format:  * %s",
+            "--pretty=format:  %s",
             &format!("{}..{}", to, from),
         ])
         .output()?;
@@ -57,10 +57,10 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
     );
     let changelog = format!(
         r#"rootasrole ({version}) {dist}; urgency={urgency}
-
 {changes}
 
--- Eddie Billoir <lechatp@outlook.fr>  {date}"#,
+ -- Eddie Billoir <lechatp@outlook.fr>  {date}
+"#,
         version = env!("CARGO_PKG_VERSION"),
         dist = "unstable",
         urgency = "low",
