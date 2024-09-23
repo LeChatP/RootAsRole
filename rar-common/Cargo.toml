@@ -2,6 +2,8 @@
 name = "rootasrole-core"
 version = "3.0.0"
 edition = "2021"
+description = "This core crate contains the RBAC and main features for the RootAsRole project."
+license = "GPL-3.0-or-later"
 
 [dependencies]
 tracing = "0.1.40"
