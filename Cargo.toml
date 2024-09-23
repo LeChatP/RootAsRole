@@ -2,7 +2,7 @@
 members = ["xtask", "rar-common"]
 
 [package]
-name = "RootAsRole"
+name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
 version = "3.0.0"
 rust-version = "1.76.0"
@@ -16,6 +16,7 @@ homepage = "https://lechatp.github.io/RootAsRole/"
 keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
 categories = ["command-line-utilities", "os::linux-apis", "config"]
 exclude = ["sudoers-reader/*", "book/*"]
+
 
 [badges]
 maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/badge/maintenance-actively%20maintained-brightgreen.svg" }
@@ -58,7 +59,7 @@ serde_json = "1.0.116"
 toml = "0.8.13"
 
 [dependencies]
-rar-common = { path = "rar-common" }
+rar-common = { path = "rar-common", version = "3.0.0", package = "rootasrole-core" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 libc = "0.2.155"

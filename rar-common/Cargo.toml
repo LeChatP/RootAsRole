@@ -1,6 +1,6 @@
 [package]
-name = "rar-common"
-version = "0.1.0"
+name = "rootasrole-core"
+version = "3.0.0"
 edition = "2021"
 
 [dependencies]
