@@ -4,9 +4,9 @@ This page contains known issues and solutions for RootAsRole project.
 
 ## Why I cannot do `cargo install rootasrole` command ?
 
-The `cargo install` command is primarily designed to install Rust binaries into a user’s local environment, specifically into the `.cargo/bin` directory in the user’s home directory. The philosophy behind this is to keep the installation process simple and unprivileged, avoiding system-wide changes that would require root or admin permissions.
+The `cargo install` command is primarily designed to install Rust binaries into a user’s local environment, specifically into the `.cargo/bin` directory in the user’s home directory. The philosophy behind this is to keep the installation process simple and unprivileged, avoiding system-wide changes that would require administrative privileges.
 
-In this context, RootAsRole is a privilege escalation tool, so it requires privileges to work. As the `cargo install` command is not designed to install system-wide binaries, so RootAsRole won't work as expected this way.
+RootAsRole is a privilege escalation tool that is designed to be system-wide and with administrative privileges. Therefore, it is not suitable for installation via `cargo install`. Instead, you should install it with the package manager of your distribution or by compiling it from source. The main reason for RootAsRole being on crates.io is to claim the name and warn users when they try to install it via `cargo install`.
 
 ## capable does not work on my OS, what can I do ?
 
