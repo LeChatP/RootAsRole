@@ -91,11 +91,15 @@ fn main() {
                     eprintln!("cargo:warning={}", err);
                 }
             }
-            if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
-                eprintln!("cargo:warning={}", err);
+            if Path::new("xtask").is_dir() {
+                if let Err(err) = set_cargo_version(package_version, "xtask/Cargo.toml") {
+                    eprintln!("cargo:warning={}", err);
+                }
             }
-            if let Err(err) = set_cargo_version(package_version, "rar-common/Cargo.toml") {
-                eprintln!("cargo:warning={}", err);
+            if Path::new("rar-common").is_dir() {
+                if let Err(err) = set_cargo_version(package_version, "rar-common/Cargo.toml") {
+                    eprintln!("cargo:warning={}", err);
+                }
             }
             if let Err(err) = set_readme_version(package_version, "README.md") {
                 eprintln!("cargo:warning={}", err);
