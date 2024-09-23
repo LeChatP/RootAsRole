@@ -159,7 +159,10 @@ fn write_lockfile(lockfile_path: &Path) {
         .expect("Failed to write to lockfile");
 }
 
+#[cfg(not(test))]
 const TS_LOCATION: &str = "/var/run/rar/ts";
+#[cfg(test)]
+const TS_LOCATION: &str = "target/ts";
 
 fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
