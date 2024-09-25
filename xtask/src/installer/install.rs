@@ -13,7 +13,7 @@ use strum::EnumIs;
 use tracing::{debug, error, info};
 
 use crate::installer::Profile;
-use crate::util::{detect_priv_bin, BOLD, RED, RST};
+use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
 use super::{CHSR_DEST, SR_DEST};
@@ -199,6 +199,7 @@ pub fn install(
                         .unwrap()
                 ))
             })?;
+        change_dir_to_git_root()?; // change to the root of the project before elevating privileges
         env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
         tracing::warn!("Elevating privileges...");
         std::process::Command::new(priv_exe)
