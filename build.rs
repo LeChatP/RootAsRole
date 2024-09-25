@@ -70,7 +70,9 @@ fn main() {
     if is_install {
         panic!("This crate is not meant to be installed with cargo install, please download .deb or .rpm and install it with your package manager.\nSee: https://lechatp.github.io/RootAsRole/faq.html");
     }
-
+    if !std::path::Path::new("rar-common").exists() {
+        return;
+    }
     let package_version = package_version("Cargo.toml").expect("Failed to get package version");
     let dest_path = std::path::Path::new("rar-common")
         .join("src")
