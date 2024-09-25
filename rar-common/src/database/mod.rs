@@ -8,6 +8,7 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
+use tracing_subscriber::field::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 
@@ -69,12 +70,14 @@ pub fn read_json_config(
         )?;
         let versionned_config: Versioning<Rc<RefCell<SConfig>>> = serde_json::from_reader(file)?;
         let config = versionned_config.data;
-        if Migration::migrate(
+        if let Ok(true) = Migration::migrate(
             &versionned_config.version,
             &mut *config.as_ref().borrow_mut(),
             versionning::JSON_MIGRATIONS,
-        )? {
+        ) {
             save_json(settings.clone(), config.clone())?;
+        } else {
+            debug!("No migrations needed");
         }
         make_weak_config(&config);
         Ok(config)

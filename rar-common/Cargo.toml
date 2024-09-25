@@ -1,6 +1,6 @@
 [package]
 name = "rootasrole-core"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2021"
 description = "This core crate contains the RBAC and main features for the RootAsRole project."
 license = "GPL-3.0-or-later"
@@ -35,6 +35,8 @@ test-log = { version = "0.2.12", features = ["trace"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
 lazy_static = "1.4.0"
+serde = { version = "1.0.202", features=["rc"] }
+toml = "0.8.19"
 
 [features]
 pcre2 = ["dep:pcre2"]

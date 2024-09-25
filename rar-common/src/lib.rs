@@ -256,12 +256,12 @@ where
     read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
-    if Migration::migrate(
+    if let Ok(true) = Migration::migrate(
         &value.version,
         &mut *settingsfile.as_ref().borrow_mut(),
         SETTINGS_MIGRATIONS,
-    )? {
-        Migration::migrate(
+    ) {
+        if let Ok(true) = Migration::migrate(
             &value.version,
             &mut *settingsfile
                 .as_ref()
@@ -270,8 +270,13 @@ where
                 .as_ref()
                 .borrow_mut(),
             JSON_MIGRATIONS,
-        )?;
-        save_settings(settingsfile.clone())?;
+        ) {
+            save_settings(settingsfile.clone())?;
+        } else {
+            debug!("No config migrations needed");
+        }
+    } else {
+        debug!("No settings migrations needed");
     }
     Ok(settingsfile)
 }
