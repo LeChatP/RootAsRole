@@ -8,7 +8,6 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
 use tracing::debug;
-use tracing_subscriber::field::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 

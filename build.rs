@@ -1,12 +1,19 @@
-use std::{error::Error, fs::{self, File}, io::{BufRead, BufReader, Write}, path::Path};
+use std::{
+    error::Error,
+    fs::{self, File},
+    io::{BufRead, BufReader, Write},
+    path::Path,
+};
 
 use toml::Table;
 
-
-fn package_version<P:AsRef<Path>>(path : P) -> Result<String, Box<dyn Error>> {
+fn package_version<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn Error>> {
     let cargo_toml = fs::read_to_string(path)?;
     let value: Table = cargo_toml.parse::<Table>()?;
-    Ok(value["package"]["version"].as_str().map(|s| s.to_string()).expect("Failed to get package version"))
+    Ok(value["package"]["version"]
+        .as_str()
+        .map(|s| s.to_string())
+        .expect("Failed to get package version"))
 }
 
 fn write_version<'a>(f: &'a mut File, package_version: &'a str) -> Result<&'a str, Box<dyn Error>> {
@@ -65,8 +72,14 @@ fn main() {
     }
 
     let package_version = package_version("Cargo.toml").expect("Failed to get package version");
-    let dest_path = std::path::Path::new("rar-common").join("src").join("version.rs");
-    if dest_path.exists() && fs::read_to_string(&dest_path).unwrap().ends_with(&format!("\"{}\";\n",package_version)) {
+    let dest_path = std::path::Path::new("rar-common")
+        .join("src")
+        .join("version.rs");
+    if dest_path.exists()
+        && fs::read_to_string(&dest_path)
+            .unwrap()
+            .ends_with(&format!("\"{}\";\n", package_version))
+    {
         return;
     }
     let mut f = File::create(dest_path).unwrap();

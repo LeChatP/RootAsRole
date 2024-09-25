@@ -33,8 +33,6 @@ impl<T: Default + Debug> Default for Versioning<T> {
     }
 }
 
-pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[
-];
+pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[];
 
-pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[
-];
+pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[];
