@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./RootAsRolev2.svg" width=75%>
+  <img src="./RootAsRolev2.svg" width=30%>
  </p>
  <p align="center">
   
