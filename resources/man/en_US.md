@@ -1,5 +1,5 @@
-% RootAsRole(8) System Manager's Manual
-% Version 3.0.0
+% RootAsRole(8) RootAsRole 3.0.0 | System Manager's Manual
+% Eddie Billoir <lechatp@outlook.fr>
 % September 2024
 
 # NAME
@@ -83,9 +83,6 @@ For help, please visit <https://github.com/LeChatP/RootAsRole/discussions> or <h
 # DISCLAIMER
 
 This program is provided "as is" without any warranty, to the extent permitted by law. The authors disclaim any responsibility for the quality or suitability of the program for a particular purpose. You use this program at your own risk. In case of problems, you are responsible for any necessary repairs or corrections. For more details, please refer to the GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
-
-# AUTHOR
-This manual was written by Eddie BILLOIR <lechatp@outlook.fr>
 
 # LICENSE
 GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
