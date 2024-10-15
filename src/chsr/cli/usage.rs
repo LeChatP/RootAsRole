@@ -157,7 +157,9 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::task_id => "task identifier",
         Rule::command_operations => "cmd",
         Rule::credentials_operations => "cred",
-        Rule::caps_listing | Rule::cmd_checklisting | Rule::opt_path_listing => "whitelist, blacklist",
+        Rule::caps_listing | Rule::cmd_checklisting | Rule::opt_path_listing => {
+            "whitelist, blacklist"
+        }
         Rule::cmd_policy => "allow-all or deny-all",
         Rule::cmd => "a command line",
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
