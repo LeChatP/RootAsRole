@@ -68,7 +68,7 @@ serde_json = "1.0.128"
 ciborium = "0.2.2"
 glob = "0.3.1"
 pam-client = { version = "0.5.0", git = "https://gitlab.com/LeChatP/rust-pam-client.git" }
-pam-sys = { version = "1.0.0-alpha.5", git = "https://gitlab.com/LeChatP/pam-sys.git" }
+pam-sys = { version = "1.0.0-alpha.5", git = "https://github.com/LeChatP/pam-sys.git" }
 bitflags = { version = "2.6.0" }
 shell-words = "1.1.0"
 syslog-tracing = "0.3.0"
