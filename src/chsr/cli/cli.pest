@@ -106,7 +106,8 @@ capability   =  @{ ^"CAP_"? ~ (LETTER | "_")+ }
 
 // chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
 // chsr r r1 t t1 cred caps (whitelist|blacklist) (add|del) cap1 cap2 cap3
-cred_caps_operations      = _{ "caps" ~ (caps_setpolicy | caps_listing) }
+caps_keyword = { ("capabilities" | "caps") }
+cred_caps_operations      = _{ caps_keyword ~ (caps_setpolicy | caps_listing) }
 caps_setpolicy = _{ setpolicy ~ caps_policy }
 caps_policy    =  @{ cmd_policy }
 caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities | purge)}

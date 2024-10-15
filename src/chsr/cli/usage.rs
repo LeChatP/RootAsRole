@@ -145,7 +145,7 @@ fn rule_to_string(rule: &Rule) -> String {
     match *rule {
         Rule::EOI => "no more input",
         Rule::args => "role, options, timeout or --help",
-        Rule::opt_timeout_operations => "timeout set/unset operations",
+        Rule::opt_timeout_operations => "set, unset",
         Rule::opt_timeout_d_arg => "--duration (hh:mm:ss)",
         Rule::opt_timeout_t_arg => "--type (tty, ppid, uid)",
         Rule::opt_timeout_m_arg => "--max-usage (\\d+)",
@@ -157,13 +157,12 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::task_id => "task identifier",
         Rule::command_operations => "cmd",
         Rule::credentials_operations => "cred",
-        Rule::cmd_checklisting => "whitelist, blacklist",
+        Rule::caps_listing | Rule::cmd_checklisting | Rule::opt_path_listing => "whitelist, blacklist",
         Rule::cmd_policy => "allow-all or deny-all",
         Rule::cmd => "a command line",
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
-        Rule::cred_caps_operations => "caps",
         Rule::cli => "a command line",
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
@@ -176,6 +175,11 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::set => "set",
         Rule::setpolicy => "setpolicy",
         Rule::opt_env_listing => "whitelist, blacklist, checklist",
+        Rule::caps_keyword => "caps",
+        Rule::del => "del",
+        Rule::add => "add",
+        Rule::purge => "purge",
+        Rule::capability => "some capabilities (cap_net_raw, cap_sys_admin, ...)",
         _ => {
             println!("{:?}", rule);
             "unknown rule"
