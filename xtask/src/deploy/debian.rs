@@ -45,11 +45,7 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
     debug!("Generating changelog from {} to {}", from, to);
 
     let changes = Command::new("git")
-        .args([
-            "log",
-            "--pretty=format:  %s",
-            &format!("{}..{}", to, from),
-        ])
+        .args(["log", "--pretty=format:  %s", &format!("{}..{}", to, from)])
         .output()?;
     debug!(
         "Changes: {}",

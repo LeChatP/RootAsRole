@@ -216,14 +216,18 @@ fn parse_complex_command(command: &serde_json::Value) -> Result<Vec<String>, Box
 }
 
 #[cfg(feature = "finder")]
-fn parse_complex_command_with_finder(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn Error>> {
+fn parse_complex_command_with_finder(
+    command: &serde_json::Value,
+) -> Result<Vec<String>, Box<dyn Error>> {
     let res = PluginManager::notify_complex_command_parser(command);
     debug!("Parsed command {:?}", res);
     res
 }
 
 #[cfg(not(feature = "finder"))]
-fn parse_complex_command_with_finder(_command: &serde_json::Value) -> Result<Vec<String>, Box<dyn Error>> {
+fn parse_complex_command_with_finder(
+    _command: &serde_json::Value,
+) -> Result<Vec<String>, Box<dyn Error>> {
     Err("Invalid command".into())
 }
 
