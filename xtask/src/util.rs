@@ -3,6 +3,7 @@ use std::{
     io,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::Path,
+    process::Command,
 };
 
 use anyhow::{anyhow, Context};
@@ -116,6 +117,16 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
             read_effective(true).or(dac_override_effective(true))?;
         }
     }
+    Ok(())
+}
+
+pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
+    let output = Command::new("git")
+        .args(&["rev-parse", "--show-toplevel"])
+        .output()?;
+    let git_root = String::from_utf8(output.stdout)?.trim().to_string();
+    debug!("Changing directory to git root: {}", git_root);
+    std::env::set_current_dir(git_root)?;
     Ok(())
 }
 

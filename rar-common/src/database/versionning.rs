@@ -33,32 +33,6 @@ impl<T: Default + Debug> Default for Versioning<T> {
     }
 }
 
-pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[
-    Migration {
-        from: || Version::parse("3.0.0-alpha.4").unwrap(),
-        to: || Version::parse("3.0.0-alpha.5").unwrap(),
-        up: |_, _| Ok(()),
-        down: |_, _| Ok(()),
-    },
-    Migration {
-        from: || Version::parse("3.0.0-alpha.5").unwrap(),
-        to: || Version::parse("3.0.0").unwrap(),
-        up: |_, _| Ok(()),
-        down: |_, _| Ok(()),
-    },
-];
+pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[];
 
-pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[
-    Migration {
-        from: || Version::parse("3.0.0-alpha.4").unwrap(),
-        to: || Version::parse("3.0.0-alpha.5").unwrap(),
-        up: |_, _| Ok(()),
-        down: |_, _| Ok(()),
-    },
-    Migration {
-        from: || Version::parse("3.0.0-alpha.5").unwrap(),
-        to: || Version::parse("3.0.0").unwrap(),
-        up: |_, _| Ok(()),
-        down: |_, _| Ok(()),
-    },
-];
+pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[];

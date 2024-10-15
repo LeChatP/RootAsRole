@@ -84,11 +84,13 @@ chsr options path [operation]
 <u><b>Environment options:</b></u>
 chsr options env [operation]
   <b>setpolicy</b> [policy]            Specify the policy for environment settings (delete-all, keep-all, inherit).
-  <b>set</b> [key=value,...]           Set the policy as delete-all and the key-value map to enforce.
+  <b>set</b> [key=value,...]           Set variables to enforce.
+  <b>keep-only</b> [key,...]           Set the policy as delete-all and the key map to keep.
+  <b>delete-only</b> [key,...]         Set the policy as keep-all and the key map to delete.
   <b>whitelist, wl</b> [listing]       Manage the whitelist for environment settings.
   <b>blacklist, bl</b> [listing]       Manage the blacklist for environment settings.
   <b>checklist, cl</b> [listing]       Manage the checklist for environment settings. (Removed if contains unsafe chars)
-
+  <b>setlist, sl</b> [listing]         Manage the setlist for environment settings. (define environment variables) 
 
 <u><b>Timeout options:</b></u>
 chsr options timeout [operation]

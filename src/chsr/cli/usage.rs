@@ -102,10 +102,13 @@ chsr options path [operation]
 const RAR_USAGE_OPTIONS_ENV :&str = formatcp!("{UNDERLINE}{BOLD}Environment options:{RST}
 chsr options env [operation]
   {BOLD}setpolicy{RST} [policy]            Specify the policy for environment settings (delete-all, keep-all, inherit).
-  {BOLD}set{RST} [key=value,...]           Set the policy as delete-all and the key-value map to enforce.
+  {BOLD}set{RST} [key=value,...]           Set variables to enforce.
+  {BOLD}keep-only{RST} [key,...]           Set the policy as delete-all and the key map to keep.
+  {BOLD}delete-only{RST} [key,...]         Set the policy as keep-all and the key map to delete.
   {BOLD}whitelist, wl{RST} [listing]       Manage the whitelist for environment settings.
   {BOLD}blacklist, bl{RST} [listing]       Manage the blacklist for environment settings.
   {BOLD}checklist, cl{RST} [listing]       Manage the checklist for environment settings. (Removed if contains unsafe chars)
+  {BOLD}setlist, sl{RST} [listing]         Manage the setlist for environment settings. (define environment variables) 
 ",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
 
 const RAR_USAGE_OPTIONS_TIMEOUT: &str = formatcp!(

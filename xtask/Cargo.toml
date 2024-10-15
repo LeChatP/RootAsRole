@@ -1,8 +1,9 @@
 [package]
 name = "xtask"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.0.0"
+version = "3.0.2"
 edition = "2021"
+publish = false
 
 [[bin]]
 name = "postinst"

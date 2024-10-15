@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./RootAsRolev2.svg" width=75%>
+  <img src="./RootAsRolev2.svg" width=30%>
  </p>
  <p align="center">
   
@@ -16,7 +16,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.0) : A memory-safe and security-oriented alternative to sudo/su commands
+# RootAsRole (V3.0.2) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 

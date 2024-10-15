@@ -3,6 +3,8 @@ use std::{fs, os::unix, process::Command};
 use anyhow::Context;
 use tracing::debug;
 
+use crate::util::change_dir_to_git_root;
+
 use super::BuildOptions;
 
 fn build_binary(
@@ -22,6 +24,7 @@ fn build_binary(
 }
 
 pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
+    change_dir_to_git_root()?;
     if options.clean_before {
         Command::new("cargo")
             .arg("clean")

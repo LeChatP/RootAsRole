@@ -91,6 +91,7 @@ impl<T> Migration<T> {
             while migrated == ChangeResult::UpgradeIndirect
                 || migrated == ChangeResult::DowngradeIndirect
             {
+                migrated = ChangeResult::None;
                 for migration in migrations {
                     match migration.change(doc, &from, &to)? {
                         ChangeResult::UpgradeDirect | ChangeResult::DowngradeDirect => {
@@ -123,6 +124,7 @@ impl<T> Migration<T> {
     /// If the version is already the current version, nothing is done.
     /// If the version is older, the database is upgraded.
     /// If the version is newer, the database is downgraded.
+    /// Returns true if the database was migrated, false if it was already at the current version.
     pub fn migrate(
         version: &Version,
         doc: &mut T,
