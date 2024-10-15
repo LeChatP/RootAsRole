@@ -392,41 +392,43 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
         _ => Err("Unknown Input".into()),
     }
 }
-
 pub fn perform_on_target_opt(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let config = rconfig.as_ref().borrow_mut();
-    if let Some(role_id) = role_id {
-        if let Some(role) = config.role(&role_id) {
-            if let Some(task_id) = task_id {
-                if let Some(task) = role.as_ref().borrow().task(&task_id) {
-                    if let Some(options) = &task.as_ref().borrow_mut().options {
-                        exec_on_opt(options.clone())
-                    } else {
-                        let options = Rc::new(RefCell::new(Opt::default()));
-                        let ret = exec_on_opt(options.clone());
-                        task.as_ref().borrow_mut().options = Some(options);
-                        ret
-                    }
-                } else {
-                    Err("Task not found".into())
-                }
-            } else if let Some(options) = &role.as_ref().borrow_mut().options {
-                exec_on_opt(options.clone())
-            } else {
-                let options = Rc::new(RefCell::new(Opt::default()));
-                let ret = exec_on_opt(options.clone());
-                role.as_ref().borrow_mut().options = Some(options);
-                ret
-            }
+    let mut config = rconfig.as_ref().borrow_mut();
+
+    // Helper function to execute on option or create a new one
+    fn execute_or_create_option(
+        exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
+        options: &mut Option<Rc<RefCell<Opt>>>,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(opt) = options {
+            exec_on_opt(opt.clone())
         } else {
-            Err("Role not found".into())
+            let new_opt = Rc::new(RefCell::new(Opt::default()));
+            let result = exec_on_opt(new_opt.clone());
+            *options = Some(new_opt);
+            result
         }
-    } else {
-        return exec_on_opt(config.options.as_ref().unwrap().clone());
     }
+
+    // If role_id is provided, find the role
+    if let Some(role_id) = role_id {
+        let role = config.role(&role_id).ok_or("Role not found")?;
+        let mut role_borrowed = role.as_ref().borrow_mut();
+
+        // If task_id is provided, find the task
+        if let Some(task_id) = task_id {
+            let task = role_borrowed.task(&task_id).ok_or("Task not found")?;
+            return execute_or_create_option(exec_on_opt, &mut task.as_ref().borrow_mut().options);
+        }
+        // No task_id, use role options
+        return execute_or_create_option(exec_on_opt, &mut role_borrowed.options);
+    }
+
+    // No role_id, use global config options
+    execute_or_create_option(exec_on_opt, &mut config.options)
 }
