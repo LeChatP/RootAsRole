@@ -7,7 +7,7 @@ use std::{
 };
 
 use linked_hash_set::LinkedHashSet;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
 
@@ -277,6 +277,14 @@ pub fn grant_revoke(
     action: InputAction,
     mut actors: Vec<rar_common::database::structs::SActor>,
 ) -> Result<bool, Box<dyn Error>> {
+    for actor in &actors {
+        // if actor does not exist in the system, warn
+        if let Some(inexistent_actors) = actor.inexistent_actors() {
+            for inexistent_actor in inexistent_actors {
+                warn!("Actor '{}' does not exist", inexistent_actor);
+            }
+        }
+    }
     debug!("chsr role r1 grant|revoke");
     let config = rconfig.as_ref().borrow_mut();
     let role = config.role(&role_id).ok_or("Role not found")?;

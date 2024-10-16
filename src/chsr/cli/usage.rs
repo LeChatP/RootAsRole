@@ -165,6 +165,7 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
+        Rule::user_or_groups => "-u uA,uB -g gA,gB",
         Rule::cli => "a command line",
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",

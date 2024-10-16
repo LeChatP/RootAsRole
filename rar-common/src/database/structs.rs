@@ -632,6 +632,48 @@ impl From<SGroups> for Vec<Group> {
 }
 
 impl SActor {
+    /// Check if the actor exists
+    /// if the Actor exists, it will return None
+    /// if the Actor does not exist, it will return the list of actors that do not exist
+    pub fn inexistent_actors(&self) -> Option<Vec<SActorType>> {
+        match self {
+            SActor::User { id, .. } => id.as_ref().and_then(|id| {
+                if id.into_user().ok().flatten().is_none() {
+                    Some(vec![id.clone()])
+                } else {
+                    None
+                }
+            }),
+            SActor::Group { groups, .. } => groups.as_ref().and_then(|groups| {
+                let not_found: Vec<SActorType> = match groups {
+                    SGroups::Single(group) => {
+                        if group.into_group().ok().flatten().is_none() {
+                            vec![group.clone()]
+                        } else {
+                            vec![]
+                        }
+                    }
+                    SGroups::Multiple(groups) => groups
+                        .iter()
+                        .filter_map(|group| {
+                            if group.into_group().ok().flatten().is_none() {
+                                Some(group.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                };
+                if not_found.is_empty() {
+                    None
+                } else {
+                    Some(not_found)
+                }
+            }),
+            SActor::Unknown(_) => None,
+        }
+    }
+    
     pub fn from_user_string(user: &str) -> Self {
         SActor::User {
             id: Some(user.into()),
