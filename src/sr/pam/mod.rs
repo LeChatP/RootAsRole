@@ -6,7 +6,7 @@ use std::{
 
 use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::timeout;
 use rar_common::{

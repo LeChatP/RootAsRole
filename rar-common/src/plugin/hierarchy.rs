@@ -9,7 +9,7 @@ use crate::{
 };
 
 use serde::Deserialize;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 #[derive(Deserialize)]
 pub struct Parents(Vec<String>);

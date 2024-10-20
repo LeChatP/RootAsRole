@@ -7,7 +7,7 @@ use crate::version::PACKAGE_VERSION;
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use serde::{de, Deserialize, Serialize};
-use tracing::debug;
+use log::debug;
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 

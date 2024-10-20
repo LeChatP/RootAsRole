@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
-use tracing::debug;
+use log::debug;
 
 use crate::{
     installer::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},

@@ -16,7 +16,7 @@ use nix::{
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
 use strum::EnumIs;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 use crate::database::{
     options::{Opt, OptStack},
@@ -488,7 +488,7 @@ fn is_root(actortype: &SActorType) -> bool {
 fn groups_contains_root(list: Option<&SGroups>) -> bool {
     if let Some(list) = list {
         match list {
-            SGroups::Single(group) => is_root(group),
+            SGroups::Single(group) => is_root(&group),
             SGroups::Multiple(groups) => groups.iter().any(is_root),
         }
     } else {
@@ -703,7 +703,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
                     }
                 }
                 SActor::Unknown(element) => {
-                    let min = PluginManager::notify_user_matcher(&as_borrow!(self), user, element);
+                    let min = PluginManager::notify_user_matcher(&as_borrow!(self), user, &element);
                     if !min.is_no_match() {
                         return Some(min);
                     }

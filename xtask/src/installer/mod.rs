@@ -12,7 +12,7 @@ use semver::Version;
 use strum::{Display, EnumIs, EnumString};
 
 use anyhow::anyhow;
-use tracing::debug;
+use log::debug;
 
 use crate::{
     configure,
@@ -129,7 +129,7 @@ impl Display for Toolchain {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toolchain {
     pub channel: Channel,
     pub date: Option<NaiveDate>,
@@ -146,7 +146,7 @@ impl Default for Toolchain {
     }
 }
 
-#[derive(Debug, Clone, EnumIs)]
+#[derive(Debug, Clone, EnumIs, PartialEq, Eq)]
 pub enum Channel {
     Stable,
     Beta,

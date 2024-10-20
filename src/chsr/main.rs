@@ -6,7 +6,7 @@ use rar_common::{
     util::{drop_effective, read_effective, subsribe},
     Storage,
 };
-use tracing::{debug, error};
+use log::{debug, error};
 
 mod cli;
 mod util;
@@ -20,7 +20,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use rar_common::{get_settings, StorageMethod};
 
-    subsribe("chsr");
+    subsribe("chsr")?;
     drop_effective()?;
     register_plugins();
     let settings = get_settings(ROOTASROLE).expect("Error on config read");

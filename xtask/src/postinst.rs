@@ -1,7 +1,7 @@
 use std::{env::args, fs::File, io::BufReader};
 
 use configure::check_filesystem;
-use tracing::warn;
+use log::warn;
 use util::{OsTarget, SettingsFile, ROOTASROLE};
 
 mod configure;

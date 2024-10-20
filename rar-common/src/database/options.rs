@@ -15,9 +15,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, FromRepr};
 
-use tracing::debug;
+use log::debug;
 #[cfg(feature = "finder")]
-use tracing::warn;
+use log::warn;
 
 use crate::rc_refcell;
 

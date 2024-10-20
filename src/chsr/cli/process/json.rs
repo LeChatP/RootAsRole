@@ -7,7 +7,7 @@ use std::{
 };
 
 use linked_hash_set::LinkedHashSet;
-use tracing::debug;
+use log::debug;
 
 use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
 

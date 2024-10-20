@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use const_format::formatcp;
-use tracing::debug;
+use log::debug;
 
 use super::data::Rule;
 use crate::util::underline;

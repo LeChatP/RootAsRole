@@ -4,7 +4,7 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 
 use json::*;
 
-use tracing::debug;
+use log::debug;
 
 use rar_common::{
     database::{

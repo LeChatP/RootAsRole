@@ -3,7 +3,7 @@ use std::process::ExitStatus;
 use anyhow::Context;
 use capctl::CapState;
 use nix::unistd::geteuid;
-use tracing::info;
+use log::info;
 
 use crate::{installer::OsTarget, util::get_os};
 

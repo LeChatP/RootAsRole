@@ -1,7 +1,6 @@
 use std::{
     env,
     error::Error,
-    ffi::CString,
     fs::File,
     io,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
@@ -13,8 +12,7 @@ use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::Serialize;
 use strum::EnumIs;
-use tracing::{debug, warn, Level};
-use tracing_subscriber::util::SubscriberInitExt;
+use log::{debug, warn};
 
 #[cfg(feature = "finder")]
 use crate::api::PluginManager;
@@ -257,45 +255,20 @@ pub fn final_path(path: &str) -> PathBuf {
 }
 
 #[cfg(debug_assertions)]
-pub fn subsribe(tool: &str) {
-    use std::io;
-    let identity = CString::new(tool).unwrap();
-    let options = syslog_tracing::Options::LOG_PID;
-    let facility = syslog_tracing::Facility::Auth;
-    let _syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_file(true)
-        .with_line_number(true)
-        .with_writer(io::stdout)
-        .finish()
+pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
+    env_logger::Builder::from_default_env()
+        .format_module_path(true)
         .init();
+    Ok(())
 }
 
 #[cfg(not(debug_assertions))]
-pub fn subsribe(tool: &str) {
-    use std::panic::set_hook;
-
-    let identity = CString::new(tool).unwrap();
-    let options = syslog_tracing::Options::LOG_PID;
-    let facility = syslog_tracing::Facility::Auth;
-    let syslog = syslog_tracing::Syslog::new(identity, options, facility).unwrap();
-    tracing_subscriber::fmt()
-        .compact()
-        .with_max_level(Level::WARN)
-        .with_file(false)
-        .with_timer(false)
-        .with_line_number(false)
-        .with_target(false)
-        .without_time()
-        .with_writer(syslog)
-        .finish()
-        .init();
-    set_hook(Box::new(|info| {
-        if let Some(s) = info.payload().downcast_ref::<String>() {
-            println!("{}", s);
-        }
-    }));
+pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
+    use env_logger::Env;
+    use syslog::{BasicLogger, Facility, Formatter3164};
+    use log::LevelFilter;
+    syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
+    Ok(())
 }
 
 pub fn drop_effective() -> Result<(), capctl::Error> {

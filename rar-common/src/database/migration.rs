@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use semver::Version;
-use tracing::debug;
+use log::debug;
 
 use crate::version::PACKAGE_VERSION;
 
