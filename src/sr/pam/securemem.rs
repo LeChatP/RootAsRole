@@ -11,7 +11,7 @@ use std::{
     slice,
 };
 
-use pam_sys::PAM_MAX_RESP_SIZE;
+use pam_client2::pam_sys::PAM_MAX_RESP_SIZE;
 
 pub(super) const SIZE: usize = PAM_MAX_RESP_SIZE as usize;
 const ALIGN: usize = mem::align_of::<u8>();
