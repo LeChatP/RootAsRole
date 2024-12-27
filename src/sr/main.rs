@@ -210,7 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         rar_common::StorageMethod::JSON => {
-            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
+            Storage::JSON(read_json_config(settings, ROOTASROLE).expect("Failed to read config"))
         }
         _ => {
             return Err("Unsupported storage method".into());

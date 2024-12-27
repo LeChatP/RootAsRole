@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_plugins();
     let settings = get_settings(ROOTASROLE).expect("Error on config read");
     let config = match settings.clone().as_ref().borrow().storage.method {
-        StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone())?),
+        StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone(), ROOTASROLE)?),
         _ => {
             error!("Unsupported storage method");
             std::process::exit(1);

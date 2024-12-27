@@ -183,7 +183,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             method: StorageMethod::JSON,
-            settings: Some(RemoteStorageSettings::default()),
+            settings: None,
             ldap: None,
         }
     }
@@ -193,7 +193,7 @@ impl Default for RemoteStorageSettings {
     fn default() -> Self {
         Self {
             immutable: None,
-            path: Some(ROOTASROLE.into()),
+            path: None,
             host: None,
             port: None,
             auth: None,
