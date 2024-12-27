@@ -23,7 +23,7 @@ The following example shows a RootAsRole config without plugins when almost ever
 ```json
 {
   "version": "3.0.0-alpha.4", // Version of the configuration file
-  "storage": { // Storage settings, where the Roles and Execution options are stored
+  "storage": { // Storage settings, Roles storage location
     "method": "json", // Storage method
     "settings": { // Storage settings
       "immutable": false, // Program return error if the file is not immutable, default is true
@@ -32,7 +32,7 @@ The following example shows a RootAsRole config without plugins when almost ever
   },
   "options": {
     "path": { // Path options
-      "default": "delete", // Default policy for path, delete-all, keep-safe, keep-unsafe, inherit
+      "default": "delete", // Default policy for path, delete, keep-safe, keep-unsafe, inherit
       "add": [ // Paths to add to the whitelist
         "path1",
         "path2"
@@ -43,7 +43,7 @@ The following example shows a RootAsRole config without plugins when almost ever
       ]
     },
     "env": { // Environment options
-      "default": "delete", // Default policy for environment, delete-all, keep-all, inherit
+      "default": "delete", // Default policy for environment, delete, keep, inherit
       "keep": [ // Environment variables to keep
         "env1",
         "env2"
@@ -57,25 +57,25 @@ The following example shows a RootAsRole config without plugins when almost ever
         "env6"
       ]
     },
-    "root": "privileged", // Default policy for root, privileged, user, inherit
-    "bounding": "ignore", // Default policy for bounding, strict, ignore, inherit
+    "root": "privileged", // Default policy for root: privileged, user, inherit
+    "bounding": "ignore", // Default policy for bounding: strict, ignore, inherit
     "wildcard-denied": "*", // Characters denied in any binary path
     "timeout": {
-      "type": "ppid", // Type of timeout, tty, ppid, uid
-      "duration": "15:30:30", // Duration of the timeout
+      "type": "ppid", // Type of timeout: tty, ppid, uid
+      "duration": "15:30:30", // Duration of the timeout in HH:MM:SS format
       "max_usage": 1 // Maximum usage before timeout expires
     }
   },
   "roles": [ // Role list
     {
       "name": "complete", // Role name
-      "actors": [ // Actors granted
+      "actors": [ // Actors granted to the role
         {
           "id": 0, // ID of the actor, could be a name
-          "type": "user" // Type of actor, user, group
+          "type": "user" // Type of actor: user, group
         },
         {
-          "groups": 0, // ID of the group, could be a name
+          "groups": 0, // ID of the group or a list of ID for AND condition
           "type": "group" 
         },
         {
@@ -106,6 +106,14 @@ The following example shows a RootAsRole config without plugins when almost ever
                 "CAP_SYS_ADMIN",
                 "CAP_SYS_BOOT"
               ]
+            },
+            // Dbus credentials are relied to Dbus and Polkit policies. They can be enforced using `gensr` tool
+            "dbus": [
+              "org.freedesktop.login1.Reboot", // DBus method to allow
+            ],
+            // File credentials are relied to file permissions. They can be enforced using `gensr` tool
+            "file": {
+              "/path/to/file": "R", // File path and permission, r for read, w for write, x for execute
             }
           },
           "commands": {
@@ -648,3 +656,7 @@ Here is an example global configuration:
 ```
 
 The `check` list is a list of environment variables that will be checked for unsafe characters. If an environment variable contains unsafe characters, it will be removed from the environment.
+
+## What are dbus and file credentials fields?
+
+the `dbus` and `file` fields are used for gensr tool from RootAsRole-utils repository. They are enforced to the DBus and file permissions. The `dbus` field is used to allow DBus methods. The `file` field is used to allow file permissions. The gensr tool will generate the DBus and file permissions in according to the `setuid` credentials. So gensr tool requires the `setuid` field to be set.
