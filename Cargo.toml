@@ -82,11 +82,10 @@ pest = "2.7.14"
 pest_derive = "2.7.14"
 const_format = "0.2.33"
 hex = "0.4.3"
-
+env_logger = "0.11"
+log = "0.4"
 
 [dev-dependencies]
-log = "0.4"
-env_logger = "0.11"
 test-log = { version = "0.2" }
 
 
