@@ -61,7 +61,7 @@ pub const RED: &str = "\x1B[31m";
 pub struct SettingsFile {
     pub storage: Settings,
     #[serde(default)]
-    #[serde(flatten, skip)]
+    #[serde(flatten)]
     pub _extra_fields: Value,
 }
 
