@@ -1,12 +1,12 @@
 //extern crate sudoers_reader;
 
+use log::{debug, error};
 use rar_common::{
     database::{read_json_config, save_json},
     plugin::register_plugins,
     util::{drop_effective, read_effective, subsribe},
     Storage,
 };
-use log::{debug, error};
 
 mod cli;
 mod util;

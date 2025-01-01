@@ -673,7 +673,7 @@ impl SActor {
             SActor::Unknown(_) => None,
         }
     }
-    
+
     pub fn from_user_string(user: &str) -> Self {
         SActor::User {
             id: Some(user.into()),

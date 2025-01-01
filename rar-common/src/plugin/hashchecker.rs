@@ -6,9 +6,9 @@ use crate::{
     open_with_privileges,
     util::{final_path, parse_conf_command},
 };
+use log::{debug, warn};
 use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
-use log::{debug, warn};
 
 use libc::FS_IOC_GETFLAGS;
 use sha2::Digest;

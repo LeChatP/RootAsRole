@@ -9,6 +9,7 @@ use std::{
 
 use capctl::CapSet;
 use glob::Pattern;
+use log::{debug, warn};
 use nix::{
     libc::dev_t,
     unistd::{Group, Pid, User},
@@ -16,7 +17,6 @@ use nix::{
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
 use strum::EnumIs;
-use log::{debug, warn};
 
 use crate::database::{
     options::{Opt, OptStack},

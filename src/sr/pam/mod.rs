@@ -4,9 +4,9 @@ use std::{
     ops::Deref,
 };
 
+use log::{debug, error, info, warn};
 use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
-use log::{debug, error, info, warn};
 
 use crate::timeout;
 use rar_common::{
