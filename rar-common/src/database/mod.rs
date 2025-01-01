@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::save_settings;
@@ -36,25 +37,23 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn read_json_config(
+pub fn read_json_config<P:AsRef<Path>>(
     settings: Rc<RefCell<SettingsFile>>,
+    settings_path: P,
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let default = &ROOTASROLE.into();
     let binding = settings.as_ref().borrow();
     let path = binding
         .storage
         .settings
         .as_ref()
         .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(default);
-    if path == default {
+        .path.as_ref();
+    if path.is_none() || path.is_some_and(|p| p == settings_path.as_ref()) {
         make_weak_config(&settings.as_ref().borrow().config);
-        Ok(settings.as_ref().borrow().config.clone())
+        return Ok(settings.as_ref().borrow().config.clone());
     } else {
-        let file = open_with_privileges(path)?;
+        let file = open_with_privileges(path.unwrap())?;
         warn_if_mutable(
             &file,
             settings
