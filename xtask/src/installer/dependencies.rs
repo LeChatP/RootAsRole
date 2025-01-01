@@ -2,8 +2,8 @@ use std::process::ExitStatus;
 
 use anyhow::Context;
 use capctl::CapState;
-use nix::unistd::geteuid;
 use log::info;
+use nix::unistd::geteuid;
 
 use crate::{installer::OsTarget, util::get_os};
 

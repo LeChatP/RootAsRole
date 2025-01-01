@@ -35,7 +35,10 @@ enum Command {
 }
 
 fn main() {
-    env_logger::builder().default_format().format_module_path(true).init();
+    env_logger::builder()
+        .default_format()
+        .format_module_path(true)
+        .init();
     let opts = Options::parse();
     use Command::*;
     let ret = match opts.command {

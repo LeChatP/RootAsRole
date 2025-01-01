@@ -7,10 +7,10 @@ use std::error::Error;
 
 use data::{Cli, Inputs, Rule};
 
+use log::debug;
 use pair::recurse_pair;
 use pest::Parser;
 use process::process_input;
-use log::debug;
 use usage::print_usage;
 
 use crate::util::escape_parser_string_vec;
@@ -60,7 +60,6 @@ mod tests {
     use chrono::TimeDelta;
     use log::error;
     use test_log::test;
-
 
     fn setup(name: &str) {
         //Write json test json file
@@ -226,8 +225,7 @@ mod tests {
     fn test_all_main() {
         setup("all_main");
         let path = format!("{}.{}", ROOTASROLE, "all_main");
-        let settings = get_settings(&path)
-            .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(&Storage::JSON(config.clone()), vec!["--help"],)
             .inspect_err(|e| {
@@ -265,8 +263,7 @@ mod tests {
     fn test_r_complete_show_actors() {
         setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
-        let settings = get_settings(&path)
-            .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -318,8 +315,7 @@ mod tests {
     fn test_purge_tasks() {
         setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
-        let settings = get_settings(&path)
-            .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -338,8 +334,7 @@ mod tests {
     fn test_r_complete_purge_all() {
         setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
-        let settings = get_settings(&path)
-            .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -361,8 +356,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -421,12 +415,8 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_show_all() {
         setup("r_complete_task_t_complete_show_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_task_t_complete_show_all"
-        );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -477,12 +467,8 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_purge_cmd() {
         setup("r_complete_task_t_complete_purge_cmd");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_task_t_complete_purge_cmd"
-        );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -500,12 +486,8 @@ mod tests {
     #[test]
     fn test_r_complete_task_t_complete_purge_cred() {
         setup("r_complete_task_t_complete_purge_cred");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_task_t_complete_purge_cred"
-        );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -519,12 +501,8 @@ mod tests {
         })
         .is_ok_and(|b| b));
         debug!("=====");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_task_t_complete_purge_cred"
-        );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         let task_count = config.as_ref().borrow()[0].as_ref().borrow().tasks.len();
         assert!(main(
@@ -566,8 +544,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -597,8 +574,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -628,8 +604,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -691,8 +666,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -842,8 +816,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -876,8 +849,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1074,8 +1046,7 @@ mod tests {
     fn test_options_show_all() {
         setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
-        let settings = get_settings(&path)
-            .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1119,8 +1090,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1186,8 +1156,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1222,8 +1191,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1307,8 +1275,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1590,8 +1557,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1613,8 +1579,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1691,8 +1656,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1769,8 +1733,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1842,8 +1805,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2022,8 +1984,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2060,8 +2021,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2098,8 +2058,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2136,8 +2095,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2253,8 +2211,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2289,8 +2246,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2349,8 +2305,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2401,8 +2356,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2437,8 +2391,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2564,8 +2517,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2653,8 +2605,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2690,8 +2641,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2727,8 +2677,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2760,12 +2709,8 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
         setup("r_complete_t_t_complete_o_auth_skip");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_auth_skip"
-        );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2853,8 +2798,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2938,8 +2882,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_settings(&path)
-        .expect("Failed to get settings");
+        let settings = get_settings(&path).expect("Failed to get settings");
         let config = read_json_config(settings.clone(), &path).expect("Failed to read json");
         assert!(main(
             &Storage::JSON(config.clone()),

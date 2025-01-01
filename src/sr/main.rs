@@ -12,10 +12,10 @@ use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
 
+use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
-use log::{debug, error};
 
 use rar_common::plugin::register_plugins;
 use rar_common::{

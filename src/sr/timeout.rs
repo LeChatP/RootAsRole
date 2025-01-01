@@ -7,13 +7,13 @@ use std::{
 };
 
 use chrono::Utc;
+use log::debug;
 use nix::{
     libc::dev_t,
     libc::{pid_t, uid_t},
     sys::signal::kill,
 };
 use serde::{Deserialize, Serialize};
-use log::debug;
 
 use rar_common::{
     database::{

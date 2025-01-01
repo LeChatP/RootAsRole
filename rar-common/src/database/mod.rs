@@ -7,8 +7,8 @@ use crate::version::PACKAGE_VERSION;
 
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use serde::{de, Deserialize, Serialize};
 use log::debug;
+use serde::{de, Deserialize, Serialize};
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 
@@ -37,7 +37,7 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn read_json_config<P:AsRef<Path>>(
+pub fn read_json_config<P: AsRef<Path>>(
     settings: Rc<RefCell<SettingsFile>>,
     settings_path: P,
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
@@ -48,7 +48,8 @@ pub fn read_json_config<P:AsRef<Path>>(
         .settings
         .as_ref()
         .unwrap_or(&default_remote)
-        .path.as_ref();
+        .path
+        .as_ref();
     if path.is_none() || path.is_some_and(|p| p == settings_path.as_ref()) {
         make_weak_config(&settings.as_ref().borrow().config);
         return Ok(settings.as_ref().borrow().config.clone());

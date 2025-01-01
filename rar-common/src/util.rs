@@ -10,9 +10,9 @@ use std::{
 use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use log::{debug, warn};
 use serde::Serialize;
 use strum::EnumIs;
-use log::{debug, warn};
 
 #[cfg(feature = "finder")]
 use crate::api::PluginManager;
@@ -265,8 +265,8 @@ pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
 #[cfg(not(debug_assertions))]
 pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
     use env_logger::Env;
-    use syslog::{BasicLogger, Facility, Formatter3164};
     use log::LevelFilter;
+    use syslog::{BasicLogger, Facility, Formatter3164};
     syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
     Ok(())
 }
