@@ -10,7 +10,7 @@ use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
 use nix::NixPath;
 use strum::EnumIs;
-use tracing::{debug, error, info};
+use log::{debug, error, info};
 
 use crate::installer::Profile;
 use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};
@@ -91,7 +91,7 @@ fn copy_docs() -> Result<(), anyhow::Error> {
         let lang = file.parent();
         if lang.is_some_and(|p| !p.is_empty()) {
             let lang = lang.unwrap();
-            println!("lang: {:?}", lang);
+            //println!("lang: {:?}", lang);
             let lang = lang.file_name().ok_or_else(|| {
                 exit_directory().expect("Failed to exit directory");
                 anyhow!("Failed to get the language")
@@ -140,7 +140,6 @@ fn setfcap() -> Result<(), anyhow::Error> {
     let mut file_caps = capctl::caps::FileCaps::empty();
     file_caps.permitted = !CapSet::empty();
     file_caps.set_for_file(SR_DEST)?;
-    file_caps.set_for_file(CHSR_DEST)?;
     Ok(())
 }
 
@@ -201,7 +200,7 @@ pub fn install(
             })?;
         change_dir_to_git_root()?; // change to the root of the project before elevating privileges
         env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
-        tracing::warn!("Elevating privileges...");
+        log::warn!("Elevating privileges...");
         std::process::Command::new(priv_exe)
             .arg(
                 current_exe()?

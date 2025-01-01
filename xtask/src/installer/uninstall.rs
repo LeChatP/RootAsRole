@@ -1,6 +1,6 @@
 use anyhow::Context;
 use std::fs;
-use tracing::warn;
+use log::warn;
 
 use crate::util::{files_are_equal, toggle_lock_config, ImmutableLock, ROOTASROLE};
 

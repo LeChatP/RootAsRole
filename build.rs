@@ -35,6 +35,8 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     for line in lines {
         if line.starts_with("version") {
             writeln!(cargo_toml, "version = \"{}\"", package_version)?;
+        } else if line.starts_with("rar-common =") {
+            writeln!(cargo_toml, "rar-common = {{ path = \"rar-common\", version = \"{}\", package = \"rootasrole-core\" }}", package_version)?;
         } else {
             writeln!(cargo_toml, "{}", line)?;
         }

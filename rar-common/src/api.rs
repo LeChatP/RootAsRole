@@ -6,7 +6,7 @@ use capctl::CapSet;
 use serde_json::Value;
 use strum::EnumIs;
 #[cfg(feature = "finder")]
-use tracing::debug;
+use log::debug;
 
 #[cfg(feature = "finder")]
 use crate::database::finder::{Cred, ExecSettings, FilterMatcher, TaskMatch, UserMin};

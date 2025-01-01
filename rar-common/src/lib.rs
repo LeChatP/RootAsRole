@@ -55,7 +55,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use log::debug;
 
 pub mod api;
 pub mod database;

@@ -4,7 +4,7 @@ use capctl::{Cap, CapSet};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use pest::iterators::Pair;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::database::{

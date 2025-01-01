@@ -13,7 +13,7 @@ use nix::{
     sys::signal::kill,
 };
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use log::debug;
 
 use rar_common::{
     database::{

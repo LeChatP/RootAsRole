@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Context;
 use nix::unistd::{getresuid, getuid};
 use strum::EnumIs;
-use tracing::{info, warn};
+use log::{info, warn};
 
 use crate::util::{
     files_are_equal, toggle_lock_config, ImmutableLock, OsTarget, SettingsFile, ROOTASROLE,
@@ -234,7 +234,7 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     }
 }
 
-pub fn default_pam_path(os: &OsTarget) -> &'static str {
+pub fn pam_config(os: &OsTarget) -> &'static str {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
             include_str!("../../resources/debian/deb_sr_pam.conf")
@@ -247,7 +247,9 @@ pub fn default_pam_path(os: &OsTarget) -> &'static str {
 fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
     if fs::metadata(PAM_CONFIG_PATH).is_err() {
         info!("Deploying PAM configuration file");
-        return fs::copy(default_pam_path(os), PAM_CONFIG_PATH);
+        let mut pam_conf = File::create(PAM_CONFIG_PATH)?;
+        pam_conf.write_all(pam_config(os).as_bytes())?;
+        pam_conf.sync_all()?;
     }
     Ok(0)
 }

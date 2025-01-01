@@ -15,7 +15,7 @@ use rar_common::util::escape_parser_string;
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
-use tracing::{debug, error};
+use log::{debug, error};
 
 use rar_common::plugin::register_plugins;
 use rar_common::{
@@ -187,7 +187,7 @@ where
 fn main() -> Result<(), Box<dyn Error>> {
     use crate::{pam::check_auth, ROOTASROLE};
 
-    subsribe("sr");
+    subsribe("sr")?;
     drop_effective()?;
     register_plugins();
     let args = std::env::args();

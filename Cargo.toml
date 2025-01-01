@@ -49,13 +49,13 @@ finder = ["dep:pcre2", "rar-common/pcre2", "rar-common/finder"]
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }
 
-
 [build-dependencies]
-serde_json = "1.0.128"
-toml = "0.8.13"
+#bindgen = "^0.66.1"
+serde_json = "1.0"
+toml = "0.8"
 
 [dependencies]
-rar-common = { path = "rar-common", version = "3.0.0", package = "rootasrole-core" }
+rar-common = { path = "rar-common", version = "3.0.4", package = "rootasrole-core" }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 libc = "0.2.159"
@@ -83,11 +83,11 @@ pest_derive = "2.7.14"
 const_format = "0.2.33"
 hex = "0.4.3"
 
+
 [dev-dependencies]
-env_logger = "0.11.5"
-test-log = { version = "0.2.12", features = ["trace"] }
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", default-features = false, features = ["env-filter", "fmt"] }
+log = "0.4"
+env_logger = "0.11"
+test-log = { version = "0.2" }
 
 
 [package.metadata.deb]

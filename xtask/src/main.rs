@@ -6,8 +6,7 @@ pub mod util;
 use std::process::exit;
 
 use clap::Parser;
-use tracing::{error, Level};
-use tracing_subscriber::util::SubscriberInitExt;
+use log::error;
 use util::OsTarget;
 
 #[derive(Debug, Parser)]
@@ -34,19 +33,9 @@ enum Command {
     #[cfg(feature = "deploy")]
     Deploy(deploy::MakeOptions),
 }
-fn subsribe() {
-    use std::io;
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_file(true)
-        .with_line_number(true)
-        .with_writer(io::stdout)
-        .finish()
-        .init();
-}
 
 fn main() {
-    subsribe();
+    env_logger::builder().default_format().format_module_path(true).init();
     let opts = Options::parse();
     use Command::*;
     let ret = match opts.command {

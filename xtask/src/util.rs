@@ -14,7 +14,7 @@ use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter};
-use tracing::debug;
+use log::debug;
 
 #[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display, PartialEq, Eq, Hash)]
 #[clap(rename_all = "lowercase")]

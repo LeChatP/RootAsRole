@@ -8,7 +8,7 @@ use crate::{
 };
 use nix::unistd::{access, AccessFlags};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 use libc::FS_IOC_GETFLAGS;
 use sha2::Digest;

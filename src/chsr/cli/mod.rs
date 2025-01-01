@@ -10,7 +10,7 @@ use data::{Cli, Inputs, Rule};
 use pair::recurse_pair;
 use pest::Parser;
 use process::process_input;
-use tracing::debug;
+use log::debug;
 use usage::print_usage;
 
 use crate::util::escape_parser_string_vec;
@@ -58,18 +58,11 @@ mod tests {
     use super::*;
     use capctl::Cap;
     use chrono::TimeDelta;
-    use tracing::error;
-    use tracing_subscriber::util::SubscriberInitExt;
+    use log::error;
+    use test_log::test;
+
 
     fn setup(name: &str) {
-        use std::io;
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_file(true)
-            .with_line_number(true)
-            .with_writer(io::stdout)
-            .finish()
-            .try_init();
         //Write json test json file
         let path = format!("{}.{}", ROOTASROLE, name);
         let mut file = std::fs::File::create(path.clone()).unwrap_or_else(|_| {

@@ -1,9 +1,9 @@
 use std::{fs, os::unix, process::Command};
 
 use anyhow::Context;
-use tracing::debug;
+use log::debug;
 
-use crate::util::change_dir_to_git_root;
+use crate::{installer::Toolchain, util::change_dir_to_git_root};
 
 use super::BuildOptions;
 
@@ -12,8 +12,13 @@ fn build_binary(
     options: &BuildOptions,
     additionnal_args: Vec<&str>,
 ) -> Result<(), anyhow::Error> {
+    
     let toolchain = format!("+{}", options.toolchain);
-    let mut args = vec![&toolchain, "build", "--bin", name];
+    let mut args = if options.toolchain == Toolchain::default() {
+        vec!["build", "--bin", name]
+    } else {
+        vec![&toolchain, "build", "--bin", name]
+    };
     if options.profile.is_release() {
         args.push("--release");
     }
