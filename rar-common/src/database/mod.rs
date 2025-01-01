@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::save_settings;
@@ -6,8 +7,8 @@ use crate::version::PACKAGE_VERSION;
 
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use serde::{de, Deserialize, Serialize};
 use log::debug;
+use serde::{de, Deserialize, Serialize};
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
 
@@ -36,11 +37,11 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn read_json_config(
+pub fn read_json_config<P: AsRef<Path>>(
     settings: Rc<RefCell<SettingsFile>>,
+    settings_path: P,
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let default = &ROOTASROLE.into();
     let binding = settings.as_ref().borrow();
     let path = binding
         .storage
@@ -48,13 +49,12 @@ pub fn read_json_config(
         .as_ref()
         .unwrap_or(&default_remote)
         .path
-        .as_ref()
-        .unwrap_or(default);
-    if path == default {
+        .as_ref();
+    if path.is_none() || path.is_some_and(|p| p == settings_path.as_ref()) {
         make_weak_config(&settings.as_ref().borrow().config);
-        Ok(settings.as_ref().borrow().config.clone())
+        return Ok(settings.as_ref().borrow().config.clone());
     } else {
-        let file = open_with_privileges(path)?;
+        let file = open_with_privileges(path.unwrap())?;
         warn_if_mutable(
             &file,
             settings

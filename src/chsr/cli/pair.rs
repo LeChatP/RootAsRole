@@ -3,8 +3,8 @@ use std::{collections::HashMap, error::Error, str::FromStr};
 use capctl::{Cap, CapSet};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use pest::iterators::Pair;
 use log::{debug, warn};
+use pest::iterators::Pair;
 
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::database::{

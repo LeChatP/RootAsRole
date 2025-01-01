@@ -12,7 +12,6 @@ fn build_binary(
     options: &BuildOptions,
     additionnal_args: Vec<&str>,
 ) -> Result<(), anyhow::Error> {
-    
     let toolchain = format!("+{}", options.toolchain);
     let mut args = if options.toolchain == Toolchain::default() {
         vec!["build", "--bin", name]

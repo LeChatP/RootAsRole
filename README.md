@@ -16,7 +16,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.0.3) : A memory-safe and security-oriented alternative to sudo/su commands
+# RootAsRole (V3.0.4) : A memory-safe and security-oriented alternative to sudo/su commands
 
 **RootAsRole** is a project to allow Linux/Unix administrators to delegate their administrative tasks access rights to users. Its main features are :
 
@@ -32,6 +32,12 @@
 * Command matching based on commonly-used open-source libraries:
   * [glob](https://docs.rs/glob/latest/glob/) for binary path
   * [PCRE2](https://www.pcre.org/) for command arguments
+
+If you need help to configure a RootAsRole policy, you can use our **[capable tool](https://github.com/LeChatP/RootAsRole-capable)**. This tool identifies the rights required by specific commands, making it easier to define a precise policy.
+
+For administrators who already use **Ansible playbooks** for their tasks and wish to implement **RootAsRole**, our tool [gensr](https://github.com/LeChatP/RootAsRole-utils) can generate an initial draft of a **RootAsRole policy**. The `gensr` tool works by running your Ansible playbook alongside the [capable tool](https://github.com/LeChatP/RootAsRole-capable), creating a draft policy based on the observed required rights. This process helps administrators to harden their Ansible tasks. It helps to verify eventual third-party supply-chain attacks.
+
+**Note:** The `gensr` tool is still in development and may not work with all playbooks. If you wish to contribute to this project, feel free to make issues and pull requests.
 
 ## <img src="https://lechatp.github.io/RootAsRole/favicon.svg" width="20px"/>  You can find every interesting resources using [the RootAsRole User/Knowledge/Reference Guide Book](https://lechatp.github.io/RootAsRole/).</h2>
 

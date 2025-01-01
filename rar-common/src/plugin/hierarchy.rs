@@ -8,8 +8,8 @@ use crate::{
     },
 };
 
-use serde::Deserialize;
 use log::{debug, warn};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Parents(Vec<String>);

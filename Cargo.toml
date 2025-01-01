@@ -4,7 +4,7 @@ members = ["xtask", "rar-common"]
 [package]
 name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.0.3"
+version = "3.0.4"
 rust-version = "1.76.0"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"

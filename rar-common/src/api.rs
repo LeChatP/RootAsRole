@@ -3,10 +3,10 @@ use std::sync::Mutex;
 use capctl::CapSet;
 
 #[cfg(feature = "finder")]
+use log::debug;
+#[cfg(feature = "finder")]
 use serde_json::Value;
 use strum::EnumIs;
-#[cfg(feature = "finder")]
-use log::debug;
 
 #[cfg(feature = "finder")]
 use crate::database::finder::{Cred, ExecSettings, FilterMatcher, TaskMatch, UserMin};

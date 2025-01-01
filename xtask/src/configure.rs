@@ -4,9 +4,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
 use anyhow::Context;
+use log::{info, warn};
 use nix::unistd::{getresuid, getuid};
 use strum::EnumIs;
-use log::{info, warn};
 
 use crate::util::{
     files_are_equal, toggle_lock_config, ImmutableLock, OsTarget, SettingsFile, ROOTASROLE,
@@ -51,6 +51,7 @@ fn is_running_in_container() -> bool {
 pub fn check_filesystem() -> io::Result<()> {
     let config = BufReader::new(File::open(ROOTASROLE)?);
     let mut config: SettingsFile = serde_json::from_reader(config)?;
+
     // Get the filesystem type
     if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
         match fs_type.as_str() {
@@ -72,6 +73,7 @@ pub fn check_filesystem() -> io::Result<()> {
         info!("Failed to get filesystem type, removing immutable flag");
     }
     set_immutable(&mut config, false);
+    File::create(ROOTASROLE)?.write_all(serde_json::to_string_pretty(&config)?.as_bytes())?;
     Ok(())
 }
 
@@ -89,9 +91,9 @@ fn set_immutable(config: &mut SettingsFile, value: bool) {
             .unwrap()
             .get_mut("roles")
             .unwrap()
-            .as_object_mut()
+            .as_array_mut()
             .unwrap();
-        for role in roles.values_mut() {
+        for role in roles {
             let tasks = role.as_object_mut().unwrap().get_mut("tasks");
             if let Some(tasks) = tasks {
                 for task in tasks.as_array_mut().unwrap() {

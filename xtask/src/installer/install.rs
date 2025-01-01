@@ -6,11 +6,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use capctl::{Cap, CapSet};
+use log::{debug, error, info};
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
 use nix::NixPath;
 use strum::EnumIs;
-use log::{debug, error, info};
 
 use crate::installer::Profile;
 use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};

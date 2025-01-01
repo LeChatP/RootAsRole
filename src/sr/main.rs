@@ -12,10 +12,10 @@ use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
 
+use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
 use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
-use log::{debug, error};
 
 use rar_common::plugin::register_plugins;
 use rar_common::{
@@ -210,7 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         rar_common::StorageMethod::JSON => {
-            Storage::JSON(read_json_config(settings).expect("Failed to read config"))
+            Storage::JSON(read_json_config(settings, ROOTASROLE).expect("Failed to read config"))
         }
         _ => {
             return Err("Unsupported storage method".into());

@@ -10,11 +10,11 @@ use anyhow::{anyhow, Context};
 use capctl::Cap;
 use capctl::CapState;
 use clap::ValueEnum;
+use log::debug;
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter};
-use log::debug;
 
 #[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display, PartialEq, Eq, Hash)]
 #[clap(rename_all = "lowercase")]
@@ -61,7 +61,7 @@ pub const RED: &str = "\x1B[31m";
 pub struct SettingsFile {
     pub storage: Settings,
     #[serde(default)]
-    #[serde(flatten, skip)]
+    #[serde(flatten)]
     pub _extra_fields: Value,
 }
 
