@@ -1025,6 +1025,118 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_alias() {
+        let config = r#"
+        {
+            "version": "1.0.0",
+            "options": {
+                "path": {
+                    "default": "delete",
+                    "add": ["path_add"],
+                    "del": ["path_sub"]
+                },
+                "env": {
+                    "default": "delete",
+                    "keep": ["keep_env"],
+                    "check": ["check_env"]
+                },
+                "root": "privileged",
+                "bounding": "ignore",
+                "authentication": "skip",
+                "wildcard-denied": "wildcards",
+                "timeout": {
+                    "type": "ppid",
+                    "duration": "00:05:00"
+                }
+            },
+            "roles": [
+                {
+                    "name": "role1",
+                    "actors": [
+                        {
+                            "type": "user",
+                            "name": "user1"
+                        },
+                        {
+                            "type":"group",
+                            "groups": ["group1","1000"]
+                        }
+                    ],
+                    "tasks": [
+                        {
+                            "name": "task1",
+                            "purpose": "purpose1",
+                            "cred": {
+                                "setuid": "setuid1",
+                                "setgid": "setgid1",
+                                "capabilities": ["cap_net_bind_service"]
+                            },
+                            "commands": {
+                                "default": "all",
+                                "add": ["cmd1"],
+                                "del": ["cmd2"]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        "#;
+        let config: SConfig = serde_json::from_str(config).unwrap();
+        let options = config.options.as_ref().unwrap().as_ref().borrow();
+        let path = options.path.as_ref().unwrap();
+        assert_eq!(path.default_behavior, PathBehavior::Delete);
+        assert!(path.add.front().is_some_and(|s| s == "path_add"));
+        let env = options.env.as_ref().unwrap();
+        assert_eq!(env.default_behavior, EnvBehavior::Delete);
+        assert!(env.keep.front().is_some_and(|s| s == "keep_env"));
+        assert!(env.check.front().is_some_and(|s| s == "check_env"));
+        assert!(options.root.as_ref().unwrap().is_privileged());
+        assert!(options.bounding.as_ref().unwrap().is_ignore());
+        assert_eq!(options.authentication, Some(SAuthentication::Skip));
+        assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
+
+        let timeout = options.timeout.as_ref().unwrap();
+        assert_eq!(timeout.type_field, Some(TimestampType::PPID));
+        assert_eq!(timeout.duration, Some(Duration::minutes(5)));
+        assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
+        let actor0 = &config.roles[0].as_ref().borrow().actors[0];
+        match actor0 {
+            SActor::User { id, .. } => {
+                assert_eq!(id.as_ref().unwrap(), "user1");
+            }
+            _ => panic!("unexpected actor type"),
+        }
+        let actor1 = &config.roles[0].as_ref().borrow().actors[1];
+        match actor1 {
+            SActor::Group { groups, .. } => match groups.as_ref().unwrap() {
+                SGroups::Multiple(groups) => {
+                    assert_eq!(groups[0], SActorType::Name("group1".into()));
+                    assert_eq!(groups[1], SActorType::Id(1000));
+                }
+                _ => panic!("unexpected actor group type"),
+            },
+            _ => panic!("unexpected actor {:?}", actor1),
+        }
+        let role = config.roles[0].as_ref().borrow();
+        assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
+        let cred = &as_borrow!(&role[0]).cred;
+        assert_eq!(cred.setuid.as_ref().unwrap(), "setuid1");
+        assert_eq!(cred.setgid.as_ref().unwrap(), "setgid1");
+        let capabilities = cred.capabilities.as_ref().unwrap();
+        assert_eq!(capabilities.default_behavior, SetBehavior::None);
+        assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
+        assert!(capabilities.sub.is_empty());
+        let commands = &as_borrow!(&role[0]).commands;
+        assert_eq!(
+            *commands.default_behavior.as_ref().unwrap(),
+            SetBehavior::All
+        );
+        assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
+        assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
+    }
+
+    #[test]
     fn test_sgroups_compare() {
         let single = SGroups::Single(SActorType::Name("single".into()));
         let multiple = SGroups::Multiple(vec![
