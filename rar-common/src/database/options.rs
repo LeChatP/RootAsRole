@@ -1227,6 +1227,7 @@ mod tests {
         assert_eq!(res, Some((Level::Role, role_path)));
     }
 
+    #[cfg(feature = "finder")]
     #[test]
     fn test_get_path() {
         let config = rc_refcell!(SConfig::default());
@@ -1249,6 +1250,7 @@ mod tests {
         assert_eq!(res, "path2:path1");
     }
 
+    #[cfg(feature = "finder")]
     #[test]
     fn test_get_path_delete() {
         let role = SRoleWrapper::default();
@@ -1273,6 +1275,7 @@ mod tests {
         assert!(options.contains("path2"));
     }
 
+    #[cfg(feature = "finder")]
     #[test]
     fn test_opt_add_sub() {
         let role = SRoleWrapper::default();
@@ -1433,6 +1436,7 @@ mod tests {
         assert_eq!(options.1, ";&|");
     }
 
+    #[cfg(feature = "finder")]
     #[test]
     fn test_tz_is_safe() {
         assert!(tz_is_safe("America/New_York"));
