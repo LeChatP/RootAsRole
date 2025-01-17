@@ -1,5 +1,5 @@
 {
-    "version": "3.0.0",
+    "version": "3.0.5",
     "storage": {
         "method": "json",
         "settings": {
@@ -98,10 +98,7 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": {
-                            "default": "none",
-                            "add": ["CAP_LINUX_IMMUTABLE"]
-                        }
+                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
                     },
                     "commands": {
                         "default": "none",
