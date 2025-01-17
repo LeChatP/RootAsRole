@@ -103,7 +103,8 @@ pub struct SPathOptions {
         default,
         skip_serializing_if = "LinkedHashSet::is_empty",
         deserialize_with = "lhs_deserialize",
-        serialize_with = "lhs_serialize"
+        serialize_with = "lhs_serialize",
+        alias = "del"
     )]
     pub sub: LinkedHashSet<String>,
     #[serde(default)]

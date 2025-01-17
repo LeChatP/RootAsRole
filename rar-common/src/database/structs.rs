@@ -5,8 +5,7 @@ use nix::{
     unistd::{Group, User},
 };
 use serde::{
-    de::{self, Visitor},
-    Deserialize, Deserializer, Serialize,
+    de::{self, MapAccess, SeqAccess, Visitor}, ser::SerializeMap, Deserialize, Deserializer, Serialize
 };
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
@@ -171,26 +170,115 @@ pub enum SetBehavior {
     None,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct SCapabilities {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: SetBehavior,
-    #[serde(
-        default,
-        skip_serializing_if = "CapSet::is_empty",
-        deserialize_with = "super::deserialize_capset",
-        serialize_with = "super::serialize_capset"
-    )]
     pub add: CapSet,
-    #[serde(
-        default,
-        skip_serializing_if = "CapSet::is_empty",
-        deserialize_with = "super::deserialize_capset",
-        serialize_with = "super::serialize_capset"
-    )]
     pub sub: CapSet,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
+}
+
+impl Serialize for SCapabilities {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        if self.default_behavior.is_none() && self.sub.is_empty() && self._extra_fields.is_empty() {
+            super::serialize_capset(&self.add, serializer)
+        } else 
+        {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.default_behavior.is_none() {
+                map.serialize_entry("default", &self.default_behavior)?;
+            }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("add",&v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("del",&v)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        }
+    }
+}
+impl<'de> Deserialize<'de> for SCapabilities {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SCapabilitiesVisitor;
+
+        impl<'de> Visitor<'de> for SCapabilitiesVisitor {
+            type Value = SCapabilities;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an array of strings or a map with SCapabilities fields")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut add = CapSet::default();
+                while let Some(cap) = seq.next_element::<String>()? {
+                    add.add(cap.parse().map_err(de::Error::custom)?);
+                }
+
+                Ok(SCapabilities {
+                    default_behavior: SetBehavior::None,
+                    add,
+                    sub: CapSet::default(),
+                    _extra_fields: Map::new(),
+                })
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut default_behavior = SetBehavior::None;
+                let mut add = CapSet::default();
+                let mut sub = CapSet::default();
+                let mut _extra_fields = Map::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "default" => {
+                            default_behavior = map.next_value().expect("default entry must be either 'all' or 'none'");
+                        }
+                        "add" => {
+                            let values: Vec<String> = map.next_value().expect("add entry must be a list");
+                            for value in values {
+                                add.add(value.parse().map_err(|_|de::Error::custom(&format!("Invalid capability: {}", value)))?);
+                            }
+                        }
+                        "sub" | "del" => {
+                            let values: Vec<String> = map.next_value().expect("sub entry must be a list");
+                            for value in values {
+                                sub.add(value.parse().map_err(|_| de::Error::custom(&format!("Invalid capability: {}", value)))?);
+                            }
+                        }
+                        other => {
+                            _extra_fields.insert(other.to_string(), map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SCapabilities {
+                    default_behavior,
+                    add,
+                    sub,
+                    _extra_fields,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(SCapabilitiesVisitor)
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -206,7 +294,7 @@ pub struct SCommands {
     pub default_behavior: Option<SetBehavior>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "del", skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
