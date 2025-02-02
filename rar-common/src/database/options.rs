@@ -935,12 +935,18 @@ impl OptStack {
         Ok(final_env)
     }
 
-    fn get_final_env(&self) -> SEnvOptions {
-        let mut final_behavior = EnvBehavior::default();
+    fn get_final_env(&self, cmd_filter: Option<FilterMatcher>) -> SEnvOptions {
+        let mut final_behavior = cmd_filter
+            .as_ref()
+            .and_then(|f| f.env_behavior)
+            .unwrap_or(EnvBehavior::default());
         let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();
         let mut final_check = LinkedHashSet::new();
         let mut final_delete = LinkedHashSet::new();
+        let overriden = cmd_filter
+            .as_ref()
+            .is_some_and(|f| f.env_behavior.is_some());
         self.iter_in_options(|opt| {
             if let Some(p) = opt.env.borrow().as_ref() {
                 final_behavior = match p.default_behavior {
@@ -964,7 +970,11 @@ impl OptStack {
                             .collect();
                         final_set = p.set.clone();
                         debug!("check: {:?}", final_check);
-                        p.default_behavior
+                        if overriden {
+                            final_behavior
+                        } else {
+                            p.default_behavior
+                        }
                     }
                     EnvBehavior::Keep => {
                         //policy is to keep, so we remove blacklist and add whitelist
@@ -985,7 +995,11 @@ impl OptStack {
                             .cloned()
                             .collect();
                         final_set = p.set.clone();
-                        p.default_behavior
+                        if overriden {
+                            final_behavior
+                        } else {
+                            p.default_behavior
+                        }
                     }
                     EnvBehavior::Inherit => {
                         if final_behavior.is_delete() {

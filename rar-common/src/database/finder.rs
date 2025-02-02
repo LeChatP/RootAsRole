@@ -32,6 +32,8 @@ use crate::{
 };
 use bitflags::bitflags;
 
+use super::options::EnvBehavior;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MatchError {
     NoMatch,
@@ -172,12 +174,12 @@ pub struct SecurityMin(u32);
 bitflags! {
 
     impl SecurityMin: u32 {
-        const DisableBounding = 0b00001;
-        const EnableRoot = 0b00010;
-        const KeepPath = 0b00100;
-        const KeepUnsafePath = 0b01000;
-        const KeepEnv = 0b10000;
-        const SkipAuth = 0b100000;
+        const DisableBounding   = 0b000001;
+        const EnableRoot        = 0b000010;
+        const KeepEnv           = 0b000100;
+        const KeepPath          = 0b001000;
+        const KeepUnsafePath    = 0b010000;
+        const SkipAuth          = 0b100000;
     }
 }
 
@@ -322,10 +324,12 @@ impl Default for TaskMatch {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Builder)]
+#[builder(on(_, overwritable))]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
+    pub env_behavior: Option<EnvBehavior>,
 }
 
 pub trait TaskMatcher<T> {
@@ -614,6 +618,26 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
+        if cmd_opt
+            .as_ref()
+            .and_then(|filter| filter.env_behavior) // if the command wants to override the behavior
+            .as_ref()
+            .is_some_and(|behavior| {
+                settings
+                    .opt
+                    .to_opt() // at this point we own the opt structure
+                    .as_ref()
+                    .borrow()
+                    .env
+                    .as_ref()
+                    .is_some_and(|env| !env.override_behavior || env.default_behavior == *behavior)
+                // but the polcy deny it and the behavior is not the same as the default one
+                // we return NoMatch
+                // (explaination: if the behavior is the same as the default one, we don't override it)
+            })
+        {
+            return Err(MatchError::NoMatch);
+        }
         let setuid = &self.as_ref().borrow().cred.setuid;
         let setgid = &self.as_ref().borrow().cred.setgid;
         score.setuid_min = get_setuid_min(setuid.as_ref(), setgid.as_ref(), &score.security_min);

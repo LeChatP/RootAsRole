@@ -90,6 +90,11 @@
                     },
                     "commands": {
                         "default": "all"
+                    },
+                    "options": {
+                        "env": {
+                            "override_behavior": true
+                        }
                     }
                 },
                 {
