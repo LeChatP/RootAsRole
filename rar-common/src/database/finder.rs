@@ -7,12 +7,13 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use bon::Builder;
 use capctl::CapSet;
 use glob::Pattern;
 use log::{debug, warn};
 use nix::{
     libc::dev_t,
-    unistd::{Group, Pid, User},
+    unistd::{Gid, Group, Pid, Uid, User},
 };
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
@@ -235,12 +236,43 @@ impl Ord for Score {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Builder)]
 pub struct Cred {
-    pub user: User,
+    #[builder(field)]
     pub groups: Vec<Group>,
+    #[builder(field = User::from_uid(Uid::current()).unwrap().unwrap())]
+    pub user: User,
     pub tty: Option<dev_t>,
+    #[builder(default = nix::unistd::getppid(), into)]
     pub ppid: Pid,
+}
+
+impl<S: cred_builder::State> CredBuilder<S> {
+    pub fn user_id(mut self, uid: impl Into<Uid>) -> Self {
+        self.user = User::from_uid(uid.into()).unwrap().unwrap();
+        self
+    }
+    pub fn user_name(mut self, name: impl Into<String>) -> Self {
+        self.user = User::from_name(&name.into()).unwrap().unwrap();
+        self
+    }
+    pub fn group_id(mut self, gid: impl Into<Gid>) -> Self {
+        self.groups
+            .push(Group::from_gid(gid.into()).unwrap().unwrap());
+        self
+    }
+    pub fn group_name(mut self, name: impl Into<String>) -> Self {
+        self.groups
+            .push(Group::from_name(&name.into()).unwrap().unwrap());
+        self
+    }
+    pub fn groups(mut self, groups: Vec<Gid>) -> Self {
+        self.groups = groups
+            .iter()
+            .map(|gid| Group::from_gid(*gid).unwrap().unwrap())
+            .collect();
+        self
+    }
 }
 
 #[derive(Clone, Debug)]

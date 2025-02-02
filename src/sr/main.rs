@@ -129,6 +129,9 @@ where
 {
     let mut args = Cli::default();
     let mut iter = s.into_iter().skip(1);
+    let mut role = None;
+    let mut task = None;
+    let mut env = None;
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
@@ -136,16 +139,10 @@ where
                 args.stdin = true;
             }
             "-r" | "--role" => {
-                if let Some(opt_filter) = args.opt_filter.as_mut() {
-                    opt_filter.role = iter.next().map(|s| escape_parser_string(s));
-                } else {
-                    args.opt_filter = Some(FilterMatcher {
-                        role: iter.next().map(|s| escape_parser_string(s)),
-                        task: None,
-                    });
-                }
+                role = iter.next().map(|s| escape_parser_string(s));
             }
             "-t" | "--task" => {
+                task = iter.next().map(|s| escape_parser_string(s));
                 if let Some(opt_filter) = args.opt_filter.as_mut() {
                     opt_filter.task = iter.next().map(|s| escape_parser_string(s));
                 } else {
@@ -177,6 +174,12 @@ where
             }
         }
     }
+    args.opt_filter = Some(
+        FilterMatcher::builder()
+            .maybe_role(role)
+            .maybe_task(task)
+            .build(),
+    );
     for arg in iter {
         args.command.push(escape_parser_string(arg));
     }

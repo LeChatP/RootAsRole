@@ -15,10 +15,7 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning:
 use crate::util::warn_if_mutable;
 use crate::SettingsFile;
 use crate::{open_with_privileges, write_json_config};
-use crate::{
-    util::immutable_effective,
-    RemoteStorageSettings, ROOTASROLE,
-};
+use crate::{util::immutable_effective, RemoteStorageSettings, ROOTASROLE};
 
 #[cfg(feature = "finder")]
 pub mod finder;

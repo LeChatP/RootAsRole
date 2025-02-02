@@ -1,11 +1,14 @@
-use capctl::CapSet;
+use bon::{bon, builder, Builder};
+use capctl::{Cap, CapSet};
 use derivative::Derivative;
 use nix::{
     errno::Errno,
     unistd::{Group, User},
 };
 use serde::{
-    de::{self, MapAccess, SeqAccess, Visitor}, ser::SerializeMap, Deserialize, Deserializer, Serialize
+    de::{self, MapAccess, SeqAccess, Visitor},
+    ser::SerializeMap,
+    Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
@@ -21,7 +24,7 @@ use std::{
 
 use super::{
     is_default,
-    options::Opt,
+    options::{Level, Opt, OptBuilder},
     wrapper::{OptWrapper, STaskWrapper},
 };
 
@@ -146,18 +149,22 @@ pub struct STask {
     pub _role: Option<Weak<RefCell<SRole>>>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Builder)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub setuid: Option<SActorType>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub setgid: Option<SGroups>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub additional_auth: Option<String>, // TODO: to extract as plugin
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
     pub _extra_fields: Map<String, Value>,
 }
 
@@ -170,33 +177,56 @@ pub enum SetBehavior {
     None,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Builder)]
 pub struct SCapabilities {
+    #[builder(start_fn)]
     pub default_behavior: SetBehavior,
+    #[builder(field)]
     pub add: CapSet,
+    #[builder(field)]
     pub sub: CapSet,
+    #[builder(default, with = <_>::from_iter)]
     pub _extra_fields: Map<String, Value>,
+}
+
+impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
+    pub fn add(mut self, cap: Cap) -> Self {
+        self.add.add(cap);
+        self
+    }
+    pub fn add_all(mut self, set: CapSet) -> Self {
+        self.add = set;
+        self
+    }
+    pub fn sub(mut self, cap: Cap) -> Self {
+        self.sub.add(cap);
+        self
+    }
+    pub fn sub_all(mut self, set: CapSet) -> Self {
+        self.sub = set;
+        self
+    }
 }
 
 impl Serialize for SCapabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if self.default_behavior.is_none() && self.sub.is_empty() && self._extra_fields.is_empty() {
             super::serialize_capset(&self.add, serializer)
-        } else 
-        {
+        } else {
             let mut map = serializer.serialize_map(Some(3))?;
             if self.default_behavior.is_none() {
                 map.serialize_entry("default", &self.default_behavior)?;
             }
             if !self.add.is_empty() {
                 let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("add",&v)?;
+                map.serialize_entry("add", &v)?;
             }
             if !self.sub.is_empty() {
                 let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("del",&v)?;
+                map.serialize_entry("del", &v)?;
             }
             for (key, value) in &self._extra_fields {
                 map.serialize_entry(key, value)?;
@@ -248,18 +278,26 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "default" => {
-                            default_behavior = map.next_value().expect("default entry must be either 'all' or 'none'");
+                            default_behavior = map
+                                .next_value()
+                                .expect("default entry must be either 'all' or 'none'");
                         }
                         "add" => {
-                            let values: Vec<String> = map.next_value().expect("add entry must be a list");
+                            let values: Vec<String> =
+                                map.next_value().expect("add entry must be a list");
                             for value in values {
-                                add.add(value.parse().map_err(|_|de::Error::custom(&format!("Invalid capability: {}", value)))?);
+                                add.add(value.parse().map_err(|_| {
+                                    de::Error::custom(&format!("Invalid capability: {}", value))
+                                })?);
                             }
                         }
                         "sub" | "del" => {
-                            let values: Vec<String> = map.next_value().expect("sub entry must be a list");
+                            let values: Vec<String> =
+                                map.next_value().expect("sub entry must be a list");
                             for value in values {
-                                sub.add(value.parse().map_err(|_| de::Error::custom(&format!("Invalid capability: {}", value)))?);
+                                sub.add(value.parse().map_err(|_| {
+                                    de::Error::custom(&format!("Invalid capability: {}", value))
+                                })?);
                             }
                         }
                         other => {
@@ -385,6 +423,24 @@ impl Default for IdTask {
 // From implementations
 // ------------------------
 
+impl From<usize> for IdTask {
+    fn from(id: usize) -> Self {
+        IdTask::Number(id)
+    }
+}
+
+impl From<String> for IdTask {
+    fn from(name: String) -> Self {
+        IdTask::Name(name)
+    }
+}
+
+impl From<&str> for IdTask {
+    fn from(name: &str) -> Self {
+        IdTask::Name(name.to_string())
+    }
+}
+
 impl From<u32> for SActorType {
     fn from(id: u32) -> Self {
         SActorType::Id(id)
@@ -400,6 +456,36 @@ impl From<String> for SActorType {
 impl From<&str> for SActorType {
     fn from(name: &str) -> Self {
         SActorType::Name(name.to_string())
+    }
+}
+
+impl From<Vec<String>> for SGroups {
+    fn from(groups: Vec<String>) -> Self {
+        if groups.len() == 1 {
+            SGroups::Single(groups[0].clone().into())
+        } else {
+            SGroups::Multiple(groups.into_iter().map(|x| x.into()).collect())
+        }
+    }
+}
+
+impl<const N: usize> From<[&str; N]> for SGroups {
+    fn from(groups: [&str; N]) -> Self {
+        if N == 1 {
+            SGroups::Single(groups[0].to_string().into())
+        } else {
+            SGroups::Multiple(groups.iter().map(|&x| x.into()).collect())
+        }
+    }
+}
+
+impl From<Vec<u32>> for SGroups {
+    fn from(groups: Vec<u32>) -> Self {
+        if groups.len() == 1 {
+            SGroups::Single(groups[0].into())
+        } else {
+            SGroups::Multiple(groups.into_iter().map(|x| x.into()).collect())
+        }
     }
 }
 
@@ -463,25 +549,113 @@ impl<'de> Deserialize<'de> for SActorType {
 // ========================
 // Implementations for Struct navigation
 // ========================
-
+#[bon]
 impl SConfig {
-    pub fn role(&self, name: &str) -> Option<&Rc<RefCell<SRole>>> {
-        self.roles.iter().find(|role| role.borrow().name == name)
+    #[builder]
+    pub fn new(
+        #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Global)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        _extra_fields: Option<Map<String, Value>>,
+    ) -> Rc<RefCell<Self>> {
+        let c = Rc::new(RefCell::new(SConfig {
+            roles: roles.clone(),
+            options: options.clone(),
+            _extra_fields: _extra_fields.unwrap_or_default().clone(),
+        }));
+        for role in &roles {
+            role.borrow_mut()._config = Some(Rc::downgrade(&c));
+        }
+        c
     }
-    pub fn task(&self, role: &str, name: &IdTask) -> Result<Rc<RefCell<STask>>, Box<dyn Error>> {
+}
+
+pub trait RoleGetter {
+    fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>>;
+    fn task<T: Into<IdTask>>(
+        &self,
+        role: &str,
+        name: T,
+    ) -> Result<Rc<RefCell<STask>>, Box<dyn Error>>;
+}
+
+pub trait TaskGetter {
+    fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>>;
+}
+
+impl RoleGetter for Rc<RefCell<SConfig>> {
+    fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>> {
+        self.as_ref()
+            .borrow()
+            .roles
+            .iter()
+            .find(|role| role.borrow().name == name)
+            .cloned()
+    }
+    fn task<T: Into<IdTask>>(
+        &self,
+        role: &str,
+        name: T,
+    ) -> Result<Rc<RefCell<STask>>, Box<dyn Error>> {
+        let name = name.into();
         self.role(role)
-            .and_then(|role| role.as_ref().borrow().task(name).cloned())
+            .and_then(|role| role.as_ref().borrow().task(&name).cloned())
             .ok_or_else(|| format!("Task {} not found in role {}", name, role).into())
     }
 }
 
+impl TaskGetter for Rc<RefCell<SRole>> {
+    fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>> {
+        self.as_ref()
+            .borrow()
+            .tasks
+            .iter()
+            .find(|task| task.borrow().name == *name)
+            .cloned()
+    }
+}
+
+impl<S: s_config_builder::State> SConfigBuilder<S> {
+    pub fn role(mut self, role: Rc<RefCell<SRole>>) -> Self {
+        self.roles.push(role);
+        self
+    }
+}
+
+impl<S: s_role_builder::State> SRoleBuilder<S> {
+    pub fn task(mut self, task: Rc<RefCell<STask>>) -> Self {
+        self.tasks.push(task);
+        self
+    }
+    pub fn actor(mut self, actor: SActor) -> Self {
+        self.actors.push(actor);
+        self
+    }
+}
+
+#[bon]
 impl SRole {
-    pub fn new(name: String, config: Weak<RefCell<SConfig>>) -> Self {
-        SRole {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn, into)] name: String,
+        #[builder(field)] tasks: Vec<Rc<RefCell<STask>>>,
+        #[builder(field)] actors: Vec<SActor>,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Role)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+    ) -> Rc<RefCell<Self>> {
+        let s = Rc::new(RefCell::new(SRole {
             name,
-            _config: Some(config),
-            ..Default::default()
+            actors,
+            tasks,
+            options,
+            _extra_fields,
+            _config: None,
+        }));
+        for task in s.as_ref().borrow_mut().tasks.iter() {
+            task.borrow_mut()._role = Some(Rc::downgrade(&s));
         }
+        s
     }
     pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
         self._config.as_ref()?.upgrade()
@@ -493,13 +667,28 @@ impl SRole {
     }
 }
 
+#[bon]
 impl STask {
-    pub fn new(name: IdTask, role: Weak<RefCell<SRole>>) -> Self {
-        STask {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn, into)] name: IdTask,
+        purpose: Option<String>,
+        #[builder(default)] cred: SCredentials,
+        #[builder(default)] commands: SCommands,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Task)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+        _role: Option<Weak<RefCell<SRole>>>,
+    ) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(STask {
             name,
-            _role: Some(role),
-            ..Default::default()
-        }
+            purpose,
+            cred,
+            commands,
+            options,
+            _extra_fields,
+            _role,
+        }))
     }
     pub fn role(&self) -> Option<Rc<RefCell<SRole>>> {
         self._role.as_ref()?.upgrade()
@@ -561,6 +750,24 @@ impl core::fmt::Display for SGroups {
 // =================
 // Other implementations
 // =================
+
+#[bon]
+impl SCommands {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn)] default_behavior: SetBehavior,
+        #[builder(with = FromIterator::from_iter)] add: Vec<SCommand>,
+        #[builder(with = FromIterator::from_iter)] sub: Vec<SCommand>,
+        #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
+    ) -> Self {
+        SCommands {
+            default_behavior: Some(default_behavior),
+            add,
+            sub,
+            _extra_fields,
+        }
+    }
+}
 
 impl SCapabilities {
     pub fn to_capset(&self) -> CapSet {
