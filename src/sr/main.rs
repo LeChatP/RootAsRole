@@ -10,7 +10,7 @@ use nix::{
 };
 use rar_common::database::{
     finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
-    options::EnvBehavior,
+    options::EnvBehavior, structs::SActorType,
 };
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
@@ -144,12 +144,13 @@ where
     let mut iter = s.into_iter().skip(1);
     let mut role = None;
     let mut task = None;
+    let mut user: Option<SActorType> = None;
     let mut env = None;
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
             "-u" | "--user" => {
-                args.user = iter.next().map(|s| escape_parser_string(s));
+                user = iter.next().map(|s| escape_parser_string(s).into());
             }
             "-S" | "--stdin" => {
                 args.stdin = true;
@@ -190,6 +191,7 @@ where
             .maybe_role(role)
             .maybe_task(task)
             .maybe_env_behavior(env)
+            .maybe_user(user)
             .build(),
     );
     for arg in iter {

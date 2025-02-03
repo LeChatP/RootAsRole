@@ -179,15 +179,38 @@ pub enum SUserChooser {
     Actor(SActorType),
     ChooserStruct(SSetuidSet),
 }
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+
+impl From<SActorType> for SUserChooser {
+    fn from(actor: SActorType) -> Self {
+        SUserChooser::Actor(actor)
+    }
+}
+
+impl From<SSetuidSet> for SUserChooser {
+    fn from(set: SSetuidSet) -> Self {
+        SUserChooser::ChooserStruct(set)
+    }
+}
+
+impl From<&str> for SUserChooser {
+    fn from(name: &str) -> Self {
+        SUserChooser::Actor(name.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
 
 pub struct SSetuidSet {
+    #[builder(start_fn)]
     pub fallback: SActorType,
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
     pub default: SetBehavior,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SActorType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SActorType>,
 }
 
@@ -654,6 +677,10 @@ impl<S: s_config_builder::State> SConfigBuilder<S> {
         self.roles.push(role);
         self
     }
+    pub fn roles(mut self, roles: impl IntoIterator<Item = Rc<RefCell<SRole>>>) -> Self {
+        self.roles.extend(roles.into_iter());
+        self
+    }
 }
 
 impl<S: s_role_builder::State> SRoleBuilder<S> {
@@ -1074,7 +1101,12 @@ mod tests {
                             "name": "task1",
                             "purpose": "purpose1",
                             "cred": {
-                                "setuid": "setuid1",
+                                "setuid": {
+                                    "fallback": "user1",
+                                    "default": "all",
+                                    "add": ["cap_chown"],
+                                    "sub": ["cap_chown"]
+                                },
                                 "setgid": "setgid1",
                                 "capabilities": {
                                     "default": "all",
@@ -1133,7 +1165,13 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
         let cred = &as_borrow!(&role[0]).cred;
-        assert_eq!(cred.setuid.as_ref().unwrap(), "setuid1");
+        let setuidstruct = SSetuidSet {
+            fallback: "user1".into(),
+            default: SetBehavior::All,
+            add: vec!["cap_chown".into()],
+            sub: vec!["cap_chown".into()],
+        };
+        assert!(matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct));
         assert_eq!(cred.setgid.as_ref().unwrap(), "setgid1");
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
