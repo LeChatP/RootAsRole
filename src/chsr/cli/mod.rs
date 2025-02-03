@@ -133,7 +133,7 @@ mod tests {
         task.commands.sub.push(SCommand::Simple("grep".to_string()));
 
         task.cred = SCredentials::default();
-        task.cred.setuid = Some(SActorType::Name("user1".to_string()));
+        task.cred.setuid = Some(SUserChooser::Actor(SActorType::Name("user1".to_string())));
         task.cred.setgid = Some(SGroups::Multiple(vec![
             SActorType::Name("group1".to_string()),
             SActorType::Name("group2".to_string()),

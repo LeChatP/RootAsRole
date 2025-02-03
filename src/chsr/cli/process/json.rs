@@ -17,7 +17,7 @@ use rar_common::{
             EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
             STimeout,
         },
-        structs::{IdTask, SCapabilities, SCommand, SRole, STask},
+        structs::{IdTask, SCapabilities, SCommand, SRole, STask, SUserChooser},
     },
     rc_refcell,
 };
@@ -326,7 +326,7 @@ pub fn cred_set(
                 task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
             }
             if let Some(setuid) = cred_setuid {
-                task.as_ref().borrow_mut().cred.setuid = Some(setuid);
+                task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::Actor(setuid));
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid = Some(setgid);

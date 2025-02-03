@@ -1,12 +1,3 @@
-use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    error::Error,
-    fmt::{Display, Formatter},
-    path::PathBuf,
-    rc::{Rc, Weak},
-};
-
 use capctl::CapSet;
 use glob::Pattern;
 use log::{debug, warn};
@@ -16,12 +7,22 @@ use nix::{
 };
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
+use std::{
+    cell::RefCell,
+    cmp::Ordering,
+    default,
+    error::Error,
+    fmt::{Display, Formatter},
+    path::PathBuf,
+    rc::{Rc, Weak},
+};
 use strum::EnumIs;
 
 use crate::database::{
     options::{Opt, OptStack},
     structs::{
-        SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask, SetBehavior,
+        SActor, SActorType, SCommand, SCommands, SConfig, SGroups, SRole, STask, SUserChooser,
+        SetBehavior,
     },
 };
 use crate::util::{capabilities_are_exploitable, final_path, parse_conf_command};
@@ -121,25 +122,42 @@ impl PartialEq for ExecSettings {
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs)]
 #[repr(u32)]
-pub enum UserMin {
+// Matching user groups for the role
+pub enum ActorMatchMin {
     UserMatch,
     GroupMatch(usize),
     NoMatch,
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
-#[repr(u32)]
-pub enum SetuidMin {
-    Undefined,
-    NoSetuidNoSetgid,
-    Setgid(usize),
-    Setuid,
-    SetuidSetgid(usize),
-    SetgidRoot(usize),
-    SetuidNotrootSetgidRoot(usize),
-    SetuidRoot,
-    SetuidRootSetgid(usize),
-    SetuidSetgidRoot(usize),
+
+// Matching setuid and setgid for the role
+struct SetuidMin {
+    is_root: bool,
+}
+#[derive(PartialEq, PartialOrd, Eq, Clone, Copy, Debug)]
+struct SetgidMin {
+    is_root: bool,
+    nb_groups: usize,
+}
+impl Ord for SetgidMin {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.is_root
+            .cmp(&other.is_root)
+            .then_with(|| self.nb_groups.cmp(&other.nb_groups))
+    }
+}
+#[derive(PartialEq, PartialOrd, Eq, Clone, Copy, Debug, Default)]
+struct SetUserMin {
+    uid: Option<SetuidMin>,
+    gid: Option<SetgidMin>,
+}
+impl Ord for SetUserMin {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.uid
+            .cmp(&other.uid)
+            .then_with(|| self.gid.cmp(&other.gid))
+    }
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
@@ -182,10 +200,10 @@ bitflags! {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct Score {
-    pub user_min: UserMin,
+    pub user_min: ActorMatchMin,
     pub cmd_min: CmdMin,
     pub caps_min: CapsMin,
-    pub setuid_min: SetuidMin,
+    pub setuser_min: SetUserMin,
     pub security_min: SecurityMin,
 }
 
@@ -193,7 +211,7 @@ impl Score {
     pub fn prettyprint(&self) -> String {
         format!(
             "{:?}, {:?}, {:?}, {:?}, {:?}",
-            self.user_min, self.cmd_min, self.caps_min, self.setuid_min, self.security_min
+            self.user_min, self.cmd_min, self.caps_min, self.setuser_min, self.security_min
         )
     }
 
@@ -206,7 +224,7 @@ impl Score {
         self.cmd_min
             .cmp(&other.cmd_min)
             .then(self.caps_min.cmp(&other.caps_min))
-            .then(self.setuid_min.cmp(&other.setuid_min))
+            .then(self.setuser_min.cmp(&other.setuser_min))
             .then(self.security_min.cmp(&other.security_min))
     }
 }
@@ -255,7 +273,7 @@ impl TaskMatch {
     }
 
     pub fn user_matching(&self) -> bool {
-        self.score.user_min != UserMin::NoMatch
+        self.score.user_min != ActorMatchMin::NoMatch
     }
 
     pub fn command_matching(&self) -> bool {
@@ -279,10 +297,10 @@ impl Default for TaskMatch {
     fn default() -> Self {
         TaskMatch {
             score: Score {
-                user_min: UserMin::NoMatch,
+                user_min: ActorMatchMin::NoMatch,
                 cmd_min: CmdMin::empty(),
                 caps_min: CapsMin::Undefined,
-                setuid_min: SetuidMin::Undefined,
+                setuser_min: SetUserMin::default(),
                 security_min: SecurityMin::empty(),
             },
             settings: ExecSettings::new(),
@@ -294,6 +312,7 @@ impl Default for TaskMatch {
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
+    pub user: Option<String>,
 }
 
 pub trait TaskMatcher<T> {
@@ -306,7 +325,7 @@ pub trait TaskMatcher<T> {
 }
 
 pub trait CredMatcher {
-    fn user_matches(&self, user: &Cred) -> UserMin;
+    fn user_matches(&self, user: &Cred) -> ActorMatchMin;
 }
 
 fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
@@ -510,44 +529,137 @@ fn get_setuid_min(
     setuid: Option<&SActorType>,
     setgid: Option<&SGroups>,
     security_min: &SecurityMin,
-) -> SetuidMin {
+) -> SetUserMin {
     match (setuid, setgid) {
         (Some(setuid), setgid) => {
             if security_min.contains(SecurityMin::EnableRoot) {
                 // root is privileged
                 if is_root(setuid) {
                     if groups_contains_root(setgid) {
-                        SetuidMin::SetuidSetgidRoot(groups_len(setgid))
+                        SetUserMin {
+                            uid: Some(SetuidMin { is_root: true }),
+                            gid: Some(SetgidMin {
+                                is_root: true,
+                                nb_groups: (groups_len(setgid)),
+                            }),
+                        }
                     } else if setgid.is_none() || groups_len(setgid) == 0 {
-                        SetuidMin::SetuidRoot
+                        SetUserMin {
+                            uid: Some(SetuidMin { is_root: true }),
+                            gid: None,
+                        }
                     } else {
-                        SetuidMin::SetuidRootSetgid(groups_len(setgid))
+                        SetUserMin {
+                            uid: Some(SetuidMin { is_root: true }),
+                            gid: Some(SetgidMin {
+                                is_root: false,
+                                nb_groups: (groups_len(setgid)),
+                            }),
+                        }
                     }
                 } else if groups_contains_root(setgid) {
-                    SetuidMin::SetuidNotrootSetgidRoot(groups_len(setgid))
+                    SetUserMin {
+                        uid: Some(SetuidMin { is_root: false }),
+                        gid: Some(SetgidMin {
+                            is_root: true,
+                            nb_groups: (groups_len(setgid)),
+                        }),
+                    }
                 } else if setgid.is_none() || groups_len(setgid) == 0 {
-                    SetuidMin::Setuid
+                    SetUserMin {
+                        uid: Some(SetuidMin { is_root: false }),
+                        gid: None,
+                    }
                 } else {
-                    SetuidMin::SetuidSetgid(groups_len(setgid))
+                    SetUserMin {
+                        uid: Some(SetuidMin { is_root: false }),
+                        gid: Some(SetgidMin {
+                            is_root: false,
+                            nb_groups: (groups_len(setgid)),
+                        }),
+                    }
                 }
             } else {
                 // root is a user
-                SetuidMin::SetuidSetgid(groups_len(setgid))
+                SetUserMin {
+                    uid: Some(SetuidMin { is_root: false }),
+                    gid: Some(SetgidMin {
+                        is_root: false,
+                        nb_groups: (groups_len(setgid)),
+                    }),
+                }
             }
         }
         (None, setgid) => {
             let len = groups_len(setgid);
             if len == 0 {
-                SetuidMin::NoSetuidNoSetgid
+                SetUserMin {
+                    uid: None,
+                    gid: None,
+                }
             } else if security_min.contains(SecurityMin::EnableRoot) && groups_contains_root(setgid)
             {
-                SetuidMin::SetgidRoot(len)
+                SetUserMin {
+                    uid: None,
+                    gid: Some(SetgidMin {
+                        is_root: true,
+                        nb_groups: len,
+                    }),
+                }
             } else {
-                SetuidMin::Setgid(len)
+                SetUserMin {
+                    uid: None,
+                    gid: Some(SetgidMin {
+                        is_root: false,
+                        nb_groups: len,
+                    }),
+                }
             }
         }
     }
 }
+
+/*fn get_setuid_min(
+    setuid: Option<&SActorType>,
+    setgid: Option<&SGroups>,
+    security_min: &SecurityMin,
+) -> SetUserMin {
+    match (setuid, setgid) {
+        (Some(setuid), setgid) => {
+            let is_root = is_root(setuid);
+            let nb_groups = groups_len(setgid);
+            let gid_root = setgid.map_or(false, |g| groups_contains_root(Some(g)));
+
+            let uid_min = Some(SetuidMin { is_root });
+            let gid_min = if nb_groups > 0 {
+                Some(SetgidMin {
+                    is_root: gid_root,
+                    nb_groups,
+                })
+            } else {
+                None
+            };
+
+            SetUserMin { uid: uid_min, gid: gid_min }
+        }
+        (None, setgid) => {
+            let nb_groups = groups_len(setgid);
+            let gid_root = setgid.map_or(false, |g| groups_contains_root(Some(g)));
+
+            let gid_min = if nb_groups > 0 {
+                Some(SetgidMin {
+                    is_root: gid_root,
+                    nb_groups,
+                })
+            } else {
+                None
+            };
+
+            SetUserMin { uid: None, gid: gid_min }
+        }
+    }
+}
+ */
 
 impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
     fn matches(
@@ -582,9 +694,96 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
-        let setuid = &self.as_ref().borrow().cred.setuid;
+        let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
+
+        let setuid: Option<SActorType> = match setuid {
+            // on a un champ "setuid" : "user"
+            // Cas où `setuid` est un acteur de type `Id`
+            Some(SUserChooser::Actor(SActorType::Id(s))) => Some(SActorType::Id(s)),
+            // Cas où `setuid` est un acteur de type `Name`
+            Some(SUserChooser::Actor(SActorType::Name(s))) => Some(SActorType::Name(s.to_string())),
+            // Cas où `setuid` est une structure `ChooserStruct`
+            //ou on a un champ "setuid" : { "fallback": "user" }
+            Some(SUserChooser::ChooserStruct(t)) => {
+                match cmd_opt.as_ref().and_then(|cmd| cmd.user.as_ref()) {
+                    // On vérifie que la commande contient le paramètre -u
+                    // Pas d'utilisateur dans la commande, utiliser le fallback
+                    // Il n'y a pas de paramètres ou qu'il n'y a pas -u, on retourne le fallback
+                    None => Some(t.fallback.clone()),
+                    // Un utilisateur est spécifié, vérifions sa présence dans `add` ou `sub`
+                    Some(user) => {
+                        // Il y a des paramètres dans la commande sr (-r, -t, etc.)
+                        let user_actor_id =
+                            SActorType::Id(user.parse().expect("User is not valid"));
+                        let user_actor_name = SActorType::Name(user.to_string());
+                        // search for the user in the structure ... (chercher si None ou All, chercher si add ou del)
+                        if t.fallback == SActorType::Id(user.parse().expect("User is not valid"))
+                            || t.fallback == SActorType::Name(user.to_string())
+                        {
+                            // L'utilisateur est explicitement autorisé dans `fallback`
+                            Some(user_actor_id)
+                        } else if t.add.contains(&user_actor_name) || t.add.contains(&user_actor_name)
+                        {
+                            // L'utilisateur est explicitement autorisé dans `add`
+                            Some(user_actor_id)
+                        } else if t.sub.contains(&user_actor_name) || t.sub.contains(&user_actor_name)
+                        {
+                            // L'utilisateur est explicitement interdit dans `sub`
+                            return Err(MatchError::NoMatch); // Propager l'erreur immédiatement
+                        } else {
+                            // Aucun match explicite, appliquer le comportement par défaut
+                            match t.default {
+                                SetBehavior::None => return (Err(MatchError::NoMatch)),              // Aucun utilisateur par défaut
+                                SetBehavior::All => Some(user_actor_name), // Tout utilisateur accepté
+                            }
+                        }
+                    }
+                }
+            }
+            // Pas de champ `setuid` dans la tâche
+            None => None,
+        };
+
+        /*let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
+            let setuid: Option<SUserChooser> = match setuid {
+                Some(SUserChooser::Actor(SActorType::Id(s))) => {
+                    // on a un champ "setuid" : "user"
+                    // cas ou setuid est de type Id
+                    Ok(Some(SActorType::Id(s)))
+                },
+                Some(SUserChooser::Actor(SActorType::Name(s))) => { // on a un champ "setuid" : "user"
+                    // cas ou setuid est de type Name
+                    Ok(Some(SActorType::Name(s.to_string())))
+                },
+                Some(SUserChooser::ChooserStruct(t)) => { // on a un champ "setuid" : { "fallback": "user" }
+                    match cmd_opt.and_then(|cmd_opt| cmd_opt.user) { // On vérifie que la commande contient le paramètre -u
+                        None => Ok(t.fallback.as_ref().cloned()), // Il n'y a pas de paramètres ou qu'il n'y a pas -u, on retourne le fallback
+                        Some(user) => {
+                    let user_actor_id = SActorType::Id(user.parse().expect("The user is not valid"));
+                    let user_actor_name = SActorType::Name(user.to_string());
+                    if t.add.contains(&user_actor_id) || t.add.contains(&user_actor_name) {
+                        // L'utilisateur est explicitement autorisé dans add
+                        Ok(Some(SUserChooser::Actor(user_actor_id)))
+                    } else if t.sub.contains(&user_actor_id) || t.sub.contains(&user_actor_name) {
+                        // L'utilisateur est explicitement interdit dans sub
+                            Err(MatchError::NoMatch)
+                        } else {// Aucun match dans add ou sub, appliquer le comportement par défaut
+                            match t.default {
+                                SetBehavior::None => Ok(None), // Aucun utilisateur par défaut
+                                SetBehavior::All => Ok(Some(SUserChooser::Actor(user_actor_id))), // Tout utilisateur est accepté
+                            }
+                    }
+                }
+            }
+        },
+                None => { // pas de champ "setuid" dans la tâche
+                    Ok(None)
+                }
+            }?;  */
+
         let setgid = &self.as_ref().borrow().cred.setgid;
-        score.setuid_min = get_setuid_min(setuid.as_ref(), setgid.as_ref(), &score.security_min);
+
+        score.setuser_min = get_setuid_min(setuid.as_ref(), setgid.as_ref(), &score.security_min);
 
         settings.setuid = setuid.clone();
         settings.setgroups = setgid.clone();
@@ -644,10 +843,10 @@ impl TaskMatcher<TaskMatch> for SCommands {
 
         Ok(TaskMatch {
             score: Score {
-                user_min: UserMin::NoMatch,
+                user_min: ActorMatchMin::NoMatch,
                 cmd_min: min_score,
                 caps_min: CapsMin::Undefined,
-                setuid_min: SetuidMin::Undefined,
+                setuser_min: SetUserMin::default(),
                 security_min: SecurityMin::empty(),
             },
             settings,
@@ -680,25 +879,25 @@ fn match_groups(groups: &[Group], role_groups: &[SGroups]) -> bool {
 }
 
 impl CredMatcher for Rc<RefCell<SRole>> {
-    fn user_matches(&self, user: &Cred) -> UserMin {
+    fn user_matches(&self, user: &Cred) -> ActorMatchMin {
         let borrow = self.as_ref().borrow();
         if PluginManager::notify_duty_separation(&self.as_ref().borrow(), user).is_deny() {
             warn!("You are forbidden to use a role due to a conflict of interest, please contact your administrator");
-            return UserMin::NoMatch;
+            return ActorMatchMin::NoMatch;
         }
         let matches = borrow.actors.iter().filter_map(|actor| {
             match actor {
                 SActor::User { id, .. } => {
                     if let Some(id) = id {
                         if *id == user.user {
-                            return Some(UserMin::UserMatch);
+                            return Some(ActorMatchMin::UserMatch);
                         }
                     }
                 }
                 SActor::Group { groups, .. } => {
                     if let Some(groups) = groups.as_ref() {
                         if match_groups(&user.groups, &[groups.clone()]) {
-                            return Some(UserMin::GroupMatch(groups.len()));
+                            return Some(ActorMatchMin::GroupMatch(groups.len()));
                         }
                     }
                 }
@@ -711,7 +910,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
             }
             None
         });
-        let min = matches.min().unwrap_or(UserMin::NoMatch);
+        let min = matches.min().unwrap_or(ActorMatchMin::NoMatch);
         debug!(
             "Role {} : User {} matches with {:?}",
             borrow.name, user.user.name, min
@@ -879,7 +1078,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
 }
 
 fn plugin_role_match(
-    user_min: UserMin,
+    user_min: ActorMatchMin,
     borrow: std::cell::Ref<'_, SRole>,
     user: &Cred,
     cmd_opt: &Option<FilterMatcher>,
@@ -963,7 +1162,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
 #[cfg(test)]
 mod tests {
 
-    use std::fs;
+    use std::{fs, process::Command};
 
     use capctl::Cap;
     use test_log::test;
@@ -972,7 +1171,7 @@ mod tests {
         database::{
             make_weak_config,
             options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
-            structs::IdTask,
+            structs::{IdTask, SSetuidSet},
             versionning::Versioning,
         },
         rc_refcell,
@@ -1104,46 +1303,88 @@ mod tests {
         let security_min = SecurityMin::EnableRoot;
         assert_eq!(
             get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
-            SetuidMin::SetuidSetgidRoot(1)
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1
+                })
+            }
         );
         setuid = Some("1".into());
         assert_eq!(
             get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
-            SetuidMin::SetuidNotrootSetgidRoot(1)
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: false }),
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1
+                })
+            }
         );
         setgid = Some(SGroups::Multiple(vec![1.into(), 2.into()]));
         assert_eq!(
             get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
-            SetuidMin::SetuidSetgid(2)
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: false }),
+                gid: Some(SetgidMin {
+                    is_root: false,
+                    nb_groups: 2
+                })
+            }
         );
         assert_eq!(
             get_setuid_min(None, setgid.as_ref(), &security_min),
-            SetuidMin::Setgid(2)
+            SetUserMin {
+                uid: None,
+                gid: Some(SetgidMin {
+                    is_root: false,
+                    nb_groups: 2
+                })
+            }
         );
         assert_eq!(
             get_setuid_min(None, None, &security_min),
-            SetuidMin::NoSetuidNoSetgid
+            SetUserMin {
+                uid: None,
+                gid: None
+            }
         );
         assert_eq!(
             get_setuid_min(setuid.as_ref(), None, &security_min),
-            SetuidMin::Setuid
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: false }),
+                gid: None
+            }
         )
     }
 
     #[test]
     fn test_score_cmp() {
         let score1 = Score {
-            user_min: UserMin::UserMatch,
+            user_min: ActorMatchMin::UserMatch,
             cmd_min: CmdMin::Match,
             caps_min: CapsMin::CapsAll,
-            setuid_min: SetuidMin::SetuidSetgidRoot(1),
+            setuser_min: SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1,
+                }),
+            },
             security_min: SecurityMin::DisableBounding | SecurityMin::EnableRoot,
         };
         let mut score2 = Score {
-            user_min: UserMin::UserMatch,
+            user_min: ActorMatchMin::UserMatch,
             cmd_min: CmdMin::Match,
             caps_min: CapsMin::CapsAll,
-            setuid_min: SetuidMin::SetuidSetgidRoot(1),
+            setuser_min: SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1,
+                }),
+            },
             security_min: SecurityMin::DisableBounding,
         };
         assert_eq!(score1.cmp(&score2), Ordering::Greater);
@@ -1154,15 +1395,46 @@ mod tests {
         assert_eq!(score1.clamp(score2, score2), score2);
         score2.security_min = SecurityMin::DisableBounding | SecurityMin::EnableRoot;
         assert_eq!(score1.cmp(&score2), Ordering::Equal);
-        score2.setuid_min = SetuidMin::SetuidSetgidRoot(2);
+        score2.setuser_min = SetUserMin {
+            uid: Some(SetuidMin { is_root: true }),
+            gid: Some(SetgidMin {
+                is_root: true,
+                nb_groups: 2,
+            }),
+        };
         assert_eq!(score1.cmp(&score2), Ordering::Less);
-        score2.setuid_min = SetuidMin::SetuidNotrootSetgidRoot(2);
+        score2.setuser_min = SetUserMin {
+            uid: Some(SetuidMin { is_root: false }),
+            gid: Some(SetgidMin {
+                is_root: true,
+                nb_groups: 2,
+            }),
+        };
         assert_eq!(score1.cmp(&score2), Ordering::Greater);
-        score2.setuid_min = SetuidMin::SetuidRootSetgid(2);
+        score2.setuser_min = SetUserMin {
+            uid: Some(SetuidMin { is_root: true }),
+            gid: Some(SetgidMin {
+                is_root: false,
+                nb_groups: 2,
+            }),
+        };
         assert_eq!(score1.cmp(&score2), Ordering::Greater);
-        score2.setuid_min = SetuidMin::SetuidSetgid(2);
+        score2.setuser_min = SetUserMin {
+            uid: Some(SetuidMin { is_root: false }),
+            gid: Some(SetgidMin {
+                is_root: false,
+                nb_groups: 2,
+            }),
+        };
         assert_eq!(score1.cmp(&score2), Ordering::Greater);
-        score2.setuid_min = SetuidMin::SetuidSetgidRoot(1);
+        score2.setuser_min = SetUserMin {
+            uid: Some(SetuidMin { is_root: true }),
+            gid: Some(SetgidMin {
+                is_root: true,
+                nb_groups: 1,
+            }),
+        };
+        assert_eq!(score1.cmp(&score2), Ordering::Equal);
         score2.caps_min = CapsMin::CapsAdmin(1);
         assert_eq!(score1.cmp(&score2), Ordering::Greater);
         score2.caps_min = CapsMin::CapsNoAdmin(1);
@@ -1181,11 +1453,11 @@ mod tests {
         assert_eq!(score1.cmp(&score2), Ordering::Less);
         score2.cmd_min = CmdMin::Match;
         assert_eq!(score1.cmp(&score2), Ordering::Equal);
-        score2.user_min = UserMin::GroupMatch(1);
+        score2.user_min = ActorMatchMin::GroupMatch(1);
         assert_eq!(score1.cmp(&score2), Ordering::Less);
-        score2.user_min = UserMin::NoMatch;
+        score2.user_min = ActorMatchMin::NoMatch;
         assert_eq!(score1.cmp(&score2), Ordering::Less);
-        score2.user_min = UserMin::UserMatch;
+        score2.user_min = ActorMatchMin::UserMatch;
         assert_eq!(score1.cmp(&score2), Ordering::Equal);
     }
 
@@ -1281,7 +1553,6 @@ mod tests {
         };
 
         let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
-
         let result = config.matches(&cred, &None, &command);
         debug!("Result : {:?}", result);
         assert!(result.is_ok());
@@ -1292,6 +1563,430 @@ mod tests {
         );
         assert_eq!(result.role().as_ref().borrow().name, "role0");
     }
+
+    #[test]
+    //echec
+fn test_setuid_fallback_valid() {
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::None,
+        add: vec![], // Pas d'ajout explicite
+        sub: vec![], // Pas de restriction explicite
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant au `fallback`
+    let cred = Cred {
+        user: User::from_name("fallback_user").unwrap().unwrap(), // Même nom que le fallback
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("fallback_user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+
+    // Vérification que le match est réussi
+    assert!(result.is_ok());
+    let result = result.unwrap();
+    
+    // Vérification que l'utilisateur assigné est bien celui du fallback
+    assert_eq!(result.settings.setuid, Some(fallback_user.clone()));
+
+    println!("Test réussi : L'utilisateur spécifié correspond bien au fallback.");
+}
+
+        
+    #[test]
+    //echec
+    fn test_setuid_fallback_nonarg_valid() {
+        // Configuration de test
+        let config = setup_test_config(1);
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+    
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::from_user_string("root"));
+    
+        // Définition du `setuid` avec un `fallback`
+        let fallback_user = SActorType::Name("fallback_user".to_string());
+        let chooser_struct = SSetuidSet {
+            fallback: fallback_user.clone(),
+            default: SetBehavior::None,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+    
+        // Création des credentials sans spécifier d'utilisateur
+        let cred = Cred {
+            user: User::from_name("unknown_user").unwrap().unwrap(), // Utilisateur non spécifié
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+    
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    
+        // Exécution du match
+        let result = config.matches(&cred, &None, &command);
+    
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        
+        // Vérification que l'utilisateur assigné est bien celui du fallback
+        assert_eq!(result.settings.setuid, Some(fallback_user.clone()));
+    
+        println!("Test réussi : L'utilisateur spécifié correspond bien au fallback lorsqu'aucun utilisateur valide n'est fourni.");
+    }
+
+
+#[test]
+//echec
+fn test_setuid_add_valid() {
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::None,
+        add: vec![SActorType::Name("add_user".to_string())], // Ajout d'un utilisateur
+        sub: vec![], // Pas de restriction explicite
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant à l'ajout
+    let cred = Cred {
+        user: User::from_name("add_user").unwrap().unwrap(), // Même nom que l'ajout
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("add_user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+    // Vérification que le match est réussi
+    assert!(result.is_ok());
+    let result = result.unwrap();
+    
+    // Vérification que l'utilisateur assigné est bien celui de l'ajout
+    assert_eq!(result.settings.setuid, Some(SActorType::Name("add_user".to_string())));
+
+    println!("Test réussi : L'utilisateur spécifié correspond bien à l'ajout.");
+
+    
+}
+
+
+#[test]
+fn test_setuid_add_sub_invalid() {
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::None,
+        add: vec![SActorType::Name("user".to_string())], // Ajout d'un utilisateur
+        sub: vec![SActorType::Name("user".to_string())], // Restriction d'un utilisateur
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant à l'ajout
+    let cred = Cred {
+        user: User::from_name("user").unwrap().unwrap(), // Même nom que l'ajout
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+    // Vérification que le match est réussi
+    assert!(result.is_err());
+    let result = result.unwrap_err();
+    
+    // Vérification que l'erreur est bien de type `NoMatch`
+    assert_eq!(result, MatchError::NoMatch);
+
+    println!("Test réussi : L'utilisateur spécifié ne correspond pas à la restriction.");
+
+}
+
+#[test]
+fn test_setuid_all_sub_invalid() {
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::All,
+        add: vec![], 
+        sub: vec![SActorType::Name("user".to_string())], // Restriction d'un utilisateur
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant à l'ajout
+    let cred = Cred {
+        user: User::from_name("user").unwrap().unwrap(), // Même nom que l'ajout
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+    // Vérification que le match est réussi
+    assert!(result.is_err());
+    let result = result.unwrap_err();
+    
+    // Vérification que l'erreur est bien de type `NoMatch`
+    assert_eq!(result, MatchError::NoMatch);
+
+    println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
+
+}
+
+#[test]
+//echec
+fn test_setuid_all_valid() {
+
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::All,
+        add: vec![], 
+        sub: vec![], 
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant à l'ajout
+    let cred = Cred {
+        user: User::from_name("user").unwrap().unwrap(), // Même nom que l'ajout
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+    // Vérification que le match est réussi
+    assert!(result.is_ok());
+    let result = result.unwrap();
+    
+    // Vérification que l'utilisateur assigné est bien celui de l'ajout
+    assert_eq!(result.settings.setuid, Some(SActorType::Name("user".to_string())));
+
+    println!("Test réussi : L'utilisateur spécifié correspond bien à l'ajout.");
+
+}
+
+#[test]
+fn test_setuid_none_invalid() {
+
+// Configuration de test
+let config = setup_test_config(1); // Un seul rôle pour simplifier
+let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+let task = role.as_ref().borrow().tasks[0].clone();
+
+// Ajout d'un acteur autorisé
+role.as_ref()
+    .borrow_mut()
+    .actors
+    .push(SActor::from_user_string("root"));
+
+// Définition du `setuid` avec un `fallback`
+let fallback_user = SActorType::Name("fallback_user".to_string());
+let chooser_struct = SSetuidSet {
+    fallback: fallback_user.clone(),
+    default: SetBehavior::None,
+    add: vec![], 
+    sub: vec![], 
+};
+task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+// Création des credentials avec l'utilisateur correspondant à l'ajout
+let cred = Cred {
+    user: User::from_name("user").unwrap().unwrap(), // Même nom que l'ajout
+    groups: vec![Group::from_name("root").unwrap().unwrap()],
+    ppid: Pid::from_raw(0),
+    tty: None,
+};
+
+// Commande de test
+let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+// Exécution du match
+let filter_matcher = FilterMatcher {
+    role: None,
+    task: None,
+    user: Some("user".to_string()),
+};
+let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+// Vérification que le match est réussi
+assert!(result.is_err());
+let result = result.unwrap_err();
+
+// Vérification que l'erreur est bien de type `NoMatch`
+assert_eq!(result, MatchError::NoMatch);
+
+println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
+
+}
+
+#[test]
+fn test_setuid_all_add_valid() {
+
+
+    // Configuration de test
+    let config = setup_test_config(1); // Un seul rôle pour simplifier
+    let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+    let task = role.as_ref().borrow().tasks[0].clone();
+
+    // Ajout d'un acteur autorisé
+    role.as_ref()
+        .borrow_mut()
+        .actors
+        .push(SActor::from_user_string("root"));
+
+    // Définition du `setuid` avec un `fallback`
+    let fallback_user = SActorType::Name("fallback_user".to_string());
+    let chooser_struct = SSetuidSet {
+        fallback: fallback_user.clone(),
+        default: SetBehavior::All,
+        add: vec![SActorType::Name("user".to_string())], // Ajout d'un utilisateur
+        sub: vec![], 
+    };
+    task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+    // Création des credentials avec l'utilisateur correspondant à l'ajout
+    let cred = Cred {
+        user: User::from_name("user").unwrap().unwrap(), // Même nom que l'ajout
+        groups: vec![Group::from_name("root").unwrap().unwrap()],
+        ppid: Pid::from_raw(0),
+        tty: None,
+    };
+
+    // Commande de test
+    let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+    // Exécution du match
+    let filter_matcher = FilterMatcher {
+        role: None,
+        task: None,
+        user: Some("user".to_string()),
+    };
+    let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+    // Vérification que le match est réussi
+    assert!(result.is_ok());
+    let result = result.unwrap();
+    
+    // Vérification que l'utilisateur assigné est bien celui de l'ajout
+    assert_eq!(result.settings.setuid, Some(SActorType::Name("user".to_string())));
+
+    println!("Test réussi : L'utilisateur spécifié correspond bien à l'ajout.");
+
+}
+    
 
     #[test]
     fn test_equal_settings() {
@@ -1404,6 +2099,7 @@ mod tests {
         assert_eq!(
             result.task().as_ref().borrow().name,
             IdTask::Name("t_chsr".to_string())
+            
         );
     }
 }

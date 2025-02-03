@@ -82,7 +82,7 @@ mod tests {
     use super::*;
     use crate::{
         database::{
-            finder::UserMin,
+            finder::ActorMatchMin,
             structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask},
         },
         rc_refcell,
@@ -128,7 +128,7 @@ mod tests {
             tty: None,
         };
         let mut matcher = TaskMatch::default();
-        matcher.score.user_min = UserMin::UserMatch;
+        matcher.score.user_min = ActorMatchMin::UserMatch;
         let res = find_in_parents(
             &config.as_ref().borrow().roles[1].as_ref().borrow(),
             &cred,
@@ -180,7 +180,7 @@ mod tests {
             tty: None,
         };
         let mut matcher = TaskMatch::default();
-        matcher.score.user_min = UserMin::UserMatch;
+        matcher.score.user_min = ActorMatchMin::UserMatch;
         let matches = config.matches(&cred, &None, &["ls".to_string()]).unwrap();
         assert_eq!(
             matches.settings.task.upgrade().unwrap(),

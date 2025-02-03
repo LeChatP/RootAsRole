@@ -2,7 +2,7 @@ use capctl::CapSet;
 use derivative::Derivative;
 use nix::{
     errno::Errno,
-    unistd::{Group, User},
+    unistd::{getuid, Group, User},
 };
 use serde::{
     de::{self, Visitor},
@@ -60,6 +60,11 @@ pub struct SRole {
 pub enum SActorType {
     Id(u32),
     Name(String),
+}
+impl AsRef<SActorType> for SActorType {
+    fn as_ref(&self) -> &SActorType {
+        self
+    }
 }
 
 impl std::fmt::Display for SActorType {
@@ -151,7 +156,7 @@ pub struct STask {
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub setuid: Option<SActorType>,
+    pub setuid: Option<SUserChooser>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setgid: Option<SGroups>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,7 +167,25 @@ pub struct SCredentials {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(untagged)]
+pub enum SUserChooser {
+    Actor(SActorType),
+    ChooserStruct(SSetuidSet),
+}
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+
+pub struct SSetuidSet {
+    pub fallback: SActorType,
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    pub default: SetBehavior,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub add: Vec<SActorType>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub: Vec<SActorType>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum SetBehavior {
@@ -283,6 +306,17 @@ impl Default for SCapabilities {
             add: CapSet::empty(),
             sub: CapSet::empty(),
             _extra_fields: Map::default(),
+        }
+    }
+}
+
+impl Default for SSetuidSet {
+    fn default() -> Self {
+        SSetuidSet {
+            fallback: SActorType::Id(0), // un ID par défaut de 0
+            default: SetBehavior::None,  // Comportement par défaut défini sur "None"
+            add: Vec::new(),             // Pas d'éléments ajoutés par défaut
+            sub: Vec::new(),             // Pas d'éléments retirés par défaut
         }
     }
 }
@@ -483,6 +517,14 @@ impl SCapabilities {
         capset = capset.union(self.add);
         capset.drop_all(self.sub);
         capset
+    }
+}
+impl PartialEq<str> for SUserChooser {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            SUserChooser::Actor(actor) => actor == other,
+            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
+        }
     }
 }
 
