@@ -54,6 +54,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 
 use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 
+use bon::Builder;
 use log::debug;
 use serde::{Deserialize, Serialize};
 
@@ -90,15 +91,16 @@ pub enum Storage {
     JSON(Rc<RefCell<SConfig>>),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 pub struct SettingsFile {
     pub storage: Settings,
     #[serde(flatten)]
     pub config: Rc<RefCell<SConfig>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 pub struct Settings {
+    #[builder(default = StorageMethod::JSON)]
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
@@ -106,11 +108,13 @@ pub struct Settings {
     pub ldap: Option<LdapSettings>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(name = not_immutable,with = || false)]
     pub immutable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,

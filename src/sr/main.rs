@@ -8,7 +8,10 @@ use nix::{
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
-use rar_common::database::finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher};
+use rar_common::database::{
+    finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
+    options::EnvBehavior,
+};
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
 
@@ -52,6 +55,9 @@ const USAGE: &str = formatcp!(
           Role option allows you to select a specific role to use
 
   {BOLD}-t, --task <TASK>{RST}
+          Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
+
+  {BOLD}-E, --preserve-env <TASK>{RST}
           Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
 
   {BOLD}-p, --prompt <PROMPT>{RST}
@@ -136,6 +142,9 @@ where
 {
     let mut args = Cli::default();
     let mut iter = s.into_iter().skip(1);
+    let mut role = None;
+    let mut task = None;
+    let mut env = None;
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
@@ -146,26 +155,13 @@ where
                 args.stdin = true;
             }
             "-r" | "--role" => {
-                if let Some(opt_filter) = args.opt_filter.as_mut() {
-                    opt_filter.role = iter.next().map(|s| escape_parser_string(s));
-                } else {
-                    args.opt_filter = Some(FilterMatcher {
-                        role: iter.next().map(|s| escape_parser_string(s)),
-                        task: None,
-                        user: None,
-                    });
-                }
+                role = iter.next().map(|s| escape_parser_string(s));
             }
             "-t" | "--task" => {
-                if let Some(opt_filter) = args.opt_filter.as_mut() {
-                    opt_filter.task = iter.next().map(|s| escape_parser_string(s));
-                } else {
-                    args.opt_filter = Some(FilterMatcher {
-                        task: iter.next().map(|s| escape_parser_string(s)),
-                        role: None,
-                        user: None,
-                    });
-                }
+                task = iter.next().map(|s| escape_parser_string(s));
+            }
+            "-E" | "--preserve-env" => {
+                env.replace(EnvBehavior::Keep);
             }
             "-p" | "--prompt" => {
                 args.prompt = iter
@@ -189,6 +185,13 @@ where
             }
         }
     }
+    args.opt_filter = Some(
+        FilterMatcher::builder()
+            .maybe_role(role)
+            .maybe_task(task)
+            .maybe_env_behavior(env)
+            .build(),
+    );
     for arg in iter {
         args.command.push(escape_parser_string(arg));
     }
@@ -279,7 +282,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     //execute command
     let envset = optstack
-        .calculate_filtered_env(cred, std::env::vars())
+        .calculate_filtered_env(args.opt_filter, cred, std::env::vars())
         .expect("Failed to calculate env");
 
     let pty = Pty::new().expect("Failed to create pty");

@@ -4,7 +4,7 @@ use crate::{
     api::{PluginManager, PluginResultAction},
     database::{
         finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
-        structs::SRole,
+        structs::{RoleGetter, SRole},
     },
 };
 
@@ -37,7 +37,7 @@ fn find_in_parents(
         Some(Ok(parents)) => {
             debug!("Found parents {:?}", parents.0);
             for parent in parents.0.iter() {
-                if let Some(role) = config.as_ref().borrow().role(parent) {
+                if let Some(role) = config.role(parent) {
                     debug!("Checking parent role {}", parent);
                     match role.as_ref().borrow().tasks.matches(user, filter, command) {
                         Ok(matches) => {

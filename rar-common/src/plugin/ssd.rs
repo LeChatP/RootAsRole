@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::{cell::RefCell, ffi::CString, rc::Rc};
 
 use ::serde::Deserialize;
 use nix::unistd::{getgrouplist, Group, User};
@@ -9,7 +9,7 @@ use crate::{
     as_borrow,
     database::{
         finder::Cred,
-        structs::{SActor, SConfig, SGroups, SRole},
+        structs::{RoleGetter, SActor, SConfig, SGroups, SRole},
     },
 };
 
@@ -67,7 +67,7 @@ fn groups_subset_of(groups: &[Group], actors: &[SActor]) -> bool {
 }
 
 // Check if user and its related groups are forbidden to use the role
-fn user_is_forbidden(user: &User, ssd_roles: &[String], sconfig: &SConfig) -> bool {
+fn user_is_forbidden(user: &User, ssd_roles: &[String], sconfig: Rc<RefCell<SConfig>>) -> bool {
     let mut groups_to_check = Vec::new();
     if let Ok(groups) = getgrouplist(
         CString::new(user.name.as_str()).unwrap().as_c_str(),
@@ -92,7 +92,11 @@ fn user_is_forbidden(user: &User, ssd_roles: &[String], sconfig: &SConfig) -> bo
     false
 }
 
-fn groups_are_forbidden(groups: &[Group], ssd_roles: &[String], sconfig: &SConfig) -> bool {
+fn groups_are_forbidden(
+    groups: &[Group],
+    ssd_roles: &[String],
+    sconfig: Rc<RefCell<SConfig>>,
+) -> bool {
     for role in ssd_roles.iter() {
         if let Some(role) = sconfig.role(role) {
             if groups_subset_of(groups, &as_borrow!(role).actors) {
@@ -119,8 +123,8 @@ fn check_separation_of_duty(role: &SRole, actor: &Cred) -> PluginResult {
         return PluginResult::Neutral;
     }
     let roles = roles.unwrap().0;
-    if user_is_forbidden(&actor.user, &roles, &as_borrow!(sconfig))
-        || groups_are_forbidden(&actor.groups, &roles, &as_borrow!(sconfig))
+    if user_is_forbidden(&actor.user, &roles, sconfig.clone())
+        || groups_are_forbidden(&actor.groups, &roles, sconfig.clone())
     {
         PluginResult::Deny
     } else {
@@ -174,21 +178,23 @@ mod tests {
     #[test]
     fn test_user_is_forbidden() {
         let user = User::from_uid(0.into()).unwrap().unwrap();
-        let sconfig = SConfig::default();
+        let sconfig = SConfig::builder().build();
         let roles = vec!["role1".to_string()];
-        assert!(!user_is_forbidden(&user, &roles, &sconfig));
+        assert!(!user_is_forbidden(&user, &roles, sconfig));
     }
 
     #[test]
     fn test_groups_are_forbidden() {
         let groups = vec![Group::from_gid(0.into()).unwrap().unwrap()];
-        let mut sconfig = SConfig::default();
-        let mut role = SRole::default();
-        role.name = "role1".to_string();
-        role.actors.push(SActor::from_group_id(0));
-        sconfig.roles.push(rc_refcell!(role));
+        let sconfig = SConfig::builder()
+            .role(
+                SRole::builder("role1".to_string())
+                    .actor(SActor::from_group_id(0))
+                    .build(),
+            )
+            .build();
         let roles = vec!["role1".to_string()];
-        assert!(groups_are_forbidden(&groups, &roles, &sconfig));
+        assert!(groups_are_forbidden(&groups, &roles, sconfig));
     }
 
     #[test]

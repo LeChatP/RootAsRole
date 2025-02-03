@@ -39,7 +39,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{env::current_dir, io::Write, rc::Rc};
+    use std::{env::current_dir, io::Write};
 
     use rar_common::{
         database::{
@@ -48,9 +48,9 @@ mod tests {
             structs::{SCredentials, *},
             versionning::Versioning,
         },
-        get_settings, rc_refcell,
+        get_settings,
         util::remove_with_privileges,
-        RemoteStorageSettings, SettingsFile, Storage, StorageMethod,
+        RemoteStorageSettings, Settings, SettingsFile, Storage, StorageMethod,
     };
 
     use crate::ROOTASROLE;
@@ -62,115 +62,180 @@ mod tests {
     use test_log::test;
 
     fn setup(name: &str) {
-        //Write json test json file
-        let path = format!("{}.{}", ROOTASROLE, name);
-        let mut file = std::fs::File::create(path.clone()).unwrap_or_else(|_| {
+        let versionned = Versioning::new(
+            SettingsFile::builder()
+                .storage(
+                    Settings::builder()
+                        .method(StorageMethod::JSON)
+                        .settings(
+                            RemoteStorageSettings::builder()
+                                .path(format!("{}.{}", ROOTASROLE, name))
+                                .not_immutable()
+                                .build(),
+                        )
+                        .build(),
+                )
+                .config(
+                    SConfig::builder()
+                        .options(|opt| {
+                            opt.timeout(
+                                STimeout::builder()
+                                    .type_field(TimestampType::PPID)
+                                    .duration(
+                                        TimeDelta::hours(15)
+                                            .checked_add(&TimeDelta::minutes(30))
+                                            .unwrap()
+                                            .checked_add(&TimeDelta::seconds(30))
+                                            .unwrap(),
+                                    )
+                                    .max_usage(1)
+                                    .build(),
+                            )
+                            .path(
+                                SPathOptions::builder(PathBehavior::Delete)
+                                    .add(["path1", "path2"])
+                                    .sub(["path3", "path4"])
+                                    .build(),
+                            )
+                            .env(
+                                SEnvOptions::builder(EnvBehavior::Delete)
+                                    .keep(["env1", "env2"])
+                                    .unwrap()
+                                    .check(["env3", "env4"])
+                                    .unwrap()
+                                    .delete(["env5", "env6"])
+                                    .unwrap()
+                                    .set([("env7", "val7"), ("env8", "val8")])
+                                    .build(),
+                            )
+                            .root(SPrivileged::Privileged)
+                            .bounding(SBounding::Ignore)
+                            .wildcard_denied("*")
+                            .build()
+                        })
+                        .role(
+                            SRole::builder("complete")
+                                .options(|opt| {
+                                    opt.timeout(
+                                        STimeout::builder()
+                                            .type_field(TimestampType::PPID)
+                                            .duration(
+                                                TimeDelta::hours(15)
+                                                    .checked_add(&TimeDelta::minutes(30))
+                                                    .unwrap()
+                                                    .checked_add(&TimeDelta::seconds(30))
+                                                    .unwrap(),
+                                            )
+                                            .max_usage(1)
+                                            .build(),
+                                    )
+                                    .path(
+                                        SPathOptions::builder(PathBehavior::Delete)
+                                            .add(["path1", "path2"])
+                                            .sub(["path3", "path4"])
+                                            .build(),
+                                    )
+                                    .env(
+                                        SEnvOptions::builder(EnvBehavior::Delete)
+                                            .keep(["env1", "env2"])
+                                            .unwrap()
+                                            .check(["env3", "env4"])
+                                            .unwrap()
+                                            .delete(["env5", "env6"])
+                                            .unwrap()
+                                            .set([("env7", "val7"), ("env8", "val8")])
+                                            .build(),
+                                    )
+                                    .root(SPrivileged::Privileged)
+                                    .bounding(SBounding::Ignore)
+                                    .wildcard_denied("*")
+                                    .build()
+                                })
+                                .actor(SActor::from_user_id(0))
+                                .actor(SActor::from_group_id(0))
+                                .actor(SActor::from_group_vec_string(vec!["groupA", "groupB"]))
+                                .task(
+                                    STask::builder("t_complete")
+                                        .options(|opt| {
+                                            opt.timeout(
+                                                STimeout::builder()
+                                                    .type_field(TimestampType::PPID)
+                                                    .duration(
+                                                        TimeDelta::hours(15)
+                                                            .checked_add(&TimeDelta::minutes(30))
+                                                            .unwrap()
+                                                            .checked_add(&TimeDelta::seconds(30))
+                                                            .unwrap(),
+                                                    )
+                                                    .max_usage(1)
+                                                    .build(),
+                                            )
+                                            .path(
+                                                SPathOptions::builder(PathBehavior::Delete)
+                                                    .add(["path1", "path2"])
+                                                    .sub(["path3", "path4"])
+                                                    .build(),
+                                            )
+                                            .env(
+                                                SEnvOptions::builder(EnvBehavior::Delete)
+                                                    .keep(["env1", "env2"])
+                                                    .unwrap()
+                                                    .check(["env3", "env4"])
+                                                    .unwrap()
+                                                    .delete(["env5", "env6"])
+                                                    .unwrap()
+                                                    .set([("env7", "val7"), ("env8", "val8")])
+                                                    .build(),
+                                            )
+                                            .root(SPrivileged::Privileged)
+                                            .bounding(SBounding::Ignore)
+                                            .wildcard_denied("*")
+                                            .build()
+                                        })
+                                        .commands(
+                                            SCommands::builder(SetBehavior::All)
+                                                .add(["ls".into(), "echo".into()])
+                                                .sub(["cat".into(), "grep".into()])
+                                                .build(),
+                                        )
+                                        .cred(
+                                            SCredentials::builder()
+                                                .setuid("user1")
+                                                .setgid(["group1", "group2"])
+                                                .capabilities(
+                                                    SCapabilities::builder(SetBehavior::All)
+                                                        .add(Cap::LINUX_IMMUTABLE)
+                                                        .add(Cap::NET_BIND_SERVICE)
+                                                        .sub(Cap::SYS_ADMIN)
+                                                        .sub(Cap::SYS_BOOT)
+                                                        .build(),
+                                                )
+                                                .build(),
+                                        )
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        );
+        let path = versionned
+            .data
+            .storage
+            .settings
+            .as_ref()
+            .unwrap()
+            .path
+            .as_ref()
+            .unwrap();
+        let mut file = std::fs::File::create(path).unwrap_or_else(|_| {
             panic!(
-                "Failed to create {:?}/{} file at",
+                "Failed to create {:?}/{:?} file at",
                 current_dir().unwrap(),
                 path
             )
         });
-        let mut settings = SettingsFile::default();
-        settings.storage.method = StorageMethod::JSON;
-        settings.storage.settings = Some(RemoteStorageSettings::default());
-        settings.storage.settings.as_mut().unwrap().path = Some(path.into());
-        settings.storage.settings.as_mut().unwrap().immutable = Some(false);
-
-        let mut opt = Opt::default();
-
-        opt.timeout = Some(STimeout::default());
-        opt.timeout.as_mut().unwrap().type_field = Some(TimestampType::PPID);
-        opt.timeout.as_mut().unwrap().duration = Some(
-            TimeDelta::hours(15)
-                .checked_add(&TimeDelta::minutes(30))
-                .unwrap()
-                .checked_add(&TimeDelta::seconds(30))
-                .unwrap(),
-        );
-        opt.timeout.as_mut().unwrap().max_usage = Some(1);
-
-        opt.path = Some(SPathOptions::default());
-        opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
-        opt.path.as_mut().unwrap().add = vec!["path1".to_string(), "path2".to_string()]
-            .into_iter()
-            .collect();
-        opt.path.as_mut().unwrap().sub = vec!["path3".to_string(), "path4".to_string()]
-            .into_iter()
-            .collect();
-
-        opt.env = Some(SEnvOptions::default());
-        opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Delete;
-        opt.env.as_mut().unwrap().keep = vec!["env1".into(), "env2".into()].into_iter().collect();
-        opt.env.as_mut().unwrap().check = vec!["env3".into(), "env4".into()].into_iter().collect();
-        opt.env.as_mut().unwrap().delete = vec!["env5".into(), "env6".into()].into_iter().collect();
-
-        opt.root = Some(SPrivileged::Privileged);
-        opt.bounding = Some(SBounding::Ignore);
-        opt.wildcard_denied = Some("*".to_string());
-
-        settings.config.as_ref().borrow_mut().options = Some(rc_refcell!(opt.clone()));
-
-        settings.config.as_ref().borrow_mut().roles = vec![];
-
-        let mut role = SRole::default();
-        role.name = "complete".to_string();
-        role.actors = vec![
-            SActor::from_user_id(0),
-            SActor::from_group_id(0),
-            SActor::from_group_vec_string(vec!["groupA", "groupB"]),
-        ];
-        role.options = Some(rc_refcell!(opt.clone()));
-        let role = rc_refcell!(role);
-
-        let mut task = STask::new(IdTask::Name("t_complete".to_string()), Rc::downgrade(&role));
-        task.purpose = Some("complete".to_string());
-        task.commands = SCommands::default();
-        task.commands.default_behavior = Some(SetBehavior::All);
-        task.commands.add.push(SCommand::Simple("ls".to_string()));
-        task.commands.add.push(SCommand::Simple("echo".to_string()));
-        task.commands.sub.push(SCommand::Simple("cat".to_string()));
-        task.commands.sub.push(SCommand::Simple("grep".to_string()));
-
-        task.cred = SCredentials::default();
-        task.cred.setuid = Some(SUserChooser::Actor(SActorType::Name("user1".to_string())));
-        task.cred.setgid = Some(SGroups::Multiple(vec![
-            SActorType::Name("group1".to_string()),
-            SActorType::Name("group2".to_string()),
-        ]));
-        task.cred.capabilities = Some(SCapabilities::default());
-        task.cred.capabilities.as_mut().unwrap().default_behavior = SetBehavior::All;
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .add
-            .add(Cap::LINUX_IMMUTABLE);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .add
-            .add(Cap::NET_BIND_SERVICE);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .sub
-            .add(Cap::SYS_ADMIN);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .sub
-            .add(Cap::SYS_BOOT);
-
-        task.options = Some(rc_refcell!(opt.clone()));
-
-        role.as_ref().borrow_mut().tasks.push(rc_refcell!(task));
-        settings.config.as_ref().borrow_mut().roles.push(role);
-
-        let versionned = Versioning::new(settings.clone());
 
         file.write_all(
             serde_json::to_string_pretty(&versionned)

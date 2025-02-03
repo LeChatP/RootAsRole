@@ -1,6 +1,6 @@
 [package]
 name = "rootasrole-core"
-version = "3.0.4"
+version = "3.0.5"
 edition = "2021"
 description = "This core crate contains the RBAC and main features for the RootAsRole project."
 license = "GPL-3.0-or-later"
@@ -26,6 +26,7 @@ hex = "0.4"
 log = "0.4"
 syslog = "7.0"
 env_logger = "0.11"
+bon = { version = "3.3.2", features = ["experimental-overwritable"] }
 
 [dev-dependencies]
 log = "0.4"

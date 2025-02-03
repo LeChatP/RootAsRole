@@ -1,25 +1,16 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    error::Error,
-    ops::Deref,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, collections::HashMap, error::Error, ops::Deref, rc::Rc};
 
 use linked_hash_set::LinkedHashSet;
 use log::debug;
 
 use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
 
-use rar_common::{
-    database::{
-        options::{
-            EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-            STimeout,
-        },
-        structs::{IdTask, SCapabilities, SCommand, SRole, STask, SUserChooser},
+use rar_common::database::{
+    options::{
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
+        STimeout,
     },
-    rc_refcell,
+    structs::{IdTask, RoleGetter, SCapabilities, SCommand, SRole, STask, SUserChooser},
 };
 
 use super::perform_on_target_opt;
@@ -36,8 +27,8 @@ pub fn list_json(
     let config = rconfig.as_ref().borrow();
     debug!("list_json {:?}", config);
     if let Some(role_id) = role_id {
-        if let Some(role) = config.role(&role_id) {
-            list_task(task_id, role, options, options_type, task_type, role_type)
+        if let Some(role) = rconfig.role(&role_id) {
+            list_task(task_id, &role, options, options_type, task_type, role_type)
         } else {
             Err("Role not found".into())
         }
@@ -58,7 +49,8 @@ fn list_task(
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
-                let opt = OptStack::from_task(task.clone()).to_opt();
+                let rcopt = OptStack::from_task(task.clone()).to_opt();
+                let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {
                     match opttype {
                         OptType::Env => {
@@ -84,7 +76,7 @@ fn list_task(
                         }
                     }
                 } else {
-                    println!("{}", serde_json::to_string_pretty(&opt)?);
+                    println!("{}", serde_json::to_string_pretty(&rcopt)?);
                 }
             } else {
                 print_task(task, task_type.unwrap_or(TaskType::All));
@@ -156,30 +148,35 @@ pub fn role_add_del(
     role_type: Option<RoleType>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 {:?}", action);
-    let mut config = rconfig.as_ref().borrow_mut();
     match action {
         InputAction::Add => {
             //verify if role exists
-            if config.role(&role_id).is_some() {
+            if rconfig.role(&role_id).is_some() {
                 return Err("Role already exists".into());
             }
-            config
+            rconfig
+                .as_ref()
+                .borrow_mut()
                 .roles
-                .push(rc_refcell!(SRole::new(role_id, Weak::new())));
+                .push(SRole::builder(role_id).build());
             Ok(true)
         }
         InputAction::Del => {
-            if config.role(&role_id).is_none() {
+            if rconfig.role(&role_id).is_none() {
                 return Err("Role do not exists".into());
             }
-            config.roles.retain(|r| r.as_ref().borrow().name != role_id);
+            rconfig
+                .as_ref()
+                .borrow_mut()
+                .roles
+                .retain(|r| r.as_ref().borrow().name != role_id);
             Ok(true)
         }
         InputAction::Purge => {
-            if config.role(&role_id).is_none() {
+            if rconfig.role(&role_id).is_none() {
                 return Err("Role do not exists".into());
             }
-            let role = config.role(&role_id).unwrap();
+            let role = rconfig.role(&role_id).unwrap();
             match role_type {
                 Some(RoleType::Actors) => {
                     role.as_ref().borrow_mut().actors.clear();
@@ -206,8 +203,7 @@ pub fn task_add_del(
     task_type: Option<TaskType>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 add|del");
-    let config = rconfig.as_ref().borrow_mut();
-    let role = config.role(&role_id).ok_or("Role not found")?;
+    let role = rconfig.role(&role_id).ok_or("Role not found")?;
     match action {
         InputAction::Add => {
             //verify if task exists
@@ -223,7 +219,7 @@ pub fn task_add_del(
             role.as_ref()
                 .borrow_mut()
                 .tasks
-                .push(rc_refcell!(STask::new(task_id, Weak::new())));
+                .push(STask::builder(task_id).build());
             Ok(true)
         }
         InputAction::Del => {
@@ -278,8 +274,7 @@ pub fn grant_revoke(
     mut actors: Vec<rar_common::database::structs::SActor>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 grant|revoke");
-    let config = rconfig.as_ref().borrow_mut();
-    let role = config.role(&role_id).ok_or("Role not found")?;
+    let role = rconfig.role(&role_id).ok_or("Role not found")?;
     match action {
         InputAction::Add => {
             //verify if actor is already in role
@@ -319,8 +314,7 @@ pub fn cred_set(
     cred_setgid: Option<rar_common::database::structs::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
-    let config = rconfig.as_ref().borrow_mut();
-    match config.task(&role_id, &task_id) {
+    match rconfig.task(&role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
                 task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
@@ -346,8 +340,7 @@ pub fn cred_unset(
     cred_setgid: Option<rar_common::database::structs::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
-    let config = rconfig.as_ref().borrow_mut();
-    match config.task(&role_id, &task_id) {
+    match rconfig.task(&role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
                 if caps.is_empty() {
@@ -379,8 +372,7 @@ pub fn cred_caps(
     cred_caps: capctl::CapSet,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred caps");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     match setlist_type {
         SetListType::White => match action {
             InputAction::Add => {
@@ -457,8 +449,7 @@ pub fn cred_setpolicy(
     cred_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred setpolicy");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     if task.as_ref().borrow_mut().cred.capabilities.is_none() {
         task.as_ref()
             .borrow_mut()
@@ -530,8 +521,7 @@ pub fn cmd_whitelist_action(
     action: InputAction,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command whitelist add c1");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     let cmd = SCommand::Simple(shell_words::join(cmd_id.iter()));
     match setlist_type {
         SetListType::White => match action {
@@ -587,8 +577,7 @@ pub fn cmd_setpolicy(
     cmd_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command setpolicy");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     task.as_ref()
         .borrow_mut()
         .commands

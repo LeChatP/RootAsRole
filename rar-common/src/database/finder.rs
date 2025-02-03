@@ -1,9 +1,19 @@
+use std::{
+    cell::RefCell,
+    cmp::Ordering,
+    error::Error,
+    fmt::{Display, Formatter},
+    path::PathBuf,
+    rc::{Rc, Weak},
+};
+
+use bon::Builder;
 use capctl::CapSet;
 use glob::Pattern;
 use log::{debug, warn};
 use nix::{
     libc::dev_t,
-    unistd::{Group, Pid, User},
+    unistd::{Gid, Group, Pid, Uid, User},
 };
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
@@ -31,6 +41,8 @@ use crate::{
     as_borrow,
 };
 use bitflags::bitflags;
+
+use super::options::EnvBehavior;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MatchError {
@@ -189,12 +201,12 @@ pub struct SecurityMin(u32);
 bitflags! {
 
     impl SecurityMin: u32 {
-        const DisableBounding = 0b00001;
-        const EnableRoot = 0b00010;
-        const KeepPath = 0b00100;
-        const KeepUnsafePath = 0b01000;
-        const KeepEnv = 0b10000;
-        const SkipAuth = 0b100000;
+        const DisableBounding   = 0b000001;
+        const EnableRoot        = 0b000010;
+        const KeepEnv           = 0b000100;
+        const KeepPath          = 0b001000;
+        const KeepUnsafePath    = 0b010000;
+        const SkipAuth          = 0b100000;
     }
 }
 
@@ -253,12 +265,43 @@ impl Ord for Score {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Builder)]
 pub struct Cred {
-    pub user: User,
+    #[builder(field)]
     pub groups: Vec<Group>,
+    #[builder(field = User::from_uid(Uid::current()).unwrap().unwrap())]
+    pub user: User,
     pub tty: Option<dev_t>,
+    #[builder(default = nix::unistd::getppid(), into)]
     pub ppid: Pid,
+}
+
+impl<S: cred_builder::State> CredBuilder<S> {
+    pub fn user_id(mut self, uid: impl Into<Uid>) -> Self {
+        self.user = User::from_uid(uid.into()).unwrap().unwrap();
+        self
+    }
+    pub fn user_name(mut self, name: impl Into<String>) -> Self {
+        self.user = User::from_name(&name.into()).unwrap().unwrap();
+        self
+    }
+    pub fn group_id(mut self, gid: impl Into<Gid>) -> Self {
+        self.groups
+            .push(Group::from_gid(gid.into()).unwrap().unwrap());
+        self
+    }
+    pub fn group_name(mut self, name: impl Into<String>) -> Self {
+        self.groups
+            .push(Group::from_name(&name.into()).unwrap().unwrap());
+        self
+    }
+    pub fn groups(mut self, groups: Vec<Gid>) -> Self {
+        self.groups = groups
+            .iter()
+            .map(|gid| Group::from_gid(*gid).unwrap().unwrap())
+            .collect();
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -308,10 +351,12 @@ impl Default for TaskMatch {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Builder)]
+#[builder(on(_, overwritable))]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
+    pub env_behavior: Option<EnvBehavior>,
     pub user: Option<String>,
 }
 
@@ -694,6 +739,26 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
+        if cmd_opt
+            .as_ref()
+            .and_then(|filter| filter.env_behavior) // if the command wants to override the behavior
+            .as_ref()
+            .is_some_and(|behavior| {
+                settings
+                    .opt
+                    .to_opt() // at this point we own the opt structure
+                    .as_ref()
+                    .borrow()
+                    .env
+                    .as_ref()
+                    .is_some_and(|env| !env.override_behavior || env.default_behavior == *behavior)
+                // but the polcy deny it and the behavior is not the same as the default one
+                // we return NoMatch
+                // (explaination: if the behavior is the same as the default one, we don't override it)
+            })
+        {
+            return Err(MatchError::NoMatch);
+        }
         let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
 
         let setuid: Option<SActorType> = match setuid {

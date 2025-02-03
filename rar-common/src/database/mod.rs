@@ -15,10 +15,7 @@ use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning:
 use crate::util::warn_if_mutable;
 use crate::SettingsFile;
 use crate::{open_with_privileges, write_json_config};
-use crate::{
-    util::{immutable_effective, parse_capset_iter},
-    RemoteStorageSettings, ROOTASROLE,
-};
+use crate::{util::immutable_effective, RemoteStorageSettings, ROOTASROLE};
 
 #[cfg(feature = "finder")]
 pub mod finder;
@@ -217,18 +214,6 @@ where
         ));
     }
     Err(de::Error::custom("Invalid duration format"))
-}
-
-fn deserialize_capset<'de, D>(deserializer: D) -> Result<capctl::CapSet, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let s: Vec<String> = Vec::deserialize(deserializer)?;
-    let res = parse_capset_iter(s.iter().map(|s| s.as_ref()));
-    match res {
-        Ok(capset) => Ok(capset),
-        Err(_) => Err(de::Error::custom("Invalid capset format")),
-    }
 }
 
 fn serialize_capset<S>(value: &capctl::CapSet, serializer: S) -> Result<S::Ok, S::Error>
