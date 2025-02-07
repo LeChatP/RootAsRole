@@ -127,9 +127,10 @@ mod tests {
 
     use super::*;
 
+    use crate::database::actor::SActor;
     use crate::database::finder::{Cred, TaskMatcher};
     use crate::{
-        database::structs::{IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask},
+        database::structs::{IdTask, SCommand, SCommands, SConfig, SRole, STask},
         rc_refcell,
     };
 
@@ -160,7 +161,7 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
 
         config.as_ref().borrow_mut().roles.push(role1);
 

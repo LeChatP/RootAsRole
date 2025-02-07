@@ -17,6 +17,7 @@ use crate::SettingsFile;
 use crate::{open_with_privileges, write_json_config};
 use crate::{util::immutable_effective, RemoteStorageSettings, ROOTASROLE};
 
+pub mod actor;
 #[cfg(feature = "finder")]
 pub mod finder;
 pub mod migration;

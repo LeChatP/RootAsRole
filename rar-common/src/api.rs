@@ -11,7 +11,10 @@ use strum::EnumIs;
 #[cfg(feature = "finder")]
 use crate::database::finder::{ActorMatchMin, Cred, ExecSettings, FilterMatcher, TaskMatch};
 
-use crate::database::structs::{SActor, SConfig, SRole, STask};
+use crate::database::{
+    actor::SActor,
+    structs::{SConfig, SRole, STask},
+};
 use once_cell::sync::Lazy;
 static API: Lazy<Mutex<PluginManager>> = Lazy::new(|| Mutex::new(PluginManager::new()));
 

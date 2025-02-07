@@ -82,8 +82,9 @@ mod tests {
     use super::*;
     use crate::{
         database::{
+            actor::SActor,
             finder::ActorMatchMin,
-            structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask},
+            structs::{IdTask, SCommand, SCommands, SConfig, STask},
         },
         rc_refcell,
     };
@@ -112,7 +113,7 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
         role1.as_ref().borrow_mut()._extra_fields.insert(
             "parents".to_string(),
             serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
@@ -164,7 +165,7 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
         role1.as_ref().borrow_mut()._extra_fields.insert(
             "parents".to_string(),
             serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
