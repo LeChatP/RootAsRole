@@ -9,7 +9,7 @@ use crate::{
     as_borrow,
     database::{
         finder::Cred,
-        structs::{RoleGetter, SActor, SConfig, SGroups, SRole},
+        structs::{RoleGetter, SActor, SConfig, SRole},
     },
 };
 
@@ -18,15 +18,8 @@ pub struct Ssd(Vec<String>);
 
 fn user_contained_in(user: &User, actors: &[SActor]) -> bool {
     for actor in actors.iter() {
-        if let SActor::User { id, .. } = actor {
-            if let Some(id) = id {
-                if id == user {
-                    return true;
-                }
-            } else {
-                //TODO API call to verify if user is the described actor
-                return false;
-            }
+        if actor == &SActor::from_user_id(user.uid.as_raw()) {
+            return true;
         }
     }
     false
@@ -34,24 +27,8 @@ fn user_contained_in(user: &User, actors: &[SActor]) -> bool {
 
 fn group_contained_in(pgroup: &Group, actors: &[SActor]) -> bool {
     for actor in actors.iter() {
-        if let SActor::Group { groups, .. } = actor {
-            if let Some(groups) = groups {
-                match groups {
-                    SGroups::Single(group) => {
-                        if group == pgroup {
-                            return true;
-                        }
-                    }
-                    SGroups::Multiple(groups) => {
-                        if groups.iter().any(|x| x == pgroup) {
-                            return true;
-                        }
-                    }
-                }
-            } else {
-                //TODO API call to verify if group is the described actor
-                return false;
-            }
+        if actor == &SActor::from_group_id(pgroup.gid.as_raw()) {
+            return true;
         }
     }
     false

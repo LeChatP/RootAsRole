@@ -10,7 +10,8 @@ use nix::{
 };
 use rar_common::database::{
     finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
-    options::EnvBehavior, structs::SActorType,
+    options::EnvBehavior,
+    structs::SActorType,
 };
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
@@ -97,9 +98,6 @@ struct Cli {
 
     /// Use stdin for password prompt
     stdin: bool,
-
-    /// User option allows you to specify a specific user for command execution
-    user: Option<String>,
 }
 
 impl Default for Cli {
@@ -111,7 +109,6 @@ impl Default for Cli {
             help: false,
             stdin: false,
             command: vec![],
-            user: None,
         }
     }
 }
@@ -461,7 +458,6 @@ mod tests {
             help: false,
             stdin: false,
             command: vec!["ls".to_string(), "-l".to_string()],
-            user: None,
         };
         let user = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),

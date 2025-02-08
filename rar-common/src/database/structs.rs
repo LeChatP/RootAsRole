@@ -1,9 +1,10 @@
 use bon::{bon, builder, Builder};
 use capctl::{Cap, CapSet};
 use derivative::Derivative;
+use log::warn;
 use nix::{
     errno::Errno,
-    unistd::{getuid, Group, User},
+    unistd::{Group, User},
 };
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -14,12 +15,7 @@ use serde_json::{Map, Value};
 use strum::{Display, EnumIs};
 
 use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    error::Error,
-    fmt,
-    ops::{Index, Not},
-    rc::{Rc, Weak},
+    cell::RefCell, cmp::Ordering, collections::HashSet, error::Error, fmt, hash::{Hash, Hasher}, ops::{Index, Not}, rc::{Rc, Weak}
 };
 
 use super::{
@@ -57,7 +53,13 @@ pub struct SRole {
     pub _config: Option<Weak<RefCell<SConfig>>>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+pub enum Actor {
+    User(SActorType),
+    Group(SActorType),
+    Unknown()
+}
+
+#[derive(Serialize, Debug, EnumIs, Clone)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SActorType {
     Id(u32),
@@ -78,7 +80,7 @@ impl std::fmt::Display for SActorType {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
+#[derive(Serialize, Deserialize, Debug, Clone, EnumIs)]
 #[serde(untagged)]
 pub enum SGroups {
     Single(SActorType),
@@ -97,7 +99,7 @@ impl SGroups {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, Debug, EnumIs)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SActor {
     #[serde(rename = "user")]
@@ -118,7 +120,7 @@ pub enum SActor {
     Unknown(Value),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs,)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),
@@ -154,7 +156,7 @@ pub struct STask {
     pub _role: Option<Weak<RefCell<SRole>>>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Builder)]
+#[derive(Serialize, Deserialize, Debug, Builder)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,7 +175,7 @@ pub struct SCredentials {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SUserChooser {
     Actor(SActorType),
@@ -198,20 +200,32 @@ impl From<&str> for SUserChooser {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
+impl From<u32> for SUserChooser {
+    fn from(id: u32) -> Self {
+        SUserChooser::Actor(id.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, EnumIs, Eq, Hash)]
+enum SUserActor {
+    Id(u32),
+    Name(String),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 
 pub struct SSetuidSet {
     #[builder(start_fn)]
-    pub fallback: SActorType,
+    pub fallback: SUserActor,
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
     pub default: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
-    pub add: Vec<SActorType>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub add: HashSet<SUserActor>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
-    pub sub: Vec<SActorType>,
+    pub sub: HashSet<SUserActor>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
@@ -817,8 +831,8 @@ impl SCommands {
     #[builder]
     pub fn new(
         #[builder(start_fn)] default_behavior: SetBehavior,
-        #[builder(with = FromIterator::from_iter)] add: Vec<SCommand>,
-        #[builder(with = FromIterator::from_iter)] sub: Vec<SCommand>,
+        #[builder(default, with = FromIterator::from_iter)] add: Vec<SCommand>,
+        #[builder(default, with = FromIterator::from_iter)] sub: Vec<SCommand>,
         #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
     ) -> Self {
         SCommands {
@@ -843,13 +857,21 @@ impl SCapabilities {
 }
 impl PartialEq<str> for SUserChooser {
     fn eq(&self, other: &str) -> bool {
-        match self {
-            SUserChooser::Actor(actor) => actor == other,
-            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
+        if let Some(id) = other.parse().ok() {
+            match self {
+                SUserChooser::Actor(actor) => compare_actor_user_ids(&actor, &SActorType::Id(id)) == Some(Ordering::Equal),
+                SUserChooser::ChooserStruct(chooser) => compare_actor_user_ids(&chooser.fallback, &SActorType::Id(id)) == Some(Ordering::Equal),
+            }
+        } else {
+            match self {
+                SUserChooser::Actor(actor) => compare_actor_user_ids(&actor, &SActorType::Name(other.to_owned())) == Some(Ordering::Equal),
+                SUserChooser::ChooserStruct(chooser) => compare_actor_user_ids(&chooser.fallback, &SActorType::Name(other.to_owned())) == Some(Ordering::Equal),
+            }
         }
+        
     }
 }
-
+/*
 impl PartialEq<str> for SActorType {
     fn eq(&self, other: &str) -> bool {
         match self {
@@ -902,6 +924,30 @@ impl PartialEq<Vec<SActorType>> for SGroups {
         }
         false
     }
+}*/
+
+impl PartialEq for SGroups {
+    fn eq(&self, other: &SGroups) -> bool {
+        match (self, other) {
+            (SGroups::Single(group), SGroups::Single(other_group)) => {
+                compare_actor_groups(group, other_group) == Some(Ordering::Equal)
+            },
+            (SGroups::Multiple(groups), SGroups::Multiple(other_groups)) => {
+                if groups.len() == other_groups.len() { 
+                    groups.iter().zip(other_groups.iter()).all(|(group, other_group)| {
+                        compare_actor_groups(group, other_group) == Some(Ordering::Equal)
+                    })
+                } else {
+                    false
+                }
+            },
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq for SUserActor {
+
 }
 
 impl FromIterator<String> for SGroups {
@@ -929,7 +975,16 @@ impl From<SGroups> for Vec<SActorType> {
     }
 }
 
+#[bon]
 impl SActorType {
+    #[builder]
+    pub fn name( #[builder(start_fn)] name: impl ToString) -> Self {
+        SActorType::Name(name.to_string())
+    }
+    #[builder]
+    pub fn id( #[builder(start_fn)] id: u32) -> Self {
+        SActorType::Id(id)
+    }
     pub fn into_group(&self) -> Result<Option<Group>, Errno> {
         match self {
             SActorType::Name(name) => Group::from_name(name),
@@ -944,15 +999,296 @@ impl SActorType {
     }
 }
 
+impl PartialEq for SSetuidSet {
+    fn eq(&self, other: &Self) -> bool {
+        compare_actor_user_ids(&self.fallback, &other.fallback) == Some(Ordering::Equal)
+            && self.default == other.default
+            && self.add.iter().zip(other.add.iter()).all(|(a, b)| compare_actor_user_ids(a, b) == Some(Ordering::Equal))
+            && self.sub == other.sub
+    }
+}
+
+impl PartialEq for SActor {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (SActor::User { id: Some(u), .. }, SActor::User { id: Some(u_other), .. }) => {
+                compare_actor_user_ids(u, u_other) == Some(Ordering::Equal)
+            },
+            (SActor::Group { groups, .. }, SActor::Group { groups: other_groups, .. }) => {
+                evaluate_actor_group_equality(groups, other_groups)
+            }
+            _ => false,
+        }
+        /* ,
+        } */
+    }
+}
+
+pub fn compare_actor_user_ids(u: &SActorType, u_other: &SActorType) -> Option<Ordering> {
+    match (u, u_other) {
+        (SActorType::Name(name), SActorType::Name(other_name)) => {
+            if name == other_name {
+                Some(Ordering::Equal)
+            } else if name == "root" {
+                Some(Ordering::Greater)
+            } else if other_name == "root" {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SActorType::Name(name), SActorType::Id(other_id)) => {
+            if let Ok(Some(user)) = u.into_user() {
+                if user.uid.as_raw() == *other_id {
+                    Some(Ordering::Equal)
+                } else if user.uid.as_raw() == 0 {
+                    Some(Ordering::Greater)
+                } else if *other_id == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain user id from name : '{}'", name);
+                None
+            }
+        },
+        (SActorType::Id(id), SActorType::Id(other_id)) => {
+            if id == other_id {
+                Some(Ordering::Equal)
+            } else if *id == 0 {
+                Some(Ordering::Greater)
+            } else if *other_id == 0 {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SActorType::Id(id), SActorType::Name(_)) => {
+            if let Ok(Some(user)) = u_other.into_user() {
+                if user.uid.as_raw() == *id {
+                    Some(Ordering::Equal)
+                } else if user.uid.as_raw() == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain user id from name : '{}'", u_other);
+                None
+            }
+        }
+    }
+}
+
+fn compare_actor_user_ids(u: &SUserActor, u_other: &SUserActor) -> Option<Ordering> {
+    match (u, u_other) {
+        (SUserActor::Name(name), SUserActor::Name(other_name)) => {
+            if name == other_name {
+                Some(Ordering::Equal)
+            } else if name == "root" {
+                Some(Ordering::Greater)
+            } else if other_name == "root" {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SUserActor::Name(name), SUserActor::Id(other_id)) => {
+            if let Ok(Some(user)) = u.into_user() {
+                if user.uid.as_raw() == *other_id {
+                    Some(Ordering::Equal)
+                } else if user.uid.as_raw() == 0 {
+                    Some(Ordering::Greater)
+                } else if *other_id == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain user id from name : '{}'", name);
+                None
+            }
+        },
+        (SUserActor::Id(id), SUserActor::Id(other_id)) => {
+            if id == other_id {
+                Some(Ordering::Equal)
+            } else if *id == 0 {
+                Some(Ordering::Greater)
+            } else if *other_id == 0 {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SUserActor::Id(id), SUserActor::Name(_)) => {
+            if let Ok(Some(user)) = u_other.into_user() {
+                if user.uid.as_raw() == *id {
+                    Some(Ordering::Equal)
+                } else if user.uid.as_raw() == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain user id from name : '{}'", u_other);
+                None
+            }
+        }
+    }
+}
+
+pub fn evaluate_actor_group_equality(groups: &Option<SGroups>, other_groups: &Option<SGroups>) -> bool {
+    match (groups, other_groups) {
+        (Some(SGroups::Single(group)), Some(SGroups::Single(other_group))) => {
+            compare_actor_groups(group, other_group) == Some(Ordering::Equal)
+        },
+        (Some(SGroups::Multiple(groups)), Some(SGroups::Multiple(other_groups))) => {
+            if groups.len() == other_groups.len() { 
+                groups.iter().zip(other_groups.iter()).all(|(group, other_group)| {
+                    compare_actor_groups(group, other_group) == Some(Ordering::Equal)
+                })
+            } else {
+                false
+            }
+        },
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl Eq for SActor {}
+
+impl PartialEq for SCredentials {
+    fn eq(&self, other: &Self) -> bool {
+        self.setuid == other.setuid
+            && evaluate_actor_group_equality(&self.setgid, &other.setgid)
+            && self.capabilities == other.capabilities
+            && self.additional_auth == other.additional_auth
+            && self._extra_fields == other._extra_fields
+    }
+}
+
+impl Eq for SCredentials {}
+
+pub fn compare_actor_groups(group: &SActorType, other_group: &SActorType) -> Option<Ordering> {
+    match (group, other_group) {
+        (SActorType::Name(name), SActorType::Name(other_name)) => {
+            if name == other_name {
+                Some(Ordering::Equal)
+            } else if name == "root" {
+                Some(Ordering::Greater)
+            } else if other_name == "root" {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SActorType::Name(name), SActorType::Id(other_id)) => {
+            if let Ok(Some(group)) = group.into_group() {
+                if group.gid.as_raw() == *other_id {
+                    Some(Ordering::Equal)
+                } else if group.gid.as_raw() == 0 {
+                    Some(Ordering::Greater)
+                } else if *other_id == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain group id from name : '{}'", name);
+                None
+            }
+        },
+        (SActorType::Id(id), SActorType::Id(other_id)) => {
+            if id == other_id {
+                Some(Ordering::Equal)
+            } else if *id == 0 {
+                Some(Ordering::Greater)
+            } else if *other_id == 0 {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        },
+        (SActorType::Id(id), SActorType::Name(_)) => {
+            if let Ok(Some(group)) = group.into_group() {
+                if group.gid.as_raw() == *id {
+                    Some(Ordering::Equal)
+                } else if group.gid.as_raw() == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            } else {
+                warn!("Unable to obtain group id from name : '{}'", group);
+                None
+            }
+        }
+    }
+}
+/*
 impl PartialOrd<SGroups> for SGroups {
     fn partial_cmp(&self, other: &SGroups) -> Option<std::cmp::Ordering> {
-        let other = Into::<Vec<SActorType>>::into(other.clone());
-        self.partial_cmp(&other)
+        match (self,other) {
+            (SGroups::Single(group), SGroups::Single(other_group)) => {
+                let gid = group.into_group().expect("Unable to obtain groups").expect(&format!("No Group '{}' Found ",group)).gid;
+                let other_gid = other_group.into_group().expect("Unable to obtain group").unwrap().gid;
+                if gid == other_gid {
+                    Some(Ordering::Equal)
+                } else if gid.as_raw() == 0 {
+                    Some(Ordering::Greater)
+                } else if other_gid.as_raw() == 0 {
+                    Some(Ordering::Less)
+                } else {
+                    None
+                }
+            },
+            (SGroups::Single(group), SGroups::Multiple(groups)) => {
+                if group.into_group().unwrap().unwrap().gid.as_raw() == 0 {
+                    
+                } else if groups.iter().all(|x| x == group) {
+                    Some(Ordering::Equal)
+                } else {
+                    None
+                }
+            },
+            (SGroups::Multiple(groups), SGroups::Single(group)) => {
+                if groups.len() == 1 {
+                    groups[0].partial_cmp(group)
+                } else if groups.iter().any(|x| x == group) {
+                    Some(Ordering::Greater)
+                } else {
+                    None
+                }
+            },
+            (SGroups::Multiple(groups), SGroups::Multiple(other_groups)) => {
+                if groups.len() == other_groups.len() {
+                    if groups.iter().all(|x| other_groups.iter().any(|y| x == y)) {
+                        Some(Ordering::Equal)
+                    } else {
+                        None
+                    }
+                } else if groups.len() < other_groups.len() {
+                    if groups.iter().all(|x| other_groups.iter().any(|y| x == y)) {
+                        Some(Ordering::Less)
+                    } else {
+                        None
+                    }
+                } else if other_groups.iter().all(|x| groups.iter().any(|y| y == x)) {
+                    Some(Ordering::Greater)
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
 impl PartialOrd<Vec<SActorType>> for SGroups {
     fn partial_cmp(&self, other: &Vec<SActorType>) -> Option<std::cmp::Ordering> {
+        let other = SActor::from_group_vec_actors(*other);
+        let self_groups = SActor::Group { groups: Some(self.clone()), _extra_fields: Map::default() };
         match self {
             SGroups::Single(group) => {
                 if other.len() == 1 {
@@ -982,7 +1318,7 @@ impl PartialOrd<Vec<SActorType>> for SGroups {
         None
     }
 }
-
+*/
 impl From<SGroups> for Vec<Group> {
     fn from(val: SGroups) -> Self {
         match val {
@@ -995,7 +1331,29 @@ impl From<SGroups> for Vec<Group> {
     }
 }
 
+
+#[bon]
 impl SActor {
+    #[builder]
+    pub fn user(
+        id: Option<SActorType>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+    ) -> Self {
+        SActor::User {
+            id,
+            _extra_fields,
+        }
+    }
+    #[builder]
+    pub fn group(
+        groups: Option<SGroups>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+    ) -> Self {
+        SActor::Group {
+            groups,
+            _extra_fields,
+        }
+    }
     pub fn from_user_string(user: &str) -> Self {
         SActor::User {
             id: Some(user.into()),
@@ -1145,34 +1503,22 @@ mod tests {
         assert_eq!(timeout.duration, Some(Duration::minutes(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
-        match actor0 {
-            SActor::User { id, .. } => {
-                assert_eq!(id.as_ref().unwrap(), "user1");
-            }
-            _ => panic!("unexpected actor type"),
-        }
+        assert_eq!(actor0, &SActor::User { id: Some("user1".into()), _extra_fields: Map::default() });
         let actor1 = &config.roles[0].as_ref().borrow().actors[1];
-        match actor1 {
-            SActor::Group { groups, .. } => match groups.as_ref().unwrap() {
-                SGroups::Multiple(groups) => {
-                    assert_eq!(groups[0], SActorType::Name("group1".into()));
-                    assert_eq!(groups[1], SActorType::Id(1000));
-                }
-                _ => panic!("unexpected actor group type"),
-            },
-            _ => panic!("unexpected actor {:?}", actor1),
-        }
+        assert_eq!(actor1, &SActor::Group { groups: Some(SGroups::Multiple(vec!["group1".into(), 1000.into()])), _extra_fields: Map::default() });
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
         let cred = &as_borrow!(&role[0]).cred;
         let setuidstruct = SSetuidSet {
             fallback: "user1".into(),
             default: SetBehavior::All,
-            add: vec!["cap_chown".into()],
-            sub: vec!["cap_chown".into()],
+            add: ["cap_chown".into()].into(),
+            sub: ["cap_chown".into()].into(),
         };
-        assert!(matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct));
-        assert_eq!(cred.setgid.as_ref().unwrap(), "setgid1");
+        assert!(
+            matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
+        );
+        assert_eq!(cred.setgid.as_ref().unwrap(), &SGroups::Single("setgid1".into()));
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
@@ -1271,13 +1617,7 @@ mod tests {
         assert_eq!(timeout._extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(config._extra_fields.get("unknown").unwrap(), "unknown");
         let actor0 = &as_borrow!(config.roles[0]).actors[0];
-        match actor0 {
-            SActor::User { id, _extra_fields } => {
-                assert_eq!(id.as_ref().unwrap(), "user1");
-                assert_eq!(_extra_fields.get("unknown").unwrap(), "unknown");
-            }
-            _ => panic!("unexpected actor type"),
-        }
+        assert_eq!(actor0, &SActor::User { id: Some("user1".into()), _extra_fields: Map::default() });
         let actor1 = &as_borrow!(config.roles[0]).actors[1];
         match actor1 {
             SActor::Unknown(unknown) => {
