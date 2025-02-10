@@ -767,7 +767,13 @@ mod tests {
         assert_eq!(timeout.duration, Some(Duration::minutes(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
-        assert_eq!(actor0, &SActor::User { id: Some("user1".into()), _extra_fields: Map::default() });
+        assert_eq!(
+            actor0,
+            &SActor::User {
+                id: Some("user1".into()),
+                _extra_fields: Map::default()
+            }
+        );
         let actor1 = &config.roles[0].as_ref().borrow().actors[1];
         match actor1 {
             SActor::Group { groups, .. } => match groups.as_ref().unwrap() {

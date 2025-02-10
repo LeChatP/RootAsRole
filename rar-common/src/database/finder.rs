@@ -709,7 +709,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                     }
                     Some(user) => {
                         println!("Utilisateur spécifié dans la commande : {}", user);
-                    
+
                         // Comparer l'utilisateur spécifié avec le fallback
                         if user.fetch_eq(&t.fallback) {
                             println!(
@@ -1545,7 +1545,6 @@ mod tests {
 
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
-
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(getuid().as_raw());
         let chooser_struct = SSetuidSet {
@@ -1802,7 +1801,7 @@ mod tests {
             sub: vec![],
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
-        
+
         // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
             user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
@@ -2041,103 +2040,109 @@ mod tests {
         );
     }
     #[test]
-    
-fn test_schooseruser_setuid_types() {
-    let config = SConfig::builder()
-        .role(
-            SRole::builder("test")
-                .actor(SActor::user("root").build())
-                .task(
-                    STask::builder(1)
-                        .cred(
-                            SCredentials::builder()
-                                .setuid(SUserChooser::ChooserStruct(
-                                    SSetuidSet::builder(SUserType::from(0), SetBehavior::None)
-                                        .build(),
-                                ))
-                                .build(),
-                        )
-                        .commands(
-                            SCommands::builder(SetBehavior::None)
-                                .add(["/bin/ls".into()])
-                                .build(),
-                        )
-                        .build(),
-                )
-                .task(
-                    STask::builder(2)
-                        .cred(SCredentials::builder().setuid("root").build())
-                        .commands(
-                            SCommands::builder(SetBehavior::None)
-                                .add(["/bin/pwd".into()])
-                                .build(),
-                        )
-                        .build(),
-                )
-                .task(
-                    STask::builder(3)
-                        .cred(SCredentials::builder().setuid(0).build())
-                        .commands(
-                            SCommands::builder(SetBehavior::None)
-                                .add(["/bin/cat".into()])
-                                .build(),
-                        )
-                        .build(),
-                )
-                .build(),
-        )
-        .build();
 
-    // Vérifier si les tâches existent avant d’appeler unwrap()
-    
-    let t1 = config.task("test", 1).expect(" Erreur : La tâche 1 n'existe pas !");
-    let t2 = config.task("test", 2).expect(" Erreur : La tâche 2 n'existe pas !");
-    let t3 = config.task("test", 3).expect(" Erreur : La tâche 3 n'existe pas !");
+    fn test_schooseruser_setuid_types() {
+        let config = SConfig::builder()
+            .role(
+                SRole::builder("test")
+                    .actor(SActor::user("root").build())
+                    .task(
+                        STask::builder(1)
+                            .cred(
+                                SCredentials::builder()
+                                    .setuid(SUserChooser::ChooserStruct(
+                                        SSetuidSet::builder(SUserType::from(0), SetBehavior::None)
+                                            .build(),
+                                    ))
+                                    .build(),
+                            )
+                            .commands(
+                                SCommands::builder(SetBehavior::None)
+                                    .add(["/bin/ls".into()])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .task(
+                        STask::builder(2)
+                            .cred(SCredentials::builder().setuid("root").build())
+                            .commands(
+                                SCommands::builder(SetBehavior::None)
+                                    .add(["/bin/pwd".into()])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .task(
+                        STask::builder(3)
+                            .cred(SCredentials::builder().setuid(0).build())
+                            .commands(
+                                SCommands::builder(SetBehavior::None)
+                                    .add(["/bin/cat".into()])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
 
+        // Vérifier si les tâches existent avant d’appeler unwrap()
 
-    // Affichage pour debug
-    println!("Tâche 1 : {:?}", t1);
-    println!("Tâche 2 : {:?}", t2);
-    println!("Tâche 3 : {:?}", t3);
-    
-    let cred=Cred::builder().user_name("root").group_name("root").build();
-   
+        let t1 = config
+            .task("test", 1)
+            .expect(" Erreur : La tâche 1 n'existe pas !");
+        let t2 = config
+            .task("test", 2)
+            .expect(" Erreur : La tâche 2 n'existe pas !");
+        let t3 = config
+            .task("test", 3)
+            .expect(" Erreur : La tâche 3 n'existe pas !");
 
-    let chooser_struct2 = SUserType::from("root");
-    let chooser_struct3 = SUserType::from(0);
+        // Affichage pour debug
+        println!("Tâche 1 : {:?}", t1);
+        println!("Tâche 2 : {:?}", t2);
+        println!("Tâche 3 : {:?}", t3);
 
-    let command1 = vec!["/bin/ls".to_string()];
-    let command2 = vec!["/bin/pwd".to_string()];
-    let command3 = vec!["/bin/cat".to_string()];
+        let cred = Cred::builder().user_name("root").group_name("root").build();
 
-    let filter_matcher = FilterMatcher::builder().user("root").build();
-    let result = config.matches(&cred, &Some(filter_matcher), &command1);
-    assert!(result.is_ok(), "Erreur : L !");
-    let result1 = config.matches(&cred, &None, &command1);
-    assert!(result1.is_ok(), "Erreur : La tâche 1 ne correspond pas !");
-    let result2 = config.matches(&cred, &None, &command2);
-    assert!(result2.is_ok(), "Erreur : La tâche 2 ne correspond pas !");
-    let result3 = config.matches(&cred, &None, &command3);
-    assert!(result3.is_ok(), "Erreur : La tâche 3 ne correspond pas !");
+        let chooser_struct2 = SUserType::from("root");
+        let chooser_struct3 = SUserType::from(0);
 
-    let result1 = result1.unwrap();
-    let result2 = result2.unwrap();
-    let result3 = result3.unwrap();
+        let command1 = vec!["/bin/ls".to_string()];
+        let command2 = vec!["/bin/pwd".to_string()];
+        let command3 = vec!["/bin/cat".to_string()];
 
-    assert_eq!(result1.settings.setuid, Some(SUserType::from(0)));
-    assert_eq!(result1.settings.task.upgrade(), Some(t1.clone()));
-    println!(" Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 1.");
+        let filter_matcher = FilterMatcher::builder().user("root").build();
+        let result = config.matches(&cred, &Some(filter_matcher), &command1);
+        assert!(result.is_ok(), "Erreur : L !");
+        let result1 = config.matches(&cred, &None, &command1);
+        assert!(result1.is_ok(), "Erreur : La tâche 1 ne correspond pas !");
+        let result2 = config.matches(&cred, &None, &command2);
+        assert!(result2.is_ok(), "Erreur : La tâche 2 ne correspond pas !");
+        let result3 = config.matches(&cred, &None, &command3);
+        assert!(result3.is_ok(), "Erreur : La tâche 3 ne correspond pas !");
 
-    assert_eq!(result2.settings.setuid, Some(chooser_struct2));
-    assert_eq!(result2.settings.task.upgrade(), Some(t2.clone()));
-    println!(" Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 2.");
+        let result1 = result1.unwrap();
+        let result2 = result2.unwrap();
+        let result3 = result3.unwrap();
 
-    assert_eq!(result3.settings.setuid, Some(chooser_struct3));
-    assert_eq!(result3.settings.task.upgrade(), Some(t3.clone()));    
-    println!(" Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 3.");
+        assert_eq!(result1.settings.setuid, Some(SUserType::from(0)));
+        assert_eq!(result1.settings.task.upgrade(), Some(t1.clone()));
+        println!(
+            " Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 1."
+        );
+
+        assert_eq!(result2.settings.setuid, Some(chooser_struct2));
+        assert_eq!(result2.settings.task.upgrade(), Some(t2.clone()));
+        println!(
+            " Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 2."
+        );
+
+        assert_eq!(result3.settings.setuid, Some(chooser_struct3));
+        assert_eq!(result3.settings.task.upgrade(), Some(t3.clone()));
+        println!(
+            " Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 3."
+        );
+    }
 }
-
-}
-     
-
-     
