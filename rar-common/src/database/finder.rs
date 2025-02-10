@@ -693,7 +693,26 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             .map(|caps| caps.to_capset());
         score.caps_min = get_caps_min(&capset);
         score.security_min = get_security_min(&self.as_ref().borrow().options);
-
+        if cmd_opt
+            .as_ref()
+            .and_then(|filter| filter.env_behavior) // if the command wants to override the behavior
+            .as_ref()
+            .is_some_and(|behavior| {
+                settings
+                    .opt
+                    .to_opt() // at this point we own the opt structure
+                    .as_ref()
+                    .borrow()
+                    .env
+                    .as_ref()
+                    .is_some_and(|env| !env.override_behavior || env.default_behavior == *behavior)
+                // but the polcy deny it and the behavior is not the same as the default one
+                // we return NoMatch
+                // (explaination: if the behavior is the same as the default one, we don't override it)
+            })
+        {
+            return Err(MatchError::NoMatch);
+        }
         // Processing setuid
         let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
         let setuid_result = match setuid {
