@@ -1270,6 +1270,9 @@ mod tests {
 
     #[test]
     fn test_is_root() {
+        assert!(user_is_root(&"root".into()));
+        assert!(user_is_root(&0.into()));
+        assert!(!user_is_root(&1.into()));
         assert!(group_is_root(&"root".into()));
         assert!(group_is_root(&0.into()));
         assert!(!group_is_root(&1.into()));
