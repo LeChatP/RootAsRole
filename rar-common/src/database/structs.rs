@@ -89,7 +89,7 @@ pub struct STask {
     pub _role: Option<Weak<RefCell<SRole>>>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Builder)]
+#[derive(Serialize, Deserialize, Debug, Builder, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,7 +108,7 @@ pub struct SCredentials {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SUserChooser {
     Actor(SUserType),
@@ -133,7 +133,13 @@ impl From<&str> for SUserChooser {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
+impl From<u32> for SUserChooser {
+    fn from(id: u32) -> Self {
+        SUserChooser::Actor(id.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 
 pub struct SSetuidSet {
     #[builder(start_fn, into)]
@@ -623,8 +629,8 @@ impl SCommands {
     #[builder]
     pub fn new(
         #[builder(start_fn)] default_behavior: SetBehavior,
-        #[builder(with = FromIterator::from_iter)] add: Vec<SCommand>,
-        #[builder(with = FromIterator::from_iter)] sub: Vec<SCommand>,
+        #[builder(default, with = FromIterator::from_iter)] add: Vec<SCommand>,
+        #[builder(default, with = FromIterator::from_iter)] sub: Vec<SCommand>,
         #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
     ) -> Self {
         SCommands {
@@ -761,12 +767,7 @@ mod tests {
         assert_eq!(timeout.duration, Some(Duration::minutes(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
-        match actor0 {
-            SActor::User { id, .. } => {
-                assert_eq!(id.as_ref().unwrap(), "user1");
-            }
-            _ => panic!("unexpected actor type"),
-        }
+        assert_eq!(actor0, &SActor::User { id: Some("user1".into()), _extra_fields: Map::default() });
         let actor1 = &config.roles[0].as_ref().borrow().actors[1];
         match actor1 {
             SActor::Group { groups, .. } => match groups.as_ref().unwrap() {
@@ -784,8 +785,8 @@ mod tests {
         let setuidstruct = SSetuidSet {
             fallback: "user1".into(),
             default: SetBehavior::All,
-            add: vec!["cap_chown".into()],
-            sub: vec!["cap_chown".into()],
+            add: ["cap_chown".into()].into(),
+            sub: ["cap_chown".into()].into(),
         };
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)

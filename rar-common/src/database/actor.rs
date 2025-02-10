@@ -35,6 +35,14 @@ impl SUserType {
             SGenericActorType::Name(name) => User::from_name(&name).ok().flatten(),
         }
     }
+    pub fn fetch_eq(&self, other: &Self) -> bool {
+        let uid = self.fetch_id();
+        let ouid = other.fetch_id();
+        match (uid, ouid) {
+            (Some(uid), Some(ouid)) => uid == ouid,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for SUserType {
@@ -219,7 +227,11 @@ impl PartialEq<u32> for SGroupType {
 
 impl PartialEq<Group> for SGroupType {
     fn eq(&self, other: &Group) -> bool {
-        self.eq(&other.gid.as_raw())
+        let gid = self.fetch_id();
+        match gid {
+            Some(gid) => gid == other.gid.as_raw(),
+            None => false,
+        }
     }
 }
 

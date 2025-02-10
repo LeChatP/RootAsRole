@@ -80,6 +80,7 @@ pest = "2.7"
 pest_derive = "2.7"
 const_format = "0.2"
 hex = "0.4"
+sorted-vec = "0.8.6"
 
 [dev-dependencies]
 log = "0.4"
