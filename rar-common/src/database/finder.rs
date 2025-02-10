@@ -34,7 +34,7 @@ use bitflags::bitflags;
 
 use super::{
     actor::{SGroupType, SGroups, SUserType},
-    options::EnvBehavior,
+    FilterMatcher,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -344,15 +344,7 @@ impl Default for TaskMatch {
     }
 }
 
-#[derive(Debug, Default, Builder)]
-#[builder(on(_, overwritable))]
-pub struct FilterMatcher {
-    pub role: Option<String>,
-    pub task: Option<String>,
-    pub env_behavior: Option<EnvBehavior>,
-    #[builder(into)]
-    pub user: Option<SUserType>,
-}
+
 
 pub trait TaskMatcher<T> {
     fn matches(

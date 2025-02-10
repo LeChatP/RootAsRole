@@ -5,8 +5,8 @@ use crate::{
     database::{
         finder::{Cred, TaskMatch, TaskMatcher},
         structs::{RoleGetter, SRole},
+        FilterMatcher,
     },
-    FilterMatcher,
 };
 
 use log::{debug, warn};
