@@ -9,7 +9,8 @@ use serde_json::Value;
 use strum::EnumIs;
 
 #[cfg(feature = "finder")]
-use crate::database::finder::{ActorMatchMin, Cred, ExecSettings, FilterMatcher, TaskMatch};
+use crate::database::finder::{ActorMatchMin, Cred, ExecSettings, TaskMatch};
+use crate::database::FilterMatcher;
 
 use crate::database::{
     actor::SActor,

@@ -10,8 +10,9 @@ use nix::{
 };
 use rar_common::database::{
     actor::{SGroups, SUserType},
-    finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
+    finder::{Cred, TaskMatch, TaskMatcher},
     options::EnvBehavior,
+    FilterMatcher,
 };
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;

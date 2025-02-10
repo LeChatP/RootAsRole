@@ -24,8 +24,7 @@ use crate::rc_refcell;
 
 #[cfg(feature = "finder")]
 use super::finder::Cred;
-use super::finder::FilterMatcher;
-use super::{deserialize_duration, is_default, serialize_duration};
+use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,

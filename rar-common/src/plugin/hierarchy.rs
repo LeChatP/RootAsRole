@@ -3,9 +3,10 @@ use std::cmp::Ordering;
 use crate::{
     api::{PluginManager, PluginResultAction},
     database::{
-        finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
+        finder::{Cred, TaskMatch, TaskMatcher},
         structs::{RoleGetter, SRole},
     },
+    FilterMatcher,
 };
 
 use log::{debug, warn};

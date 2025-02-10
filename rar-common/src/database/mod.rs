@@ -5,9 +5,12 @@ use crate::save_settings;
 use crate::util::{toggle_lock_config, ImmutableLock};
 use crate::version::PACKAGE_VERSION;
 
+use actor::SUserType;
+use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use log::debug;
+use options::EnvBehavior;
 use serde::{de, Deserialize, Serialize};
 
 use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
@@ -25,6 +28,16 @@ pub mod options;
 pub mod structs;
 pub mod versionning;
 pub mod wrapper;
+
+#[derive(Debug, Default, Builder)]
+#[builder(on(_, overwritable))]
+pub struct FilterMatcher {
+    pub role: Option<String>,
+    pub task: Option<String>,
+    pub env_behavior: Option<EnvBehavior>,
+    #[builder(into)]
+    pub user: Option<SUserType>,
+}
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     for role in &config.as_ref().borrow().roles {
