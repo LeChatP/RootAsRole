@@ -1153,7 +1153,6 @@ mod tests {
     use std::fs;
 
     use capctl::Cap;
-    use nix::unistd::getuid;
     use test_log::test;
 
     use crate::{
@@ -1167,6 +1166,20 @@ mod tests {
     };
 
     use super::*;
+
+    fn get_non_root_uid() -> u32 {
+        // list all users
+        let passwd = fs::read_to_string("/etc/passwd").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        return passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .find(|uid| *uid != 0)
+            .unwrap();
+    }
 
     #[test]
     fn test_match_path() {
@@ -1568,7 +1581,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::None,
@@ -1615,7 +1628,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::None,
@@ -1665,7 +1678,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::None,
@@ -1716,7 +1729,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(1);
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::None,
@@ -1765,7 +1778,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::All,
@@ -1815,7 +1828,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::All,
@@ -1863,7 +1876,7 @@ mod tests {
             .push(SActor::user("root").build());
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::None,
@@ -1914,7 +1927,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setuid` avec un `fallback`
-        let fallback_user = SUserType::from(getuid().as_raw());
+        let fallback_user = SUserType::from(get_non_root_uid());
         let chooser_struct = SSetuidSet {
             fallback: fallback_user.clone(),
             default: SetBehavior::All,
