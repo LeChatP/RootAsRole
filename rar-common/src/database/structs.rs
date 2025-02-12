@@ -26,13 +26,22 @@ use super::{
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "sconfig_opt")]
     pub options: OptWrapper,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
+}
+
+fn sconfig_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Global;
+    Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
 #[derive(Serialize, Deserialize, Debug, Derivative)]
@@ -44,13 +53,22 @@ pub struct SRole {
     pub actors: Vec<SActor>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<STaskWrapper>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "srole_opt")]
     pub options: OptWrapper,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
     #[derivative(PartialEq = "ignore")]
     pub _config: Option<Weak<RefCell<SConfig>>>,
+}
+
+fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Role;
+    Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
@@ -80,13 +98,22 @@ pub struct STask {
     pub cred: SCredentials,
     #[serde(default, skip_serializing_if = "is_default")]
     pub commands: SCommands,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "stask_opt")]
     pub options: OptWrapper,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
     #[derivative(PartialEq = "ignore")]
     pub _role: Option<Weak<RefCell<SRole>>>,
+}
+
+fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Task;
+    Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
 #[derive(Serialize, Deserialize, Debug, Builder, PartialEq, Eq)]

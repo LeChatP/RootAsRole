@@ -33,8 +33,8 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Level {
-    None,
     #[default]
+    None,
     Default,
     Global,
     Role,
@@ -579,7 +579,9 @@ pub struct OptStack {
 impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     fn opt(mut self, opt: Option<Rc<RefCell<Opt>>>) -> Self {
         if let Some(opt) = opt {
+             println!("setting opt: {:?}", opt.as_ref().borrow().level);
             self.stack[opt.as_ref().borrow().level as usize] = Some(opt.clone());
+            println!("setting opt: {:?}", self.stack);
         }
         self
     }
@@ -634,8 +636,75 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
     {
-        self.roles(roles.to_owned())
+        self.with_default().roles(roles.to_owned())
             .opt(roles.as_ref().borrow().options.to_owned())
+    }
+
+    fn with_default(self) -> Self {
+        self.opt(Some(Opt::builder(Level::Default)
+        .root(SPrivileged::User)
+        .bounding(SBounding::Strict)
+        .path(
+            SPathOptions::builder(PathBehavior::Delete)
+                .add([
+                    "/usr/local/sbin",
+                    "/usr/local/bin",
+                    "/usr/sbin",
+                    "/usr/bin",
+                    "/sbin",
+                    "/bin",
+                    "/snap/bin",
+                ])
+                .build(),
+        )
+        .authentication(SAuthentication::Perform)
+        .env(
+            SEnvOptions::builder(EnvBehavior::Delete)
+                .keep([
+                    "HOME",
+                    "USER",
+                    "LOGNAME",
+                    "COLORS",
+                    "DISPLAY",
+                    "HOSTNAME",
+                    "KRB5CCNAME",
+                    "LS_COLORS",
+                    "PS1",
+                    "PS2",
+                    "XAUTHORY",
+                    "XAUTHORIZATION",
+                    "XDG_CURRENT_DESKTOP",
+                ])
+                .unwrap()
+                .check([
+                    "COLORTERM",
+                    "LANG",
+                    "LANGUAGE",
+                    "LC_*",
+                    "LINGUAS",
+                    "TERM",
+                    "TZ",
+                ])
+                .unwrap()
+                .delete([
+                    "PS4",
+                    "SHELLOPTS",
+                    "PERLLIB",
+                    "PERL5LIB",
+                    "PERL5OPT",
+                    "PYTHONINSPECT",
+                ])
+                .unwrap()
+                .build(),
+        )
+        .timeout(
+            STimeout::builder()
+                .type_field(TimestampType::TTY)
+                .duration(Duration::minutes(5))
+                .build(),
+        )
+        .wildcard_denied(";&|")
+        .build()))
     }
 }
 
@@ -945,6 +1014,7 @@ impl OptStack {
         let overriden = cmd_filter
             .as_ref()
             .is_some_and(|f| f.env_behavior.is_some());
+        println!("self  : {:?}", self);
         self.iter_in_options(|opt| {
             if let Some(p) = opt.env.borrow().as_ref() {
                 final_behavior = match p.default_behavior {
