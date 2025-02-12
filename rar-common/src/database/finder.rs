@@ -355,8 +355,6 @@ impl Default for TaskMatch {
     }
 }
 
-
-
 pub trait TaskMatcher<T> {
     fn matches(
         &self,
@@ -434,7 +432,9 @@ fn evaluate_regex_cmd(role_args: String, commandline: String) -> Result<CmdMin, 
     if regex.is_match(commandline.as_bytes())? {
         Ok(CmdMin::RegexArgs)
     } else {
-        Err(Box::new(MatchError::NoMatch("Regex for command does not match".to_string())))
+        Err(Box::new(MatchError::NoMatch(
+            "Regex for command does not match".to_string(),
+        )))
     }
 }
 
@@ -708,13 +708,18 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                     .borrow()
                     .env
                     .as_ref()
-                    .is_some_and(|env| !env.override_behavior.is_some_and(|b| b) || env.default_behavior == *behavior)
+                    .is_some_and(|env| {
+                        !env.override_behavior.is_some_and(|b| b)
+                            || env.default_behavior == *behavior
+                    })
                 // but the polcy deny it and the behavior is not the same as the default one
                 // we return NoMatch
                 // (explaination: if the behavior is the same as the default one, we don't override it)
             })
         {
-            return Err(MatchError::NoMatch("The user wants to override the behavior but the policy deny it".to_string()));
+            return Err(MatchError::NoMatch(
+                "The user wants to override the behavior but the policy deny it".to_string(),
+            ));
         }
         // Processing setuid
         let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
@@ -740,7 +745,9 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             Some(t.fallback.clone()) // Si l'utilisateur correspond au fallback, utiliser le fallback
                         } else if t.sub.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement interdit dans `sub`
-                            return Err(MatchError::NoMatch("L'utilisateur est interdit dans sub.".into()));
+                            return Err(MatchError::NoMatch(
+                                "L'utilisateur est interdit dans sub.".into(),
+                            ));
                         } else if t.add.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement autorisé dans `add`
 
@@ -749,7 +756,9 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             // Aucun match explicite, appliquer le comportement par défaut
                             match t.default {
                                 SetBehavior::None => {
-                                    return Err(MatchError::NoMatch("Aucun comportement par défaut applicable.".into())); // Aucun utilisateur par défaut
+                                    return Err(MatchError::NoMatch(
+                                        "Aucun comportement par défaut applicable.".into(),
+                                    )); // Aucun utilisateur par défaut
                                 }
                                 SetBehavior::All => {
                                     debug!("Tous les utilisateurs sont acceptés.");
@@ -1567,7 +1576,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_setuid_fallback_valid() {
         // Configuration de test
         let config = setup_test_config(1); // Un seul rôle pour simplifier
@@ -1614,7 +1623,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_setuid_fallback_nonarg_valid() {
         // Configuration de test
         let config = setup_test_config(1);
