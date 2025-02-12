@@ -177,7 +177,7 @@ pub struct SCapabilities {
 }
 
 impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
-    pub fn add(mut self, cap: Cap) -> Self {
+    pub fn add_cap(mut self, cap: Cap) -> Self {
         self.add.add(cap);
         self
     }
@@ -185,7 +185,7 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
         self.add = set;
         self
     }
-    pub fn sub(mut self, cap: Cap) -> Self {
+    pub fn sub_cap(mut self, cap: Cap) -> Self {
         self.sub.add(cap);
         self
     }
@@ -274,7 +274,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                                 map.next_value().expect("add entry must be a list");
                             for value in values {
                                 add.add(value.parse().map_err(|_| {
-                                    de::Error::custom(&format!("Invalid capability: {}", value))
+                                    de::Error::custom(format!("Invalid capability: {}", value))
                                 })?);
                             }
                         }
@@ -283,7 +283,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                                 map.next_value().expect("sub entry must be a list");
                             for value in values {
                                 sub.add(value.parse().map_err(|_| {
-                                    de::Error::custom(&format!("Invalid capability: {}", value))
+                                    de::Error::custom(format!("Invalid capability: {}", value))
                                 })?);
                             }
                         }
@@ -530,7 +530,7 @@ impl<S: s_config_builder::State> SConfigBuilder<S> {
         self
     }
     pub fn roles(mut self, roles: impl IntoIterator<Item = Rc<RefCell<SRole>>>) -> Self {
-        self.roles.extend(roles.into_iter());
+        self.roles.extend(roles);
         self
     }
 }
@@ -658,7 +658,7 @@ impl PartialEq<str> for SUserChooser {
     fn eq(&self, other: &str) -> bool {
         match self {
             SUserChooser::Actor(actor) => actor == &SUserType::from(other),
-            SUserChooser::ChooserStruct(chooser) => chooser.fallback == SUserType::from(other),
+            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
         }
     }
 }

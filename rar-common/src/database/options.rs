@@ -169,7 +169,7 @@ pub struct SEnvOptions {
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string()).map_err(|e| e)?); } Ok(res)})]
+    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub keep: LinkedHashSet<EnvKey>,
     #[serde(
         default,
@@ -177,7 +177,7 @@ pub struct SEnvOptions {
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string()).map_err(|e| e)?); } Ok(res)})]
+    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub check: LinkedHashSet<EnvKey>,
     #[serde(
         default,
@@ -185,7 +185,7 @@ pub struct SEnvOptions {
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string()).map_err(|e| e)?); } Ok(res)})]
+    #[builder(default, with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub delete: LinkedHashSet<EnvKey>,
     #[serde(default, flatten)]
     #[builder(default)]
@@ -311,7 +311,7 @@ impl Opt {
                         "PS2",
                         "XAUTHORY",
                         "XAUTHORIZATION",
-                        "XDG_CURRENT_DESKTOP".into(),
+                        "XDG_CURRENT_DESKTOP",
                     ])
                     .unwrap()
                     .check([
@@ -583,7 +583,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         }
         self
     }
-    fn from_task(
+    fn with_task(
         self,
         task: Rc<RefCell<STask>>,
     ) -> OptStackBuilder<
@@ -594,7 +594,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         <S as opt_stack_builder::State>::Role: opt_stack_builder::IsUnset,
         <S as opt_stack_builder::State>::Task: opt_stack_builder::IsUnset,
     {
-        self.from_role(
+        self.with_role(
             task.as_ref()
                 .borrow()
                 ._role
@@ -606,7 +606,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         .task(task.to_owned())
         .opt(task.as_ref().borrow().options.to_owned())
     }
-    fn from_role(
+    fn with_role(
         self,
         role: Rc<RefCell<SRole>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRole<opt_stack_builder::SetRoles<S>>>
@@ -614,7 +614,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
         <S as opt_stack_builder::State>::Role: opt_stack_builder::IsUnset,
     {
-        self.from_roles(
+        self.with_roles(
             role.as_ref()
                 .borrow()
                 ._config
@@ -627,7 +627,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         .opt(role.as_ref().borrow().options.to_owned())
     }
 
-    fn from_roles(
+    fn with_roles(
         self,
         roles: Rc<RefCell<SConfig>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRoles<S>>
@@ -648,22 +648,21 @@ impl OptStack {
         role: Option<Rc<RefCell<SRole>>>,
         task: Option<Rc<RefCell<STask>>>,
     ) -> Self {
-        let v = OptStack {
+        OptStack {
             stack,
             roles,
             role,
             task,
-        };
-        v
+        }
     }
     pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
-        OptStack::builder().from_task(task).build()
+        OptStack::builder().with_task(task).build()
     }
     pub fn from_role(role: Rc<RefCell<SRole>>) -> Self {
-        OptStack::builder().from_role(role).build()
+        OptStack::builder().with_role(role).build()
     }
     pub fn from_roles(roles: Rc<RefCell<SConfig>>) -> Self {
-        OptStack::builder().from_roles(roles).build()
+        OptStack::builder().with_roles(roles).build()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, V)>, V>(&self, f: F) -> Option<(Level, V)> {
@@ -938,7 +937,7 @@ impl OptStack {
         let mut final_behavior = cmd_filter
             .as_ref()
             .and_then(|f| f.env_behavior)
-            .unwrap_or(EnvBehavior::default());
+            .unwrap_or_default();
         let mut final_set = HashMap::new();
         let mut final_keep = LinkedHashSet::new();
         let mut final_check = LinkedHashSet::new();

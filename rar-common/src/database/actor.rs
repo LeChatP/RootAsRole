@@ -23,7 +23,7 @@ impl SUserType {
     pub(super) fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             SGenericActorType::Id(id) => Some(*id),
-            SGenericActorType::Name(name) => match User::from_name(&name) {
+            SGenericActorType::Name(name) => match User::from_name(name) {
                 Ok(Some(user)) => Some(user.uid.as_raw()),
                 _ => None,
             },
@@ -32,7 +32,7 @@ impl SUserType {
     pub fn fetch_user(&self) -> Option<User> {
         match &self.0 {
             SGenericActorType::Id(id) => User::from_uid((*id).into()).ok().flatten(),
-            SGenericActorType::Name(name) => User::from_name(&name).ok().flatten(),
+            SGenericActorType::Name(name) => User::from_name(name).ok().flatten(),
         }
     }
     pub fn fetch_eq(&self, other: &Self) -> bool {
@@ -70,7 +70,7 @@ impl SGroupType {
     pub(super) fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             SGenericActorType::Id(id) => Some(*id),
-            SGenericActorType::Name(name) => match Group::from_name(&name) {
+            SGenericActorType::Name(name) => match Group::from_name(name) {
                 Ok(Some(group)) => Some(group.gid.as_raw()),
                 _ => None,
             },
@@ -79,7 +79,7 @@ impl SGroupType {
     pub fn fetch_group(&self) -> Option<Group> {
         match &self.0 {
             SGenericActorType::Id(id) => Group::from_gid((*id).into()).ok().flatten(),
-            SGenericActorType::Name(name) => Group::from_name(&name).ok().flatten(),
+            SGenericActorType::Name(name) => Group::from_name(name).ok().flatten(),
         }
     }
 }

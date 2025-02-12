@@ -140,10 +140,15 @@ pub enum ActorMatchMin {
 struct SetuidMin {
     is_root: bool,
 }
-#[derive(PartialEq, PartialOrd, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 struct SetgidMin {
     is_root: bool,
     nb_groups: usize,
+}
+impl PartialOrd for SetgidMin {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for SetgidMin {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -152,10 +157,16 @@ impl Ord for SetgidMin {
             .then_with(|| self.nb_groups.cmp(&other.nb_groups))
     }
 }
-#[derive(PartialEq, PartialOrd, Eq, Clone, Copy, Debug, Default)]
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub struct SetUserMin {
     uid: Option<SetuidMin>,
     gid: Option<SetgidMin>,
+}
+impl PartialOrd for SetUserMin {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for SetUserMin {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -373,7 +384,7 @@ fn find_from_envpath(needle: &PathBuf) -> Option<PathBuf> {
     None
 }
 
-fn match_path(input_path: &String, role_path: &String) -> CmdMin {
+fn match_path(input_path: &str, role_path: &String) -> CmdMin {
     if role_path == "**" {
         return CmdMin::FullWildcardPath;
     }
@@ -539,7 +550,7 @@ fn user_is_root(actortype: &SUserType) -> bool {
 fn groups_contains_root(list: Option<&SGroups>) -> bool {
     if let Some(list) = list {
         match list {
-            SGroups::Single(group) => group_is_root(&group),
+            SGroups::Single(group) => group_is_root(group),
             SGroups::Multiple(groups) => groups.iter().any(group_is_root),
         }
     } else {
@@ -727,12 +738,13 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                                 "L'utilisateur spécifié dans la commande correspond au fallback !"
                             );
                             Some(t.fallback.clone()) // Si l'utilisateur correspond au fallback, utiliser le fallback
-                        } else if t.sub.iter().any(|s| s.fetch_eq(&user)) {
-                            // Si l'utilisateur est explicitement autorisé dans `add`
-                            return Err(MatchError::NoMatch);
-                        } else if t.add.iter().any(|s| s.fetch_eq(&user)) {
+                        } else if t.sub.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement interdit dans `sub`
                             println!("L'utilisateur est interdit dans sub.");
+                            return Err(MatchError::NoMatch);
+                        } else if t.add.iter().any(|s| s.fetch_eq(user)) {
+                            // Si l'utilisateur est explicitement autorisé dans `add`
+
                             Some(user.clone()) // Retourner une erreur immédiate
                         } else {
                             // Aucun match explicite, appliquer le comportement par défaut
@@ -882,7 +894,7 @@ impl CredMatcher for Rc<RefCell<SRole>> {
                     }
                 }
                 SActor::Unknown(element) => {
-                    let min = PluginManager::notify_user_matcher(&as_borrow!(self), user, &element);
+                    let min = PluginManager::notify_user_matcher(&as_borrow!(self), user, element);
                     if !min.is_no_match() {
                         return Some(min);
                     }
@@ -1557,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    //echec
+    
     fn test_setuid_fallback_valid() {
         // Configuration de test
         let config = setup_test_config(1); // Un seul rôle pour simplifier
@@ -1604,7 +1616,7 @@ mod tests {
     }
 
     #[test]
-    //echec
+    
     fn test_setuid_fallback_nonarg_valid() {
         // Configuration de test
         let config = setup_test_config(1);
@@ -1654,7 +1666,7 @@ mod tests {
     }
 
     #[test]
-    //echec
+
     fn test_setuid_add_valid() {
         // Configuration de test
         let config = setup_test_config(1); // Un seul rôle pour simplifier

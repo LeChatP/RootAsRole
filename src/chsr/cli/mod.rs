@@ -206,10 +206,10 @@ mod tests {
                                                 .setgid(["group1", "group2"])
                                                 .capabilities(
                                                     SCapabilities::builder(SetBehavior::All)
-                                                        .add(Cap::LINUX_IMMUTABLE)
-                                                        .add(Cap::NET_BIND_SERVICE)
-                                                        .sub(Cap::SYS_ADMIN)
-                                                        .sub(Cap::SYS_BOOT)
+                                                        .add_cap(Cap::LINUX_IMMUTABLE)
+                                                        .add_cap(Cap::NET_BIND_SERVICE)
+                                                        .sub_cap(Cap::SYS_ADMIN)
+                                                        .sub_cap(Cap::SYS_BOOT)
                                                         .build(),
                                                 )
                                                 .build(),
