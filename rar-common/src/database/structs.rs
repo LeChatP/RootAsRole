@@ -21,13 +21,16 @@ use super::{
     actor::{SActor, SGroups, SUserType},
     is_default,
     options::{Level, Opt, OptBuilder},
-    wrapper::{OptWrapper, STaskWrapper},
 };
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "sconfig_opt")]
-    pub options: OptWrapper,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sconfig_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
     #[serde(default)]
@@ -52,9 +55,13 @@ pub struct SRole {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actors: Vec<SActor>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tasks: Vec<STaskWrapper>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "srole_opt")]
-    pub options: OptWrapper,
+    pub tasks: Vec<Rc<RefCell<STask>>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "srole_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
@@ -98,8 +105,12 @@ pub struct STask {
     pub cred: SCredentials,
     #[serde(default, skip_serializing_if = "is_default")]
     pub commands: SCommands,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "stask_opt")]
-    pub options: OptWrapper,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "stask_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
@@ -700,7 +711,7 @@ mod tests {
         as_borrow,
         database::{
             actor::SGroupType,
-            options::{EnvBehavior, PathBehavior, SAuthentication, TimestampType},
+            options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType},
         },
     };
 
@@ -711,7 +722,6 @@ mod tests {
         println!("START");
         let config = r#"
         {
-            "version": "1.0.0",
             "options": {
                 "path": {
                     "default": "delete",
@@ -720,6 +730,7 @@ mod tests {
                 },
                 "env": {
                     "default": "delete",
+                    "override_behavior": true,
                     "keep": ["keep_env"],
                     "check": ["check_env"]
                 },
@@ -753,8 +764,8 @@ mod tests {
                                 "setuid": {
                                     "fallback": "user1",
                                     "default": "all",
-                                    "add": ["cap_chown"],
-                                    "sub": ["cap_chown"]
+                                    "add": ["user2"],
+                                    "sub": ["user3"]
                                 },
                                 "setgid": "setgid1",
                                 "capabilities": {
@@ -782,6 +793,7 @@ mod tests {
         assert!(path.add.front().is_some_and(|s| s == "path_add"));
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
+        assert!(env.override_behavior.is_some_and(|b| b));
         assert!(env.keep.front().is_some_and(|s| s == "keep_env"));
         assert!(env.check.front().is_some_and(|s| s == "check_env"));
         assert!(options.root.as_ref().unwrap().is_privileged());
@@ -818,8 +830,8 @@ mod tests {
         let setuidstruct = SSetuidSet {
             fallback: "user1".into(),
             default: SetBehavior::All,
-            add: ["cap_chown".into()].into(),
-            sub: ["cap_chown".into()].into(),
+            add: ["user2".into()].into(),
+            sub: ["user3".into()].into(),
         };
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
@@ -841,7 +853,6 @@ mod tests {
     fn test_unknown_fields() {
         let config = r#"
         {
-            "version": "1.0.0",
             "options": {
                 "path": {
                     "default": "delete",
@@ -967,7 +978,6 @@ mod tests {
     fn test_deserialize_alias() {
         let config = r#"
         {
-            "version": "1.0.0",
             "options": {
                 "path": {
                     "default": "delete",
@@ -1076,5 +1086,63 @@ mod tests {
         );
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
         assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let config = SConfig::builder().role(
+            SRole::builder("role1")
+                .actor(SActor::user("user1").build())
+                .actor(SActor::group([SGroupType::from("group1"), SGroupType::from(1000)]).build())
+                .task(
+                    STask::builder("task1")
+                        .purpose("purpose1".into())
+                        .cred(
+                            SCredentials::builder()
+                                .setuid(SUserChooser::ChooserStruct(
+                                    SSetuidSet::builder("user1", SetBehavior::All)
+                                        .add(["user2".into()])
+                                        .sub(["user3".into()])
+                                        .build(),
+                                ))
+                                .setgid(["setgid1"])
+                                .capabilities(
+                                    SCapabilities::builder(SetBehavior::All)
+                                        .add_cap(Cap::NET_BIND_SERVICE)
+                                        .sub_cap(Cap::SYS_ADMIN)
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .commands(
+                            SCommands::builder(SetBehavior::All)
+                                .add(["cmd1".into()])
+                                .sub(["cmd2".into()])
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        ).options( | opt | opt.path(SPathOptions::builder(PathBehavior::Delete).add(["path_add"]).sub(["path_sub"]).build())
+            .env(SEnvOptions::builder(EnvBehavior::Delete).override_behavior(true).keep(["keep_env"]).unwrap().check(["check_env"]).unwrap().build())
+            .root(SPrivileged::Privileged)
+            .bounding(SBounding::Ignore)
+            .authentication(SAuthentication::Skip)
+            .wildcard_denied("wildcards")
+            .timeout(STimeout::builder().type_field(TimestampType::PPID).duration(Duration::minutes(5)).build())
+            .build()
+        ).build();
+        let config = serde_json::to_string_pretty(&config).unwrap();
+        println!("{}", config);
+    }
+
+
+    #[test]
+    fn test_serialize_operride_behavior_option() {
+        let config = SConfig::builder().options( | opt | opt.env(SEnvOptions::builder(EnvBehavior::Inherit).override_behavior(true).build())
+            .build()
+        ).build();
+        let config = serde_json::to_string(&config).unwrap();
+        assert_eq!(config,"{\"options\":{\"env\":{\"override_behavior\":true}}}");
     }
 }
