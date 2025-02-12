@@ -3,8 +3,9 @@ use std::cmp::Ordering;
 use crate::{
     api::{PluginManager, PluginResultAction},
     database::{
-        finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
+        finder::{Cred, TaskMatch, TaskMatcher},
         structs::{RoleGetter, SRole},
+        FilterMatcher,
     },
 };
 
@@ -82,8 +83,9 @@ mod tests {
     use super::*;
     use crate::{
         database::{
-            finder::UserMin,
-            structs::{IdTask, SActor, SCommand, SCommands, SConfig, STask},
+            actor::SActor,
+            finder::ActorMatchMin,
+            structs::{IdTask, SCommand, SCommands, SConfig, STask},
         },
         rc_refcell,
     };
@@ -112,7 +114,7 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
         role1.as_ref().borrow_mut()._extra_fields.insert(
             "parents".to_string(),
             serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
@@ -128,7 +130,7 @@ mod tests {
             tty: None,
         };
         let mut matcher = TaskMatch::default();
-        matcher.score.user_min = UserMin::UserMatch;
+        matcher.score.user_min = ActorMatchMin::UserMatch;
         let res = find_in_parents(
             &config.as_ref().borrow().roles[1].as_ref().borrow(),
             &cred,
@@ -164,7 +166,7 @@ mod tests {
             .as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
         role1.as_ref().borrow_mut()._extra_fields.insert(
             "parents".to_string(),
             serde_json::Value::Array(vec![serde_json::Value::String("role1".to_string())]),
@@ -180,7 +182,7 @@ mod tests {
             tty: None,
         };
         let mut matcher = TaskMatch::default();
-        matcher.score.user_min = UserMin::UserMatch;
+        matcher.score.user_min = ActorMatchMin::UserMatch;
         let matches = config.matches(&cred, &None, &["ls".to_string()]).unwrap();
         assert_eq!(
             matches.settings.task.upgrade().unwrap(),

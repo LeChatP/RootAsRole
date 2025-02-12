@@ -43,6 +43,7 @@ mod tests {
 
     use rar_common::{
         database::{
+            actor::SActor,
             options::*,
             read_json_config,
             structs::{SCredentials, *},
@@ -62,6 +63,7 @@ mod tests {
     use test_log::test;
 
     fn setup(name: &str) {
+        let file_path = format!("{}.{}", ROOTASROLE, name);
         let versionned = Versioning::new(
             SettingsFile::builder()
                 .storage(
@@ -69,7 +71,7 @@ mod tests {
                         .method(StorageMethod::JSON)
                         .settings(
                             RemoteStorageSettings::builder()
-                                .path(format!("{}.{}", ROOTASROLE, name))
+                                .path(file_path.clone())
                                 .not_immutable()
                                 .build(),
                         )
@@ -151,9 +153,9 @@ mod tests {
                                     .wildcard_denied("*")
                                     .build()
                                 })
-                                .actor(SActor::from_user_id(0))
-                                .actor(SActor::from_group_id(0))
-                                .actor(SActor::from_group_vec_string(vec!["groupA", "groupB"]))
+                                .actor(SActor::user(0).build())
+                                .actor(SActor::group(0).build())
+                                .actor(SActor::group(["groupA", "groupB"]).build())
                                 .task(
                                     STask::builder("t_complete")
                                         .options(|opt| {
@@ -204,10 +206,10 @@ mod tests {
                                                 .setgid(["group1", "group2"])
                                                 .capabilities(
                                                     SCapabilities::builder(SetBehavior::All)
-                                                        .add(Cap::LINUX_IMMUTABLE)
-                                                        .add(Cap::NET_BIND_SERVICE)
-                                                        .sub(Cap::SYS_ADMIN)
-                                                        .sub(Cap::SYS_BOOT)
+                                                        .add_cap(Cap::LINUX_IMMUTABLE)
+                                                        .add_cap(Cap::NET_BIND_SERVICE)
+                                                        .sub_cap(Cap::SYS_ADMIN)
+                                                        .sub_cap(Cap::SYS_BOOT)
                                                         .build(),
                                                 )
                                                 .build(),
@@ -220,30 +222,15 @@ mod tests {
                 )
                 .build(),
         );
-        let path = versionned
-            .data
-            .storage
-            .settings
-            .as_ref()
-            .unwrap()
-            .path
-            .as_ref()
-            .unwrap();
-        let mut file = std::fs::File::create(path).unwrap_or_else(|_| {
+        let mut file = std::fs::File::create(file_path.clone()).unwrap_or_else(|_| {
             panic!(
                 "Failed to create {:?}/{:?} file at",
                 current_dir().unwrap(),
-                path
+                file_path
             )
         });
-
-        file.write_all(
-            serde_json::to_string_pretty(&versionned)
-                .unwrap()
-                .as_bytes(),
-        )
-        .unwrap();
-
+        let jsonstr = serde_json::to_string_pretty(&versionned).unwrap();
+        file.write_all(jsonstr.as_bytes()).unwrap();
         file.flush().unwrap();
     }
 
@@ -438,17 +425,17 @@ mod tests {
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_user_string("user1")));
+            .contains(&SActor::user("user1").build()));
         assert!(config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_string("group1")));
+            .contains(&SActor::group("group1").build()));
         assert!(config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_vec_string(vec!["group2", "group3"])));
+            .contains(&SActor::group(["group2", "group3"]).build()));
         assert!(main(
             &Storage::JSON(config.clone()),
             "r complete revoke -u user1 -g group1 -g group2&group3".split(" "),
@@ -464,17 +451,17 @@ mod tests {
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_user_string("user1")));
+            .contains(&SActor::user("user1").build()));
         assert!(!config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_string("group1")));
+            .contains(&SActor::group("group1").build()));
         assert!(!config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_vec_string(vec!["group2", "group3"])));
+            .contains(&SActor::group(["group2", "group3"]).build()));
         teardown("r_complete_grant_u_user1_g_group1_g_group2_group3");
     }
     #[test]

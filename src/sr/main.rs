@@ -9,8 +9,10 @@ use nix::{
     unistd::{getgroups, getuid, isatty, Group, User},
 };
 use rar_common::database::{
-    finder::{Cred, FilterMatcher, TaskMatch, TaskMatcher},
+    actor::{SGroups, SUserType},
+    finder::{Cred, TaskMatch, TaskMatcher},
     options::EnvBehavior,
+    FilterMatcher,
 };
 use rar_common::database::{options::OptStack, structs::SConfig};
 use rar_common::util::escape_parser_string;
@@ -23,7 +25,7 @@ use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use rar_common::plugin::register_plugins;
 use rar_common::{
     self,
-    database::{read_json_config, structs::SGroups},
+    database::read_json_config,
     util::{
         activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
         setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
@@ -64,6 +66,9 @@ const USAGE: &str = formatcp!(
           Prompt option allows you to override the default password prompt and use a custom one
           
           [default: "Password: "]
+
+  {BOLD}-u, --user <USER>{RST}
+          Specify the user to execute the command as
 
   {BOLD}-i, --info{RST}
           Display rights of executor
@@ -137,10 +142,14 @@ where
     let mut iter = s.into_iter().skip(1);
     let mut role = None;
     let mut task = None;
+    let mut user: Option<SUserType> = None;
     let mut env = None;
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
+            "-u" | "--user" => {
+                user = iter.next().map(|s| escape_parser_string(s).as_str().into());
+            }
             "-S" | "--stdin" => {
                 args.stdin = true;
             }
@@ -180,6 +189,7 @@ where
             .maybe_role(role)
             .maybe_task(task)
             .maybe_env_behavior(env)
+            .maybe_user(user)
             .build(),
     );
     for arg in iter {
@@ -377,7 +387,7 @@ fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optsta
 
 fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
     let uid = execcfg.setuid.as_ref().and_then(|u| {
-        let res = u.into_user().unwrap_or(None);
+        let res = u.fetch_user();
         if let Some(user) = res {
             Some(user.uid.as_raw())
         } else {
@@ -386,7 +396,7 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
     });
     let gid = execcfg.setgroups.as_ref().and_then(|g| match g {
         SGroups::Single(g) => {
-            let res = g.into_group().unwrap_or(None);
+            let res = g.fetch_group();
             if let Some(group) = res {
                 Some(group.gid.as_raw())
             } else {
@@ -394,7 +404,7 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
             }
         }
         SGroups::Multiple(g) => {
-            let res = g.first().unwrap().into_group().unwrap_or(None);
+            let res = g.first().unwrap().fetch_group();
             if let Some(group) = res {
                 Some(group.gid.as_raw())
             } else {
@@ -404,7 +414,7 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
     });
     let groups = execcfg.setgroups.as_ref().and_then(|g| match g {
         SGroups::Single(g) => {
-            let res = g.into_group().unwrap_or(None);
+            let res = g.fetch_group();
             if let Some(group) = res {
                 Some(vec![group.gid.as_raw()])
             } else {
@@ -412,7 +422,7 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
             }
         }
         SGroups::Multiple(g) => {
-            let res = g.iter().map(|g| g.into_group().unwrap_or(None));
+            let res = g.iter().map(|g| g.fetch_group());
             let mut groups = Vec::new();
             for group in res.flatten() {
                 groups.push(group.gid.as_raw());
@@ -432,13 +442,12 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
 mod tests {
     use libc::getgid;
     use nix::unistd::Pid;
+    use rar_common::database::actor::SActor;
     use rar_common::rc_refcell;
 
     use super::*;
     use rar_common::database::make_weak_config;
-    use rar_common::database::structs::{
-        IdTask, SActor, SCommand, SCommands, SConfig, SRole, STask,
-    };
+    use rar_common::database::structs::{IdTask, SCommand, SCommands, SConfig, SRole, STask};
 
     #[test]
     fn test_from_json_execution_settings() {
@@ -470,7 +479,7 @@ mod tests {
         role.as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_user_id(0));
+            .push(SActor::user(0).build());
         role.as_ref().borrow_mut().tasks.push(task);
         let task = rc_refcell!(STask::default());
         task.as_ref().borrow_mut().name = IdTask::Name("task2".to_owned());

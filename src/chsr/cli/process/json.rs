@@ -10,7 +10,7 @@ use rar_common::database::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
         STimeout,
     },
-    structs::{IdTask, RoleGetter, SCapabilities, SCommand, SRole, STask},
+    structs::{IdTask, RoleGetter, SCapabilities, SCommand, SRole, STask, SUserChooser},
 };
 
 use super::perform_on_target_opt;
@@ -271,7 +271,7 @@ pub fn grant_revoke(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     action: InputAction,
-    mut actors: Vec<rar_common::database::structs::SActor>,
+    mut actors: Vec<rar_common::database::actor::SActor>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 grant|revoke");
     let role = rconfig.role(&role_id).ok_or("Role not found")?;
@@ -310,8 +310,8 @@ pub fn cred_set(
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<rar_common::database::structs::SActorType>,
-    cred_setgid: Option<rar_common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::actor::SUserType>,
+    cred_setgid: Option<rar_common::database::actor::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
     match rconfig.task(&role_id, task_id) {
@@ -320,7 +320,7 @@ pub fn cred_set(
                 task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
             }
             if let Some(setuid) = cred_setuid {
-                task.as_ref().borrow_mut().cred.setuid = Some(setuid);
+                task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::Actor(setuid));
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid = Some(setgid);
@@ -336,8 +336,8 @@ pub fn cred_unset(
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<rar_common::database::structs::SActorType>,
-    cred_setgid: Option<rar_common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::actor::SUserType>,
+    cred_setgid: Option<rar_common::database::actor::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
     match rconfig.task(&role_id, task_id) {

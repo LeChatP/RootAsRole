@@ -109,6 +109,7 @@ pub struct Settings {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Builder)]
+#[derive(Default)]
 pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(name = not_immutable,with = || false)]
@@ -193,21 +194,7 @@ impl Default for Settings {
     }
 }
 
-impl Default for RemoteStorageSettings {
-    fn default() -> Self {
-        Self {
-            immutable: None,
-            path: None,
-            host: None,
-            port: None,
-            auth: None,
-            database: None,
-            schema: None,
-            table_prefix: None,
-            properties: None,
-        }
-    }
-}
+
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();

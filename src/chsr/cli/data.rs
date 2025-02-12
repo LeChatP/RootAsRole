@@ -6,11 +6,12 @@ use linked_hash_set::LinkedHashSet;
 
 use pest_derive::Parser;
 use rar_common::database::{
+    actor::{SActor, SGroups, SUserType},
     options::{
         EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
         TimestampType,
     },
-    structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
+    structs::{IdTask, SetBehavior},
 };
 
 #[derive(Parser)]
@@ -74,7 +75,7 @@ pub struct Inputs {
     pub cmd_policy: Option<SetBehavior>,
     pub cmd_id: Option<Vec<String>>,
     pub cred_caps: Option<CapSet>,
-    pub cred_setuid: Option<SActorType>,
+    pub cred_setuid: Option<SUserType>,
     pub cred_setgid: Option<SGroups>,
     pub cred_policy: Option<SetBehavior>,
     pub options: bool,

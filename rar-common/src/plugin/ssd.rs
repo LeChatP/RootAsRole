@@ -8,8 +8,9 @@ use crate::{
     api::{PluginManager, PluginResult},
     as_borrow,
     database::{
+        actor::{SActor, SGroups},
         finder::Cred,
-        structs::{RoleGetter, SActor, SConfig, SGroups, SRole},
+        structs::{RoleGetter, SConfig, SRole},
     },
 };
 
@@ -148,7 +149,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        database::structs::{SActor, SConfig, SRole},
+        database::structs::{SConfig, SRole},
         rc_refcell,
     };
     use nix::unistd::{Group, Pid};
@@ -157,21 +158,21 @@ mod tests {
     #[test]
     fn test_user_contained_in() {
         let user = User::from_uid(0.into()).unwrap().unwrap();
-        let actors = vec![SActor::from_user_id(0)];
+        let actors = vec![SActor::user(0).build()];
         assert!(user_contained_in(&user, &actors));
     }
 
     #[test]
     fn test_group_contained_in() {
         let group = Group::from_gid(0.into()).unwrap().unwrap();
-        let actors = vec![SActor::from_group_id(0)];
+        let actors = vec![SActor::group(0).build()];
         assert!(group_contained_in(&group, &actors));
     }
 
     #[test]
     fn test_groups_subset_of() {
         let groups = vec![Group::from_gid(0.into()).unwrap().unwrap()];
-        let actors = vec![SActor::from_group_id(0)];
+        let actors = vec![SActor::group(0).build()];
         assert!(groups_subset_of(&groups, &actors));
     }
 
@@ -189,7 +190,7 @@ mod tests {
         let sconfig = SConfig::builder()
             .role(
                 SRole::builder("role1".to_string())
-                    .actor(SActor::from_group_id(0))
+                    .actor(SActor::group(0).build())
                     .build(),
             )
             .build();
@@ -206,7 +207,7 @@ mod tests {
         role.as_ref()
             .borrow_mut()
             .actors
-            .push(SActor::from_group_id(0));
+            .push(SActor::group(0).build());
         role.as_ref().borrow_mut()._extra_fields.insert(
             "ssd".to_string(),
             serde_json::Value::Array(vec![Value::String("role1".to_string())]),
