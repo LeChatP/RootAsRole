@@ -37,17 +37,17 @@ use super::{
     FilterMatcher,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, EnumIs)]
 pub enum MatchError {
-    NoMatch,
-    Conflict,
+    NoMatch(String),
+    Conflict(String),
 }
 
 impl Display for MatchError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MatchError::NoMatch => write!(f, "No match"),
-            MatchError::Conflict => write!(f, "Conflict"),
+            MatchError::NoMatch(reason) => write!(f, "No match because : {}", reason),
+            MatchError::Conflict(reason) => write!(f, "Conflict because : {}", reason),
         }
     }
 }
@@ -55,8 +55,8 @@ impl Display for MatchError {
 impl Error for MatchError {
     fn description(&self) -> &str {
         match self {
-            MatchError::NoMatch => "No match",
-            MatchError::Conflict => "Conflict",
+            MatchError::NoMatch(_) => "No match",
+            MatchError::Conflict(_) => "Conflict",
         }
     }
 }
@@ -434,7 +434,7 @@ fn evaluate_regex_cmd(role_args: String, commandline: String) -> Result<CmdMin, 
     if regex.is_match(commandline.as_bytes())? {
         Ok(CmdMin::RegexArgs)
     } else {
-        Err(Box::new(MatchError::NoMatch))
+        Err(Box::new(MatchError::NoMatch("Regex for command does not match".to_string())))
     }
 }
 
@@ -670,7 +670,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             if let Some(task) = &cmd_opt.task {
                 if task != &self.as_ref().borrow().name.to_string() {
                     debug!("Task {} does not match", self.as_ref().borrow().name);
-                    return Err(MatchError::NoMatch);
+                    return Err(MatchError::NoMatch("Task name does not match".to_string()));
                 }
             }
         }
@@ -708,13 +708,13 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                     .borrow()
                     .env
                     .as_ref()
-                    .is_some_and(|env| !env.override_behavior || env.default_behavior == *behavior)
+                    .is_some_and(|env| !env.override_behavior.is_some_and(|b| b) || env.default_behavior == *behavior)
                 // but the polcy deny it and the behavior is not the same as the default one
                 // we return NoMatch
                 // (explaination: if the behavior is the same as the default one, we don't override it)
             })
         {
-            return Err(MatchError::NoMatch);
+            return Err(MatchError::NoMatch("The user wants to override the behavior but the policy deny it".to_string()));
         }
         // Processing setuid
         let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
@@ -723,25 +723,24 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
             Some(SUserChooser::ChooserStruct(t)) => {
                 match cmd_opt.as_ref().and_then(|cmd| cmd.user.as_ref()) {
                     None => {
-                        println!(
+                        debug!(
                             "Aucun utilisateur spécifié dans la commande, fallback utilisé : {:?}",
                             t.fallback
                         );
                         Some(t.fallback.clone()) // Retourne le fallback si aucun utilisateur n'est spécifié
                     }
                     Some(user) => {
-                        println!("Utilisateur spécifié dans la commande : {}", user);
+                        debug!("Utilisateur spécifié dans la commande : {}", user);
 
                         // Comparer l'utilisateur spécifié avec le fallback
                         if user.fetch_eq(&t.fallback) {
-                            println!(
+                            debug!(
                                 "L'utilisateur spécifié dans la commande correspond au fallback !"
                             );
                             Some(t.fallback.clone()) // Si l'utilisateur correspond au fallback, utiliser le fallback
                         } else if t.sub.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement interdit dans `sub`
-                            println!("L'utilisateur est interdit dans sub.");
-                            return Err(MatchError::NoMatch);
+                            return Err(MatchError::NoMatch("L'utilisateur est interdit dans sub.".into()));
                         } else if t.add.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement autorisé dans `add`
 
@@ -750,11 +749,10 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             // Aucun match explicite, appliquer le comportement par défaut
                             match t.default {
                                 SetBehavior::None => {
-                                    println!("Aucun comportement par défaut applicable.");
-                                    return Err(MatchError::NoMatch); // Aucun utilisateur par défaut
+                                    return Err(MatchError::NoMatch("Aucun comportement par défaut applicable.".into())); // Aucun utilisateur par défaut
                                 }
                                 SetBehavior::All => {
-                                    println!("Tous les utilisateurs sont acceptés.");
+                                    debug!("Tous les utilisateurs sont acceptés.");
                                     Some(user.clone()) // Tout utilisateur accepté
                                 }
                             }
@@ -807,7 +805,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
         let is_forbidden = get_cmd_min(input_command, &self.sub);
         if !is_forbidden.is_empty() {
             debug!("Command is forbidden");
-            return Err(MatchError::NoMatch);
+            return Err(MatchError::NoMatch("Command is forbidden".to_string()));
         }
         // otherwise, we check if behavior is No command allowed by default
         if get_default_behavior(&self.default_behavior).is_none() {
@@ -815,7 +813,7 @@ impl TaskMatcher<TaskMatch> for SCommands {
             // if the behavior is No command by default, we check if the command is allowed explicitly.
             min_score = get_cmd_min(input_command, &self.add);
             if min_score.is_empty() {
-                return Err(MatchError::NoMatch);
+                return Err(MatchError::NoMatch("Command is not allowed".to_string()));
             }
         } else {
             min_score = CmdMin::all();
@@ -937,10 +935,10 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
                     }
                 }
                 Err(err) => match err {
-                    MatchError::NoMatch => {
+                    MatchError::NoMatch(_) => {
                         continue;
                     }
-                    MatchError::Conflict => {
+                    MatchError::Conflict(_) => {
                         return Err(err);
                     }
                 },
@@ -948,11 +946,11 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
         }
         debug!("nmatch = {}", nmatch);
         if nmatch == 0 {
-            Err(MatchError::NoMatch)
+            Err(MatchError::NoMatch("No tasks matched".into()))
         } else if nmatch == 1 {
             Ok(min_task)
         } else {
-            Err(MatchError::Conflict)
+            Err(MatchError::Conflict("Multiple tasks matched".into()))
         }
     }
 }
@@ -983,7 +981,7 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<SRole>>> {
                     }
                 }
                 Err(err) => {
-                    if err == MatchError::NoMatch {
+                    if err.is_no_match() {
                         continue;
                     } else {
                         return Err(err);
@@ -992,11 +990,11 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<SRole>>> {
             }
         }
         if nmatch == 0 {
-            Err(MatchError::NoMatch)
+            Err(MatchError::NoMatch("No roles matched".into()))
         } else if nmatch == 1 {
             Ok(min_role)
         } else {
-            Err(MatchError::Conflict)
+            Err(MatchError::Conflict("Multiple roles matched".into()))
         }
     }
 }
@@ -1011,7 +1009,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
         if let Some(cmd_opt) = cmd_opt {
             if let Some(role) = &cmd_opt.role {
                 if role != &self.as_ref().borrow().name {
-                    return Err(MatchError::NoMatch);
+                    return Err(MatchError::NoMatch("Role name does not match".to_string()));
                 }
             }
         }
@@ -1031,11 +1029,11 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
                     nmatch = 1;
                 }
             }
-            Err(MatchError::NoMatch) => {
+            Err(MatchError::NoMatch(_)) => {
                 nmatch = 0;
             }
-            Err(MatchError::Conflict) => {
-                return Err(MatchError::Conflict);
+            Err(MatchError::Conflict(msg)) => {
+                return Err(MatchError::Conflict(msg));
             }
         }
         min_role.score.user_min = user_min;
@@ -1054,7 +1052,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
             min_role.score.prettyprint()
         );
         if nmatch == 0 {
-            Err(MatchError::NoMatch)
+            Err(MatchError::NoMatch("No tasks matched".into()))
         } else if nmatch == 1 {
             debug!(
                 "=== Role {} === : Match for task {}\nScore : {}",
@@ -1064,7 +1062,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
             );
             Ok(min_role)
         } else {
-            Err(MatchError::Conflict)
+            Err(MatchError::Conflict("Multiple tasks matched".into()))
         }
     }
 }
@@ -1134,9 +1132,9 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
             } // we ignore error, because it's not a match
         }
         if tasks.is_empty() {
-            Err(MatchError::NoMatch)
+            Err(MatchError::NoMatch("No roles matched".into()))
         } else if tasks.len() > 1 {
-            Err(MatchError::Conflict)
+            Err(MatchError::Conflict("Multiple roles matched".into()))
         } else {
             debug!(
                 "Config : Matched user {}\n - command {:?}\n - with task {}\n - with role {}\n - with score {:?}",
@@ -1762,7 +1760,7 @@ mod tests {
         let result = result.unwrap_err();
 
         // Vérification que l'erreur est bien de type `NoMatch`
-        assert_eq!(result, MatchError::NoMatch);
+        assert!(result.is_no_match());
 
         println!("Test réussi : L'utilisateur spécifié ne correspond pas à la restriction.");
     }
@@ -1810,7 +1808,7 @@ mod tests {
         let result = result.unwrap_err();
 
         // Vérification que l'erreur est bien de type `NoMatch`
-        assert_eq!(result, MatchError::NoMatch);
+        assert!(result.is_no_match());
 
         println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
     }
@@ -1908,7 +1906,7 @@ mod tests {
         let result = result.unwrap_err();
 
         // Vérification que l'erreur est bien de type `NoMatch`
-        assert_eq!(result, MatchError::NoMatch);
+        assert!(result.is_no_match());
 
         println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
     }

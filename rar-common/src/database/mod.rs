@@ -27,7 +27,6 @@ pub mod migration;
 pub mod options;
 pub mod structs;
 pub mod versionning;
-pub mod wrapper;
 
 #[derive(Debug, Default, Builder)]
 #[builder(on(_, overwritable))]

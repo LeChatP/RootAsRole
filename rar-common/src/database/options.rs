@@ -153,9 +153,8 @@ pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
     pub default_behavior: EnvBehavior,
-    #[serde(alias = "override", default, skip_serializing_if = "is_default")]
-    #[builder(default)]
-    pub override_behavior: bool,
+    #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
+    pub override_behavior: Option<bool>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     #[builder(default, with = |iter: impl IntoIterator<Item = (impl ToString, impl ToString)>| {
         let mut map = HashMap::with_hasher(Default::default());
@@ -579,9 +578,7 @@ pub struct OptStack {
 impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     fn opt(mut self, opt: Option<Rc<RefCell<Opt>>>) -> Self {
         if let Some(opt) = opt {
-             println!("setting opt: {:?}", opt.as_ref().borrow().level);
             self.stack[opt.as_ref().borrow().level as usize] = Some(opt.clone());
-            println!("setting opt: {:?}", self.stack);
         }
         self
     }
@@ -1014,7 +1011,6 @@ impl OptStack {
         let overriden = cmd_filter
             .as_ref()
             .is_some_and(|f| f.env_behavior.is_some());
-        println!("self  : {:?}", self);
         self.iter_in_options(|opt| {
             if let Some(p) = opt.env.borrow().as_ref() {
                 final_behavior = match p.default_behavior {
