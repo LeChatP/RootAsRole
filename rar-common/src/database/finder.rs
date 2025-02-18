@@ -2071,7 +2071,7 @@ mod tests {
         // Commande de test
         let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
         // Exécution du match
-        let filter_matcher = FilterMatcher::builder().user("aitbelkacem").build();
+        let filter_matcher = FilterMatcher::builder().user("nouser").build();
 
         let result = config.matches(&cred, &Some(filter_matcher), &command);
 
