@@ -1193,6 +1193,32 @@ mod tests {
     }
 
     #[test]
+    fn test_find_from_envpath() {
+        let needle = PathBuf::from("ls");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, Some("/usr/bin/ls".into()));
+    }
+
+    #[test]
+    fn test_find_from_envpath_absolute_path() {
+        // Avec un chemin absolu
+        let needle = PathBuf::from("/bin/ls");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_from_envpath_not_found() {
+        // Avec un fichier qui n'existe pas dans le PATH.
+        let needle = PathBuf::from("no_path");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, None);
+    }
+
+    #[test]
     fn test_match_path() {
         let result = match_path(&"/bin/ls".to_string(), &"/bin/ls".to_string());
         assert_eq!(result, CmdMin::Match);
@@ -1372,7 +1398,46 @@ mod tests {
                 uid: Some(SetuidMin { is_root: false }),
                 gid: None
             }
-        )
+        );
+        let setuid: Option<SUserType> = Some("root".into());
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), None, &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: None,
+            }
+        );
+        setgid = Some(SGroups::Multiple(vec![1.into(), 2.into()]));
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: Some(SetgidMin {
+                    is_root: false,
+                    nb_groups: 2,
+                }),
+            }
+        );
+        setgid = Some(SGroups::Multiple(vec![]));
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: None,
+            }
+        );
+
+        setgid = Some(SGroups::Multiple(vec![0.into()]));
+        assert_eq!(
+            get_setuid_min(None, setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: None,
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1,
+                }),
+            }
+        );
     }
 
     #[test]
@@ -1973,6 +2038,54 @@ mod tests {
     }
 
     #[test]
+    fn test_setuid_none_add_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+        // Définition du `setuid` avec un `fallback`
+        let fallback_user = SUserType::from(get_non_root_uid());
+        let chooser_struct = SSetuidSet {
+            fallback: fallback_user.clone(),
+            default: SetBehavior::None,
+            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+        // Création des credentials avec l'utilisateur correspondant à l'ajout
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder().user("nouser").build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
+    }
+
+    #[test]
     fn test_equal_settings() {
         let mut settings1 = ExecSettings::new();
         let mut settings2 = ExecSettings::new();
@@ -2032,7 +2145,7 @@ mod tests {
         let command = vec!["/bin/ls".to_string()];
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_ok());
-        assert!(role.as_ref().borrow_mut()[0]
+        role.as_ref().borrow_mut()[0]
             .as_ref()
             .borrow_mut()
             .options
@@ -2044,7 +2157,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .add
-            .insert("/test".to_string()));
+            .replace(["/test".to_string()].iter().cloned().collect());
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_err());
     }

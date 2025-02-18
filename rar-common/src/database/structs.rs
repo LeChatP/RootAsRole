@@ -706,6 +706,7 @@ mod tests {
 
     use capctl::Cap;
     use chrono::Duration;
+    use linked_hash_set::LinkedHashSet;
 
     use crate::{
         as_borrow,
@@ -793,12 +794,28 @@ mod tests {
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
-        assert!(path.add.front().is_some_and(|s| s == "path_add"));
+        let default = LinkedHashSet::new();
+        assert!(path
+            .add
+            .as_ref()
+            .unwrap_or(&default)
+            .front()
+            .is_some_and(|s| s == "path_add"));
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
         assert!(env.override_behavior.is_some_and(|b| b));
-        assert!(env.keep.front().is_some_and(|s| s == "keep_env"));
-        assert!(env.check.front().is_some_and(|s| s == "check_env"));
+        assert!(env
+            .keep
+            .as_ref()
+            .unwrap_or(&LinkedHashSet::new())
+            .front()
+            .is_some_and(|s| s == "keep_env"));
+        assert!(env
+            .check
+            .as_ref()
+            .unwrap_or(&LinkedHashSet::new())
+            .front()
+            .is_some_and(|s| s == "check_env"));
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
@@ -1038,11 +1055,27 @@ mod tests {
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
-        assert!(path.add.front().is_some_and(|s| s == "path_add"));
+        let default = LinkedHashSet::new();
+        assert!(path
+            .add
+            .as_ref()
+            .unwrap_or(&default)
+            .front()
+            .is_some_and(|s| s == "path_add"));
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
-        assert!(env.keep.front().is_some_and(|s| s == "keep_env"));
-        assert!(env.check.front().is_some_and(|s| s == "check_env"));
+        assert!(env
+            .keep
+            .as_ref()
+            .unwrap()
+            .front()
+            .is_some_and(|s| s == "keep_env"));
+        assert!(env
+            .check
+            .as_ref()
+            .unwrap()
+            .front()
+            .is_some_and(|s| s == "check_env"));
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
