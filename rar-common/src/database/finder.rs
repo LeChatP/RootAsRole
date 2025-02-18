@@ -756,7 +756,6 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             // Aucun match explicite, appliquer le comportement par défaut
                             match t.default {
                                 SetBehavior::None => {
-                                    println!("Aucun comportement par défaut applicable.");
                                     return Err(MatchError::NoMatch(
                                         "Aucun comportement par défaut applicable.".into(),
                                     )); // Aucun utilisateur par défaut
