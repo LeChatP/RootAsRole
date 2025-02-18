@@ -1,25 +1,16 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    error::Error,
-    ops::Deref,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, collections::HashMap, error::Error, ops::Deref, rc::Rc};
 
 use linked_hash_set::LinkedHashSet;
-use log::debug;
+use log::{debug, warn};
 
 use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
 
-use rar_common::{
-    database::{
-        options::{
-            EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-            STimeout,
-        },
-        structs::{IdTask, SCapabilities, SCommand, SRole, STask},
+use rar_common::database::{
+    options::{
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
+        STimeout,
     },
-    rc_refcell,
+    structs::{IdTask, RoleGetter, SCapabilities, SCommand, SRole, STask, SUserChooser},
 };
 
 use super::perform_on_target_opt;
@@ -36,8 +27,8 @@ pub fn list_json(
     let config = rconfig.as_ref().borrow();
     debug!("list_json {:?}", config);
     if let Some(role_id) = role_id {
-        if let Some(role) = config.role(&role_id) {
-            list_task(task_id, role, options, options_type, task_type, role_type)
+        if let Some(role) = rconfig.role(&role_id) {
+            list_task(task_id, &role, options, options_type, task_type, role_type)
         } else {
             Err("Role not found".into())
         }
@@ -58,7 +49,8 @@ fn list_task(
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
-                let opt = OptStack::from_task(task.clone()).to_opt();
+                let rcopt = OptStack::from_task(task.clone()).to_opt();
+                let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {
                     match opttype {
                         OptType::Env => {
@@ -84,7 +76,7 @@ fn list_task(
                         }
                     }
                 } else {
-                    println!("{}", serde_json::to_string_pretty(&opt)?);
+                    println!("{}", serde_json::to_string_pretty(&rcopt)?);
                 }
             } else {
                 print_task(task, task_type.unwrap_or(TaskType::All));
@@ -156,30 +148,35 @@ pub fn role_add_del(
     role_type: Option<RoleType>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 {:?}", action);
-    let mut config = rconfig.as_ref().borrow_mut();
     match action {
         InputAction::Add => {
             //verify if role exists
-            if config.role(&role_id).is_some() {
+            if rconfig.role(&role_id).is_some() {
                 return Err("Role already exists".into());
             }
-            config
+            rconfig
+                .as_ref()
+                .borrow_mut()
                 .roles
-                .push(rc_refcell!(SRole::new(role_id, Weak::new())));
+                .push(SRole::builder(role_id).build());
             Ok(true)
         }
         InputAction::Del => {
-            if config.role(&role_id).is_none() {
+            if rconfig.role(&role_id).is_none() {
                 return Err("Role do not exists".into());
             }
-            config.roles.retain(|r| r.as_ref().borrow().name != role_id);
+            rconfig
+                .as_ref()
+                .borrow_mut()
+                .roles
+                .retain(|r| r.as_ref().borrow().name != role_id);
             Ok(true)
         }
         InputAction::Purge => {
-            if config.role(&role_id).is_none() {
+            if rconfig.role(&role_id).is_none() {
                 return Err("Role do not exists".into());
             }
-            let role = config.role(&role_id).unwrap();
+            let role = rconfig.role(&role_id).unwrap();
             match role_type {
                 Some(RoleType::Actors) => {
                     role.as_ref().borrow_mut().actors.clear();
@@ -206,8 +203,7 @@ pub fn task_add_del(
     task_type: Option<TaskType>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 add|del");
-    let config = rconfig.as_ref().borrow_mut();
-    let role = config.role(&role_id).ok_or("Role not found")?;
+    let role = rconfig.role(&role_id).ok_or("Role not found")?;
     match action {
         InputAction::Add => {
             //verify if task exists
@@ -223,7 +219,7 @@ pub fn task_add_del(
             role.as_ref()
                 .borrow_mut()
                 .tasks
-                .push(rc_refcell!(STask::new(task_id, Weak::new())));
+                .push(STask::builder(task_id).build());
             Ok(true)
         }
         InputAction::Del => {
@@ -275,11 +271,10 @@ pub fn grant_revoke(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: String,
     action: InputAction,
-    mut actors: Vec<rar_common::database::structs::SActor>,
+    mut actors: Vec<rar_common::database::actor::SActor>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 grant|revoke");
-    let config = rconfig.as_ref().borrow_mut();
-    let role = config.role(&role_id).ok_or("Role not found")?;
+    let role = rconfig.role(&role_id).ok_or("Role not found")?;
     match action {
         InputAction::Add => {
             //verify if actor is already in role
@@ -315,18 +310,17 @@ pub fn cred_set(
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<rar_common::database::structs::SActorType>,
-    cred_setgid: Option<rar_common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::actor::SUserType>,
+    cred_setgid: Option<rar_common::database::actor::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
-    let config = rconfig.as_ref().borrow_mut();
-    match config.task(&role_id, &task_id) {
+    match rconfig.task(&role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
                 task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
             }
             if let Some(setuid) = cred_setuid {
-                task.as_ref().borrow_mut().cred.setuid = Some(setuid);
+                task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::Actor(setuid));
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid = Some(setgid);
@@ -342,12 +336,11 @@ pub fn cred_unset(
     role_id: String,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
-    cred_setuid: Option<rar_common::database::structs::SActorType>,
-    cred_setgid: Option<rar_common::database::structs::SGroups>,
+    cred_setuid: Option<rar_common::database::actor::SUserType>,
+    cred_setgid: Option<rar_common::database::actor::SGroups>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
-    let config = rconfig.as_ref().borrow_mut();
-    match config.task(&role_id, &task_id) {
+    match rconfig.task(&role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
                 if caps.is_empty() {
@@ -379,8 +372,7 @@ pub fn cred_caps(
     cred_caps: capctl::CapSet,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred caps");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     match setlist_type {
         SetListType::White => match action {
             InputAction::Add => {
@@ -457,8 +449,7 @@ pub fn cred_setpolicy(
     cred_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred setpolicy");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     if task.as_ref().borrow_mut().cred.capabilities.is_none() {
         task.as_ref()
             .borrow_mut()
@@ -530,8 +521,7 @@ pub fn cmd_whitelist_action(
     action: InputAction,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command whitelist add c1");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     let cmd = SCommand::Simple(shell_words::join(cmd_id.iter()));
     match setlist_type {
         SetListType::White => match action {
@@ -587,8 +577,7 @@ pub fn cmd_setpolicy(
     cmd_policy: rar_common::database::structs::SetBehavior,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command setpolicy");
-    let config = rconfig.as_ref().borrow_mut();
-    let task = config.task(&role_id, &task_id)?;
+    let task = rconfig.task(&role_id, task_id)?;
     task.as_ref()
         .borrow_mut()
         .commands
@@ -609,14 +598,14 @@ pub fn env_set_policylist(
         opt.as_ref().borrow_mut().env = Some(SEnvOptions {
             default_behavior: options_env_policy,
             keep: if options_env_policy.is_delete() {
-                options_env.clone()
+                Some(options_env.clone())
             } else {
-                LinkedHashSet::new()
+                None
             },
             delete: if options_env_policy.is_keep() {
-                options_env.clone()
+                Some(options_env.clone())
             } else {
-                LinkedHashSet::new()
+                None
             },
             ..Default::default()
         });
@@ -676,19 +665,18 @@ pub fn path_set(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        let path = binding.path.get_or_insert(SPathOptions::default());
         match setlist_type {
             Some(SetListType::White) => {
-                path.add = options_path.split(':').map(|s| s.to_string()).collect();
+                path.add = Some(options_path.split(':').map(|s| s.to_string()).collect());
             }
             Some(SetListType::Black) => {
-                path.sub = options_path.split(':').map(|s| s.to_string()).collect();
+                path.sub = Some(options_path.split(':').map(|s| s.to_string()).collect());
             }
             None => {
                 path.default_behavior = PathBehavior::Delete;
-                path.add = options_path.split(':').map(|s| s.to_string()).collect();
+                path.add = Some(options_path.split(':').map(|s| s.to_string()).collect());
             }
             _ => unreachable!("Unknown setlist type"),
         }
@@ -705,15 +693,18 @@ pub fn path_purge(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        let path = binding.path.get_or_insert(SPathOptions::default());
         match setlist_type {
             Some(SetListType::White) => {
-                path.add.clear();
+                if let Some(add) = &mut path.add {
+                    add.clear();
+                }
             }
             Some(SetListType::Black) => {
-                path.sub.clear();
+                if let Some(sub) = &mut path.sub {
+                    sub.clear();
+                }
             }
             _ => unreachable!("Unknown setlist type"),
         }
@@ -731,22 +722,21 @@ pub fn env_whitelist_set(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o env whitelist set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        let env = binding.env.get_or_insert(SEnvOptions::default());
         match setlist_type {
             Some(SetListType::White) => {
-                env.keep = options_env.clone();
+                env.keep = Some(options_env.clone());
             }
             Some(SetListType::Black) => {
-                env.delete = options_env.clone();
+                env.delete = Some(options_env.clone());
             }
             Some(SetListType::Check) => {
-                env.check = options_env.clone();
+                env.check = Some(options_env.clone());
             }
             None => {
                 env.default_behavior = EnvBehavior::Delete;
-                env.keep = options_env.clone();
+                env.keep = Some(options_env.clone());
             }
             _ => unreachable!("Unknown setlist type"),
         }
@@ -827,6 +817,7 @@ pub fn path_setlist2(
             Some(SetListType::White) => match action {
                 InputAction::Add => {
                     path.add
+                        .get_or_insert(LinkedHashSet::new())
                         .extend(options_path.split(':').map(|s| s.to_string()));
                 }
                 InputAction::Del => {
@@ -835,20 +826,24 @@ pub fn path_setlist2(
                         .split(':')
                         .map(|s| s.to_string())
                         .collect::<LinkedHashSet<String>>();
-                    path.add = path
-                        .add
-                        .difference(&hashset)
-                        .cloned()
-                        .collect::<LinkedHashSet<String>>();
+                    if let Some(path) = &mut path.add {
+                        *path = path
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<LinkedHashSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
                 }
                 InputAction::Set => {
-                    path.add = options_path.split(':').map(|s| s.to_string()).collect();
+                    path.add = Some(options_path.split(':').map(|s| s.to_string()).collect());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
                     path.sub
+                        .get_or_insert(LinkedHashSet::new())
                         .extend(options_path.split(':').map(|s| s.to_string()));
                 }
                 InputAction::Del => {
@@ -857,14 +852,17 @@ pub fn path_setlist2(
                         .split(':')
                         .map(|s| s.to_string())
                         .collect::<LinkedHashSet<String>>();
-                    path.sub = path
-                        .sub
-                        .difference(&hashset)
-                        .cloned()
-                        .collect::<LinkedHashSet<String>>();
+                    if let Some(path) = &mut path.sub {
+                        *path = path
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<LinkedHashSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
                 }
                 InputAction::Set => {
-                    path.sub = options_path.split(':').map(|s| s.to_string()).collect();
+                    path.sub = Some(options_path.split(':').map(|s| s.to_string()).collect());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
@@ -913,36 +911,33 @@ pub fn env_setlist_add(
         let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
         let env = binding.env.as_mut().unwrap_or(&mut default_env);
+
         match setlist_type {
             Some(SetListType::White) => match action {
                 InputAction::Add => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.keep.extend(options_key_env.as_ref().unwrap().clone());
+                    env.keep
+                        .get_or_insert(LinkedHashSet::new())
+                        .extend(options_key_env.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.keep = env
-                        .keep
-                        .difference(
-                            &options_key_env
-                                .as_ref()
-                                .unwrap()
-                                .iter()
-                                .cloned()
-                                .collect::<LinkedHashSet<EnvKey>>(),
-                        )
-                        .cloned()
-                        .collect::<LinkedHashSet<EnvKey>>();
+                    if let Some(keep) = &mut env.keep {
+                        *keep = keep
+                            .difference(options_key_env.as_ref().unwrap())
+                            .cloned()
+                            .collect::<LinkedHashSet<EnvKey>>();
+                    }
                 }
                 InputAction::Purge => {
-                    env.keep = LinkedHashSet::new();
+                    env.keep = None;
                 }
                 InputAction::Set => {
-                    env.keep = options_key_env.as_ref().unwrap().clone();
+                    env.keep = Some(options_key_env.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
@@ -951,23 +946,26 @@ pub fn env_setlist_add(
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.delete.extend(options_key_env.as_ref().unwrap().clone());
+                    env.delete
+                        .get_or_insert(LinkedHashSet::new())
+                        .extend(options_key_env.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.delete = env
-                        .delete
-                        .difference(options_key_env.as_ref().unwrap())
-                        .cloned()
-                        .collect::<LinkedHashSet<EnvKey>>();
+                    if let Some(delete) = &mut env.delete {
+                        *delete = delete
+                            .difference(options_key_env.as_ref().unwrap())
+                            .cloned()
+                            .collect::<LinkedHashSet<EnvKey>>();
+                    }
                 }
                 InputAction::Purge => {
-                    env.delete = LinkedHashSet::new();
+                    env.delete = None;
                 }
                 InputAction::Set => {
-                    env.delete = options_key_env.as_ref().unwrap().clone();
+                    env.delete = Some(options_key_env.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
@@ -976,23 +974,26 @@ pub fn env_setlist_add(
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.check.extend(options_key_env.as_ref().unwrap().clone());
+                    env.check
+                        .get_or_insert(LinkedHashSet::new())
+                        .extend(options_key_env.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     if options_key_env.is_none() {
                         return Err("Empty list".into());
                     }
-                    env.check = env
-                        .check
-                        .difference(options_key_env.as_ref().unwrap())
-                        .cloned()
-                        .collect::<LinkedHashSet<EnvKey>>();
+                    if let Some(check) = &mut env.check {
+                        *check = check
+                            .difference(options_key_env.as_ref().unwrap())
+                            .cloned()
+                            .collect::<LinkedHashSet<EnvKey>>();
+                    }
                 }
                 InputAction::Set => {
-                    env.check = options_key_env.as_ref().unwrap().clone();
+                    env.check = Some(options_key_env.as_ref().unwrap().clone());
                 }
                 InputAction::Purge => {
-                    env.check = LinkedHashSet::new();
+                    env.check = None;
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
@@ -1019,7 +1020,7 @@ pub fn env_setlist_add(
             },
             None => match action {
                 InputAction::Set => {
-                    env.keep = options_key_env.as_ref().unwrap().clone();
+                    env.keep = Some(options_key_env.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },

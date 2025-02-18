@@ -9,9 +9,13 @@ use serde_json::Value;
 use strum::EnumIs;
 
 #[cfg(feature = "finder")]
-use crate::database::finder::{Cred, ExecSettings, FilterMatcher, TaskMatch, UserMin};
+use crate::database::finder::{ActorMatchMin, Cred, ExecSettings, TaskMatch};
+use crate::database::FilterMatcher;
 
-use crate::database::structs::{SActor, SConfig, SRole, STask};
+use crate::database::{
+    actor::SActor,
+    structs::{SConfig, SRole, STask},
+};
 use once_cell::sync::Lazy;
 static API: Lazy<Mutex<PluginManager>> = Lazy::new(|| Mutex::new(PluginManager::new()));
 
@@ -52,7 +56,7 @@ pub type TaskMatcher = fn(
     matcher: &mut TaskMatch,
 ) -> PluginResultAction;
 #[cfg(feature = "finder")]
-pub type UserMatcher = fn(role: &SRole, user: &Cred, user_struct: &Value) -> UserMin;
+pub type UserMatcher = fn(role: &SRole, user: &Cred, user_struct: &Value) -> ActorMatchMin;
 
 pub type RoleInformation = fn(role: &SRole) -> Option<String>;
 pub type ActorInformation = fn(actor: &SActor) -> Option<String>;
@@ -200,7 +204,7 @@ impl PluginManager {
     }
 
     #[cfg(feature = "finder")]
-    pub fn notify_user_matcher(role: &SRole, user: &Cred, user_struct: &Value) -> UserMin {
+    pub fn notify_user_matcher(role: &SRole, user: &Cred, user_struct: &Value) -> ActorMatchMin {
         let api = API.lock().unwrap();
         for plugin in api.user_matcher_plugins.iter() {
             let res = plugin(role, user, user_struct);
@@ -208,7 +212,7 @@ impl PluginManager {
                 return res;
             }
         }
-        UserMin::NoMatch
+        ActorMatchMin::NoMatch
     }
 
     #[cfg(feature = "finder")]

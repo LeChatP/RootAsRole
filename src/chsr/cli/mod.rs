@@ -39,18 +39,20 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{env::current_dir, io::Write, rc::Rc};
+    use std::{env::current_dir, io::Write};
 
+    use linked_hash_set::LinkedHashSet;
     use rar_common::{
         database::{
+            actor::SActor,
             options::*,
             read_json_config,
             structs::{SCredentials, *},
             versionning::Versioning,
         },
-        get_settings, rc_refcell,
+        get_settings,
         util::remove_with_privileges,
-        RemoteStorageSettings, SettingsFile, Storage, StorageMethod,
+        RemoteStorageSettings, Settings, SettingsFile, Storage, StorageMethod,
     };
 
     use crate::ROOTASROLE;
@@ -62,123 +64,174 @@ mod tests {
     use test_log::test;
 
     fn setup(name: &str) {
-        //Write json test json file
-        let path = format!("{}.{}", ROOTASROLE, name);
-        let mut file = std::fs::File::create(path.clone()).unwrap_or_else(|_| {
+        let file_path = format!("{}.{}", ROOTASROLE, name);
+        let versionned = Versioning::new(
+            SettingsFile::builder()
+                .storage(
+                    Settings::builder()
+                        .method(StorageMethod::JSON)
+                        .settings(
+                            RemoteStorageSettings::builder()
+                                .path(file_path.clone())
+                                .not_immutable()
+                                .build(),
+                        )
+                        .build(),
+                )
+                .config(
+                    SConfig::builder()
+                        .options(|opt| {
+                            opt.timeout(
+                                STimeout::builder()
+                                    .type_field(TimestampType::PPID)
+                                    .duration(
+                                        TimeDelta::hours(15)
+                                            .checked_add(&TimeDelta::minutes(30))
+                                            .unwrap()
+                                            .checked_add(&TimeDelta::seconds(30))
+                                            .unwrap(),
+                                    )
+                                    .max_usage(1)
+                                    .build(),
+                            )
+                            .path(
+                                SPathOptions::builder(PathBehavior::Delete)
+                                    .add(["path1", "path2"])
+                                    .sub(["path3", "path4"])
+                                    .build(),
+                            )
+                            .env(
+                                SEnvOptions::builder(EnvBehavior::Delete)
+                                    .keep(["env1", "env2"])
+                                    .unwrap()
+                                    .check(["env3", "env4"])
+                                    .unwrap()
+                                    .delete(["env5", "env6"])
+                                    .unwrap()
+                                    .set([("env7", "val7"), ("env8", "val8")])
+                                    .build(),
+                            )
+                            .root(SPrivileged::Privileged)
+                            .bounding(SBounding::Ignore)
+                            .wildcard_denied("*")
+                            .build()
+                        })
+                        .role(
+                            SRole::builder("complete")
+                                .options(|opt| {
+                                    opt.timeout(
+                                        STimeout::builder()
+                                            .type_field(TimestampType::PPID)
+                                            .duration(
+                                                TimeDelta::hours(15)
+                                                    .checked_add(&TimeDelta::minutes(30))
+                                                    .unwrap()
+                                                    .checked_add(&TimeDelta::seconds(30))
+                                                    .unwrap(),
+                                            )
+                                            .max_usage(1)
+                                            .build(),
+                                    )
+                                    .path(
+                                        SPathOptions::builder(PathBehavior::Delete)
+                                            .add(["path1", "path2"])
+                                            .sub(["path3", "path4"])
+                                            .build(),
+                                    )
+                                    .env(
+                                        SEnvOptions::builder(EnvBehavior::Delete)
+                                            .keep(["env1", "env2"])
+                                            .unwrap()
+                                            .check(["env3", "env4"])
+                                            .unwrap()
+                                            .delete(["env5", "env6"])
+                                            .unwrap()
+                                            .set([("env7", "val7"), ("env8", "val8")])
+                                            .build(),
+                                    )
+                                    .root(SPrivileged::Privileged)
+                                    .bounding(SBounding::Ignore)
+                                    .wildcard_denied("*")
+                                    .build()
+                                })
+                                .actor(SActor::user(0).build())
+                                .actor(SActor::group(0).build())
+                                .actor(SActor::group(["groupA", "groupB"]).build())
+                                .task(
+                                    STask::builder("t_complete")
+                                        .options(|opt| {
+                                            opt.timeout(
+                                                STimeout::builder()
+                                                    .type_field(TimestampType::PPID)
+                                                    .duration(
+                                                        TimeDelta::hours(15)
+                                                            .checked_add(&TimeDelta::minutes(30))
+                                                            .unwrap()
+                                                            .checked_add(&TimeDelta::seconds(30))
+                                                            .unwrap(),
+                                                    )
+                                                    .max_usage(1)
+                                                    .build(),
+                                            )
+                                            .path(
+                                                SPathOptions::builder(PathBehavior::Delete)
+                                                    .add(["path1", "path2"])
+                                                    .sub(["path3", "path4"])
+                                                    .build(),
+                                            )
+                                            .env(
+                                                SEnvOptions::builder(EnvBehavior::Delete)
+                                                    .keep(["env1", "env2"])
+                                                    .unwrap()
+                                                    .check(["env3", "env4"])
+                                                    .unwrap()
+                                                    .delete(["env5", "env6"])
+                                                    .unwrap()
+                                                    .set([("env7", "val7"), ("env8", "val8")])
+                                                    .build(),
+                                            )
+                                            .root(SPrivileged::Privileged)
+                                            .bounding(SBounding::Ignore)
+                                            .wildcard_denied("*")
+                                            .build()
+                                        })
+                                        .commands(
+                                            SCommands::builder(SetBehavior::All)
+                                                .add(["ls".into(), "echo".into()])
+                                                .sub(["cat".into(), "grep".into()])
+                                                .build(),
+                                        )
+                                        .cred(
+                                            SCredentials::builder()
+                                                .setuid("user1")
+                                                .setgid(["group1", "group2"])
+                                                .capabilities(
+                                                    SCapabilities::builder(SetBehavior::All)
+                                                        .add_cap(Cap::LINUX_IMMUTABLE)
+                                                        .add_cap(Cap::NET_BIND_SERVICE)
+                                                        .sub_cap(Cap::SYS_ADMIN)
+                                                        .sub_cap(Cap::SYS_BOOT)
+                                                        .build(),
+                                                )
+                                                .build(),
+                                        )
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        );
+        let mut file = std::fs::File::create(file_path.clone()).unwrap_or_else(|_| {
             panic!(
-                "Failed to create {:?}/{} file at",
+                "Failed to create {:?}/{:?} file at",
                 current_dir().unwrap(),
-                path
+                file_path
             )
         });
-        let mut settings = SettingsFile::default();
-        settings.storage.method = StorageMethod::JSON;
-        settings.storage.settings = Some(RemoteStorageSettings::default());
-        settings.storage.settings.as_mut().unwrap().path = Some(path.into());
-        settings.storage.settings.as_mut().unwrap().immutable = Some(false);
-
-        let mut opt = Opt::default();
-
-        opt.timeout = Some(STimeout::default());
-        opt.timeout.as_mut().unwrap().type_field = Some(TimestampType::PPID);
-        opt.timeout.as_mut().unwrap().duration = Some(
-            TimeDelta::hours(15)
-                .checked_add(&TimeDelta::minutes(30))
-                .unwrap()
-                .checked_add(&TimeDelta::seconds(30))
-                .unwrap(),
-        );
-        opt.timeout.as_mut().unwrap().max_usage = Some(1);
-
-        opt.path = Some(SPathOptions::default());
-        opt.path.as_mut().unwrap().default_behavior = PathBehavior::Delete;
-        opt.path.as_mut().unwrap().add = vec!["path1".to_string(), "path2".to_string()]
-            .into_iter()
-            .collect();
-        opt.path.as_mut().unwrap().sub = vec!["path3".to_string(), "path4".to_string()]
-            .into_iter()
-            .collect();
-
-        opt.env = Some(SEnvOptions::default());
-        opt.env.as_mut().unwrap().default_behavior = EnvBehavior::Delete;
-        opt.env.as_mut().unwrap().keep = vec!["env1".into(), "env2".into()].into_iter().collect();
-        opt.env.as_mut().unwrap().check = vec!["env3".into(), "env4".into()].into_iter().collect();
-        opt.env.as_mut().unwrap().delete = vec!["env5".into(), "env6".into()].into_iter().collect();
-
-        opt.root = Some(SPrivileged::Privileged);
-        opt.bounding = Some(SBounding::Ignore);
-        opt.wildcard_denied = Some("*".to_string());
-
-        settings.config.as_ref().borrow_mut().options = Some(rc_refcell!(opt.clone()));
-
-        settings.config.as_ref().borrow_mut().roles = vec![];
-
-        let mut role = SRole::default();
-        role.name = "complete".to_string();
-        role.actors = vec![
-            SActor::from_user_id(0),
-            SActor::from_group_id(0),
-            SActor::from_group_vec_string(vec!["groupA", "groupB"]),
-        ];
-        role.options = Some(rc_refcell!(opt.clone()));
-        let role = rc_refcell!(role);
-
-        let mut task = STask::new(IdTask::Name("t_complete".to_string()), Rc::downgrade(&role));
-        task.purpose = Some("complete".to_string());
-        task.commands = SCommands::default();
-        task.commands.default_behavior = Some(SetBehavior::All);
-        task.commands.add.push(SCommand::Simple("ls".to_string()));
-        task.commands.add.push(SCommand::Simple("echo".to_string()));
-        task.commands.sub.push(SCommand::Simple("cat".to_string()));
-        task.commands.sub.push(SCommand::Simple("grep".to_string()));
-
-        task.cred = SCredentials::default();
-        task.cred.setuid = Some(SActorType::Name("user1".to_string()));
-        task.cred.setgid = Some(SGroups::Multiple(vec![
-            SActorType::Name("group1".to_string()),
-            SActorType::Name("group2".to_string()),
-        ]));
-        task.cred.capabilities = Some(SCapabilities::default());
-        task.cred.capabilities.as_mut().unwrap().default_behavior = SetBehavior::All;
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .add
-            .add(Cap::LINUX_IMMUTABLE);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .add
-            .add(Cap::NET_BIND_SERVICE);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .sub
-            .add(Cap::SYS_ADMIN);
-        task.cred
-            .capabilities
-            .as_mut()
-            .unwrap()
-            .sub
-            .add(Cap::SYS_BOOT);
-
-        task.options = Some(rc_refcell!(opt.clone()));
-
-        role.as_ref().borrow_mut().tasks.push(rc_refcell!(task));
-        settings.config.as_ref().borrow_mut().roles.push(role);
-
-        let versionned = Versioning::new(settings.clone());
-
-        file.write_all(
-            serde_json::to_string_pretty(&versionned)
-                .unwrap()
-                .as_bytes(),
-        )
-        .unwrap();
-
+        let jsonstr = serde_json::to_string_pretty(&versionned).unwrap();
+        file.write_all(jsonstr.as_bytes()).unwrap();
         file.flush().unwrap();
     }
 
@@ -373,17 +426,17 @@ mod tests {
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_user_string("user1")));
+            .contains(&SActor::user("user1").build()));
         assert!(config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_string("group1")));
+            .contains(&SActor::group("group1").build()));
         assert!(config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_vec_string(vec!["group2", "group3"])));
+            .contains(&SActor::group(["group2", "group3"]).build()));
         assert!(main(
             &Storage::JSON(config.clone()),
             "r complete revoke -u user1 -g group1 -g group2&group3".split(" "),
@@ -399,17 +452,17 @@ mod tests {
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_user_string("user1")));
+            .contains(&SActor::user("user1").build()));
         assert!(!config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_string("group1")));
+            .contains(&SActor::group("group1").build()));
         assert!(!config.as_ref().borrow()[0]
             .as_ref()
             .borrow()
             .actors
-            .contains(&SActor::from_group_vec_string(vec!["group2", "group3"])));
+            .contains(&SActor::group(["group2", "group3"]).build()));
         teardown("r_complete_grant_u_user1_g_group1_g_group2_group3");
     }
     #[test]
@@ -1288,6 +1341,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
+        let default = LinkedHashSet::new();
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
             .borrow()
@@ -1300,6 +1354,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1313,6 +1369,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1337,6 +1395,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1350,6 +1410,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         debug!("=====");
         assert!(main(
@@ -1375,6 +1437,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .is_empty());
         debug!("=====");
         assert!(main(
@@ -1400,6 +1464,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1413,6 +1479,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1427,6 +1495,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .add
+                .as_ref()
+                .unwrap_or(&default)
                 .len(),
             2
         );
@@ -1466,6 +1536,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/tmp".to_string()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1506,6 +1578,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .sub
+                .as_ref()
+                .unwrap_or(&default)
                 .len(),
             1
         );
@@ -1521,6 +1595,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/tmp".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1534,6 +1610,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1547,6 +1625,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         teardown("r_complete_t_t_complete_o_path_whitelist_add");
     }
@@ -1617,6 +1697,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1630,6 +1712,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1644,6 +1728,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len(),
             2
         );
@@ -1694,6 +1780,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1707,6 +1795,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1721,6 +1811,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .delete
+                .as_ref()
+                .unwrap()
                 .len(),
             2
         );
@@ -2120,6 +2212,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2134,6 +2228,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len()
                 > 1
         );
@@ -2160,6 +2256,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2185,6 +2283,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2199,6 +2299,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2236,7 +2338,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_whitelist_purge");
     }
     #[test]
@@ -2271,6 +2373,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2295,6 +2399,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         teardown("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
     }
@@ -2330,6 +2436,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2344,6 +2452,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .delete
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2381,7 +2491,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_blacklist_purge");
     }
     #[test]
@@ -2416,6 +2526,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2441,6 +2553,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2466,6 +2580,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2480,6 +2596,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .check
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2507,7 +2625,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
     }
     #[test]

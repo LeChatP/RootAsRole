@@ -255,8 +255,9 @@ pub fn final_path(path: &str) -> PathBuf {
 }
 
 #[cfg(debug_assertions)]
-pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
+pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Debug)
         .format_module_path(true)
         .init();
     Ok(())

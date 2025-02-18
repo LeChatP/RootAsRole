@@ -1,11 +1,9 @@
-use capctl::CapSet;
+use bon::{bon, builder, Builder};
+use capctl::{Cap, CapSet};
 use derivative::Derivative;
-use nix::{
-    errno::Errno,
-    unistd::{Group, User},
-};
 use serde::{
-    de::{self, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
+    ser::SerializeMap,
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
@@ -13,7 +11,6 @@ use strum::{Display, EnumIs};
 
 use std::{
     cell::RefCell,
-    cmp::Ordering,
     error::Error,
     fmt,
     ops::{Index, Not},
@@ -21,20 +18,33 @@ use std::{
 };
 
 use super::{
+    actor::{SActor, SGroups, SUserType},
     is_default,
-    options::Opt,
-    wrapper::{OptWrapper, STaskWrapper},
+    options::{Level, Opt, OptBuilder},
 };
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: OptWrapper,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sconfig_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
+}
+
+fn sconfig_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Global;
+    Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
 #[derive(Serialize, Deserialize, Debug, Derivative)]
@@ -45,9 +55,13 @@ pub struct SRole {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actors: Vec<SActor>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tasks: Vec<STaskWrapper>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: OptWrapper,
+    pub tasks: Vec<Rc<RefCell<STask>>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "srole_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
@@ -55,60 +69,13 @@ pub struct SRole {
     pub _config: Option<Weak<RefCell<SConfig>>>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, EnumIs, Clone)]
-#[serde(untagged, rename_all = "lowercase")]
-pub enum SActorType {
-    Id(u32),
-    Name(String),
-}
-
-impl std::fmt::Display for SActorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SActorType::Id(id) => write!(f, "{}", id),
-            SActorType::Name(name) => write!(f, "{}", name),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
-#[serde(untagged)]
-pub enum SGroups {
-    Single(SActorType),
-    Multiple(Vec<SActorType>),
-}
-
-impl SGroups {
-    pub fn len(&self) -> usize {
-        match self {
-            SGroups::Single(_) => 1,
-            SGroups::Multiple(groups) => groups.len(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum SActor {
-    #[serde(rename = "user")]
-    User {
-        #[serde(alias = "name", skip_serializing_if = "Option::is_none")]
-        id: Option<SActorType>,
-        #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
-        _extra_fields: Map<String, Value>,
-    },
-    #[serde(rename = "group")]
-    Group {
-        #[serde(alias = "names", skip_serializing_if = "Option::is_none")]
-        groups: Option<SGroups>,
-        #[serde(default, flatten)]
-        _extra_fields: Map<String, Value>,
-    },
-    #[serde(untagged)]
-    Unknown(Value),
+fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Role;
+    Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
@@ -138,8 +105,12 @@ pub struct STask {
     pub cred: SCredentials,
     #[serde(default, skip_serializing_if = "is_default")]
     pub commands: SCommands,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: OptWrapper,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "stask_opt"
+    )]
+    pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
     #[serde(skip)]
@@ -147,22 +118,82 @@ pub struct STask {
     pub _role: Option<Weak<RefCell<SRole>>>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut opt = Opt::deserialize(deserializer)?;
+    opt.level = Level::Task;
+    Ok(Some(Rc::new(RefCell::new(opt))))
+}
+
+#[derive(Serialize, Deserialize, Debug, Builder, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub setuid: Option<SActorType>,
+    #[builder(into)]
+    pub setuid: Option<SUserChooser>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub setgid: Option<SGroups>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[builder(into)]
     pub additional_auth: Option<String>, // TODO: to extract as plugin
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SUserChooser {
+    Actor(SUserType),
+    ChooserStruct(SSetuidSet),
+}
+
+impl From<SUserType> for SUserChooser {
+    fn from(actor: SUserType) -> Self {
+        SUserChooser::Actor(actor)
+    }
+}
+
+impl From<SSetuidSet> for SUserChooser {
+    fn from(set: SSetuidSet) -> Self {
+        SUserChooser::ChooserStruct(set)
+    }
+}
+
+impl From<&str> for SUserChooser {
+    fn from(name: &str) -> Self {
+        SUserChooser::Actor(name.into())
+    }
+}
+
+impl From<u32> for SUserChooser {
+    fn from(id: u32) -> Self {
+        SUserChooser::Actor(id.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+
+pub struct SSetuidSet {
+    #[builder(start_fn, into)]
+    pub fallback: SUserType,
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default: SetBehavior,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
+    pub add: Vec<SUserType>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
+    pub sub: Vec<SUserType>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum SetBehavior {
@@ -171,26 +202,146 @@ pub enum SetBehavior {
     None,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Builder)]
 pub struct SCapabilities {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
     pub default_behavior: SetBehavior,
-    #[serde(
-        default,
-        skip_serializing_if = "CapSet::is_empty",
-        deserialize_with = "super::deserialize_capset",
-        serialize_with = "super::serialize_capset"
-    )]
+    #[builder(field)]
     pub add: CapSet,
-    #[serde(
-        default,
-        skip_serializing_if = "CapSet::is_empty",
-        deserialize_with = "super::deserialize_capset",
-        serialize_with = "super::serialize_capset"
-    )]
+    #[builder(field)]
     pub sub: CapSet,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default, with = <_>::from_iter)]
     pub _extra_fields: Map<String, Value>,
+}
+
+impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
+    pub fn add_cap(mut self, cap: Cap) -> Self {
+        self.add.add(cap);
+        self
+    }
+    pub fn add_all(mut self, set: CapSet) -> Self {
+        self.add = set;
+        self
+    }
+    pub fn sub_cap(mut self, cap: Cap) -> Self {
+        self.sub.add(cap);
+        self
+    }
+    pub fn sub_all(mut self, set: CapSet) -> Self {
+        self.sub = set;
+        self
+    }
+}
+
+impl Serialize for SCapabilities {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.default_behavior.is_none() && self.sub.is_empty() && self._extra_fields.is_empty() {
+            super::serialize_capset(&self.add, serializer)
+        } else {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.default_behavior.is_none() {
+                map.serialize_entry("default", &self.default_behavior)?;
+            }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("add", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("del", &v)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        }
+    }
+}
+impl<'de> Deserialize<'de> for SCapabilities {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SCapabilitiesVisitor;
+
+        impl<'de> Visitor<'de> for SCapabilitiesVisitor {
+            type Value = SCapabilities;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an array of strings or a map with SCapabilities fields")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut add = CapSet::default();
+                while let Some(cap) = seq.next_element::<String>()? {
+                    add.add(cap.parse().map_err(de::Error::custom)?);
+                }
+
+                Ok(SCapabilities {
+                    default_behavior: SetBehavior::None,
+                    add,
+                    sub: CapSet::default(),
+                    _extra_fields: Map::new(),
+                })
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut default_behavior = SetBehavior::None;
+                let mut add = CapSet::default();
+                let mut sub = CapSet::default();
+                let mut _extra_fields = Map::new();
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "default" => {
+                            default_behavior = map
+                                .next_value()
+                                .expect("default entry must be either 'all' or 'none'");
+                        }
+                        "add" => {
+                            let values: Vec<String> =
+                                map.next_value().expect("add entry must be a list");
+                            for value in values {
+                                add.add(value.parse().map_err(|_| {
+                                    de::Error::custom(format!("Invalid capability: {}", value))
+                                })?);
+                            }
+                        }
+                        "sub" | "del" => {
+                            let values: Vec<String> =
+                                map.next_value().expect("sub entry must be a list");
+                            for value in values {
+                                sub.add(value.parse().map_err(|_| {
+                                    de::Error::custom(format!("Invalid capability: {}", value))
+                                })?);
+                            }
+                        }
+                        other => {
+                            _extra_fields.insert(other.to_string(), map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SCapabilities {
+                    default_behavior,
+                    add,
+                    sub,
+                    _extra_fields,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(SCapabilitiesVisitor)
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -206,7 +357,7 @@ pub struct SCommands {
     pub default_behavior: Option<SetBehavior>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "del", skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
@@ -287,6 +438,12 @@ impl Default for SCapabilities {
     }
 }
 
+impl Default for SSetuidSet {
+    fn default() -> Self {
+        SSetuidSet::builder(0, SetBehavior::None).build()
+    }
+}
+
 impl Default for IdTask {
     fn default() -> Self {
         IdTask::Number(0)
@@ -297,21 +454,21 @@ impl Default for IdTask {
 // From implementations
 // ------------------------
 
-impl From<u32> for SActorType {
-    fn from(id: u32) -> Self {
-        SActorType::Id(id)
+impl From<usize> for IdTask {
+    fn from(id: usize) -> Self {
+        IdTask::Number(id)
     }
 }
 
-impl From<String> for SActorType {
+impl From<String> for IdTask {
     fn from(name: String) -> Self {
-        SActorType::Name(name)
+        IdTask::Name(name)
     }
 }
 
-impl From<&str> for SActorType {
+impl From<&str> for IdTask {
     fn from(name: &str) -> Self {
-        SActorType::Name(name.to_string())
+        IdTask::Name(name.to_string())
     }
 }
 
@@ -335,65 +492,121 @@ impl From<CapSet> for SCapabilities {
 // ------------------------
 
 // This try to deserialize a number as an ID and a string as a name
-impl<'de> Deserialize<'de> for SActorType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct IdVisitor;
-
-        impl<'de> Visitor<'de> for IdVisitor {
-            type Value = SActorType;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("user ID as a number or string")
-            }
-
-            fn visit_u32<E>(self, id: u32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Ok(SActorType::Id(id))
-            }
-
-            fn visit_str<E>(self, id: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                let rid: Result<u32, _> = id.parse();
-                match rid {
-                    Ok(id) => Ok(SActorType::Id(id)),
-                    Err(_) => Ok(SActorType::Name(id.to_string())),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(IdVisitor)
-    }
-}
 
 // ========================
 // Implementations for Struct navigation
 // ========================
-
+#[bon]
 impl SConfig {
-    pub fn role(&self, name: &str) -> Option<&Rc<RefCell<SRole>>> {
-        self.roles.iter().find(|role| role.borrow().name == name)
+    #[builder]
+    pub fn new(
+        #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Global)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        _extra_fields: Option<Map<String, Value>>,
+    ) -> Rc<RefCell<Self>> {
+        let c = Rc::new(RefCell::new(SConfig {
+            roles: roles.clone(),
+            options: options.clone(),
+            _extra_fields: _extra_fields.unwrap_or_default().clone(),
+        }));
+        for role in &roles {
+            role.borrow_mut()._config = Some(Rc::downgrade(&c));
+        }
+        c
     }
-    pub fn task(&self, role: &str, name: &IdTask) -> Result<Rc<RefCell<STask>>, Box<dyn Error>> {
+}
+
+pub trait RoleGetter {
+    fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>>;
+    fn task<T: Into<IdTask>>(
+        &self,
+        role: &str,
+        name: T,
+    ) -> Result<Rc<RefCell<STask>>, Box<dyn Error>>;
+}
+
+pub trait TaskGetter {
+    fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>>;
+}
+
+impl RoleGetter for Rc<RefCell<SConfig>> {
+    fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>> {
+        self.as_ref()
+            .borrow()
+            .roles
+            .iter()
+            .find(|role| role.borrow().name == name)
+            .cloned()
+    }
+    fn task<T: Into<IdTask>>(
+        &self,
+        role: &str,
+        name: T,
+    ) -> Result<Rc<RefCell<STask>>, Box<dyn Error>> {
+        let name = name.into();
         self.role(role)
-            .and_then(|role| role.as_ref().borrow().task(name).cloned())
+            .and_then(|role| role.as_ref().borrow().task(&name).cloned())
             .ok_or_else(|| format!("Task {} not found in role {}", name, role).into())
     }
 }
 
+impl TaskGetter for Rc<RefCell<SRole>> {
+    fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>> {
+        self.as_ref()
+            .borrow()
+            .tasks
+            .iter()
+            .find(|task| task.borrow().name == *name)
+            .cloned()
+    }
+}
+
+impl<S: s_config_builder::State> SConfigBuilder<S> {
+    pub fn role(mut self, role: Rc<RefCell<SRole>>) -> Self {
+        self.roles.push(role);
+        self
+    }
+    pub fn roles(mut self, roles: impl IntoIterator<Item = Rc<RefCell<SRole>>>) -> Self {
+        self.roles.extend(roles);
+        self
+    }
+}
+
+impl<S: s_role_builder::State> SRoleBuilder<S> {
+    pub fn task(mut self, task: Rc<RefCell<STask>>) -> Self {
+        self.tasks.push(task);
+        self
+    }
+    pub fn actor(mut self, actor: SActor) -> Self {
+        self.actors.push(actor);
+        self
+    }
+}
+
+#[bon]
 impl SRole {
-    pub fn new(name: String, config: Weak<RefCell<SConfig>>) -> Self {
-        SRole {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn, into)] name: String,
+        #[builder(field)] tasks: Vec<Rc<RefCell<STask>>>,
+        #[builder(field)] actors: Vec<SActor>,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Role)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+    ) -> Rc<RefCell<Self>> {
+        let s = Rc::new(RefCell::new(SRole {
             name,
-            _config: Some(config),
-            ..Default::default()
+            actors,
+            tasks,
+            options,
+            _extra_fields,
+            _config: None,
+        }));
+        for task in s.as_ref().borrow_mut().tasks.iter() {
+            task.borrow_mut()._role = Some(Rc::downgrade(&s));
         }
+        s
     }
     pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
         self._config.as_ref()?.upgrade()
@@ -405,13 +618,28 @@ impl SRole {
     }
 }
 
+#[bon]
 impl STask {
-    pub fn new(name: IdTask, role: Weak<RefCell<SRole>>) -> Self {
-        STask {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn, into)] name: IdTask,
+        purpose: Option<String>,
+        #[builder(default)] cred: SCredentials,
+        #[builder(default)] commands: SCommands,
+        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Task)))]
+        options: Option<Rc<RefCell<Opt>>>,
+        #[builder(default)] _extra_fields: Map<String, Value>,
+        _role: Option<Weak<RefCell<SRole>>>,
+    ) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(STask {
             name,
-            _role: Some(role),
-            ..Default::default()
-        }
+            purpose,
+            cred,
+            commands,
+            options,
+            _extra_fields,
+            _role,
+        }))
     }
     pub fn role(&self) -> Option<Rc<RefCell<SRole>>> {
         self._role.as_ref()?.upgrade()
@@ -434,45 +662,23 @@ impl Index<usize> for SRole {
     }
 }
 
-// =================
-// Display implementations
-// =================
-
-impl core::fmt::Display for SActor {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SActor::User { id, _extra_fields } => {
-                write!(f, "User: {}", id.as_ref().unwrap())
-            }
-            SActor::Group {
-                groups,
-                _extra_fields,
-            } => {
-                write!(f, "Group: {}", groups.as_ref().unwrap())
-            }
-            SActor::Unknown(unknown) => {
-                write!(f, "Unknown: {}", unknown)
-            }
+#[bon]
+impl SCommands {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn)] default_behavior: SetBehavior,
+        #[builder(default, with = FromIterator::from_iter)] add: Vec<SCommand>,
+        #[builder(default, with = FromIterator::from_iter)] sub: Vec<SCommand>,
+        #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
+    ) -> Self {
+        SCommands {
+            default_behavior: Some(default_behavior),
+            add,
+            sub,
+            _extra_fields,
         }
     }
 }
-
-impl core::fmt::Display for SGroups {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SGroups::Single(group) => {
-                write!(f, "{}", group)
-            }
-            SGroups::Multiple(groups) => {
-                write!(f, "{:?}", groups)
-            }
-        }
-    }
-}
-
-// =================
-// Other implementations
-// =================
 
 impl SCapabilities {
     pub fn to_capset(&self) -> CapSet {
@@ -486,196 +692,11 @@ impl SCapabilities {
     }
 }
 
-impl PartialEq<str> for SActorType {
+impl PartialEq<str> for SUserChooser {
     fn eq(&self, other: &str) -> bool {
         match self {
-            SActorType::Name(name) => name == other,
-            SActorType::Id(id) => other.parse().map(|oid: u32| oid == *id).unwrap_or(false),
-        }
-    }
-}
-
-impl PartialEq<User> for SActorType {
-    fn eq(&self, other: &User) -> bool {
-        match self {
-            SActorType::Name(name) => name == &other.name,
-            SActorType::Id(id) => other.uid.as_raw() == *id,
-        }
-    }
-}
-
-impl PartialEq<Group> for SActorType {
-    fn eq(&self, other: &Group) -> bool {
-        match self {
-            SActorType::Name(name) => name == &other.name,
-            SActorType::Id(id) => other.gid.as_raw() == *id,
-        }
-    }
-}
-
-impl PartialEq<str> for SGroups {
-    fn eq(&self, other: &str) -> bool {
-        match self {
-            SGroups::Single(actor) => actor == other,
-            SGroups::Multiple(actors) => actors.len() == 1 && &actors[0] == other,
-        }
-    }
-}
-
-impl PartialEq<Vec<SActorType>> for SGroups {
-    fn eq(&self, other: &Vec<SActorType>) -> bool {
-        match self {
-            SGroups::Single(actor) => {
-                if other.len() == 1 {
-                    return actor == &other[0];
-                }
-            }
-            SGroups::Multiple(actors) => {
-                if actors.len() == other.len() {
-                    return actors.iter().all(|actor| other.iter().any(|x| actor == x));
-                }
-            }
-        }
-        false
-    }
-}
-
-impl FromIterator<String> for SGroups {
-    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
-        let mut iter = iter.into_iter();
-        let first = iter.next().unwrap();
-        let mut groups = vec![SActorType::Name(first)];
-        for group in iter {
-            groups.push(SActorType::Name(group));
-        }
-        if groups.len() == 1 {
-            SGroups::Single(groups[0].to_owned())
-        } else {
-            SGroups::Multiple(groups)
-        }
-    }
-}
-
-impl From<SGroups> for Vec<SActorType> {
-    fn from(val: SGroups) -> Self {
-        match val {
-            SGroups::Single(group) => vec![group],
-            SGroups::Multiple(groups) => groups,
-        }
-    }
-}
-
-impl SActorType {
-    pub fn into_group(&self) -> Result<Option<Group>, Errno> {
-        match self {
-            SActorType::Name(name) => Group::from_name(name),
-            SActorType::Id(id) => Group::from_gid(id.to_owned().into()),
-        }
-    }
-    pub fn into_user(&self) -> Result<Option<User>, Errno> {
-        match self {
-            SActorType::Name(name) => User::from_name(name),
-            SActorType::Id(id) => User::from_uid(id.to_owned().into()),
-        }
-    }
-}
-
-impl PartialOrd<SGroups> for SGroups {
-    fn partial_cmp(&self, other: &SGroups) -> Option<std::cmp::Ordering> {
-        let other = Into::<Vec<SActorType>>::into(other.clone());
-        self.partial_cmp(&other)
-    }
-}
-
-impl PartialOrd<Vec<SActorType>> for SGroups {
-    fn partial_cmp(&self, other: &Vec<SActorType>) -> Option<std::cmp::Ordering> {
-        match self {
-            SGroups::Single(group) => {
-                if other.len() == 1 {
-                    if group == &other[0] {
-                        return Some(Ordering::Equal);
-                    }
-                } else if other.iter().any(|x| group == x) {
-                    return Some(Ordering::Less);
-                }
-            }
-            SGroups::Multiple(groups) => {
-                if groups.is_empty() && other.is_empty() {
-                    return Some(Ordering::Equal);
-                } else if groups.len() == other.len() {
-                    if groups.iter().all(|x| other.iter().any(|y| x == y)) {
-                        return Some(Ordering::Equal);
-                    }
-                } else if groups.len() < other.len() {
-                    if groups.iter().all(|x| other.iter().any(|y| x == y)) {
-                        return Some(Ordering::Less);
-                    }
-                } else if other.iter().all(|x| groups.iter().any(|y| y == x)) {
-                    return Some(Ordering::Greater);
-                }
-            }
-        }
-        None
-    }
-}
-
-impl From<SGroups> for Vec<Group> {
-    fn from(val: SGroups) -> Self {
-        match val {
-            SGroups::Single(group) => vec![group.into_group().unwrap().unwrap()],
-            SGroups::Multiple(groups) => groups
-                .into_iter()
-                .map(|x| x.into_group().unwrap().unwrap())
-                .collect(),
-        }
-    }
-}
-
-impl SActor {
-    pub fn from_user_string(user: &str) -> Self {
-        SActor::User {
-            id: Some(user.into()),
-            _extra_fields: Map::default(),
-        }
-    }
-    pub fn from_user_id(id: u32) -> Self {
-        SActor::User {
-            id: Some(id.into()),
-            _extra_fields: Map::default(),
-        }
-    }
-    pub fn from_group_string(group: &str) -> Self {
-        SActor::Group {
-            groups: Some(SGroups::Single(group.into())),
-            _extra_fields: Map::default(),
-        }
-    }
-    pub fn from_group_id(id: u32) -> Self {
-        SActor::Group {
-            groups: Some(SGroups::Single(id.into())),
-            _extra_fields: Map::default(),
-        }
-    }
-    pub fn from_group_vec_string(group: Vec<&str>) -> Self {
-        Self::from_group_vec_actors(
-            group
-                .into_iter()
-                .map(|str| str.into())
-                .collect::<Vec<SActorType>>(),
-        )
-    }
-    pub fn from_group_vec_id(groups: Vec<u32>) -> Self {
-        Self::from_group_vec_actors(
-            groups
-                .into_iter()
-                .map(|id| id.into())
-                .collect::<Vec<SActorType>>(),
-        )
-    }
-    pub fn from_group_vec_actors(groups: Vec<SActorType>) -> Self {
-        SActor::Group {
-            groups: Some(SGroups::Multiple(groups)),
-            _extra_fields: Map::default(),
+            SUserChooser::Actor(actor) => actor == &SUserType::from(other),
+            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
         }
     }
 }
@@ -685,10 +706,17 @@ mod tests {
 
     use capctl::Cap;
     use chrono::Duration;
+    use linked_hash_set::LinkedHashSet;
 
     use crate::{
         as_borrow,
-        database::options::{EnvBehavior, PathBehavior, SAuthentication, TimestampType},
+        database::{
+            actor::SGroupType,
+            options::{
+                EnvBehavior, PathBehavior, SAuthentication, SBounding, SEnvOptions, SPathOptions,
+                SPrivileged, STimeout, TimestampType,
+            },
+        },
     };
 
     use super::*;
@@ -698,7 +726,6 @@ mod tests {
         println!("START");
         let config = r#"
         {
-            "version": "1.0.0",
             "options": {
                 "path": {
                     "default": "delete",
@@ -707,6 +734,7 @@ mod tests {
                 },
                 "env": {
                     "default": "delete",
+                    "override_behavior": true,
                     "keep": ["keep_env"],
                     "check": ["check_env"]
                 },
@@ -737,7 +765,12 @@ mod tests {
                             "name": "task1",
                             "purpose": "purpose1",
                             "cred": {
-                                "setuid": "setuid1",
+                                "setuid": {
+                                    "fallback": "user1",
+                                    "default": "all",
+                                    "add": ["user2"],
+                                    "sub": ["user3"]
+                                },
                                 "setgid": "setgid1",
                                 "capabilities": {
                                     "default": "all",
@@ -761,11 +794,28 @@ mod tests {
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
-        assert!(path.add.front().is_some_and(|s| s == "path_add"));
+        let default = LinkedHashSet::new();
+        assert!(path
+            .add
+            .as_ref()
+            .unwrap_or(&default)
+            .front()
+            .is_some_and(|s| s == "path_add"));
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
-        assert!(env.keep.front().is_some_and(|s| s == "keep_env"));
-        assert!(env.check.front().is_some_and(|s| s == "check_env"));
+        assert!(env.override_behavior.is_some_and(|b| b));
+        assert!(env
+            .keep
+            .as_ref()
+            .unwrap_or(&LinkedHashSet::new())
+            .front()
+            .is_some_and(|s| s == "keep_env"));
+        assert!(env
+            .check
+            .as_ref()
+            .unwrap_or(&LinkedHashSet::new())
+            .front()
+            .is_some_and(|s| s == "check_env"));
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
@@ -776,18 +826,19 @@ mod tests {
         assert_eq!(timeout.duration, Some(Duration::minutes(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
-        match actor0 {
-            SActor::User { id, .. } => {
-                assert_eq!(id.as_ref().unwrap(), "user1");
+        assert_eq!(
+            actor0,
+            &SActor::User {
+                id: Some("user1".into()),
+                _extra_fields: Map::default()
             }
-            _ => panic!("unexpected actor type"),
-        }
+        );
         let actor1 = &config.roles[0].as_ref().borrow().actors[1];
         match actor1 {
             SActor::Group { groups, .. } => match groups.as_ref().unwrap() {
                 SGroups::Multiple(groups) => {
-                    assert_eq!(groups[0], SActorType::Name("group1".into()));
-                    assert_eq!(groups[1], SActorType::Id(1000));
+                    assert_eq!(&groups[0], "group1");
+                    assert_eq!(groups[1], 1000);
                 }
                 _ => panic!("unexpected actor group type"),
             },
@@ -796,8 +847,16 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
         let cred = &as_borrow!(&role[0]).cred;
-        assert_eq!(cred.setuid.as_ref().unwrap(), "setuid1");
-        assert_eq!(cred.setgid.as_ref().unwrap(), "setgid1");
+        let setuidstruct = SSetuidSet {
+            fallback: "user1".into(),
+            default: SetBehavior::All,
+            add: ["user2".into()].into(),
+            sub: ["user3".into()].into(),
+        };
+        assert!(
+            matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
+        );
+        assert_eq!(*cred.setgid.as_ref().unwrap(), ["setgid1".into()]);
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
@@ -814,7 +873,6 @@ mod tests {
     fn test_unknown_fields() {
         let config = r#"
         {
-            "version": "1.0.0",
             "options": {
                 "path": {
                     "default": "delete",
@@ -937,20 +995,223 @@ mod tests {
     }
 
     #[test]
-    fn test_sgroups_compare() {
-        let single = SGroups::Single(SActorType::Name("single".into()));
-        let multiple = SGroups::Multiple(vec![
-            SActorType::Name("single".into()),
-            SActorType::Id(1000),
-        ]);
-        assert!(single == single);
-        assert!(single <= multiple);
-        assert!(multiple >= single);
-        assert!(multiple == multiple);
-        let multiple2 = SGroups::Multiple(vec![
-            SActorType::Name("single".into()),
-            SActorType::Id(1001),
-        ]);
-        assert!(multiple != multiple2);
+    fn test_deserialize_alias() {
+        let config = r#"
+        {
+            "options": {
+                "path": {
+                    "default": "delete",
+                    "add": ["path_add"],
+                    "del": ["path_sub"]
+                },
+                "env": {
+                    "default": "delete",
+                    "keep": ["keep_env"],
+                    "check": ["check_env"]
+                },
+                "root": "privileged",
+                "bounding": "ignore",
+                "authentication": "skip",
+                "wildcard-denied": "wildcards",
+                "timeout": {
+                    "type": "ppid",
+                    "duration": "00:05:00"
+                }
+            },
+            "roles": [
+                {
+                    "name": "role1",
+                    "actors": [
+                        {
+                            "type": "user",
+                            "name": "user1"
+                        },
+                        {
+                            "type":"group",
+                            "groups": ["group1","1000"]
+                        }
+                    ],
+                    "tasks": [
+                        {
+                            "name": "task1",
+                            "purpose": "purpose1",
+                            "cred": {
+                                "setuid": "setuid1",
+                                "setgid": "setgid1",
+                                "capabilities": ["cap_net_bind_service"]
+                            },
+                            "commands": {
+                                "default": "all",
+                                "add": ["cmd1"],
+                                "del": ["cmd2"]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        "#;
+        let config: SConfig = serde_json::from_str(config).unwrap();
+        let options = config.options.as_ref().unwrap().as_ref().borrow();
+        let path = options.path.as_ref().unwrap();
+        assert_eq!(path.default_behavior, PathBehavior::Delete);
+        let default = LinkedHashSet::new();
+        assert!(path
+            .add
+            .as_ref()
+            .unwrap_or(&default)
+            .front()
+            .is_some_and(|s| s == "path_add"));
+        let env = options.env.as_ref().unwrap();
+        assert_eq!(env.default_behavior, EnvBehavior::Delete);
+        assert!(env
+            .keep
+            .as_ref()
+            .unwrap()
+            .front()
+            .is_some_and(|s| s == "keep_env"));
+        assert!(env
+            .check
+            .as_ref()
+            .unwrap()
+            .front()
+            .is_some_and(|s| s == "check_env"));
+        assert!(options.root.as_ref().unwrap().is_privileged());
+        assert!(options.bounding.as_ref().unwrap().is_ignore());
+        assert_eq!(options.authentication, Some(SAuthentication::Skip));
+        assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
+
+        let timeout = options.timeout.as_ref().unwrap();
+        assert_eq!(timeout.type_field, Some(TimestampType::PPID));
+        assert_eq!(timeout.duration, Some(Duration::minutes(5)));
+        assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
+        let actor0 = &config.roles[0].as_ref().borrow().actors[0];
+        match actor0 {
+            SActor::User { id, .. } => {
+                assert_eq!(id.as_ref().unwrap(), "user1");
+            }
+            _ => panic!("unexpected actor type"),
+        }
+        let actor1 = &config.roles[0].as_ref().borrow().actors[1];
+        match actor1 {
+            SActor::Group { groups, .. } => match groups.as_ref().unwrap() {
+                SGroups::Multiple(groups) => {
+                    assert_eq!(groups[0], SGroupType::from("group1"));
+                    assert_eq!(groups[1], SGroupType::from(1000));
+                }
+                _ => panic!("unexpected actor group type"),
+            },
+            _ => panic!("unexpected actor {:?}", actor1),
+        }
+        let role = config.roles[0].as_ref().borrow();
+        assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
+        let cred = &as_borrow!(&role[0]).cred;
+        assert_eq!(
+            cred.setuid.as_ref().unwrap(),
+            &SUserChooser::from(SUserType::from("setuid1"))
+        );
+        assert_eq!(cred.setgid.as_ref().unwrap(), &SGroups::from(["setgid1"]));
+        let capabilities = cred.capabilities.as_ref().unwrap();
+        assert_eq!(capabilities.default_behavior, SetBehavior::None);
+        assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
+        assert!(capabilities.sub.is_empty());
+        let commands = &as_borrow!(&role[0]).commands;
+        assert_eq!(
+            *commands.default_behavior.as_ref().unwrap(),
+            SetBehavior::All
+        );
+        assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
+        assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let config = SConfig::builder()
+            .role(
+                SRole::builder("role1")
+                    .actor(SActor::user("user1").build())
+                    .actor(
+                        SActor::group([SGroupType::from("group1"), SGroupType::from(1000)]).build(),
+                    )
+                    .task(
+                        STask::builder("task1")
+                            .purpose("purpose1".into())
+                            .cred(
+                                SCredentials::builder()
+                                    .setuid(SUserChooser::ChooserStruct(
+                                        SSetuidSet::builder("user1", SetBehavior::All)
+                                            .add(["user2".into()])
+                                            .sub(["user3".into()])
+                                            .build(),
+                                    ))
+                                    .setgid(["setgid1"])
+                                    .capabilities(
+                                        SCapabilities::builder(SetBehavior::All)
+                                            .add_cap(Cap::NET_BIND_SERVICE)
+                                            .sub_cap(Cap::SYS_ADMIN)
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
+                            .commands(
+                                SCommands::builder(SetBehavior::All)
+                                    .add(["cmd1".into()])
+                                    .sub(["cmd2".into()])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            )
+            .options(|opt| {
+                opt.path(
+                    SPathOptions::builder(PathBehavior::Delete)
+                        .add(["path_add"])
+                        .sub(["path_sub"])
+                        .build(),
+                )
+                .env(
+                    SEnvOptions::builder(EnvBehavior::Delete)
+                        .override_behavior(true)
+                        .keep(["keep_env"])
+                        .unwrap()
+                        .check(["check_env"])
+                        .unwrap()
+                        .build(),
+                )
+                .root(SPrivileged::Privileged)
+                .bounding(SBounding::Ignore)
+                .authentication(SAuthentication::Skip)
+                .wildcard_denied("wildcards")
+                .timeout(
+                    STimeout::builder()
+                        .type_field(TimestampType::PPID)
+                        .duration(Duration::minutes(5))
+                        .build(),
+                )
+                .build()
+            })
+            .build();
+        let config = serde_json::to_string_pretty(&config).unwrap();
+        println!("{}", config);
+    }
+
+    #[test]
+    fn test_serialize_operride_behavior_option() {
+        let config = SConfig::builder()
+            .options(|opt| {
+                opt.env(
+                    SEnvOptions::builder(EnvBehavior::Inherit)
+                        .override_behavior(true)
+                        .build(),
+                )
+                .build()
+            })
+            .build();
+        let config = serde_json::to_string(&config).unwrap();
+        assert_eq!(
+            config,
+            "{\"options\":{\"env\":{\"override_behavior\":true}}}"
+        );
     }
 }

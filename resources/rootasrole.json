@@ -1,5 +1,5 @@
 {
-    "version": "3.0.0",
+    "version": "3.0.5",
     "storage": {
         "method": "json",
         "settings": {
@@ -81,7 +81,10 @@
                     "name": "t_root",
                     "purpose": "access to every commands",
                     "cred": {
-                        "setuid": "root",
+                        "setuid": {
+                            "fallback": "root",
+                            "default": "all"
+                        },
                         "setgid": "root",
                         "capabilities": {
                             "default": "all",
@@ -90,6 +93,11 @@
                     },
                     "commands": {
                         "default": "all"
+                    },
+                    "options": {
+                        "env": {
+                            "override_behavior": true
+                        }
                     }
                 },
                 {
@@ -98,10 +106,7 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": {
-                            "default": "none",
-                            "add": ["CAP_LINUX_IMMUTABLE"]
-                        }
+                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
                     },
                     "commands": {
                         "default": "none",

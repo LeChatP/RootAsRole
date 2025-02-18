@@ -8,10 +8,11 @@ use pest::iterators::Pair;
 
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::database::{
+    actor::{SActor, SGroupType},
     options::{
         EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged, TimestampType,
     },
-    structs::{IdTask, SActor, SActorType, SGroups, SetBehavior},
+    structs::{IdTask, SetBehavior},
 };
 
 use super::data::*;
@@ -192,7 +193,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .actors
                     .as_mut()
                     .unwrap()
-                    .push(SActor::from_user_string(pair.as_str()));
+                    .push(SActor::user(pair.as_str()).build());
             }
         }
         Rule::group => {
@@ -221,15 +222,16 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .actors
                     .as_mut()
                     .unwrap()
-                    .push(SActor::from_group_string(&vec[0]));
+                    .push(SActor::group(vec[0].as_str()).build());
             } else {
-                inputs
-                    .actors
-                    .as_mut()
-                    .unwrap()
-                    .push(SActor::from_group_vec_string(
-                        vec.iter().map(|s| s.as_str()).collect(),
-                    ));
+                inputs.actors.as_mut().unwrap().push(
+                    SActor::group(
+                        vec.iter()
+                            .map(|s| SGroupType::from(s.as_str()))
+                            .collect::<Vec<_>>(),
+                    )
+                    .build(),
+                );
             }
             debug!("actors: {:?}", inputs.actors);
         }
@@ -265,10 +267,17 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             }
         }
         Rule::cred_u => {
-            inputs.cred_setuid = Some(pair.as_str().chars().skip(9).collect::<String>().into());
+            inputs.cred_setuid = Some(
+                pair.as_str()
+                    .chars()
+                    .skip(9)
+                    .collect::<String>()
+                    .as_str()
+                    .into(),
+            );
         }
         Rule::cred_g => {
-            let mut vec: Vec<SActorType> = Vec::new();
+            let mut vec: Vec<SGroupType> = Vec::new();
             for pair in pair.clone().into_inner() {
                 if pair.as_rule() == Rule::actor_name {
                     vec.push(pair.as_str().into());
@@ -277,11 +286,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             if vec.is_empty() {
                 warn!("No group specified");
             }
-            if vec.len() == 1 {
-                inputs.cred_setgid = Some(SGroups::Single(vec[0].clone()));
-            } else {
-                inputs.cred_setgid = Some(SGroups::Multiple(vec));
-            }
+            inputs.cred_setgid = Some(vec.into());
         }
         // === options ===
         Rule::options_operations => {
@@ -426,7 +431,7 @@ mod test {
     };
 
     use rar_common::{
-        database::structs::SActor,
+        database::actor::SActor,
         util::{BOLD, RED, RST},
     };
 
@@ -470,9 +475,9 @@ mod test {
         assert_eq!(
             inputs.actors,
             Some(vec![
-                SActor::from_user_string("u1"),
-                SActor::from_user_string("u2"),
-                SActor::from_group_vec_string(vec!["g1", "g2"])
+                SActor::user("u1").build(),
+                SActor::user("u2").build(),
+                SActor::group(["g1", "g2"]).build()
             ])
         );
     }

@@ -9,7 +9,7 @@ use log::debug;
 use rar_common::{
     database::{
         options::{Opt, OptType},
-        structs::IdTask,
+        structs::{IdTask, RoleGetter},
     },
     Storage,
 };
@@ -398,8 +398,6 @@ pub fn perform_on_target_opt(
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut config = rconfig.as_ref().borrow_mut();
-
     // Helper function to execute on option or create a new one
     fn execute_or_create_option(
         exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
@@ -417,7 +415,7 @@ pub fn perform_on_target_opt(
 
     // If role_id is provided, find the role
     if let Some(role_id) = role_id {
-        let role = config.role(&role_id).ok_or("Role not found")?;
+        let role = rconfig.role(&role_id).ok_or("Role not found")?;
         let mut role_borrowed = role.as_ref().borrow_mut();
 
         // If task_id is provided, find the task
@@ -430,5 +428,5 @@ pub fn perform_on_target_opt(
     }
 
     // No role_id, use global config options
-    execute_or_create_option(exec_on_opt, &mut config.options)
+    execute_or_create_option(exec_on_opt, &mut rconfig.as_ref().borrow_mut().options)
 }
