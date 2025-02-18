@@ -41,6 +41,7 @@ where
 mod tests {
     use std::{env::current_dir, io::Write};
 
+    use linked_hash_set::LinkedHashSet;
     use rar_common::{
         database::{
             actor::SActor,
@@ -1340,6 +1341,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
+        let default = LinkedHashSet::new();
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
             .borrow()
@@ -1352,6 +1354,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1365,6 +1369,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1389,6 +1395,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1402,6 +1410,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         debug!("=====");
         assert!(main(
@@ -1427,6 +1437,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .is_empty());
         debug!("=====");
         assert!(main(
@@ -1452,6 +1464,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1465,6 +1479,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .add
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1479,6 +1495,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .add
+                .as_ref()
+                .unwrap_or(&default)
                 .len(),
             2
         );
@@ -1518,6 +1536,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/tmp".to_string()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -1558,6 +1578,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .sub
+                .as_ref()
+                .unwrap_or(&default)
                 .len(),
             1
         );
@@ -1573,6 +1595,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/tmp".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1586,6 +1610,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
         assert!(!config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1599,6 +1625,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .sub
+            .as_ref()
+            .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         teardown("r_complete_t_t_complete_o_path_whitelist_add");
     }
@@ -1669,6 +1697,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1682,6 +1712,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1696,6 +1728,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len(),
             2
         );
@@ -1746,6 +1780,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
             .as_ref()
@@ -1759,6 +1795,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -1773,6 +1811,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .delete
+                .as_ref()
+                .unwrap()
                 .len(),
             2
         );
@@ -2172,6 +2212,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2186,6 +2228,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len()
                 > 1
         );
@@ -2212,6 +2256,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2237,6 +2283,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2251,6 +2299,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .keep
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2288,7 +2338,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .keep
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_whitelist_purge");
     }
     #[test]
@@ -2323,6 +2373,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(main(
             &Storage::JSON(config.clone()),
@@ -2347,6 +2399,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         teardown("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
     }
@@ -2382,6 +2436,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2396,6 +2452,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .delete
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2433,7 +2491,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .delete
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_blacklist_purge");
     }
     #[test]
@@ -2468,6 +2526,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2493,6 +2553,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         debug!("=====");
         assert!(main(
@@ -2518,6 +2580,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
+            .as_ref()
+            .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
             config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2532,6 +2596,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .check
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2559,7 +2625,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .check
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
     }
     #[test]
