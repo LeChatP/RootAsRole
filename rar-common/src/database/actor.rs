@@ -418,3 +418,68 @@ impl core::fmt::Display for SActor {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_suser_type_creation() {
+        let user_by_id = SUserType::from(0);
+        let user_by_name = SUserType::from("testuser");
+
+        assert_eq!(user_by_id.to_string(), "0");
+        assert_eq!(user_by_name.to_string(), "testuser");
+    }
+    #[test]
+    fn test_fetch_id() {
+        let user = SUserType::from(0);
+        assert_eq!(user.fetch_id(), Some(0));
+
+        let group = SGroupType::from(0);
+        assert_eq!(group.fetch_id(), Some(0));
+    }
+    #[test]
+    fn test_fetch_user() {
+        let user = SUserType::from("testuser");
+        assert!(user.fetch_user().is_none());
+
+        let user_by_id = SUserType::from(1001);
+        assert!(user_by_id.fetch_user().is_some());
+    }
+
+    #[test]
+    fn test_sgroups_multiple() {
+        let groups = SGroups::from(vec![SGroupType::from(0), SGroupType::from(200)]);
+
+        assert_eq!(groups.len(), 2);
+        assert!(!groups.is_empty());
+
+        if let SGroups::Multiple(group_list) = groups {
+            assert_eq!(group_list[0].to_string(), "0");
+            assert_eq!(group_list[1].to_string(), "200");
+        } else {
+            panic!("Expected SGroups::Multiple");
+        }
+    }
+
+    #[test]
+    fn test_fech_group() {
+        let group = SGroupType::from(0);
+        assert_eq!(
+            group.fetch_group(),
+            Some(Group::from_gid(0.into()).unwrap().unwrap())
+        );
+
+        let group = SGroupType::from("root");
+        assert_eq!(
+            group.fetch_group(),
+            Some(Group::from_name("root").unwrap().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let groups = SGroups::Multiple(vec![]);
+        assert!(groups.is_empty());
+    }
+}

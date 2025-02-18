@@ -355,8 +355,6 @@ impl Default for TaskMatch {
     }
 }
 
-
-
 pub trait TaskMatcher<T> {
     fn matches(
         &self,
@@ -434,7 +432,9 @@ fn evaluate_regex_cmd(role_args: String, commandline: String) -> Result<CmdMin, 
     if regex.is_match(commandline.as_bytes())? {
         Ok(CmdMin::RegexArgs)
     } else {
-        Err(Box::new(MatchError::NoMatch("Regex for command does not match".to_string())))
+        Err(Box::new(MatchError::NoMatch(
+            "Regex for command does not match".to_string(),
+        )))
     }
 }
 
@@ -708,13 +708,18 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                     .borrow()
                     .env
                     .as_ref()
-                    .is_some_and(|env| !env.override_behavior.is_some_and(|b| b) || env.default_behavior == *behavior)
+                    .is_some_and(|env| {
+                        !env.override_behavior.is_some_and(|b| b)
+                            || env.default_behavior == *behavior
+                    })
                 // but the polcy deny it and the behavior is not the same as the default one
                 // we return NoMatch
                 // (explaination: if the behavior is the same as the default one, we don't override it)
             })
         {
-            return Err(MatchError::NoMatch("The user wants to override the behavior but the policy deny it".to_string()));
+            return Err(MatchError::NoMatch(
+                "The user wants to override the behavior but the policy deny it".to_string(),
+            ));
         }
         // Processing setuid
         let setuid: Option<SUserChooser> = self.as_ref().borrow().cred.setuid.clone();
@@ -740,7 +745,9 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             Some(t.fallback.clone()) // Si l'utilisateur correspond au fallback, utiliser le fallback
                         } else if t.sub.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement interdit dans `sub`
-                            return Err(MatchError::NoMatch("L'utilisateur est interdit dans sub.".into()));
+                            return Err(MatchError::NoMatch(
+                                "L'utilisateur est interdit dans sub.".into(),
+                            ));
                         } else if t.add.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement autorisé dans `add`
 
@@ -749,7 +756,10 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             // Aucun match explicite, appliquer le comportement par défaut
                             match t.default {
                                 SetBehavior::None => {
-                                    return Err(MatchError::NoMatch("Aucun comportement par défaut applicable.".into())); // Aucun utilisateur par défaut
+                                    println!("Aucun comportement par défaut applicable.");
+                                    return Err(MatchError::NoMatch(
+                                        "Aucun comportement par défaut applicable.".into(),
+                                    )); // Aucun utilisateur par défaut
                                 }
                                 SetBehavior::All => {
                                     debug!("Tous les utilisateurs sont acceptés.");
@@ -1184,6 +1194,32 @@ mod tests {
     }
 
     #[test]
+    fn test_find_from_envpath() {
+        let needle = PathBuf::from("ls");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, Some("/usr/bin/ls".into()));
+    }
+
+    #[test]
+    fn test_find_from_envpath_absolute_path() {
+        // Avec un chemin absolu
+        let needle = PathBuf::from("/bin/ls");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_from_envpath_not_found() {
+        // Avec un fichier qui n'existe pas dans le PATH.
+        let needle = PathBuf::from("no_path");
+        let result = find_from_envpath(&needle);
+        println!("{:?}", result);
+        assert_eq!(result, None);
+    }
+
+    #[test]
     fn test_match_path() {
         let result = match_path(&"/bin/ls".to_string(), &"/bin/ls".to_string());
         assert_eq!(result, CmdMin::Match);
@@ -1363,7 +1399,46 @@ mod tests {
                 uid: Some(SetuidMin { is_root: false }),
                 gid: None
             }
-        )
+        );
+        let setuid: Option<SUserType> = Some("root".into());
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), None, &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: None,
+            }
+        );
+        setgid = Some(SGroups::Multiple(vec![1.into(), 2.into()]));
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: Some(SetgidMin {
+                    is_root: false,
+                    nb_groups: 2,
+                }),
+            }
+        );
+        setgid = Some(SGroups::Multiple(vec![]));
+        assert_eq!(
+            get_setuid_min(setuid.as_ref(), setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: Some(SetuidMin { is_root: true }),
+                gid: None,
+            }
+        );
+
+        setgid = Some(SGroups::Multiple(vec![0.into()]));
+        assert_eq!(
+            get_setuid_min(None, setgid.as_ref(), &security_min),
+            SetUserMin {
+                uid: None,
+                gid: Some(SetgidMin {
+                    is_root: true,
+                    nb_groups: 1,
+                }),
+            }
+        );
     }
 
     #[test]
@@ -1567,7 +1642,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_setuid_fallback_valid() {
         // Configuration de test
         let config = setup_test_config(1); // Un seul rôle pour simplifier
@@ -1614,7 +1689,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_setuid_fallback_nonarg_valid() {
         // Configuration de test
         let config = setup_test_config(1);
@@ -1961,6 +2036,54 @@ mod tests {
         assert_eq!(result.settings.setuid, Some(SUserType::from("root")));
 
         println!("Test réussi : L'utilisateur spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setuid_none_add_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+        // Définition du `setuid` avec un `fallback`
+        let fallback_user = SUserType::from(get_non_root_uid());
+        let chooser_struct = SSetuidSet {
+            fallback: fallback_user.clone(),
+            default: SetBehavior::None,
+            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
+
+        // Création des credentials avec l'utilisateur correspondant à l'ajout
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder().user("aitbelkacem").build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : L'utilisateur spécifié ne correspond pas ");
     }
 
     #[test]

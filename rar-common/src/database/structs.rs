@@ -711,7 +711,10 @@ mod tests {
         as_borrow,
         database::{
             actor::SGroupType,
-            options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SEnvOptions, SPathOptions, SPrivileged, STimeout, TimestampType},
+            options::{
+                EnvBehavior, PathBehavior, SAuthentication, SBounding, SEnvOptions, SPathOptions,
+                SPrivileged, STimeout, TimestampType,
+            },
         },
     };
 
@@ -1090,59 +1093,92 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let config = SConfig::builder().role(
-            SRole::builder("role1")
-                .actor(SActor::user("user1").build())
-                .actor(SActor::group([SGroupType::from("group1"), SGroupType::from(1000)]).build())
-                .task(
-                    STask::builder("task1")
-                        .purpose("purpose1".into())
-                        .cred(
-                            SCredentials::builder()
-                                .setuid(SUserChooser::ChooserStruct(
-                                    SSetuidSet::builder("user1", SetBehavior::All)
-                                        .add(["user2".into()])
-                                        .sub(["user3".into()])
-                                        .build(),
-                                ))
-                                .setgid(["setgid1"])
-                                .capabilities(
-                                    SCapabilities::builder(SetBehavior::All)
-                                        .add_cap(Cap::NET_BIND_SERVICE)
-                                        .sub_cap(Cap::SYS_ADMIN)
-                                        .build(),
-                                )
-                                .build(),
-                        )
-                        .commands(
-                            SCommands::builder(SetBehavior::All)
-                                .add(["cmd1".into()])
-                                .sub(["cmd2".into()])
-                                .build(),
-                        )
+        let config = SConfig::builder()
+            .role(
+                SRole::builder("role1")
+                    .actor(SActor::user("user1").build())
+                    .actor(
+                        SActor::group([SGroupType::from("group1"), SGroupType::from(1000)]).build(),
+                    )
+                    .task(
+                        STask::builder("task1")
+                            .purpose("purpose1".into())
+                            .cred(
+                                SCredentials::builder()
+                                    .setuid(SUserChooser::ChooserStruct(
+                                        SSetuidSet::builder("user1", SetBehavior::All)
+                                            .add(["user2".into()])
+                                            .sub(["user3".into()])
+                                            .build(),
+                                    ))
+                                    .setgid(["setgid1"])
+                                    .capabilities(
+                                        SCapabilities::builder(SetBehavior::All)
+                                            .add_cap(Cap::NET_BIND_SERVICE)
+                                            .sub_cap(Cap::SYS_ADMIN)
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
+                            .commands(
+                                SCommands::builder(SetBehavior::All)
+                                    .add(["cmd1".into()])
+                                    .sub(["cmd2".into()])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            )
+            .options(|opt| {
+                opt.path(
+                    SPathOptions::builder(PathBehavior::Delete)
+                        .add(["path_add"])
+                        .sub(["path_sub"])
                         .build(),
                 )
-                .build(),
-        ).options( | opt | opt.path(SPathOptions::builder(PathBehavior::Delete).add(["path_add"]).sub(["path_sub"]).build())
-            .env(SEnvOptions::builder(EnvBehavior::Delete).override_behavior(true).keep(["keep_env"]).unwrap().check(["check_env"]).unwrap().build())
-            .root(SPrivileged::Privileged)
-            .bounding(SBounding::Ignore)
-            .authentication(SAuthentication::Skip)
-            .wildcard_denied("wildcards")
-            .timeout(STimeout::builder().type_field(TimestampType::PPID).duration(Duration::minutes(5)).build())
-            .build()
-        ).build();
+                .env(
+                    SEnvOptions::builder(EnvBehavior::Delete)
+                        .override_behavior(true)
+                        .keep(["keep_env"])
+                        .unwrap()
+                        .check(["check_env"])
+                        .unwrap()
+                        .build(),
+                )
+                .root(SPrivileged::Privileged)
+                .bounding(SBounding::Ignore)
+                .authentication(SAuthentication::Skip)
+                .wildcard_denied("wildcards")
+                .timeout(
+                    STimeout::builder()
+                        .type_field(TimestampType::PPID)
+                        .duration(Duration::minutes(5))
+                        .build(),
+                )
+                .build()
+            })
+            .build();
         let config = serde_json::to_string_pretty(&config).unwrap();
         println!("{}", config);
     }
 
-
     #[test]
     fn test_serialize_operride_behavior_option() {
-        let config = SConfig::builder().options( | opt | opt.env(SEnvOptions::builder(EnvBehavior::Inherit).override_behavior(true).build())
-            .build()
-        ).build();
+        let config = SConfig::builder()
+            .options(|opt| {
+                opt.env(
+                    SEnvOptions::builder(EnvBehavior::Inherit)
+                        .override_behavior(true)
+                        .build(),
+                )
+                .build()
+            })
+            .build();
         let config = serde_json::to_string(&config).unwrap();
-        assert_eq!(config,"{\"options\":{\"env\":{\"override_behavior\":true}}}");
+        assert_eq!(
+            config,
+            "{\"options\":{\"env\":{\"override_behavior\":true}}}"
+        );
     }
 }

@@ -24,7 +24,7 @@ use crate::rc_refcell;
 
 #[cfg(feature = "finder")]
 use super::finder::Cred;
-use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
+use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -633,75 +633,78 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
     {
-        self.with_default().roles(roles.to_owned())
+        self.with_default()
+            .roles(roles.to_owned())
             .opt(roles.as_ref().borrow().options.to_owned())
     }
 
     fn with_default(self) -> Self {
-        self.opt(Some(Opt::builder(Level::Default)
-        .root(SPrivileged::User)
-        .bounding(SBounding::Strict)
-        .path(
-            SPathOptions::builder(PathBehavior::Delete)
-                .add([
-                    "/usr/local/sbin",
-                    "/usr/local/bin",
-                    "/usr/sbin",
-                    "/usr/bin",
-                    "/sbin",
-                    "/bin",
-                    "/snap/bin",
-                ])
+        self.opt(Some(
+            Opt::builder(Level::Default)
+                .root(SPrivileged::User)
+                .bounding(SBounding::Strict)
+                .path(
+                    SPathOptions::builder(PathBehavior::Delete)
+                        .add([
+                            "/usr/local/sbin",
+                            "/usr/local/bin",
+                            "/usr/sbin",
+                            "/usr/bin",
+                            "/sbin",
+                            "/bin",
+                            "/snap/bin",
+                        ])
+                        .build(),
+                )
+                .authentication(SAuthentication::Perform)
+                .env(
+                    SEnvOptions::builder(EnvBehavior::Delete)
+                        .keep([
+                            "HOME",
+                            "USER",
+                            "LOGNAME",
+                            "COLORS",
+                            "DISPLAY",
+                            "HOSTNAME",
+                            "KRB5CCNAME",
+                            "LS_COLORS",
+                            "PS1",
+                            "PS2",
+                            "XAUTHORY",
+                            "XAUTHORIZATION",
+                            "XDG_CURRENT_DESKTOP",
+                        ])
+                        .unwrap()
+                        .check([
+                            "COLORTERM",
+                            "LANG",
+                            "LANGUAGE",
+                            "LC_*",
+                            "LINGUAS",
+                            "TERM",
+                            "TZ",
+                        ])
+                        .unwrap()
+                        .delete([
+                            "PS4",
+                            "SHELLOPTS",
+                            "PERLLIB",
+                            "PERL5LIB",
+                            "PERL5OPT",
+                            "PYTHONINSPECT",
+                        ])
+                        .unwrap()
+                        .build(),
+                )
+                .timeout(
+                    STimeout::builder()
+                        .type_field(TimestampType::TTY)
+                        .duration(Duration::minutes(5))
+                        .build(),
+                )
+                .wildcard_denied(";&|")
                 .build(),
-        )
-        .authentication(SAuthentication::Perform)
-        .env(
-            SEnvOptions::builder(EnvBehavior::Delete)
-                .keep([
-                    "HOME",
-                    "USER",
-                    "LOGNAME",
-                    "COLORS",
-                    "DISPLAY",
-                    "HOSTNAME",
-                    "KRB5CCNAME",
-                    "LS_COLORS",
-                    "PS1",
-                    "PS2",
-                    "XAUTHORY",
-                    "XAUTHORIZATION",
-                    "XDG_CURRENT_DESKTOP",
-                ])
-                .unwrap()
-                .check([
-                    "COLORTERM",
-                    "LANG",
-                    "LANGUAGE",
-                    "LC_*",
-                    "LINGUAS",
-                    "TERM",
-                    "TZ",
-                ])
-                .unwrap()
-                .delete([
-                    "PS4",
-                    "SHELLOPTS",
-                    "PERLLIB",
-                    "PERL5LIB",
-                    "PERL5OPT",
-                    "PYTHONINSPECT",
-                ])
-                .unwrap()
-                .build(),
-        )
-        .timeout(
-            STimeout::builder()
-                .type_field(TimestampType::TTY)
-                .duration(Duration::minutes(5))
-                .build(),
-        )
-        .wildcard_denied(";&|")
-        .build()))
+        ))
     }
 }
 

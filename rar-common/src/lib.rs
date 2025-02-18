@@ -108,8 +108,7 @@ pub struct Settings {
     pub ldap: Option<LdapSettings>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, Default)]
 pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(name = not_immutable,with = || false)]
@@ -193,8 +192,6 @@ impl Default for Settings {
         }
     }
 }
-
-
 
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
