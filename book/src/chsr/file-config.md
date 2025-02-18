@@ -91,7 +91,12 @@ The following example shows a RootAsRole config without plugins when almost ever
           "name": "t_complete", // Task name, must be unique in the role
           "purpose": "complete", // Task purpose, just a description
           "cred": {
-            "setuid": "user1", // User to setuid before executing the command
+            "setuid": {
+              "fallback": "thefallbackuser", // Fallback user if the -u option is not set
+              "default": "none", // The sr user cannot use -u option in general
+              "add": ["theuser"], // the sr user can use "-u theuser" option
+              "sub": ["anotheruser"] // the sr user cannot use "-u anotheruser" option (overrides add, applies only if default is all)
+            }, // User to setuid before executing the command
             "setgid": [ // Groups to setgid before executing the command, The first one is the primary group
               "group1",
               "group2"

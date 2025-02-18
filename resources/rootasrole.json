@@ -81,7 +81,10 @@
                     "name": "t_root",
                     "purpose": "access to every commands",
                     "cred": {
-                        "setuid": "root",
+                        "setuid": {
+                            "fallback": "root",
+                            "default": "all"
+                        },
                         "setgid": "root",
                         "capabilities": {
                             "default": "all",
