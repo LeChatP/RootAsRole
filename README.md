@@ -121,18 +121,25 @@ However you won't find out exact same options as sudo, you can use the `--role` 
 
 ## Why do you need this tool ?
 
-|                                     | setcap | sudo             | sr |
-|-------------------------------------|--------|------------------|----|
-| Change user                         |        | ✅ but mandatory  | ✅  |
-| Change groups                       |        | ✅ but mandatory  | ✅  |
-| Manage environment variables        |        | ✅                | ✅  |
-| Strict command matching             |        | ✅ with wildcards      | ✅ with PCRE and glob |
-| Interoperable configuration/policy  |        | ✅ only with LDAP | ✅ with JSON |
-| Set capabilities                    | ✅      |                  | ✅ with Ambient set |
-| Prevent direct privilege escalation |        |                  | ✅ with Bounding set |
-| Do not trust authorized users by default |        |                  | ✅ |
-| Evolvable configuration/policy      |        |                  | ✅ with JSON |
-| Scalable access control             |        |                  | ✅ with RBAC |
+| Feature                                  | setcap??          | doas       | sudo                           | sudo-rs                       | sr                                           |
+|------------------------------------------|-------------------|------------|--------------------------------|--------------------------------|----------------------------------------------|
+| **Change user/groups**                   | N/A               | ✅ mandatory  | ✅ mandatory                     | ✅ mandatory                     | ✅✅ mandatory and optional                       |
+| **Manage environment variables**         | N/A               | ✅ partially  | ✅ complete                      | ✅ partially                     | ✅ complete                                    |
+| **Specific command matching**            | N/A               | ✅ Strict-only | ✅ Strict & wildcards            | ✅ Strict & wildcards            | ✅ Strict & glob and PCRE                       |
+| **Centralized policy**                   | ❌                | ❌         | ✅ LDAP-based                    | ❌                            | ❌                                           |
+| **Secure signal forwarding**             | N/A               | ❌         | ✅                            | ✅                            | ❌                                           |
+| **Authentication management**            | ❌                | ✅ PAM        | ✅✅ PAM, Kerberos, etc.           | ✅ PAM                           | ✅ PAM                                          |
+| **Logging features**                     | ❌                | ✅ syslog     | ✅✅ syslog, logsrvd, etc.         | ✅ syslog                        | ✅ syslog                                       |
+| **Plugin API**                           | N/A               | ❌         | complete                      | ❌                            | ⚠️ incomplete                                   |
+| **Set capabilities**                     | ⚠️ on files only     | ❌         | ❌                             | ❌                            | ✅ Ambient-based                                |
+| **Prevent direct privilege escalation**  | ❌                | ❌         | ❌                             | ❌                            | ✅✅ “Bounding set” based                         |
+| **Untrust authorized users**             | ❌                | ❌         | ❌                             | ❌                            | ✅✅ using Immutable file flag                   |
+| **Evolvable configuration/policy**       | ❌                | ⚠️ custom     | ⚠️ custom                         | ⚠️ custom                        | ✅ JSON-based                                   |
+| **Scalable access control model**        | N/A               | ❌ ACL        | ❌ ACL                            | ❌ ACL                           | ✅ RBAC                                         |
+| **Just-in-time features**                | N/A               | ❌         | ❌                             | ❌                            | ❌                                           |
+| **Multi-person control**                 | N/A               | ❌         | ❌                             | ❌                            | ❌                                           |
+| **SELinux policy management**            | N/A               | ❌         | ✅                            | ❌                            | ❌                                           |
+
 
 Traditional Linux system administration relies on a single powerful user, the superuser (root), who holds all system privileges. This model does not adhere to the principle of least privilege, as any program executed with superuser rights gains far more privileges than necessary. For example, `tcpdump`, a tool for sniffing network packets, only needs network capabilities. However, when run as the superuser, tcpdump gains all system privileges, including the ability to reboot the system. This excessive privilege can be exploited by attackers to compromise the entire system if tcpdump has vulnerabilities or their developers performs a supply chain attack.
 
