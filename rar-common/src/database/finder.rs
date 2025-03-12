@@ -759,7 +759,6 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             // Aucun match explicite, appliquer le comportement par défaut
                             match t.default {
                                 SetBehavior::None => {
-                                    println!("Aucun comportement par défaut applicable.");
                                     return Err(MatchError::NoMatch(
                                         "Aucun comportement par défaut applicable.".into(),
                                     )); // Aucun utilisateur par défaut
@@ -2110,7 +2109,7 @@ mod tests {
         // Commande de test
         let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
         // Exécution du match
-        let filter_matcher = FilterMatcher::builder().user("aitbelkacem").build();
+        let filter_matcher = FilterMatcher::builder().user("nouser").build();
 
         let result = config.matches(&cred, &Some(filter_matcher), &command);
 
@@ -2184,7 +2183,7 @@ mod tests {
         let command = vec!["/bin/ls".to_string()];
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_ok());
-        assert!(role.as_ref().borrow_mut()[0]
+        role.as_ref().borrow_mut()[0]
             .as_ref()
             .borrow_mut()
             .options
@@ -2196,7 +2195,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .add
-            .insert("/test".to_string()));
+            .replace(["/test".to_string()].iter().cloned().collect());
         let result = role.matches(&cred, &None, &command);
         assert!(result.is_err());
     }

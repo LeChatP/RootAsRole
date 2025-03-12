@@ -461,8 +461,7 @@ mod tests {
     fn test_fetch_user() {
         let user = SUserType::from("testuser");
         assert!(user.fetch_user().is_none());
-
-        let user_by_id = SUserType::from(1001);
+        let user_by_id = SUserType::from(0);
         assert!(user_by_id.fetch_user().is_some());
     }
 
