@@ -135,7 +135,7 @@ pub struct SCredentials {
     pub setuid: Option<SUserChooser>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(into)]
-    pub setgid: Option<SGroups>,
+    pub setgid: Option<SGroupschooser>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +201,54 @@ pub enum SetBehavior {
     #[default]
     None,
 }
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum SGroupschooser {
+    Group (SGroups),
+    StructChooser (SSetgidSet),
+}
+
+impl From<SGroups> for SGroupschooser {
+    fn from(group: SGroups) -> Self {
+        SGroupschooser::Group(group)
+    }
+}
+
+impl From<SSetgidSet> for SGroupschooser {
+    fn from(set: SSetgidSet) -> Self {
+        SGroupschooser::StructChooser(set)
+    }
+}
+
+impl From<&str> for SGroupschooser {
+    fn from(name: &str) -> Self {
+        SGroupschooser::Group(name.into())
+    }
+}
+
+impl From<u32> for SGroupschooser {
+    fn from(id: u32) -> Self {
+        SGroupschooser::Group(id.into())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+pub struct SSetgidSet {
+    #[builder(start_fn, into)]
+    pub fallback: SGroups,
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default: SetBehavior,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
+    pub add: Vec<SGroups>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(default, with = FromIterator::from_iter)]
+    pub sub: Vec<SGroups>,
+}
+
+
+
 
 #[derive(PartialEq, Eq, Debug, Builder)]
 pub struct SCapabilities {
@@ -839,7 +887,8 @@ mod tests {
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
         );
-        assert_eq!(*cred.setgid.as_ref().unwrap(), ["setgid1".into()]);
+        assert_eq!(*cred.setgid.as_ref().unwrap(), SGroupschooser::Group(SGroups::from("setgid1")));
+
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
@@ -1077,7 +1126,8 @@ mod tests {
             cred.setuid.as_ref().unwrap(),
             &SUserChooser::from(SUserType::from("setuid1"))
         );
-        assert_eq!(cred.setgid.as_ref().unwrap(), &SGroups::from(["setgid1"]));
+        assert_eq!(*cred.setgid.as_ref().unwrap(), SGroupschooser::Group(SGroups::from("setgid1")));
+
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::None);
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
@@ -1111,7 +1161,7 @@ mod tests {
                                             .sub(["user3".into()])
                                             .build(),
                                     ))
-                                    .setgid(["setgid1"])
+                                    .setgid(SGroupschooser::Group(SGroups::from("setgid1")))
                                     .capabilities(
                                         SCapabilities::builder(SetBehavior::All)
                                             .add_cap(Cap::NET_BIND_SERVICE)
