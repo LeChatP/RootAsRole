@@ -1238,6 +1238,20 @@ mod tests {
             .unwrap();
     }
 
+    fn get_non_root_gid(nth : usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/group").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        return passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth);
+    }
+
     #[test]
     fn test_find_from_envpath() {
         let needle = PathBuf::from("ls");
@@ -2372,7 +2386,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2427,8 +2441,8 @@ mod tests {
 
         // Définition du `setgid` avec un `fallback`
         let fallback_group = SGroups::Multiple(vec![
-            SGroupType::from(get_non_root_uid()),
-            SGroupType::from("aitbelkacem"),
+            SGroupType::from(get_non_root_gid(0).unwrap()),
+            SGroupType::from(get_non_root_gid(1).unwrap()),
         ]);        let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2451,8 +2465,8 @@ mod tests {
         // Exécution du match
         let filter_matcher = FilterMatcher::builder()
         .group(SGroups::Multiple(vec![
-            SGroupType::from(get_non_root_uid()),
-            SGroupType::from("aitbelkacem"),
+            SGroupType::from(get_non_root_gid(0).unwrap()),
+            SGroupType::from(get_non_root_gid(1).unwrap()),
         ]))
         .build();
 
@@ -2486,7 +2500,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2535,7 +2549,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2590,14 +2604,14 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
             add: vec![
                 SGroups::Multiple(vec![
-                    SGroupType::from("root"),
-                    SGroupType::from("aitbelkacem"),
+                    SGroupType::from(0),
+                    SGroupType::from(get_non_root_gid(1).unwrap()),
                 ]),
             ],
             sub: vec![],
@@ -2618,8 +2632,8 @@ mod tests {
         // Exécution du match
         let filter_matcher = FilterMatcher::builder()
     .group(SGroups::Multiple(vec![
-        SGroupType::from("root"),
-        SGroupType::from("aitbelkacem"),
+        SGroupType::from(0),
+        SGroupType::from(get_non_root_gid(1).unwrap()),
     ]))
     .build();
 
@@ -2633,8 +2647,8 @@ mod tests {
         assert_eq!(
             result.settings.setgroups,
             Some(SGroups::Multiple(vec![
-                SGroupType::from("root"),
-                SGroupType::from("aitbelkacem"),
+                SGroupType::from(0),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
             ]))
         );
         println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
@@ -2656,7 +2670,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2710,7 +2724,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::All,
@@ -2764,14 +2778,14 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::All,
             add: vec![],
             sub: vec![SGroups::Multiple(vec![
                 SGroupType::from("root"),
-                SGroupType::from("aitbelkacem"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
             ])],
         };
         task.as_ref().borrow_mut().cred.setgid =
@@ -2791,7 +2805,7 @@ mod tests {
         let filter_matcher = FilterMatcher::builder()
     .group(SGroups::Multiple(vec![
         SGroupType::from("root"),
-        SGroupType::from("aitbelkacem"),
+        SGroupType::from(get_non_root_gid(1).unwrap()),
     ]))
     .build();
 
@@ -2824,7 +2838,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::All,
@@ -2878,7 +2892,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -2932,7 +2946,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::All,
@@ -2986,13 +3000,13 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::All,
             add: vec![SGroups::Multiple(vec![
                 SGroupType::from("root"),
-                SGroupType::from("aitbelkacem"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
             ])],
             sub: vec![],
         };
@@ -3013,7 +3027,7 @@ mod tests {
         let filter_matcher = FilterMatcher::builder()
     .group(SGroups::Multiple(vec![
         SGroupType::from("root"),
-        SGroupType::from("aitbelkacem"),
+        SGroupType::from(get_non_root_gid(1).unwrap()),
     ]))
     .build();
 
@@ -3026,7 +3040,7 @@ mod tests {
          // Vérification que le groupe assigné est bien celui de l'ajout
          assert_eq!(result.settings.setgroups, Some(SGroups::Multiple(vec![
             SGroupType::from("root"),
-            SGroupType::from("aitbelkacem"),
+            SGroupType::from(get_non_root_gid(1).unwrap()),
         ])));
  
          println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
@@ -3048,7 +3062,7 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::None);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
@@ -3070,7 +3084,7 @@ mod tests {
 
         // Exécution du match
         let filter_matcher = FilterMatcher::builder()
-            .user(SUserType::from("aitbelkacem"))
+            .user(SUserType::from(get_non_root_gid(1).unwrap()))
             .build();
 
         let result = config.matches(&cred, &Some(filter_matcher), &command);
@@ -3101,13 +3115,13 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
 
         // Définition du `setgid` avec un `fallback`
-        let fallback_group = SGroups::from(get_non_root_uid());
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
         let chooser_struct = SSetgidSet {
             fallback: fallback_group.clone(),
             default: SetBehavior::None,
             add: vec![SGroups::Multiple(vec![
                 SGroupType::from("root"),
-                SGroupType::from("aitbelkacem"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
             ])],
             sub: vec![],
         };
@@ -3127,7 +3141,7 @@ mod tests {
         // Exécution du match
         let filter_matcher = FilterMatcher::builder()
     .group(SGroups::Multiple(vec![
-        SGroupType::from(get_non_root_uid()),
+        SGroupType::from(get_non_root_gid(0).unwrap()),
         SGroupType::from("root"),
     ]))
     .build();
