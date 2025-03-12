@@ -2008,7 +2008,7 @@ mod tests {
     #[test]
     fn test_safe_path() {
         let path = std::env::var("PATH").unwrap();
-        
+
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")

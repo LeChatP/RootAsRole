@@ -204,8 +204,8 @@ pub enum SetBehavior {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SGroupschooser {
-    Group (SGroups),
-    StructChooser (SSetgidSet),
+    Group(SGroups),
+    StructChooser(SSetgidSet),
 }
 
 impl From<SGroups> for SGroupschooser {
@@ -246,9 +246,6 @@ pub struct SSetgidSet {
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
 }
-
-
-
 
 #[derive(PartialEq, Eq, Debug, Builder)]
 pub struct SCapabilities {
@@ -904,7 +901,10 @@ mod tests {
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
         );
-        assert_eq!(*cred.setgid.as_ref().unwrap(), SGroupschooser::Group(SGroups::from("setgid1")));
+        assert_eq!(
+            *cred.setgid.as_ref().unwrap(),
+            SGroupschooser::Group(SGroups::from("setgid1"))
+        );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::All);
@@ -1159,7 +1159,10 @@ mod tests {
             cred.setuid.as_ref().unwrap(),
             &SUserChooser::from(SUserType::from("setuid1"))
         );
-        assert_eq!(*cred.setgid.as_ref().unwrap(), SGroupschooser::Group(SGroups::from("setgid1")));
+        assert_eq!(
+            *cred.setgid.as_ref().unwrap(),
+            SGroupschooser::Group(SGroups::from("setgid1"))
+        );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
         assert_eq!(capabilities.default_behavior, SetBehavior::None);

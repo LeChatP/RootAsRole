@@ -9,7 +9,7 @@ use nix::{
     unistd::{getgroups, getuid, isatty, Group, User},
 };
 use rar_common::database::{
-    actor::{SGroups, SUserType},
+    actor::{SGroupType, SGroups, SUserType},
     finder::{Cred, TaskMatch, TaskMatcher},
     options::EnvBehavior,
     FilterMatcher,
@@ -155,7 +155,17 @@ where
                 user = iter.next().map(|s| escape_parser_string(s).as_str().into());
             }
             "-g" | "--group" => {
-                group = iter.next().map(|s| escape_parser_string(s).as_str().into());
+                group = iter
+                    .next()
+                    .map(|s| {
+                        SGroups::Multiple(
+                            s.as_ref()
+                                .split(',')
+                                .map(|g| g.into())
+                                .collect::<Vec<SGroupType>>(),
+                        )
+                    })
+                    .into();
             }
             "-S" | "--stdin" => {
                 args.stdin = true;

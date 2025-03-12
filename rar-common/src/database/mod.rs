@@ -5,7 +5,7 @@ use crate::save_settings;
 use crate::util::{toggle_lock_config, ImmutableLock};
 use crate::version::PACKAGE_VERSION;
 
-use actor::{ SGroups, SUserType};
+use actor::{SGroups, SUserType};
 use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
@@ -36,7 +36,7 @@ pub struct FilterMatcher {
     pub env_behavior: Option<EnvBehavior>,
     #[builder(into)]
     pub user: Option<SUserType>,
-    pub group:Option<SGroups>,
+    pub group: Option<SGroups>,
 }
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
