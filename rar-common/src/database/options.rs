@@ -2010,7 +2010,7 @@ mod tests {
     #[test]
     fn test_safe_path() {
         let path = std::env::var("PATH").unwrap();
-        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
+        
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
@@ -2031,6 +2031,7 @@ mod tests {
             )
             .build();
         let options = OptStack::from_task(config.task("test", 1).unwrap());
+        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
         let res = options.calculate_path();
 
         assert_eq!(res, "/tmp:/bin");
