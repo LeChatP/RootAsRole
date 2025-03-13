@@ -766,7 +766,6 @@ impl OptStack {
     fn calculate_path(&self) -> String {
         let path = self.get_final_path();
         let default = LinkedHashSet::new();
-        println!("path: {:?}", path);
         if let Some(add) = path.add {
             let final_add = add.difference(path.sub.as_ref().unwrap_or(&default)).fold(
                 "".to_string(),
@@ -967,7 +966,6 @@ impl OptStack {
         I: Iterator<Item = (String, String)>,
     {
         let env = self.get_final_env(opt_filter);
-        println!("env: {:?}", env);
         if env.default_behavior.is_keep() {
             warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
             Please consider using delete instead. 
@@ -2010,7 +2008,7 @@ mod tests {
     #[test]
     fn test_safe_path() {
         let path = std::env::var("PATH").unwrap();
-        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
+
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
@@ -2031,6 +2029,7 @@ mod tests {
             )
             .build();
         let options = OptStack::from_task(config.task("test", 1).unwrap());
+        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
         let res = options.calculate_path();
 
         assert_eq!(res, "/tmp:/bin");

@@ -10,7 +10,9 @@ use rar_common::database::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
         STimeout,
     },
-    structs::{IdTask, RoleGetter, SCapabilities, SCommand, SRole, STask, SUserChooser},
+    structs::{
+        IdTask, RoleGetter, SCapabilities, SCommand, SGroupschooser, SRole, STask, SUserChooser,
+    },
 };
 
 use super::perform_on_target_opt;
@@ -323,7 +325,8 @@ pub fn cred_set(
                 task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::Actor(setuid));
             }
             if let Some(setgid) = cred_setgid {
-                task.as_ref().borrow_mut().cred.setgid = Some(setgid);
+                task.as_ref().borrow_mut().cred.setgid =
+                    Some(SGroupschooser::Group(setgid.clone()));
             }
             Ok(true)
         }
