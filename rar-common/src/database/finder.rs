@@ -3363,4 +3363,29 @@ mod tests {
 
         println!("Test réussi : Le groupe spécifié ne correspond pas ");
     }
+
+    #[test]
+    fn test_sgroupschooser_from() {
+        let sgroup = SGroups::from(get_non_root_gid(0).unwrap());
+        let sgroupschooser = SGroupschooser::from(sgroup.clone());
+        assert_eq!(sgroupschooser, SGroupschooser::Group(sgroup.clone()));
+        let chooser_struct = SSetgidSet {
+            fallback: sgroup.clone(),
+            default: SetBehavior::None,
+            add: vec![
+                SGroups::from("root"),
+                SGroups::from(get_non_root_gid(1).unwrap()),
+            ],
+            sub: vec![],
+        };
+        let sgroupschooser = SGroupschooser::from(chooser_struct.clone());
+        assert_eq!(sgroupschooser, SGroupschooser::StructChooser(chooser_struct));
+        let group = "grp";
+        let sgroupschooser = SGroupschooser::from(group);
+        assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
+        let group = 0;
+        let sgroupschooser = SGroupschooser::from(group);
+        assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
+
+    }
 }
