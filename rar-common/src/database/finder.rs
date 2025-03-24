@@ -3379,13 +3379,15 @@ mod tests {
             sub: vec![],
         };
         let sgroupschooser = SGroupschooser::from(chooser_struct.clone());
-        assert_eq!(sgroupschooser, SGroupschooser::StructChooser(chooser_struct));
+        assert_eq!(
+            sgroupschooser,
+            SGroupschooser::StructChooser(chooser_struct)
+        );
         let group = "grp";
         let sgroupschooser = SGroupschooser::from(group);
         assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
         let group = 0;
         let sgroupschooser = SGroupschooser::from(group);
         assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
-
     }
 }
