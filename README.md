@@ -215,5 +215,7 @@ This logo were generated using DALL-E 2 AI, for any license issue or plagiarism,
 This project includes [sudo-rs](https://github.com/memorysafety/sudo-rs) code licensed under the Apache-2 and MIT licenses: 
 We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Indeed, We thought that the password was well managed in this file and we have reused it. As sudo-rs does, rpassword.rs is from the rpassword project (License: Apache-2.0). We use it as a replacement of the rpassword project usage.
 
+This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airbus PROTECT** through an industrial PhD during 2022 and 2025.
+
 
 ## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
