@@ -557,7 +557,7 @@ fn tz_is_safe(tzval: &str) -> bool {
     }
 
     // Reject extra long TZ values (even if not a path).
-    if tzval.len() >= PATH_MAX.try_into().unwrap() {
+    if tzval.len() >= <i32 as TryInto<usize>>::try_into(PATH_MAX).unwrap() {
         return false;
     }
 
