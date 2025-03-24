@@ -67,6 +67,14 @@ impl fmt::Display for SGroupType {
 }
 
 impl SGroupType {
+    pub fn fetch_eq(&self, other: &Self) -> bool {
+        let uid = self.fetch_id();
+        let ouid = other.fetch_id();
+        match (uid, ouid) {
+            (Some(uid), Some(ouid)) => uid == ouid,
+            _ => false,
+        }
+    }
     pub(super) fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             SGenericActorType::Id(id) => Some(*id),
@@ -109,6 +117,16 @@ impl SGroups {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn fetch_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (SGroups::Single(group), SGroups::Single(ogroup)) => group.fetch_eq(ogroup),
+            (SGroups::Multiple(groups), SGroups::Multiple(ogroups)) => groups
+                .iter()
+                .all(|group| ogroups.iter().any(|ogroup| group.fetch_eq(ogroup))),
+            _ => false,
+        }
     }
 }
 
@@ -480,5 +498,13 @@ mod tests {
     fn test_is_empty() {
         let groups = SGroups::Multiple(vec![]);
         assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn test_fetch_eq_sgroupstype_false() {
+        let group1 = SGroupType::from("unkown");
+        let group2 = SGroupType::from("unkown2");
+
+        assert!(!group1.fetch_eq(&group2));
     }
 }

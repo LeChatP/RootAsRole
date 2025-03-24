@@ -45,6 +45,7 @@ mod tests {
     use rar_common::{
         database::{
             actor::SActor,
+            actor::SGroups,
             options::*,
             read_json_config,
             structs::{SCredentials, *},
@@ -204,7 +205,9 @@ mod tests {
                                         .cred(
                                             SCredentials::builder()
                                                 .setuid("user1")
-                                                .setgid(["group1", "group2"])
+                                                .setgid(SGroupschooser::Group(SGroups::from([
+                                                    "setgid1", "setgid2",
+                                                ])))
                                                 .capabilities(
                                                     SCapabilities::builder(SetBehavior::All)
                                                         .add_cap(Cap::LINUX_IMMUTABLE)

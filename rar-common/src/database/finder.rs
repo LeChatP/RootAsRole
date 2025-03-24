@@ -23,7 +23,9 @@ use strum::EnumIs;
 use crate::database::{
     actor::SActor,
     options::{Opt, OptStack},
-    structs::{SCommand, SCommands, SConfig, SRole, STask, SUserChooser, SetBehavior},
+    structs::{
+        SCommand, SCommands, SConfig, SGroupschooser, SRole, STask, SUserChooser, SetBehavior,
+    },
 };
 use crate::util::{capabilities_are_exploitable, final_path, parse_conf_command};
 use crate::{
@@ -774,14 +776,57 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
 
         // Set gid processing
         let setgid = &self.as_ref().borrow().cred.setgid;
+        let setgid_result: Option<SGroups> = match setgid {
+            Some(SGroupschooser::Group(s)) => Some(s.clone()),
+            Some(SGroupschooser::StructChooser(m)) => {
+                match cmd_opt.as_ref().and_then(|cmd| cmd.group.as_ref()) {
+                    None => {
+                        debug!(
+                            "No group specified in the command, fallback used : {:?}",
+                            m.fallback
+                        );
+                        Some(m.fallback.clone())
+                    }
+                    Some(ggroup) => {
+                        debug!("Group specified in the command : {:?}", ggroup);
+                        if ggroup.fetch_eq(&m.fallback) {
+                            debug!("The group specified in the command matches the fallback !");
+                            Some(m.fallback.clone())
+                        } else if m.sub.iter().any(|s| s.fetch_eq(ggroup)) {
+                            return Err(MatchError::NoMatch(
+                                "The group is forbidden in sub.".into(),
+                            ));
+                        } else if m.add.iter().any(|s| s.fetch_eq(ggroup)) {
+                            Some(ggroup.clone())
+                        } else {
+                            match m.default {
+                                SetBehavior::None => {
+                                    return Err(MatchError::NoMatch(
+                                        "No default behavior applicable.".into(),
+                                    ));
+                                }
+                                SetBehavior::All => {
+                                    debug!("All groups are accepted.");
+                                    Some(ggroup.clone())
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => None,
+        };
 
         // Calculate setuid and setgid minimum
-        score.setuser_min =
-            get_setuid_min(setuid_result.as_ref(), setgid.as_ref(), &score.security_min);
+        score.setuser_min = get_setuid_min(
+            setuid_result.as_ref(),
+            setgid_result.as_ref(),
+            &score.security_min,
+        );
 
         // Update task settings
         settings.setuid = setuid_result.clone();
-        settings.setgroups = setgid.clone();
+        settings.setgroups = setgid_result.clone();
         settings.caps = capset;
 
         // Get options stack from the task
@@ -1161,7 +1206,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
 #[cfg(test)]
 mod tests {
 
-    use std::fs;
+    use std::{fs, vec};
 
     use capctl::Cap;
     use test_log::test;
@@ -1170,7 +1215,7 @@ mod tests {
         database::{
             make_weak_config,
             options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
-            structs::{IdTask, RoleGetter, SCredentials, SSetuidSet},
+            structs::{IdTask, RoleGetter, SCredentials, SSetgidSet, SSetuidSet},
             versionning::Versioning,
         },
         rc_refcell,
@@ -1190,6 +1235,20 @@ mod tests {
             })
             .find(|uid| *uid != 0)
             .unwrap();
+    }
+
+    fn get_non_root_gid(nth: usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/group").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        return passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth);
     }
 
     #[test]
@@ -1666,7 +1725,6 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant au `fallback`
         let cred = Cred::builder().user_name("root").group_name("root").build();
 
         // Commande de test
@@ -1713,9 +1771,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials sans spécifier d'utilisateur
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Utilisateur non spécifié
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -1763,9 +1820,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -1814,9 +1870,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -1863,9 +1918,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -1888,7 +1942,7 @@ mod tests {
     }
 
     #[test]
-    //echec
+
     fn test_setuid_all_valid() {
         // Configuration de test
         let config = setup_test_config(1); // Un seul rôle pour simplifier
@@ -1913,9 +1967,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -1932,7 +1985,7 @@ mod tests {
         assert!(result.is_ok());
         let result = result.unwrap();
 
-        // Vérification que l'utilisateur assigné est bien celui de l'ajout
+        // Vérification que l'utilisateur assigné est autorisé
         assert_eq!(result.settings.setuid, Some(SUserType::from("root")));
 
         println!("Test réussi : L'utilisateur spécifié correspond bien à l'ajout.");
@@ -1961,9 +2014,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -2012,9 +2064,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -2060,9 +2111,8 @@ mod tests {
         };
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
-        // Création des credentials avec l'utilisateur correspondant à l'ajout
         let cred = Cred {
-            user: User::from_name("root").unwrap().unwrap(), // Même nom que l'ajout
+            user: User::from_name("root").unwrap().unwrap(),
             groups: vec![Group::from_name("root").unwrap().unwrap()],
             ppid: Pid::from_raw(0),
             tty: None,
@@ -2303,5 +2353,1041 @@ mod tests {
         println!(
             " Test réussi : L'utilisateur spécifié correspond bien à l'ajout pour la tâche 3."
         );
+    }
+
+    #[test]
+    fn test_setgid_fallback_single_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(fallback_group.clone())
+            .build();
+
+        // Exécution du match
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de fallback
+        assert_eq!(result.settings.setgroups, Some(fallback_group.clone()));
+
+        println!("Test successful: The specified user correctly matches the fallback.");
+    }
+
+    #[test]
+    fn test_setgid_fallback_multiple_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::Multiple(vec![
+            SGroupType::from(get_non_root_gid(0).unwrap()),
+            SGroupType::from(get_non_root_gid(1).unwrap()),
+        ]);
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from(get_non_root_gid(0).unwrap()),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+            .build();
+
+        // Exécution du match
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de fallaback
+        assert_eq!(result.settings.setgroups, Some(fallback_group.clone()));
+
+        println!("Test successful: The specified user correctly matches the fallback.");
+    }
+
+    #[test]
+    fn test_setgid_fallback_nonarg_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let result = config.matches(&cred, &None, &command);
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de fallback
+        assert_eq!(result.settings.setgroups, Some(fallback_group.clone()));
+
+        println!("Test successful: The specified group correctly matches the fallback when no valid group is provided.");
+    }
+
+    #[test]
+    fn test_setgid_add_single_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::from("root")],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de l'ajout
+        assert_eq!(result.settings.setgroups, Some(SGroups::from("root")));
+        println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setgid_add_multiple_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::Multiple(vec![
+                SGroupType::from(0),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from(0),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de l'ajout
+        assert_eq!(
+            result.settings.setgroups,
+            Some(SGroups::Multiple(vec![
+                SGroupType::from(0),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+        );
+        println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setgid_add_sub_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::from("root")],
+            sub: vec![SGroups::from("root")],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_all_sub_single_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::All,
+            add: vec![],
+            sub: vec![SGroups::from("root")],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_all_sub_multiple_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::All,
+            add: vec![],
+            sub: vec![SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_all_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::All,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est autorisé
+        assert_eq!(result.settings.setgroups, Some(SGroups::from("root")));
+
+        println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setgid_none_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_all_add_single_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::All,
+            add: vec![SGroups::from("root")],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de l'ajout
+        assert_eq!(result.settings.setgroups, Some(SGroups::from("root")));
+
+        println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setgid_all_add_multiple_valid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::All,
+            add: vec![SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        // Vérification que le groupe assigné est bien celui de l'ajout
+        assert_eq!(
+            result.settings.setgroups,
+            Some(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+        );
+
+        println!("Test réussi : Le groupe spécifié correspond bien à l'ajout.");
+    }
+
+    #[test]
+    fn test_setgid_none_add_single_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::None);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::from("root")],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .user(SUserType::from(get_non_root_gid(1).unwrap()))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_none_add_multiple_invvalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from(get_non_root_gid(0).unwrap()),
+                SGroupType::from("root"),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_add_multiple_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::from("root"))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_add_single_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::from("root")],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(0).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_add_diff_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ])],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(0).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_setgid_add_list_or_invalid() {
+        // Configuration de test
+        let config = setup_test_config(1); // Un seul rôle pour simplifier
+        let role = setup_test_role(1, Some(config.as_ref().borrow().roles[0].clone()), None);
+        let task = role.as_ref().borrow().tasks[0].clone();
+
+        // Ajout d'un acteur autorisé
+        role.as_ref()
+            .borrow_mut()
+            .actors
+            .push(SActor::user("root").build());
+
+        task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
+
+        // Définition du `setgid` avec un `fallback`
+        let fallback_group = SGroups::from(get_non_root_gid(0).unwrap());
+        let chooser_struct = SSetgidSet {
+            fallback: fallback_group.clone(),
+            default: SetBehavior::None,
+            add: vec![
+                SGroups::from("root"),
+                SGroups::from(get_non_root_gid(1).unwrap()),
+            ],
+            sub: vec![],
+        };
+        task.as_ref().borrow_mut().cred.setgid =
+            Some(SGroupschooser::StructChooser(chooser_struct));
+
+        let cred = Cred {
+            user: User::from_name("root").unwrap().unwrap(),
+            groups: vec![Group::from_name("root").unwrap().unwrap()],
+            ppid: Pid::from_raw(0),
+            tty: None,
+        };
+
+        // Commande de test
+        let command = vec!["/bin/ls".to_string(), "-l".to_string(), "-a".to_string()];
+
+        // Exécution du match
+        let filter_matcher = FilterMatcher::builder()
+            .group(SGroups::Multiple(vec![
+                SGroupType::from("root"),
+                SGroupType::from(get_non_root_gid(1).unwrap()),
+            ]))
+            .build();
+
+        let result = config.matches(&cred, &Some(filter_matcher), &command);
+
+        // Vérification que le match est réussi
+        assert!(result.is_err());
+        let result = result.unwrap_err();
+
+        // Vérification que l'erreur est bien de type `NoMatch`
+        assert!(result.is_no_match());
+
+        println!("Test réussi : Le groupe spécifié ne correspond pas ");
+    }
+
+    #[test]
+    fn test_sgroupschooser_from() {
+        let sgroup = SGroups::from(get_non_root_gid(0).unwrap());
+        let sgroupschooser = SGroupschooser::from(sgroup.clone());
+        assert_eq!(sgroupschooser, SGroupschooser::Group(sgroup.clone()));
+        let chooser_struct = SSetgidSet {
+            fallback: sgroup.clone(),
+            default: SetBehavior::None,
+            add: vec![
+                SGroups::from("root"),
+                SGroups::from(get_non_root_gid(1).unwrap()),
+            ],
+            sub: vec![],
+        };
+        let sgroupschooser = SGroupschooser::from(chooser_struct.clone());
+        assert_eq!(
+            sgroupschooser,
+            SGroupschooser::StructChooser(chooser_struct)
+        );
+        let group = "grp";
+        let sgroupschooser = SGroupschooser::from(group);
+        assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
+        let group = 0;
+        let sgroupschooser = SGroupschooser::from(group);
+        assert_eq!(sgroupschooser, SGroupschooser::Group(group.into()));
     }
 }

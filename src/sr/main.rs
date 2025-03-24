@@ -9,7 +9,7 @@ use nix::{
     unistd::{getgroups, getuid, isatty, Group, User},
 };
 use rar_common::database::{
-    actor::{SGroups, SUserType},
+    actor::{SGroupType, SGroups, SUserType},
     finder::{Cred, TaskMatch, TaskMatcher},
     options::EnvBehavior,
     FilterMatcher,
@@ -69,6 +69,8 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-u, --user <USER>{RST}
           Specify the user to execute the command as
+  {BOLD} -g --group <GROUP>{RST}
+          Specify the group to execute the command as
 
   {BOLD}-i, --info{RST}
           Display rights of executor
@@ -143,12 +145,27 @@ where
     let mut role = None;
     let mut task = None;
     let mut user: Option<SUserType> = None;
+    let mut group: Option<SGroups> = None;
     let mut env = None;
+
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
             "-u" | "--user" => {
                 user = iter.next().map(|s| escape_parser_string(s).as_str().into());
+            }
+            "-g" | "--group" => {
+                group = iter
+                    .next()
+                    .map(|s| {
+                        SGroups::Multiple(
+                            s.as_ref()
+                                .split(',')
+                                .map(|g| g.into())
+                                .collect::<Vec<SGroupType>>(),
+                        )
+                    })
+                    .into();
             }
             "-S" | "--stdin" => {
                 args.stdin = true;
@@ -190,6 +207,7 @@ where
             .maybe_task(task)
             .maybe_env_behavior(env)
             .maybe_user(user)
+            .maybe_group(group)
             .build(),
     );
     for arg in iter {
