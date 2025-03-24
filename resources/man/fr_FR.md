@@ -72,13 +72,13 @@ Pour obtenir de l'aide, veuillez consulter <https://github.com/LeChatP/RootAsRol
 
 # CLAUSE DE NON-RESPONSABILITÉ
 
-Ce programme est fourni « en l'état », sans aucune garantie, dans la limite permise par la loi. Les auteurs déclinent toute responsabilité quant à la qualité ou l'adéquation du programme à un usage particulier. Vous utilisez ce programme à vos propres risques. En cas de problème, vous êtes responsable des réparations ou corrections nécessaires. Pour plus de détails, veuillez consulter la licence GNU GPL version 3 ou ultérieure <https://gnu.org/licenses/gpl.html>.
+Ce programme est fourni « en l'état », sans aucune garantie, dans la limite permise par la loi. Les auteurs déclinent toute responsabilité quant à la qualité ou l'adéquation du programme à un usage particulier. Vous utilisez ce programme à vos propres risques. En cas de problème, vous êtes responsable des réparations ou corrections nécessaires. Pour plus de détails, veuillez consulter la licence GNU LGPL version 3 ou ultérieure <https://www.gnu.org/licenses/lgpl-3.0.html>.
 
 # AUTEUR
 Ce manuel a été écrit par Eddie BILLOIR <lechatp@outlook.fr>
 
 # LICENCE
-License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+License LGPLv3+: GNU LGPL version 3 or later <https://www.gnu.org/licenses/lgpl-3.0.html>.
 
 # VOIR AUSSI
 Linux capabilities(7), sudo(8), su(1)
