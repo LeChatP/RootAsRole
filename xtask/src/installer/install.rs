@@ -209,6 +209,7 @@ pub fn install(
         env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
         log::warn!("Elevating privileges...");
         std::process::Command::new(priv_exe)
+            .arg("-E")
             .arg(
                 current_exe()?
                     .to_str()
