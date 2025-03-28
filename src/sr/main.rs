@@ -60,7 +60,7 @@ const USAGE: &str = formatcp!(
           Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
 
   {BOLD}-E, --preserve-env <TASK>{RST}
-          Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
+          Preserve environment variables if allowed by a matching task
 
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
