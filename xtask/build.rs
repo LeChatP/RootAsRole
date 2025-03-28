@@ -3,6 +3,7 @@ use serde_json::Value;
 use serde_json::Map;
 
 const RAR_CFG_PATH: &str = "/etc/security/rootasrole.json";
+const RAR_BIN_PATH: &str = "/usr/bin";
 const RAR_CFG_IMMUTABLE: bool = true;
 const RAR_TIMEOUT_TYPE: &str = "PPID";
 const RAR_TIMEOUT_DURATION: &str = "00:05:00";
@@ -61,6 +62,11 @@ fn config_env() {
     println!(
         "cargo:rustc-env=RAR_CFG_PATH={}",
         env::var("RAR_CFG_PATH").unwrap_or_else(|_| RAR_CFG_PATH.to_string())
+    );
+
+    println!(
+        "cargo:rustc-env=RAR_BIN_PATH={}",
+        env::var("RAR_BIN_PATH").unwrap_or_else(|_| RAR_BIN_PATH.to_string())
     );
 
     println!(

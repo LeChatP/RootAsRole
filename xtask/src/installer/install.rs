@@ -16,10 +16,12 @@ use crate::installer::Profile;
 use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
-use super::{CHSR_DEST, SR_DEST};
+use super::{CHSR_DEST, SR_DEST, RAR_BIN_PATH};
 use crate::util::cap_clear;
 
 fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
+    let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
+    let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
     let binding = std::env::current_dir()?;
     let cwd = binding
         .to_str()
@@ -27,7 +29,7 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     info!("Current working directory: {}", cwd);
     info!(
         "Copying files {}/target/{}/sr to {} and {}",
-        cwd, profile, SR_DEST, CHSR_DEST
+        cwd, profile, sr_dest, chsr_dest
     );
     let s_sr = format!("{}/target/{}/sr", cwd, profile);
     let sr = Path::new(&s_sr);
@@ -44,9 +46,9 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     debug!("Copying chsr to chsr.tmp");
     fs::copy(chsr, format!("{}.tmp", s_chsr))?;
     debug!("Renaming sr to /usr/bin/sr");
-    fs::rename(sr, SR_DEST)?;
+    fs::rename(sr, sr_dest)?;
     debug!("Renaming chsr to /usr/bin/chsr");
-    fs::rename(chsr, CHSR_DEST)?;
+    fs::rename(chsr, chsr_dest)?;
     debug!("Renaming sr.tmp to sr");
     fs::rename(format!("{}.tmp", s_sr), sr)?;
     debug!("Renaming chsr.tmp to chsr");
