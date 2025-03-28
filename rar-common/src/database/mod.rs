@@ -1,9 +1,8 @@
 use std::path::Path;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::save_settings;
+use crate::{save_settings, PACKAGE_VERSION};
 use crate::util::{toggle_lock_config, ImmutableLock};
-use crate::version::PACKAGE_VERSION;
 
 use actor::{SGroups, SUserType};
 use bon::{builder, Builder};
@@ -235,18 +234,26 @@ where
     D: de::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
+    match convert_string_to_duration(&s) {
+        Ok(d) => Ok(d),
+        Err(e) => Err(de::Error::custom(e)),
+    }
+}
+
+fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>>
+{
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())
     {
-        let hours: i64 = hours.parse().map_err(de::Error::custom)?;
-        let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
-        let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
+        let hours: i64 = hours.parse()?;
+        let minutes: i64 = minutes.parse()?;
+        let seconds: i64 = seconds.parse()?;
         return Ok(Some(
             Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds),
         ));
     }
-    Err(de::Error::custom("Invalid duration format"))
+    Err("Invalid duration format".into())
 }
 
 fn serialize_capset<S>(value: &capctl::CapSet, serializer: S) -> Result<S::Ok, S::Error>

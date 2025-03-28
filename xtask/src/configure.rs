@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::Context;
 use log::{info, warn};
 use nix::unistd::{getresuid, getuid};
+use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
@@ -49,31 +50,92 @@ fn is_running_in_container() -> bool {
 }
 
 pub fn check_filesystem() -> io::Result<()> {
+
     let config = BufReader::new(File::open(ROOTASROLE)?);
     let mut config: SettingsFile = serde_json::from_reader(config)?;
 
-    // Get the filesystem type
-    if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
-        match fs_type.as_str() {
-            "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
-                info!(
-                    "{} is compatble for immutability, setting immutable flag",
+    if env!("RAR_CFG_IMMUTABLE") == "true" {
+        // Get the filesystem type
+        if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
+            match fs_type.as_str() {
+                "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
+                    info!(
+                        "{} is compatble for immutability, setting immutable flag",
+                        fs_type
+                    );
+                    set_immutable(&mut config, true);
+                    toggle_lock_config(&ROOTASROLE.to_string(), ImmutableLock::Set)?;
+                    return Ok(());
+                }
+                _ => info!(
+                    "{} is not compatible for immutability, removing immutable flag",
                     fs_type
-                );
-                set_immutable(&mut config, true);
-                toggle_lock_config(&ROOTASROLE.to_string(), ImmutableLock::Set)?;
-                return Ok(());
+                ),
             }
-            _ => info!(
-                "{} is not compatible for immutability, removing immutable flag",
-                fs_type
-            ),
+        } else {
+            info!("Failed to get filesystem type, removing immutable flag");
         }
-    } else {
-        info!("Failed to get filesystem type, removing immutable flag");
     }
+    
     set_immutable(&mut config, false);
     File::create(ROOTASROLE)?.write_all(serde_json::to_string_pretty(&config)?.as_bytes())?;
+    Ok(())
+}
+
+fn set_options(content : &mut String) -> io::Result<()> {
+    let mut config: SettingsFile = serde_json::from_str(content)?;
+    let opt = format!(r#"{{
+        "timeout": {{
+            "type": "{timeout_type}",
+            "duration": "{timeout_duration}"
+        }},
+        "path": {{
+            "default": "{default_path}",
+            "add": {path_add_list}{path_remove_list}
+        }},
+        "env": {{
+            "default": "{default_env}",
+            "override_behavior": {override_behavior},
+            "keep": {keep_env_list},
+            "check": {check_env_list},
+            "delete" : {delete_env_list}{set_env_list}
+        }},
+        "authentication": "{authentication}",
+        "root": "{root}",
+        "bounding": "{bounding}",
+        "wildcard-denied": "{wildcard_denied}"
+}}"#, timeout_type = env!("RAR_TIMEOUT_TYPE"),
+        timeout_duration = env!("RAR_TIMEOUT_DURATION"),
+        default_path = env!("RAR_PATH_DEFAULT"),
+        path_add_list = serde_json::to_string(&env!("RAR_PATH_ADD_LIST").split(",").collect::<Vec<_>>()).unwrap(),
+        path_remove_list = if env!("RAR_PATH_REMOVE_LIST").len() > 2 {
+            format!(r#","del": {}"#, serde_json::to_string(&env!("RAR_PATH_REMOVE_LIST").split(",").collect::<Vec<_>>()).unwrap())
+        } else {
+            String::new()
+        },
+        default_env = env!("RAR_ENV_DEFAULT"),
+        keep_env_list = serde_json::to_string(&env!("RAR_ENV_KEEP_LIST").split(",").collect::<Vec<_>>()).unwrap(),
+        check_env_list = serde_json::to_string(&env!("RAR_ENV_CHECK_LIST").split(",").collect::<Vec<_>>()).unwrap(),
+        delete_env_list = serde_json::to_string(&env!("RAR_ENV_DELETE_LIST").split(",").collect::<Vec<_>>()).unwrap(),
+        set_env_list = if env!("RAR_ENV_SET_LIST").len() > 0 {
+            format!(r#","set": {}"#, env!("RAR_ENV_SET_LIST"))
+        } else {
+            String::new()
+        },
+        authentication = env!("RAR_AUTHENTICATION"),
+        override_behavior = env!("RAR_ENV_OVERRIDE_BEHAVIOR"),
+        root = env!("RAR_USER_CONSIDERED"),
+        bounding = env!("RAR_BOUNDING"),
+        wildcard_denied = env!("RAR_WILDCARD_DENIED"));
+    let mut options: Value = serde_json::from_str(&opt).expect("Failed to parse options");
+    config
+            ._extra_fields
+            .as_object_mut()
+            .unwrap()
+            .get_mut("options")
+            .replace(&mut options)
+            .expect("Failed to get options");
+    *content = serde_json::to_string_pretty(&config).expect("Failed to serialize config");
     Ok(())
 }
 
@@ -214,6 +276,8 @@ fn deploy_config<P: AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
             content = content.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()));
         }
     }
+    // deploy execution options on the config file defined in the compilation environment variables
+    set_options(&mut content)?;
     // Write the config file
     let mut config = File::create(config_path)?;
     config.write_all(content.as_bytes())?;

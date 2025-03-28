@@ -33,6 +33,10 @@ log = "0.4"
 env_logger = "0.11"
 test-log = { version = "0.2" }
 
+[build-dependencies]
+serde = { version = "1.0.210", features=["rc", "derive"] }
+serde_json = "1.0.132"
+
 [features]
 pcre2 = ["dep:pcre2"]
 finder = ["dep:glob"]

@@ -84,7 +84,7 @@ pub struct RemoteStorageSettings {
 }
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
-pub const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
 
 #[derive(Debug, EnumIs)]
 pub enum ImmutableLock {

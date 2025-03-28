@@ -48,9 +48,11 @@
 //   }
 
 #[cfg(not(test))]
-const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+const ROOTASROLE: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
 const ROOTASROLE: &str = "target/rootasrole.json";
+
+const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
 
@@ -62,7 +64,6 @@ pub mod api;
 pub mod database;
 pub mod plugin;
 pub mod util;
-pub mod version;
 
 use util::{
     dac_override_effective, open_with_privileges, read_effective, toggle_lock_config,
@@ -111,7 +112,7 @@ pub struct Settings {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, Default)]
 pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(name = not_immutable,with = || false)]
+    #[builder(name = not_immutable,with = || env!("RAR_CFG_IMMUTABLE") == "true")]
     pub immutable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(into)]

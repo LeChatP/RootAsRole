@@ -26,6 +26,7 @@
         },
         "env": {
             "default": "delete",
+            "override_behavior": false,
             "keep": [
                 "HOME",
                 "USER",
@@ -57,7 +58,8 @@
                 "PERL5LIB",
                 "PERL5OPT",
                 "PYTHONINSPECT"
-            ]
+            ],
+            "set": {}
         },
         "root": "user",
         "bounding": "strict",

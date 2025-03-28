@@ -28,6 +28,10 @@ glob = "0.3.1"
 log = "0.4.22"
 env_logger = "0.11.5"
 
+[build-dependencies]
+serde = { version = "1.0.209", features = ["rc", "derive"] }
+serde_json = "1.0.127"
+
 [features]
 default = ["cli", "ebpf", "deploy"]
 cli = []

@@ -34,7 +34,7 @@ use rar_common::{
 };
 
 #[cfg(not(test))]
-const ROOTASROLE: &str = "/etc/security/rootasrole.json";
+const ROOTASROLE: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
 const ROOTASROLE: &str = "target/rootasrole.json";
 

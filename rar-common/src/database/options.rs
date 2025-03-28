@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 #[cfg(feature = "finder")]
 use std::path::PathBuf;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
@@ -14,7 +15,7 @@ use linked_hash_set::LinkedHashSet;
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, EnumIter, FromRepr};
+use strum::{Display, EnumIs, EnumIter, EnumString, FromRepr};
 
 use log::debug;
 #[cfg(feature = "finder")]
@@ -24,7 +25,7 @@ use crate::rc_refcell;
 
 #[cfg(feature = "finder")]
 use super::finder::Cred;
-use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
+use super::{convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -51,7 +52,7 @@ pub enum OptType {
     Timeout,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum PathBehavior {
@@ -62,7 +63,7 @@ pub enum PathBehavior {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum TimestampType {
@@ -118,7 +119,7 @@ pub struct SPathOptions {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum EnvBehavior {
@@ -191,7 +192,7 @@ pub struct SEnvOptions {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum SBounding {
@@ -201,7 +202,7 @@ pub enum SBounding {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum SPrivileged {
@@ -211,7 +212,7 @@ pub enum SPrivileged {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum SAuthentication {
@@ -280,67 +281,47 @@ impl Opt {
 
     pub fn level_default() -> Rc<RefCell<Self>> {
         Self::builder(Level::Default)
-            .root(SPrivileged::User)
-            .bounding(SBounding::Strict)
+            .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
+            .maybe_bounding(
+                env!("RAR_BOUNDING").parse().ok()
+            )
             .path(
-                SPathOptions::builder(PathBehavior::Delete)
-                    .add([
-                        "/usr/local/sbin",
-                        "/usr/local/bin",
-                        "/usr/sbin",
-                        "/usr/bin",
-                        "/sbin",
-                        "/snap/bin",
-                    ])
+                SPathOptions::builder(env!("RAR_PATH_DEFAULT").parse().unwrap_or(PathBehavior::Delete))
+                    .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
+                    .sub(env!("RAR_PATH_REMOVE_LIST").split(':').collect::<Vec<&str>>())
                     .build(),
             )
-            .authentication(SAuthentication::Perform)
+            .maybe_authentication(
+                env!("RAR_AUTHENTICATION").parse().ok()
+            )
             .env(
-                SEnvOptions::builder(EnvBehavior::Delete)
-                    .keep([
-                        "HOME",
-                        "USER",
-                        "LOGNAME",
-                        "COLORS",
-                        "DISPLAY",
-                        "HOSTNAME",
-                        "KRB5CCNAME",
-                        "LS_COLORS",
-                        "PS1",
-                        "PS2",
-                        "XAUTHORY",
-                        "XAUTHORIZATION",
-                        "XDG_CURRENT_DESKTOP",
-                    ])
+                SEnvOptions::builder(env!("RAR_ENV_DEFAULT").parse().unwrap_or(EnvBehavior::Delete))
+                    .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
                     .unwrap()
-                    .check([
-                        "COLORTERM",
-                        "LANG",
-                        "LANGUAGE",
-                        "LC_*",
-                        "LINGUAS",
-                        "TERM",
-                        "TZ",
-                    ])
+                    .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
                     .unwrap()
-                    .delete([
-                        "PS4",
-                        "SHELLOPTS",
-                        "PERLLIB",
-                        "PERL5LIB",
-                        "PERL5OPT",
-                        "PYTHONINSPECT",
-                    ])
+                    .delete(
+                        env!("RAR_ENV_DELETE_LIST")
+                            .split(',')
+                            .collect::<Vec<&str>>(),
+                    )
                     .unwrap()
+                    .set(
+                        serde_json::from_str(env!("RAR_ENV_SET_LIST"))
+                            .unwrap_or_else(|_| Map::default()),
+                    )
+                    .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
                     .build(),
             )
             .timeout(
                 STimeout::builder()
-                    .type_field(TimestampType::PPID)
-                    .duration(Duration::minutes(5))
+                    .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
+                    .maybe_duration(
+                        convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string()).ok().flatten(),
+                    )
                     .build(),
             )
-            .wildcard_denied(";&|")
+            .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
             .build()
     }
 }
@@ -647,70 +628,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
 
     fn with_default(self) -> Self {
         self.opt(Some(
-            Opt::builder(Level::Default)
-                .root(SPrivileged::User)
-                .bounding(SBounding::Strict)
-                .path(
-                    SPathOptions::builder(PathBehavior::Delete)
-                        .add([
-                            "/usr/local/sbin",
-                            "/usr/local/bin",
-                            "/usr/sbin",
-                            "/usr/bin",
-                            "/sbin",
-                            "/bin",
-                            "/snap/bin",
-                        ])
-                        .build(),
-                )
-                .authentication(SAuthentication::Perform)
-                .env(
-                    SEnvOptions::builder(EnvBehavior::Delete)
-                        .keep([
-                            "HOME",
-                            "USER",
-                            "LOGNAME",
-                            "COLORS",
-                            "DISPLAY",
-                            "HOSTNAME",
-                            "KRB5CCNAME",
-                            "LS_COLORS",
-                            "PS1",
-                            "PS2",
-                            "XAUTHORY",
-                            "XAUTHORIZATION",
-                            "XDG_CURRENT_DESKTOP",
-                        ])
-                        .unwrap()
-                        .check([
-                            "COLORTERM",
-                            "LANG",
-                            "LANGUAGE",
-                            "LC_*",
-                            "LINGUAS",
-                            "TERM",
-                            "TZ",
-                        ])
-                        .unwrap()
-                        .delete([
-                            "PS4",
-                            "SHELLOPTS",
-                            "PERLLIB",
-                            "PERL5LIB",
-                            "PERL5OPT",
-                            "PYTHONINSPECT",
-                        ])
-                        .unwrap()
-                        .build(),
-                )
-                .timeout(
-                    STimeout::builder()
-                        .type_field(TimestampType::TTY)
-                        .duration(Duration::minutes(5))
-                        .build(),
-                )
-                .wildcard_denied(";&|")
-                .build(),
+            Opt::level_default()
         ))
     }
 }
