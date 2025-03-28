@@ -29,7 +29,7 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     info!("Current working directory: {}", cwd);
     info!(
         "Copying files {}/target/{}/sr to {} and {}",
-        cwd, profile, sr_dest, chsr_dest
+        cwd, profile, sr_dest.to_str().unwrap(), chsr_dest.to_str().unwrap()
     );
     let s_sr = format!("{}/target/{}/sr", cwd, profile);
     let sr = Path::new(&s_sr);
@@ -120,8 +120,10 @@ fn copy_docs() -> Result<(), anyhow::Error> {
 }
 
 fn chmod() -> Result<(), anyhow::Error> {
-    let sr_file = File::open(SR_DEST)?;
-    let chsr_file = File::open(CHSR_DEST)?;
+    let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
+    let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
+    let sr_file = File::open(sr_dest)?;
+    let chsr_file = File::open(chsr_dest)?;
     let mode = Mode::from_bits(0o555).expect("Invalid mode bits");
     fchmod(sr_file.as_raw_fd(), mode)?;
     fchmod(chsr_file.as_raw_fd(), mode)?;
@@ -131,17 +133,20 @@ fn chmod() -> Result<(), anyhow::Error> {
 }
 
 fn chown() -> Result<(), anyhow::Error> {
+    let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
+    let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
     let uid_owner = Uid::from_raw(0);
     let gid_owner = Gid::from_raw(0);
-    nix::unistd::chown(SR_DEST, Some(uid_owner), Some(gid_owner))?;
-    nix::unistd::chown(CHSR_DEST, Some(uid_owner), Some(gid_owner))?;
+    nix::unistd::chown(&sr_dest, Some(uid_owner), Some(gid_owner))?;
+    nix::unistd::chown(&chsr_dest, Some(uid_owner), Some(gid_owner))?;
     Ok(())
 }
 
 fn setfcap() -> Result<(), anyhow::Error> {
+    let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
     let mut file_caps = capctl::caps::FileCaps::empty();
     file_caps.permitted = !CapSet::empty();
-    file_caps.set_for_file(SR_DEST)?;
+    file_caps.set_for_file(sr_dest)?;
     Ok(())
 }
 
