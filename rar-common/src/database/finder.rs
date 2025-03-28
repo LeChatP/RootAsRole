@@ -711,7 +711,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                     .env
                     .as_ref()
                     .is_some_and(|env| {
-                        !env.override_behavior.is_some_and(|b| b)
+                        env.override_behavior.is_some_and(|b| !b) 
                             || env.default_behavior == *behavior
                     })
                 // but the polcy deny it and the behavior is not the same as the default one
