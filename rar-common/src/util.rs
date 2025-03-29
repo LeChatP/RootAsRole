@@ -265,9 +265,8 @@ pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
 
 #[cfg(not(debug_assertions))]
 pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
-    use env_logger::Env;
     use log::LevelFilter;
-    use syslog::{BasicLogger, Facility, Formatter3164};
+    use syslog::Facility;
     syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
     Ok(())
 }
