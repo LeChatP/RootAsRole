@@ -88,7 +88,7 @@ fn set_options(content : &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
     if let Some(settings) = &mut config.storage.settings {
         if let Some(path) = &mut settings.path {
-            *path = env!("RAR_PATH_DEFAULT").to_string();
+            *path = env!("RAR_CFG_PATH").to_string();
         }
     }
     config.storage.options = Some(Opt {
