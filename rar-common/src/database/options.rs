@@ -53,6 +53,7 @@ pub enum OptType {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum PathBehavior {
@@ -64,6 +65,7 @@ pub enum PathBehavior {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum TimestampType {
@@ -120,6 +122,7 @@ pub struct SPathOptions {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum EnvBehavior {
@@ -193,6 +196,7 @@ pub struct SEnvOptions {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum SBounding {
@@ -203,6 +207,7 @@ pub enum SBounding {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum SPrivileged {
@@ -213,6 +218,7 @@ pub enum SPrivileged {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum SAuthentication {

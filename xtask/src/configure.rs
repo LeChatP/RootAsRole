@@ -210,7 +210,7 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     let mut status = ConfigState::Unchanged;
     // Check if the target file exists
     if !Path::new(ROOTASROLE).exists() {
-        info!("Config file does not exist, deploying default file");
+        info!("Config file {} does not exist, deploying default file", ROOTASROLE);
         // If the target file does not exist, copy the default file
         deploy_config(ROOTASROLE)?;
     } else {
