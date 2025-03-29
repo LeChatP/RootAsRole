@@ -75,3 +75,6 @@ Cargo.lock
 # Vagrant
 *.env
 *.vagrant/
+
+# Cargo config
+.cargo/config.toml
