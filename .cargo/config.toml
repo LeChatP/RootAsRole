@@ -1,3 +1,22 @@
 [alias]
 xtask = "run --package xtask --release --bin xtask --"
-perf = "run --package perf --release --bin perf --"
+
+[env]
+RAR_CFG_PATH = "/etc/security/rootasrole.json"
+RAR_BIN_PATH = "/usr/bin"
+RAR_CFG_IMMUTABLE = "true"
+RAR_TIMEOUT_TYPE = "PPID"
+RAR_TIMEOUT_DURATION = "00:05:00"
+RAR_PATH_DEFAULT = "delete"
+RAR_PATH_ADD_LIST = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+RAR_PATH_REMOVE_LIST = ""
+RAR_ENV_DEFAULT = "delete"
+RAR_ENV_KEEP_LIST = "HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP"
+RAR_ENV_CHECK_LIST = "COLORTERM,LANG,LANGUAGE,LC_.*,LINGUAS,TERM,TZ"
+RAR_ENV_DELETE_LIST = "PS4,SHELLOPTS,PERLLIB,PERL5LIB,PERL5OPT,PYTHONINSPECT"
+RAR_ENV_SET_LIST = ""
+RAR_ENV_OVERRIDE_BEHAVIOR = "false"
+RAR_AUTHENTICATION = "perform"
+RAR_USER_CONSIDERED = "user"
+RAR_BOUNDING = "strict"
+RAR_WILDCARD_DENIED = "&|"

@@ -107,9 +107,9 @@ fn set_options(content : &mut String) -> io::Result<()> {
 }}"#, timeout_type = env!("RAR_TIMEOUT_TYPE"),
         timeout_duration = env!("RAR_TIMEOUT_DURATION"),
         default_path = env!("RAR_PATH_DEFAULT"),
-        path_add_list = serde_json::to_string(&env!("RAR_PATH_ADD_LIST").split(",").collect::<Vec<_>>()).unwrap(),
-        path_remove_list = if env!("RAR_PATH_REMOVE_LIST").len() > 2 {
-            format!(r#","del": {}"#, serde_json::to_string(&env!("RAR_PATH_REMOVE_LIST").split(",").collect::<Vec<_>>()).unwrap())
+        path_add_list = serde_json::to_string(&env!("RAR_PATH_ADD_LIST").split(":").collect::<Vec<_>>()).unwrap(),
+        path_remove_list = if env!("RAR_PATH_REMOVE_LIST").len() > 0 {
+            format!(r#","del": {}"#, serde_json::to_string(&env!("RAR_PATH_REMOVE_LIST").split(":").collect::<Vec<_>>()).unwrap())
         } else {
             String::new()
         },

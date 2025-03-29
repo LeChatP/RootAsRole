@@ -1,16 +1,9 @@
 use std::{
-    env,
     error::Error,
     fs::{self, File},
     io::{BufRead, BufReader, Write},
     path::Path,
 };
-
-#[cfg(not(test))]
-const RAR_CFG_PATH: &str = "/etc/security/rootasrole.json";
-#[cfg(test)]
-const RAR_CFG_PATH: &str = "target/rootasrole.json";
-
 
 use toml::Table;
 
@@ -21,17 +14,6 @@ fn package_version<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn Error>> {
         .as_str()
         .map(|s| s.to_string())
         .expect("Failed to get package version"))
-}
-
-fn write_version<'a>(f: &'a mut File, package_version: &'a str) -> Result<&'a str, Box<dyn Error>> {
-    f.write_all(
-        format!(
-            "pub const PACKAGE_VERSION: &str = \"{}\";\n",
-            package_version
-        )
-        .as_bytes(),
-    )?;
-    Ok(package_version)
 }
 
 fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
@@ -71,12 +53,7 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     Ok(())
 }
 
-fn main() {
-    println!(
-        "cargo:rustc-env=RAR_CFG_PATH={}",
-        env::var("RAR_CFG_PATH").unwrap_or_else(|_| RAR_CFG_PATH.to_string())
-    );
-
+fn main() {    
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
 
