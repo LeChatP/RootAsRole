@@ -151,6 +151,16 @@ impl<'de> Deserialize<'de> for SGenericActorType {
                 Ok(SGenericActorType::Id(id))
             }
 
+            fn visit_u64<E>(self, id: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if id > u32::MAX as u64 {
+                    return Err(E::custom("user ID too large"));
+                }
+                Ok(SUserType(SGenericActorType::Id(id as u32)))
+            }
+
             fn visit_str<E>(self, id: &str) -> Result<Self::Value, E>
             where
                 E: de::Error,
