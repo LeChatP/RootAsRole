@@ -5,13 +5,14 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
 use anyhow::Context;
+use capctl::Cap;
 use log::{info, warn};
 use nix::unistd::{getresuid, getuid};
 use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
+    cap_clear, cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
@@ -212,7 +213,9 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     if !Path::new(ROOTASROLE).exists() {
         info!("Config file {} does not exist, deploying default file", ROOTASROLE);
         // If the target file does not exist, copy the default file
+        cap_effective(Cap::DAC_OVERRIDE, true).context("Failed to raise DAC_OVERRIDE")?;
         deploy_config(ROOTASROLE)?;
+        cap_effective(Cap::DAC_OVERRIDE, false).context("Failed to raise DAC_OVERRIDE")?;
     } else {
         status = config_state()?;
     }
