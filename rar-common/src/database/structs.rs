@@ -627,6 +627,14 @@ impl<S: s_role_builder::State> SRoleBuilder<S> {
         self.actors.push(actor);
         self
     }
+    pub fn actors(mut self, actors: impl IntoIterator<Item = SActor>) -> Self {
+        self.actors.extend(actors);
+        self
+    }
+    pub fn tasks(mut self, tasks: impl IntoIterator<Item = Rc<RefCell<STask>>>) -> Self {
+        self.tasks.extend(tasks);
+        self
+    }
 }
 
 #[bon]
