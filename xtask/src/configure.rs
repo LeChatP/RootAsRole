@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env::{self};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
@@ -10,7 +11,7 @@ use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    files_are_equal, toggle_lock_config, ImmutableLock, OsTarget, SettingsFile, ROOTASROLE,
+    convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
@@ -84,58 +85,44 @@ pub fn check_filesystem() -> io::Result<()> {
 
 fn set_options(content : &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
-    let opt = format!(r#"{{
-        "timeout": {{
-            "type": "{timeout_type}",
-            "duration": "{timeout_duration}"
-        }},
-        "path": {{
-            "default": "{default_path}",
-            "add": {path_add_list}{path_remove_list}
-        }},
-        "env": {{
-            "default": "{default_env}",
-            "override_behavior": {override_behavior},
-            "keep": {keep_env_list},
-            "check": {check_env_list},
-            "delete" : {delete_env_list}{set_env_list}
-        }},
-        "authentication": "{authentication}",
-        "root": "{root}",
-        "bounding": "{bounding}",
-        "wildcard-denied": "{wildcard_denied}"
-}}"#, timeout_type = env!("RAR_TIMEOUT_TYPE"),
-        timeout_duration = env!("RAR_TIMEOUT_DURATION"),
-        default_path = env!("RAR_PATH_DEFAULT"),
-        path_add_list = serde_json::to_string(&env!("RAR_PATH_ADD_LIST").split(":").collect::<Vec<_>>()).unwrap(),
-        path_remove_list = if env!("RAR_PATH_REMOVE_LIST").len() > 0 {
-            format!(r#","del": {}"#, serde_json::to_string(&env!("RAR_PATH_REMOVE_LIST").split(":").collect::<Vec<_>>()).unwrap())
-        } else {
-            String::new()
-        },
-        default_env = env!("RAR_ENV_DEFAULT"),
-        keep_env_list = serde_json::to_string(&env!("RAR_ENV_KEEP_LIST").split(",").collect::<Vec<_>>()).unwrap(),
-        check_env_list = serde_json::to_string(&env!("RAR_ENV_CHECK_LIST").split(",").collect::<Vec<_>>()).unwrap(),
-        delete_env_list = serde_json::to_string(&env!("RAR_ENV_DELETE_LIST").split(",").collect::<Vec<_>>()).unwrap(),
-        set_env_list = if env!("RAR_ENV_SET_LIST").len() > 0 {
-            format!(r#","set": {}"#, env!("RAR_ENV_SET_LIST"))
-        } else {
-            String::new()
-        },
-        authentication = env!("RAR_AUTHENTICATION"),
-        override_behavior = env!("RAR_ENV_OVERRIDE_BEHAVIOR"),
-        root = env!("RAR_USER_CONSIDERED"),
-        bounding = env!("RAR_BOUNDING"),
-        wildcard_denied = env!("RAR_WILDCARD_DENIED"));
-    let mut options: Value = serde_json::from_str(&opt).expect("Failed to parse options");
-    config
-            ._extra_fields
-            .as_object_mut()
-            .unwrap()
-            .get_mut("options")
-            .replace(&mut options)
-            .expect("Failed to get options");
-    *content = serde_json::to_string_pretty(&config).expect("Failed to serialize config");
+    if let Some(settings) = &mut config.storage.settings {
+        if let Some(path) = &mut settings.path {
+            *path = env!("RAR_PATH_DEFAULT").to_string();
+        }
+    }
+    config.storage.options = Some(Opt {
+        timeout: Some(STimeout {
+            type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
+            duration: convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string()).unwrap(),
+            max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").len() > 0 {
+                Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
+            } else {
+                None
+            },
+            _extra_fields: Value::Null,
+        }),
+        path: Some(SPathOptions {
+            default_behavior: env!("RAR_PATH_DEFAULT").parse().unwrap(),
+            add: Some(env!("RAR_PATH_ADD_LIST").split(":").map(|s| s.to_string()).collect()),
+            sub: if env!("RAR_PATH_REMOVE_LIST").len() > 0 { Some(env!("RAR_PATH_REMOVE_LIST").split(":").map(|s| s.to_string()).collect()) } else { None },
+            _extra_fields: Value::Null,
+        }),
+        env: Some(SEnvOptions {
+            default_behavior: env!("RAR_ENV_DEFAULT").parse().unwrap(),
+            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap() { Some(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap()) } else { None },
+            keep: Some(env!("RAR_ENV_KEEP_LIST").split(",").map(|s| s.to_string()).collect()),
+            check: Some(env!("RAR_ENV_CHECK_LIST").split(",").map(|s| s.to_string()).collect()),
+            delete: Some(env!("RAR_ENV_DELETE_LIST").split(",").map(|s| s.to_string()).collect()),
+            set: if env!("RAR_ENV_SET_LIST").len() > 0 && env!("RAR_ENV_SET_LIST") != "{}" { serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()} else { HashMap::new() },
+            _extra_fields: Value::Null,
+        }),
+        root: Some(env!("RAR_USER_CONSIDERED").parse().unwrap()),
+        bounding: Some(env!("RAR_BOUNDING").parse().unwrap()),
+        wildcard_denied: Some(env!("RAR_WILDCARD_DENIED").to_string()),
+        authentication: Some(env!("RAR_AUTHENTICATION").parse().unwrap()),
+        _extra_fields: Value::Null,
+    });
+    *content = serde_json::to_string_pretty(&config)?;
     Ok(())
 }
 

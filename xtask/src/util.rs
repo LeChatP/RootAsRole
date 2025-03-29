@@ -1,20 +1,17 @@
 use std::{
-    fs::{self, File},
-    io,
-    os::{fd::AsRawFd, unix::fs::MetadataExt},
-    path::Path,
-    process::Command,
+    collections::HashMap, error::Error, fs::{self, File}, io, os::{fd::AsRawFd, unix::fs::MetadataExt}, path::Path, process::Command
 };
 
 use anyhow::{anyhow, Context};
 use capctl::Cap;
 use capctl::CapState;
+use chrono::Duration;
 use clap::ValueEnum;
 use log::debug;
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use serde_json::Value;
-use strum::{Display, EnumIs, EnumIter};
+use strum::{Display, EnumIs, EnumIter, EnumString};
 
 #[derive(Debug, Clone, ValueEnum, EnumIs, EnumIter, Display, PartialEq, Eq, Hash)]
 #[clap(rename_all = "lowercase")]
@@ -69,6 +66,8 @@ pub struct SettingsFile {
 pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
     pub _extra_fields: Value,
@@ -78,8 +77,156 @@ pub struct Settings {
 pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub immutable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default)]
     #[serde(flatten)]
+    pub _extra_fields: Value,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum PathBehavior {
+    Delete,
+    KeepSafe,
+    KeepUnsafe,
+    #[default]
+    Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum TimestampType {
+    #[default]
+    PPID,
+    TTY,
+    UID,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
+pub struct STimeout {
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_field: Option<TimestampType>,
+    #[serde(
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration: Option<Duration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_usage: Option<u64>,
+    #[serde(default)]
+    #[serde(flatten)]
+    pub _extra_fields: Value,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct SPathOptions {
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    pub default_behavior: PathBehavior,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+    )]
+    pub add: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "del"
+    )]
+    pub sub: Option<Vec<String>>,
+    #[serde(default)]
+    #[serde(flatten)]
+    pub _extra_fields: Value,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum EnvBehavior {
+    Delete,
+    Keep,
+    #[default]
+    Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
+pub struct SEnvOptions {
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    pub default_behavior: EnvBehavior,
+    #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
+    pub override_behavior: Option<bool>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub set: HashMap<String, String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+    )]
+    pub keep: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+    )]
+    pub check: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+    )]
+    pub delete: Option<Vec<String>>,
+    #[serde(default, flatten)]
+    pub _extra_fields: Value,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum SBounding {
+    Strict,
+    Ignore,
+    #[default]
+    Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[serde(rename_all = "kebab-case")]
+#[derive(Default)]
+pub enum SPrivileged {
+    Privileged,
+    #[default]
+    User,
+    Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[serde(rename_all = "kebab-case")]
+#[derive(Default)]
+pub enum SAuthentication {
+    Skip,
+    #[default]
+    Perform,
+    Inherit,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Opt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<SPathOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<SEnvOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<SPrivileged>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounding: Option<SBounding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<SAuthentication>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wildcard_denied: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<STimeout>,
+    #[serde(default, flatten)]
     pub _extra_fields: Value,
 }
 
@@ -90,6 +237,54 @@ pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
 pub enum ImmutableLock {
     Set,
     Unset,
+}
+
+
+pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
+    t == &T::default()
+}
+
+fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    // hh:mm:ss format
+    match value {
+        Some(value) => serializer.serialize_str(&format!(
+            "{:#02}:{:#02}:{:#02}",
+            value.num_hours(),
+            value.num_minutes() % 60,
+            value.num_seconds() % 60
+        )),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    match convert_string_to_duration(&s) {
+        Ok(d) => Ok(d),
+        Err(e) => Err(de::Error::custom(e)),
+    }
+}
+
+pub fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>>
+{
+    let mut parts = s.split(':');
+    //unwrap or error
+    if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())
+    {
+        let hours: i64 = hours.parse()?;
+        let minutes: i64 = minutes.parse()?;
+        let seconds: i64 = seconds.parse()?;
+        return Ok(Some(
+            Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds),
+        ));
+    }
+    Err("Invalid duration format".into())
 }
 
 fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), capctl::Error> {
