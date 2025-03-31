@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use super::migration::Migration;
 use crate::{SettingsFile, PACKAGE_VERSION};
 
-use super::structs::*;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Versioning<T: Default + Debug> {
@@ -31,7 +30,5 @@ impl<T: Default + Debug> Default for Versioning<T> {
         }
     }
 }
-
-pub(crate) const JSON_MIGRATIONS: &[Migration<SConfig>] = &[];
 
 pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[];

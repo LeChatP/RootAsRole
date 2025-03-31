@@ -47,17 +47,13 @@
 //     }
 //   }
 
-#[cfg(not(test))]
-const ROOTASROLE: &str = env!("RAR_CFG_PATH");
-#[cfg(test)]
-const ROOTASROLE: &str = "target/rootasrole.json";
-
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-use std::{cell::RefCell, error::Error, ffi::OsStr, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, path::{Path, PathBuf}, rc::Rc};
 
 use bon::Builder;
 use log::debug;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub mod api;
@@ -70,9 +66,7 @@ use util::{
 };
 
 use database::{
-    migration::Migration,
-    structs::SConfig,
-    versionning::{Versioning, JSON_MIGRATIONS, SETTINGS_MIGRATIONS},
+    migration::Migration, structs::SConfig, versionning::{Versioning, SETTINGS_MIGRATIONS}
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -95,9 +89,8 @@ pub enum Storage {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 pub struct SettingsFile {
     pub storage: Settings,
-    #[builder(default)]
     #[serde(flatten)]
-    pub config: Rc<RefCell<SConfig>>,
+    pub config: Option<Rc<RefCell<SConfig>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Builder)]
@@ -179,7 +172,7 @@ impl Default for SettingsFile {
     fn default() -> Self {
         Self {
             storage: Settings::default(),
-            config: Rc::new(RefCell::new(SConfig::default())),
+            config: None,
         }
     }
 }
@@ -195,51 +188,85 @@ impl Default for Settings {
     }
 }
 
-pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
-    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    // remove immutable flag
-    let binding = settings.as_ref().borrow();
-    let data_path = env!("RAR_CFG_DATA_PATH").to_string().into();
-    let path = binding
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(&data_path);
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable on for config file");
-            toggle_lock_config(path, ImmutableLock::Unset)?;
+pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
+    for role in &config.as_ref().borrow().roles {
+        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(config));
+        for task in &role.as_ref().borrow().tasks {
+            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(role));
         }
     }
-    debug!("Writing config file");
-    let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
-    match settings.as_ref().borrow().storage.method {
-        StorageMethod::JSON => {
-            write_json_config(&versionned, ROOTASROLE)?;
-        },
-        StorageMethod::CBOR => {
-            write_cbor_config(&versionned, ROOTASROLE)?;
-        },
-        StorageMethod::Unknown => todo!(),
+}
+
+pub fn save_settings<S>(path: &S,settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>>
+where
+    S: AsRef<Path>,
+{
+    Migration::migrate(&Version::parse(PACKAGE_VERSION).unwrap(), &mut *settings.as_ref().borrow_mut(), SETTINGS_MIGRATIONS)?;
+    let immuable = settings.as_ref().borrow().storage.settings.as_ref().unwrap_or(&RemoteStorageSettings::default()).immutable.unwrap_or(env!("RAR_CFG_IMMUTABLE") == "true");
+    if let Some(rss) = &settings.as_ref().borrow().storage.settings {
+        let default_data_path = env!("RAR_CFG_DATA_PATH").to_string().into();
+        let data_path = rss.path.as_ref().unwrap_or(&default_data_path);
+        if data_path != path.as_ref() {
+            return separate_save(path, &data_path, settings.clone(), immuable);
+        }
     }
     
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable off for config file");
-            toggle_lock_config(path, ImmutableLock::Set)?;
-        }
+    if immuable {
+        debug!("Toggling immutable off for config file");
+        toggle_lock_config(path, ImmutableLock::Unset)?;
     }
-    debug!("Resetting dac privilege");
-    dac_override_effective(false)?;
+    // a single file
+    let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    write_json_config(&versionned, path)?;
+    if immuable {
+        debug!("Toggling immutable on for config file");
+        toggle_lock_config(path, ImmutableLock::Set)?;
+    }
+    Ok(())
+}
+
+fn separate_save<S,T>(settings_path: &S, data_path: &T, settings: Rc<RefCell<SettingsFile>>, immutable: bool) -> Result<(), Box<dyn Error>>
+where
+    S: AsRef<Path>,
+    T: AsRef<Path>,
+{
+    let binding = settings.as_ref().borrow_mut();
+    let config = binding.config.as_ref().take().unwrap();
+    let versioned_settings: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    let versioned_config: Versioning<Rc<RefCell<SConfig>>> = Versioning::new(config.clone());
+    if immutable {
+        debug!("Toggling immutable off for config file");
+        toggle_lock_config(settings_path, ImmutableLock::Unset)?;
+    }
+    write_json_config(&versioned_settings, settings_path)?;
+    if immutable {
+        debug!("Toggling immutable on for config file");
+        toggle_lock_config(settings_path, ImmutableLock::Set)?;
+    }
+    if immutable {
+        debug!("Toggling immutable off for config file");
+        toggle_lock_config(data_path, ImmutableLock::Unset)?;
+    }
+    match settings.as_ref().borrow().storage.method {
+        StorageMethod::JSON => {
+            write_json_config(&versioned_config, data_path)?;
+        }
+        StorageMethod::CBOR => {
+            write_cbor_config(&versioned_config, data_path)?;
+        }
+        StorageMethod::Unknown => todo!(),
+    }
+    write_json_config(&versioned_config, data_path)?;
+    if immutable {
+        debug!("Toggling immutable on for config file");
+        toggle_lock_config(data_path, ImmutableLock::Set)?;
+    }
     Ok(())
 }
 
 pub fn get_settings<S>(path: &S) -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>
 where
-    S: AsRef<OsStr> + ?Sized,
+    S: AsRef<Path>,
 {
     // if file does not exist, return default settings
     if !std::path::Path::new(path.as_ref()).exists() {
@@ -255,27 +282,46 @@ where
     read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
-    if let Ok(true) = Migration::migrate(
-        &value.version,
-        &mut *settingsfile.as_ref().borrow_mut(),
-        SETTINGS_MIGRATIONS,
-    ) {
-        if let Ok(true) = Migration::migrate(
-            &value.version,
-            &mut *settingsfile
-                .as_ref()
-                .borrow_mut()
-                .config
-                .as_ref()
-                .borrow_mut(),
-            JSON_MIGRATIONS,
-        ) {
-            save_settings(settingsfile.clone())?;
-        } else {
-            debug!("No config migrations needed");
+    let default_remote = RemoteStorageSettings::default();
+    let into = env!("RAR_CFG_DATA_PATH").to_string().into();
+    {
+        let binding = settingsfile.as_ref().borrow();
+        let data_path = binding
+            .storage
+            .settings
+            .as_ref()
+            .unwrap_or(&default_remote)
+            .path
+            .as_ref()
+            .unwrap_or(&into);
+        if data_path != path.as_ref() {
+            settingsfile.as_ref().borrow_mut().config = Some(retrieve_sconfig(&settingsfile.as_ref().borrow().storage.method, data_path)?);
         }
-    } else {
-        debug!("No settings migrations needed");
     }
-    Ok(settingsfile)
+    make_weak_config(settingsfile.as_ref().borrow_mut().config.as_ref().unwrap());
+    Ok(settingsfile.clone())
+}
+
+fn retrieve_sconfig(
+    file_type: &StorageMethod,
+    path: &PathBuf,
+) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
+    let file = open_with_privileges(path)?;
+    let value: Versioning<Rc<RefCell<SConfig>>> = match file_type {
+        StorageMethod::JSON => serde_json::from_reader(file)
+            .inspect_err(|e| {
+                debug!("Error reading file: {}", e);
+            })
+            .unwrap_or_default(),
+        StorageMethod::CBOR => ciborium::from_reader(file)
+            .inspect_err(|e| {
+                debug!("Error reading file: {}", e);
+            })
+            .unwrap_or_default(),
+        StorageMethod::Unknown => todo!(),
+    };
+    read_effective(false).or(dac_override_effective(false))?;
+    assert_eq!(value.version.to_string(), PACKAGE_VERSION, "Version mismatch");
+    debug!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(value.data)
 }

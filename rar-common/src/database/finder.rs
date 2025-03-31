@@ -1213,12 +1213,10 @@ mod tests {
 
     use crate::{
         database::{
-            make_weak_config,
             options::{EnvBehavior, PathBehavior, SAuthentication, SBounding, SPrivileged},
             structs::{IdTask, RoleGetter, SCredentials, SSetgidSet, SSetuidSet},
             versionning::Versioning,
-        },
-        rc_refcell,
+        }, make_weak_config, rc_refcell
     };
 
     use super::*;

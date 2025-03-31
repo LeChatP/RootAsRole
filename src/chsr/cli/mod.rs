@@ -47,7 +47,6 @@ mod tests {
             actor::SActor,
             actor::SGroups,
             options::*,
-            read_sconfig,
             structs::{SCredentials, *},
             versionning::Versioning,
         },
@@ -282,7 +281,8 @@ mod tests {
         setup("all_main");
         let path = format!("{}.{}", ROOTASROLE, "all_main");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), vec!["--help"],)
             .inspect_err(|e| {
                 error!("{}", e);
@@ -291,8 +291,11 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r r1 create".split(" "),
         )
         .inspect_err(|e| {
@@ -302,8 +305,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete delete".split(" "),
         )
         .inspect_err(|e| {
@@ -320,7 +326,8 @@ mod tests {
         setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete show actors".split(" "),
@@ -332,8 +339,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete show tasks".split(" "),
         )
         .inspect_err(|e| {
@@ -343,8 +353,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete show all".split(" "),
         )
         .inspect_err(|e| {
@@ -354,8 +367,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete purge actors".split(" "),
         )
         .inspect_err(|e| {
@@ -372,7 +388,8 @@ mod tests {
         setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete purge tasks".split(" "),
@@ -391,7 +408,8 @@ mod tests {
         setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete purge all".split(" "),
@@ -413,7 +431,8 @@ mod tests {
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete grant -u user1 -g group1 -g group2&group3".split(" "),
@@ -473,7 +492,8 @@ mod tests {
         setup("r_complete_task_t_complete_show_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete task t_complete show all".split(" "),
@@ -485,8 +505,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete task t_complete show cmd".split(" "),
         )
         .inspect_err(|e| {
@@ -496,8 +519,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete task t_complete show cred".split(" "),
         )
         .inspect_err(|e| {
@@ -507,8 +533,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete task t_complete purge all".split(" "),
         )
         .inspect_err(|e| {
@@ -525,7 +554,8 @@ mod tests {
         setup("r_complete_task_t_complete_purge_cmd");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete task t_complete purge cmd".split(" "),
@@ -544,7 +574,8 @@ mod tests {
         setup("r_complete_task_t_complete_purge_cred");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete task t_complete purge cred".split(" "),
@@ -559,7 +590,8 @@ mod tests {
         debug!("=====");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         let task_count = config.as_ref().borrow()[0].as_ref().borrow().tasks.len();
         assert!(main(
             &Storage::SConfig(config.clone()),
@@ -601,7 +633,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete cmd setpolicy deny-all".split(" "),
@@ -631,7 +664,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete cmd setpolicy allow-all".split(" "),
@@ -661,7 +695,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete cmd whitelist add super command with spaces".split(" "),
@@ -723,7 +758,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             vec![
@@ -761,7 +797,8 @@ mod tests {
         setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
         )
         .inspect_err(|e| {
@@ -873,7 +910,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete cred caps setpolicy deny-all".split(" "),
@@ -906,7 +944,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete cred caps setpolicy allow-all".split(" "),
@@ -937,7 +976,8 @@ mod tests {
         setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "))
         .inspect_err(|e| {
             error!("{}", e);
@@ -981,7 +1021,8 @@ mod tests {
         setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
         )
         .inspect_err(|e| {
@@ -1103,7 +1144,8 @@ mod tests {
         setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "options show all".split(" "),
@@ -1115,8 +1157,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete options show path".split(" "),
         )
         .inspect_err(|e| {
@@ -1126,8 +1171,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete options show bounding".split(" "),
         )
         .inspect_err(|e| {
@@ -1147,7 +1195,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete options show env".split(" "),
@@ -1159,8 +1208,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete t t_complete options show root".split(" "),
         )
         .inspect_err(|e| {
@@ -1170,8 +1222,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete t t_complete options show bounding".split(" "),
         )
         .inspect_err(|e| {
@@ -1181,8 +1236,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete t t_complete options show wildcard-denied".split(" "),
         )
         .inspect_err(|e| {
@@ -1192,8 +1250,11 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
+    let settings = get_settings(&path).expect("Failed to get settings");
+    let binding = settings.as_ref().borrow();
+    let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete t t_complete o path set /usr/bin:/bin".split(" "),
         )
         .inspect_err(|e| {
@@ -1213,7 +1274,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o path setpolicy delete-all".split(" "),
@@ -1248,7 +1310,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o path setpolicy keep-unsafe".split(" "),
@@ -1332,7 +1395,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o path whitelist add /usr/bin:/bin".split(" "),
@@ -1641,7 +1705,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o path blacklist purge".split(" "),
@@ -1663,7 +1728,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env keep-only MYVAR,VAR2".split(" "),
@@ -1746,7 +1812,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env delete-only MYVAR,VAR2".split(" "),
@@ -1829,7 +1896,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#.split(" "),
@@ -1901,7 +1969,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             r#"r complete t t_complete o env setlist set VAR3=value3"#.split(" "),
@@ -2080,7 +2149,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env setpolicy delete-all".split(" "),
@@ -2117,7 +2187,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env setpolicy keep-all".split(" "),
@@ -2154,7 +2225,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env setpolicy inherit".split(" "),
@@ -2191,7 +2263,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env whitelist add MYVAR".split(" "),
@@ -2317,7 +2390,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env whitelist purge".split(" "),
@@ -2352,7 +2426,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env blacklist add MYVAR".split(" "),
@@ -2415,7 +2490,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env blacklist set MYVAR".split(" "),
@@ -2470,7 +2546,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env blacklist purge".split(" "),
@@ -2505,7 +2582,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o env checklist add MYVAR".split(" "),
@@ -2639,7 +2717,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o root privileged".split(" "),
@@ -2727,7 +2806,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o bounding strict".split(" "),
@@ -2763,7 +2843,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o bounding ignore".split(" "),
@@ -2799,7 +2880,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o bounding inherit".split(" "),
@@ -2832,7 +2914,8 @@ mod tests {
         setup("r_complete_t_t_complete_o_auth_skip");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o auth skip".split(" "),
@@ -2920,7 +3003,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o wildcard-denied set *".split(" "),
@@ -3004,7 +3088,8 @@ mod tests {
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
         let settings = get_settings(&path).expect("Failed to get settings");
-        let config = read_sconfig(settings.clone(), &path).expect("Failed to read json");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete t t_complete o timeout set --type uid --duration 15:05:10 --max-usage 7"
@@ -3066,8 +3151,11 @@ mod tests {
             let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
             assert!(bindingopt.timeout.as_ref().is_none());
         }
+        let settings = get_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
         assert!(main(
-            &Storage::SConfig(read_sconfig(settings.clone(), &path).expect("Failed to read json")),
+            &Storage::SConfig(config.clone()),
             "r complete tosk".split(" "),
         )
         .inspect_err(|e| {

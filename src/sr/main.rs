@@ -25,7 +25,6 @@ use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use rar_common::plugin::register_plugins;
 use rar_common::{
     self,
-    database::read_sconfig,
     util::{
         activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
         setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
@@ -237,13 +236,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     read_effective(true)
         .or(dac_override_effective(true))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
-    let settings = rar_common::get_settings(ROOTASROLE).expect("Failed to get settings");
+    let settings = rar_common::get_settings(&ROOTASROLE.to_string()).expect("Failed to get settings");
     read_effective(false)
         .and(dac_override_effective(false))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
         rar_common::StorageMethod::JSON | rar_common::StorageMethod::CBOR => {
-            Storage::SConfig(read_sconfig(settings, ROOTASROLE).expect("Failed to read config"))
+            Storage::SConfig(settings.as_ref().borrow().config.clone().unwrap())
         },
         _ => {
             return Err("Unsupported storage method".into());
@@ -464,7 +463,7 @@ mod tests {
     use rar_common::rc_refcell;
 
     use super::*;
-    use rar_common::database::make_weak_config;
+    use rar_common::make_weak_config;
     use rar_common::database::structs::{IdTask, SCommand, SCommands, SConfig, SRole, STask};
 
     #[test]

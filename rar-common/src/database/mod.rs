@@ -1,23 +1,14 @@
-use std::path::Path;
-use std::{cell::RefCell, error::Error, rc::Rc};
-
-use crate::{save_settings, StorageMethod, PACKAGE_VERSION};
-use crate::util::{toggle_lock_config, ImmutableLock};
+use std::error::Error;
 
 use actor::{SGroups, SUserType};
 use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use log::{debug, error};
 use options::EnvBehavior;
 use serde::{de, Deserialize, Serialize};
 
-use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
+use self::options::EnvKey;
 
-use crate::util::warn_if_mutable;
-use crate::SettingsFile;
-use crate::{open_with_privileges, write_json_config};
-use crate::{util::immutable_effective, RemoteStorageSettings, ROOTASROLE};
 
 pub mod actor;
 #[cfg(feature = "finder")]
@@ -36,133 +27,6 @@ pub struct FilterMatcher {
     #[builder(into)]
     pub user: Option<SUserType>,
     pub group: Option<SGroups>,
-}
-
-pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
-    for role in &config.as_ref().borrow().roles {
-        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(config));
-        for task in &role.as_ref().borrow().tasks {
-            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(role));
-        }
-    }
-}
-
-pub fn read_sconfig<P: AsRef<Path>>(
-    settings: Rc<RefCell<SettingsFile>>,
-    settings_path: P,
-) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
-    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let binding = settings.as_ref().borrow();
-    let path = binding
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref();
-    if path.is_none() || path.is_some_and(|p| p == settings_path.as_ref()) {
-        make_weak_config(&settings.as_ref().borrow().config);
-        return Ok(settings.as_ref().borrow().config.clone());
-    } else {
-        let file = open_with_privileges(path.unwrap())?;
-        warn_if_mutable(
-            &file,
-            settings
-                .as_ref()
-                .borrow()
-                .storage
-                .settings
-                .as_ref()
-                .unwrap_or(&default_remote)
-                .immutable
-                .unwrap_or(true),
-        )?;
-        let versionned_config: Versioning<Rc<RefCell<SConfig>>> = match settings.as_ref().borrow().storage.method {
-            StorageMethod::JSON => {
-                serde_json::from_reader(file)?
-            },
-            StorageMethod::CBOR => {
-                ciborium::from_reader(file)?
-            },
-            _ => {
-                error!("Unsupported storage method");
-                return Err("Unsupported storage method".into());
-            }
-        };
-        let config = versionned_config.data;
-        if let Ok(true) = Migration::migrate(
-            &versionned_config.version,
-            &mut *config.as_ref().borrow_mut(),
-            versionning::JSON_MIGRATIONS,
-        ) {
-            save_sconfig(settings.clone(), config.clone())?;
-        } else {
-            debug!("No migrations needed");
-        }
-        make_weak_config(&config);
-        Ok(config)
-    }
-}
-
-pub fn save_sconfig(
-    settings: Rc<RefCell<SettingsFile>>,
-    config: Rc<RefCell<SConfig>>,
-) -> Result<(), Box<dyn Error>> {
-    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let into = ROOTASROLE.into();
-    let binding = settings.as_ref().borrow();
-    let path = binding
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(&into);
-    if path == &into {
-        // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
-        return save_settings(settings.clone());
-    }
-
-    debug!("Writing config file");
-    let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
-        version: PACKAGE_VERSION.to_owned().parse()?,
-        data: config,
-    };
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable on for config file");
-            toggle_lock_config(path, ImmutableLock::Unset)?;
-        }
-    }
-    write_sconfig(&settings.as_ref().borrow(), versionned)?;
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable off for config file");
-            toggle_lock_config(path, ImmutableLock::Set)?;
-        }
-    }
-    debug!("Resetting immutable privilege");
-    immutable_effective(false)?;
-    Ok(())
-}
-
-fn write_sconfig(
-    settings: &SettingsFile,
-    config: Versioning<Rc<RefCell<SConfig>>>,
-) -> Result<(), Box<dyn Error>> {
-    let default_remote = RemoteStorageSettings::default();
-    let binding = ROOTASROLE.into();
-    let path = settings
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(&binding);
-    write_json_config(&config, path)?;
-    Ok(())
 }
 
 // deserialize the linked hash set
