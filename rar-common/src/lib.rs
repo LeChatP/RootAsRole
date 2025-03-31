@@ -259,7 +259,6 @@ where
             }
             StorageMethod::Unknown => todo!(),
         }
-        write_json_config(&versioned_config, data_path)?;
         if immutable {
             debug!("Toggling immutable on for config file");
             toggle_lock_config(data_path, ImmutableLock::Set)?;
@@ -503,6 +502,46 @@ mod tests {
         assert_eq!(*sconfig.borrow(), *settings.borrow().config.as_ref().unwrap().borrow());
         settings.as_ref().borrow_mut().config = None;
         assert_eq!(*config.borrow(), *settings.borrow());
+        fs::remove_file(test_file).unwrap();
+        fs::remove_file(external_file).unwrap();
+    }
+
+    #[test]
+    fn test_save_cbor_format() {
+        let external_file = "test_save_cbor_format.bin";
+        let test_file = "test_save_cbor_format.json";
+        let sconfig = SConfig::builder()
+        .role(SRole::builder("test_role")
+            .actor(SActor::user(0).build())
+            .task(STask::builder("test_task")
+                .cred(SCredentials::builder()
+                    .setuid(0)
+                    .setgid(0)
+                    .build())
+                .commands(SCommands::builder(SetBehavior::None)
+                    .add(vec![SCommand::Simple("/usr/bin/true".to_string())])
+                    .build())
+                .build())
+            .build())
+        .build();
+        let settings = Rc::new(RefCell::new(SettingsFile::builder()
+            .storage(Settings::builder()
+                .method(StorageMethod::CBOR)
+                .settings(RemoteStorageSettings::builder()
+                    .path(external_file)
+                    .not_immutable()
+                    .build())
+                .build())
+            .config(sconfig.clone())
+            .build()));
+        save_settings(&test_file, settings.clone(), false).unwrap();
+        //asset that external_file is a binary file
+        let mut file = open_with_privileges(external_file).unwrap();
+        // try to parse as ciborium
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).unwrap();
+        let deserialized: Versioning<Rc<RefCell<SConfig>>> = ciborium::de::from_reader(&content[..]).unwrap();
+        assert_eq!(deserialized.version.to_string(), PACKAGE_VERSION);
         fs::remove_file(test_file).unwrap();
         fs::remove_file(external_file).unwrap();
     }
