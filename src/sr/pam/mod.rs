@@ -131,7 +131,7 @@ pub(super) fn check_auth(
     }
     let timeout = optstack.get_timeout().1;
     let is_valid = match config {
-        Storage::JSON(_) => timeout::is_valid(user, user, &timeout),
+        Storage::SConfig(_) => timeout::is_valid(user, user, &timeout),
     };
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
@@ -142,9 +142,9 @@ pub(super) fn check_auth(
         context.acct_mgmt(Flag::SILENT)?;
     }
     match config {
-        Storage::JSON(_) => {
+        Storage::SConfig(_) => {
             timeout::update_cookie(user, user, &timeout)?;
-        }
+        },
     }
     Ok(())
 }

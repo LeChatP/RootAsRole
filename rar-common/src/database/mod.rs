@@ -1,14 +1,14 @@
 use std::path::Path;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::{save_settings, PACKAGE_VERSION};
+use crate::{save_settings, StorageMethod, PACKAGE_VERSION};
 use crate::util::{toggle_lock_config, ImmutableLock};
 
 use actor::{SGroups, SUserType};
 use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use log::debug;
+use log::{debug, error};
 use options::EnvBehavior;
 use serde::{de, Deserialize, Serialize};
 
@@ -47,7 +47,7 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn read_json_config<P: AsRef<Path>>(
+pub fn read_sconfig<P: AsRef<Path>>(
     settings: Rc<RefCell<SettingsFile>>,
     settings_path: P,
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
@@ -77,14 +77,25 @@ pub fn read_json_config<P: AsRef<Path>>(
                 .immutable
                 .unwrap_or(true),
         )?;
-        let versionned_config: Versioning<Rc<RefCell<SConfig>>> = serde_json::from_reader(file)?;
+        let versionned_config: Versioning<Rc<RefCell<SConfig>>> = match settings.as_ref().borrow().storage.method {
+            StorageMethod::JSON => {
+                serde_json::from_reader(file)?
+            },
+            StorageMethod::CBOR => {
+                ciborium::from_reader(file)?
+            },
+            _ => {
+                error!("Unsupported storage method");
+                return Err("Unsupported storage method".into());
+            }
+        };
         let config = versionned_config.data;
         if let Ok(true) = Migration::migrate(
             &versionned_config.version,
             &mut *config.as_ref().borrow_mut(),
             versionning::JSON_MIGRATIONS,
         ) {
-            save_json(settings.clone(), config.clone())?;
+            save_sconfig(settings.clone(), config.clone())?;
         } else {
             debug!("No migrations needed");
         }
@@ -93,7 +104,7 @@ pub fn read_json_config<P: AsRef<Path>>(
     }
 }
 
-pub fn save_json(
+pub fn save_sconfig(
     settings: Rc<RefCell<SettingsFile>>,
     config: Rc<RefCell<SConfig>>,
 ) -> Result<(), Box<dyn Error>> {

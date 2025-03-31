@@ -62,8 +62,24 @@ pub struct SettingsFile {
     pub _extra_fields: Value,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, EnumString)]
+#[strum(ascii_case_insensitive)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageMethod {
+    JSON,
+    CBOR,
+    //    SQLite,
+    //    PostgreSQL,
+    //    MySQL,
+    //    LDAP,
+    #[serde(other)]
+    Unknown,
+}
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
+    pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]

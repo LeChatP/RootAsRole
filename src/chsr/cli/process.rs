@@ -35,7 +35,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_type, // in json
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 debug!("chsr list");
                 match json::list_json(
                     rconfig,
@@ -68,7 +68,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             role_type,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => role_add_del(rconfig, action, role_id, role_type),
+            Storage::SConfig(rconfig) => role_add_del(rconfig, action, role_id, role_type),
         },
         Inputs {
             // chsr role r1 grant|revoke -u u1 -u u2 -g g1,g2
@@ -78,7 +78,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options: false,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => grant_revoke(rconfig, role_id, action, actors),
+            Storage::SConfig(rconfig) => grant_revoke(rconfig, role_id, action, actors),
         },
 
         Inputs {
@@ -97,7 +97,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             cred_policy: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => task_add_del(rconfig, role_id, action, task_id, task_type),
+            Storage::SConfig(rconfig) => task_add_del(rconfig, role_id, action, task_id, task_type),
         },
         Inputs {
             //chsr role r1 task t1 cred set --caps "cap_net_raw,cap_sys_admin"
@@ -113,7 +113,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options: false,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => cred_set(
+            Storage::SConfig(rconfig) => cred_set(
                 rconfig,
                 role_id,
                 task_id,
@@ -136,7 +136,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => cred_unset(
+            Storage::SConfig(rconfig) => cred_unset(
                 rconfig,
                 role_id,
                 task_id,
@@ -155,7 +155,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options: false,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 cred_caps(rconfig, role_id, task_id, setlist_type, action, pcred_caps)
             }
         },
@@ -166,7 +166,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options: false,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => cred_setpolicy(rconfig, role_id, task_id, cred_policy),
+            Storage::SConfig(rconfig) => cred_setpolicy(rconfig, role_id, task_id, cred_policy),
         },
         Inputs {
             // chsr role r1 task t1 command whitelist add c1
@@ -177,7 +177,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type: Some(setlist_type),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 cmd_whitelist_action(rconfig, role_id, task_id, cmd_id, setlist_type, action)
             }
         },
@@ -187,7 +187,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             cmd_policy: Some(cmd_policy),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => cmd_setpolicy(rconfig, role_id, task_id, cmd_policy),
+            Storage::SConfig(rconfig) => cmd_setpolicy(rconfig, role_id, task_id, cmd_policy),
         },
         // Set options
         Inputs {
@@ -200,7 +200,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_key_env: Some(options_env),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 env_set_policylist(rconfig, role_id, task_id, options_env, options_env_policy)
             }
         },
@@ -212,7 +212,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_root: Some(options_root),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => set_privileged(rconfig, role_id, task_id, options_root),
+            Storage::SConfig(rconfig) => set_privileged(rconfig, role_id, task_id, options_root),
         },
         Inputs {
             // chsr o bounding set strict
@@ -222,7 +222,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_bounding: Some(options_bounding),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => set_bounding(rconfig, role_id, task_id, options_bounding),
+            Storage::SConfig(rconfig) => set_bounding(rconfig, role_id, task_id, options_bounding),
         },
         Inputs {
             // chsr o bounding set strict
@@ -232,7 +232,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_auth: Some(options_auth),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => set_authentication(rconfig, role_id, task_id, options_auth),
+            Storage::SConfig(rconfig) => set_authentication(rconfig, role_id, task_id, options_auth),
         },
         Inputs {
             // chsr o wildcard-denied set ";&*$"
@@ -243,7 +243,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_wildcard: Some(options_wildcard),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 json_wildcard(rconfig, role_id, task_id, action, options_wildcard)
             }
         },
@@ -257,7 +257,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 path_set(rconfig, role_id, task_id, setlist_type, options_path)
             }
         },
@@ -271,7 +271,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => path_purge(rconfig, role_id, task_id, setlist_type),
+            Storage::SConfig(rconfig) => path_purge(rconfig, role_id, task_id, setlist_type),
         },
         Inputs {
             // chsr o env whitelist set A,B,C
@@ -285,7 +285,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_env_policy: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 env_whitelist_set(rconfig, role_id, task_id, setlist_type, options_env)
             }
         },
@@ -299,7 +299,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => unset_timeout(rconfig, role_id, task_id, timeout_arg),
+            Storage::SConfig(rconfig) => unset_timeout(rconfig, role_id, task_id, timeout_arg),
         },
         Inputs {
             // chsr o timeout set --type tty --duration 00:00:00 --max-usage 1
@@ -313,7 +313,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             timeout_max_usage,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => set_timeout(
+            Storage::SConfig(rconfig) => set_timeout(
                 rconfig,
                 role_id,
                 task_id,
@@ -332,7 +332,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_path_policy: Some(options_path_policy),
             ..
         } => match storage {
-            Storage::JSON(rconfig) => {
+            Storage::SConfig(rconfig) => {
                 path_setpolicy(rconfig, role_id, task_id, options_path_policy)
             }
         },
@@ -348,7 +348,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_env_policy: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => env_setlist_add(
+            Storage::SConfig(rconfig) => env_setlist_add(
                 rconfig,
                 role_id,
                 task_id,
@@ -368,7 +368,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             setlist_type,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => path_setlist2(
+            Storage::SConfig(rconfig) => path_setlist2(
                 rconfig,
                 role_id,
                 task_id,
@@ -386,7 +386,7 @@ pub fn process_input(storage: &Storage, inputs: Inputs) -> Result<bool, Box<dyn 
             options_key_env: None,
             ..
         } => match storage {
-            Storage::JSON(rconfig) => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
+            Storage::SConfig(rconfig) => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
         },
 
         _ => Err("Unknown Input".into()),

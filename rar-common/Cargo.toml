@@ -27,6 +27,7 @@ log = "0.4"
 syslog = "7.0"
 env_logger = "0.11"
 bon = { version = "3.3.2", features = ["experimental-overwritable"] }
+ciborium = "0.2.2"
 
 [dev-dependencies]
 log = "0.4"

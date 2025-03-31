@@ -324,6 +324,15 @@ where
     Ok(())
 }
 
+pub fn write_cbor_config<T: Serialize, S>(settings: &T, path: S) -> Result<(), Box<dyn Error>>
+where
+    S: std::convert::AsRef<Path> + Clone,
+{
+    let file = create_with_privileges(path)?;
+    ciborium::into_writer(&settings, file)?;
+    Ok(())
+}
+
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
     std::fs::File::create(&p).or_else(|e| {
         debug!(

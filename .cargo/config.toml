@@ -2,7 +2,9 @@
 xtask = "run --package xtask --release --bin xtask --"
 
 [env]
+RAR_CFG_TYPE = "json"
 RAR_CFG_PATH = "/etc/security/rootasrole.json"
+RAR_CFG_DATA_PATH = "/etc/security/rootasrole.json"
 RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"
 RAR_TIMEOUT_TYPE = "PPID"

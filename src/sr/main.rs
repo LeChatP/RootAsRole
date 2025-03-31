@@ -25,7 +25,7 @@ use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
 use rar_common::plugin::register_plugins;
 use rar_common::{
     self,
-    database::read_json_config,
+    database::read_sconfig,
     util::{
         activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
         setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
@@ -242,16 +242,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and(dac_override_effective(false))
         .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
     let config = match settings.clone().as_ref().borrow().storage.method {
-        rar_common::StorageMethod::JSON => {
-            Storage::JSON(read_json_config(settings, ROOTASROLE).expect("Failed to read config"))
-        }
+        rar_common::StorageMethod::JSON | rar_common::StorageMethod::CBOR => {
+            Storage::SConfig(read_sconfig(settings, ROOTASROLE).expect("Failed to read config"))
+        },
         _ => {
             return Err("Unsupported storage method".into());
         }
     };
     let user = make_cred();
     let taskmatch = match config {
-        Storage::JSON(ref config) => from_json_execution_settings(&args, config, &user)
+        Storage::SConfig(ref config) => from_json_execution_settings(&args, config, &user)
             .inspect_err(|e| {
                 error!("{}", e);
             })

@@ -66,8 +66,7 @@ pub mod plugin;
 pub mod util;
 
 use util::{
-    dac_override_effective, open_with_privileges, read_effective, toggle_lock_config,
-    write_json_config, ImmutableLock,
+    dac_override_effective, open_with_privileges, read_effective, toggle_lock_config, write_cbor_config, write_json_config, ImmutableLock
 };
 
 use database::{
@@ -80,6 +79,7 @@ use database::{
 #[serde(rename_all = "lowercase")]
 pub enum StorageMethod {
     JSON,
+    CBOR,
     //    SQLite,
     //    PostgreSQL,
     //    MySQL,
@@ -89,7 +89,7 @@ pub enum StorageMethod {
 }
 
 pub enum Storage {
-    JSON(Rc<RefCell<SConfig>>),
+    SConfig(Rc<RefCell<SConfig>>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Builder)]
@@ -197,8 +197,8 @@ impl Default for Settings {
 pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn Error>> {
     let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
     // remove immutable flag
-    let into = ROOTASROLE.into();
     let binding = settings.as_ref().borrow();
+    let data_path = env!("RAR_CFG_DATA_PATH").to_string().into();
     let path = binding
         .storage
         .settings
@@ -206,7 +206,7 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
         .unwrap_or(&default_remote)
         .path
         .as_ref()
-        .unwrap_or(&into);
+        .unwrap_or(&data_path);
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable on for config file");
@@ -215,7 +215,16 @@ pub fn save_settings(settings: Rc<RefCell<SettingsFile>>) -> Result<(), Box<dyn 
     }
     debug!("Writing config file");
     let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
-    write_json_config(&versionned, ROOTASROLE)?;
+    match settings.as_ref().borrow().storage.method {
+        StorageMethod::JSON => {
+            write_json_config(&versionned, ROOTASROLE)?;
+        },
+        StorageMethod::CBOR => {
+            write_cbor_config(&versionned, ROOTASROLE)?;
+        },
+        StorageMethod::Unknown => todo!(),
+    }
+    
     if let Some(settings) = &settings.as_ref().borrow().storage.settings {
         if settings.immutable.unwrap_or(true) {
             debug!("Toggling immutable off for config file");

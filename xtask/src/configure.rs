@@ -12,7 +12,7 @@ use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    cap_clear, cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
+    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
@@ -86,9 +86,13 @@ pub fn check_filesystem() -> io::Result<()> {
 
 fn set_options(content : &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
+    config.storage.method = env!("RAR_CFG_TYPE").parse().unwrap();
     if let Some(settings) = &mut config.storage.settings {
         if let Some(path) = &mut settings.path {
-            *path = env!("RAR_CFG_PATH").to_string();
+            *path = env!("RAR_CFG_DATA_PATH").to_string();
+        }
+        if let Some(immutable) = &mut settings.immutable {
+            *immutable = env!("RAR_CFG_IMMUTABLE").parse().unwrap();
         }
     }
     config.storage.options = Some(Opt {

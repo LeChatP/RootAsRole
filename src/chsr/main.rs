@@ -2,7 +2,7 @@
 
 use log::{debug, error};
 use rar_common::{
-    database::{read_json_config, save_json},
+    database::{read_sconfig, save_sconfig},
     plugin::register_plugins,
     util::{drop_effective, read_effective, subsribe},
     Storage,
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_plugins();
     let settings = get_settings(ROOTASROLE).expect("Error on config read");
     let config = match settings.clone().as_ref().borrow().storage.method {
-        StorageMethod::JSON => Storage::JSON(read_json_config(settings.clone(), ROOTASROLE)?),
+        StorageMethod::JSON => Storage::SConfig(read_sconfig(settings.clone(), ROOTASROLE)?),
         _ => {
             error!("Unsupported storage method");
             std::process::exit(1);
@@ -35,11 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if cli::main(&config, std::env::args().skip(1)).is_ok_and(|b| b) {
         match config {
-            Storage::JSON(config) => {
+            Storage::SConfig(config) => {
                 debug!("Saving configuration");
-                save_json(settings, config)?;
+                save_sconfig(settings, config)?;
                 Ok(())
-            }
+            },
         }
     } else {
         Ok(())
