@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     read_effective(false).expect("Operation not permitted");
 
     if cli::main(&config, std::env::args().skip(1)).is_ok_and(|b| b) {
-        save_settings(&ROOTASROLE.to_string(), settings)
+        save_settings(&ROOTASROLE.to_string(), settings, true)
     } else {
         Ok(())
     }
