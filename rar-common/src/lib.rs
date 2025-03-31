@@ -95,6 +95,7 @@ pub enum Storage {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder)]
 pub struct SettingsFile {
     pub storage: Settings,
+    #[builder(default)]
     #[serde(flatten)]
     pub config: Rc<RefCell<SConfig>>,
 }
