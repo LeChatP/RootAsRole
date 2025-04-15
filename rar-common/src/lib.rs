@@ -61,6 +61,7 @@ pub mod database;
 pub mod plugin;
 pub mod util;
 
+use strum::EnumString;
 use util::{
     dac_override_effective, open_with_privileges, read_effective, toggle_lock_config, write_cbor_config, write_json_config, ImmutableLock
 };
@@ -69,12 +70,14 @@ use database::{
     migration::Migration, structs::SConfig, versionning::{Versioning, SETTINGS_MIGRATIONS}
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy, EnumString)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum StorageMethod {
     #[default]
+    #[strum(ascii_case_insensitive)]
     JSON,
+    #[strum(ascii_case_insensitive)]
     CBOR,
     //    SQLite,
     //    PostgreSQL,
