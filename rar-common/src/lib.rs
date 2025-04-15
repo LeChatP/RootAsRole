@@ -105,7 +105,7 @@ pub struct FullSettingsFile {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 pub struct Settings {
-    #[builder(default = StorageMethod::JSON)]
+    #[builder(default = StorageMethod::JSON, into)]
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
