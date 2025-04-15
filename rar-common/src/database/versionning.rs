@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 use super::migration::Migration;
-use crate::{SettingsFile, PACKAGE_VERSION};
+use crate::{FullSettingsFile, PACKAGE_VERSION};
 
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -31,4 +31,4 @@ impl<T: Default + Debug> Default for Versioning<T> {
     }
 }
 
-pub(crate) const SETTINGS_MIGRATIONS: &[Migration<SettingsFile>] = &[];
+pub(crate) const SETTINGS_MIGRATIONS: &[Migration<FullSettingsFile>] = &[];

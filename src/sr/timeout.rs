@@ -176,7 +176,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     write_lockfile(&lockpath);
     let mut file = open_with_privileges(&path)?;
     let reader = BufReader::new(&mut file);
-    let res = ciborium::de::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
+    let res = cbor4ii::serde::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
     Ok(res)
 }
 
@@ -188,7 +188,7 @@ fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Er
         .join(user.user.uid.as_raw().to_string())
         .with_extension("lock");
     let mut file = create_with_privileges(&path)?;
-    ciborium::ser::into_writer(cookies, &mut file)?;
+    cbor4ii::serde::to_writer(&mut file, &cookies)?;
     if let Err(err) = remove_with_privileges(lockpath) {
         debug!("Failed to remove lockfile: {}", err);
     }

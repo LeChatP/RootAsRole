@@ -50,9 +50,9 @@ mod tests {
             structs::{SCredentials, *},
             versionning::Versioning,
         },
-        get_settings,
+        get_full_settings,
         util::remove_with_privileges,
-        RemoteStorageSettings, Settings, SettingsFile, Storage, StorageMethod,
+        RemoteStorageSettings, Settings, FullSettingsFile, Storage, StorageMethod,
     };
 
     use crate::ROOTASROLE;
@@ -66,7 +66,7 @@ mod tests {
     fn setup(name: &str) {
         let file_path = format!("{}.{}", ROOTASROLE, name);
         let versionned = Versioning::new(
-            SettingsFile::builder()
+            FullSettingsFile::builder()
                 .storage(
                     Settings::builder()
                         .method(StorageMethod::JSON)
@@ -280,7 +280,7 @@ mod tests {
     fn test_all_main() {
         setup("all_main");
         let path = format!("{}.{}", ROOTASROLE, "all_main");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), vec!["--help"],)
@@ -291,7 +291,7 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -305,7 +305,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -325,7 +325,7 @@ mod tests {
     fn test_r_complete_show_actors() {
         setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -339,7 +339,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -353,7 +353,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -367,7 +367,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -387,7 +387,7 @@ mod tests {
     fn test_purge_tasks() {
         setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -407,7 +407,7 @@ mod tests {
     fn test_r_complete_purge_all() {
         setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -430,7 +430,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -491,7 +491,7 @@ mod tests {
     fn test_r_complete_task_t_complete_show_all() {
         setup("r_complete_task_t_complete_show_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -505,7 +505,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -519,7 +519,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -533,7 +533,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -553,7 +553,7 @@ mod tests {
     fn test_r_complete_task_t_complete_purge_cmd() {
         setup("r_complete_task_t_complete_purge_cmd");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -573,7 +573,7 @@ mod tests {
     fn test_r_complete_task_t_complete_purge_cred() {
         setup("r_complete_task_t_complete_purge_cred");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -589,7 +589,7 @@ mod tests {
         .is_ok_and(|b| b));
         debug!("=====");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         let task_count = config.as_ref().borrow()[0].as_ref().borrow().tasks.len();
@@ -632,7 +632,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -663,7 +663,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -694,7 +694,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -757,7 +757,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -796,7 +796,7 @@ mod tests {
     ) {
         setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
@@ -909,7 +909,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -943,7 +943,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -975,7 +975,7 @@ mod tests {
     ) {
         setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "))
@@ -1020,7 +1020,7 @@ mod tests {
     ) {
         setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(&Storage::SConfig(config.clone()), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
@@ -1143,7 +1143,7 @@ mod tests {
     fn test_options_show_all() {
         setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1157,7 +1157,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1171,7 +1171,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1194,7 +1194,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1208,7 +1208,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1222,7 +1222,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1236,7 +1236,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1250,7 +1250,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_settings(&path).expect("Failed to get settings");
+    let settings = get_full_settings(&path).expect("Failed to get settings");
     let binding = settings.as_ref().borrow();
     let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1273,7 +1273,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1309,7 +1309,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1394,7 +1394,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1704,7 +1704,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1727,7 +1727,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1811,7 +1811,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1895,7 +1895,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -1922,6 +1922,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .get_key_value("MYVAR")
                 .unwrap(),
             (&"MYVAR".to_string(), &"value".to_string())
@@ -1939,6 +1941,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .get_key_value("VAR2")
                 .unwrap(),
             (&"VAR2".to_string(), &"value2".to_string())
@@ -1956,6 +1960,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .len(),
             2
         );
@@ -1968,7 +1974,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2006,6 +2012,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .get_key_value("MYVAR")
                 .unwrap(),
             (&"MYVAR".to_string(), &"value".to_string())
@@ -2023,6 +2031,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .get_key_value("VAR2")
                 .unwrap(),
             (&"VAR2".to_string(), &"value2".to_string())
@@ -2040,6 +2050,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .get_key_value("VAR3")
                 .unwrap(),
             (&"VAR3".to_string(), &"value3".to_string())
@@ -2057,6 +2069,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .len(),
             3
         );
@@ -2084,6 +2098,8 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .set
+                .as_ref()
+                .unwrap()
                 .len(),
             1
         );
@@ -2099,6 +2115,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .set
+            .as_ref()
+            .unwrap()
             .get_key_value("MYVAR")
             .is_none());
         assert!(config.as_ref().borrow()[0].as_ref().borrow().tasks[0]
@@ -2113,6 +2131,8 @@ mod tests {
             .as_ref()
             .unwrap()
             .set
+            .as_ref()
+            .unwrap()
             .get_key_value("VAR2")
             .is_none());
         assert!(main(
@@ -2138,7 +2158,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .set
-            .is_empty());
+            .is_none());
         teardown("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
     }
     #[test]
@@ -2148,7 +2168,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2186,7 +2206,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2224,7 +2244,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2262,7 +2282,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2389,7 +2409,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2425,7 +2445,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2489,7 +2509,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2545,7 +2565,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2581,7 +2601,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2716,7 +2736,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2805,7 +2825,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2842,7 +2862,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2879,7 +2899,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -2913,7 +2933,7 @@ mod tests {
     fn test_r_complete_t_t_complete_o_auth_skip() {
         setup("r_complete_t_t_complete_o_auth_skip");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -3002,7 +3022,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -3087,7 +3107,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(
@@ -3151,7 +3171,7 @@ mod tests {
             let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
             assert!(bindingopt.timeout.as_ref().is_none());
         }
-        let settings = get_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         let binding = settings.as_ref().borrow();
         let config = binding.config.as_ref().unwrap();
         assert!(main(

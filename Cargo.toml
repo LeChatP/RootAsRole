@@ -4,7 +4,7 @@ members = ["xtask", "rar-common"]
 [package]
 name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.0.6"
+version = "3.1.0"
 rust-version = "1.76.0"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
@@ -65,7 +65,7 @@ capctl = "0.2"
 pcre2 = { version = "0.2", optional = true }
 serde = { version = "1.0", features=["rc", "derive"] }
 serde_json = "1.0"
-ciborium = "0.2"
+cbor4ii = { version = "1.0.0", features = ["serde", "serde1", "use_std"] }
 glob = "0.3"
 pam-client2 = "0.5"
 bitflags = { version = "2.6" }
@@ -80,6 +80,7 @@ pest = "2.7"
 pest_derive = "2.7"
 const_format = "0.2"
 hex = "0.4"
+bon = "3.5.1"
 
 [dev-dependencies]
 log = "0.4"

@@ -49,10 +49,10 @@
 
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-use std::{cell::RefCell, error::Error, path::{Path, PathBuf}, rc::Rc};
+use std::{cell::RefCell, error::Error, io::BufReader, path::{Path, PathBuf}, rc::Rc};
 
 use bon::Builder;
-use log::debug;
+use log::{debug, warn};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -69,9 +69,11 @@ use database::{
     migration::Migration, structs::SConfig, versionning::{Versioning, SETTINGS_MIGRATIONS}
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy)]
 #[serde(rename_all = "lowercase")]
+#[repr(u8)]
 pub enum StorageMethod {
+    #[default]
     JSON,
     CBOR,
     //    SQLite,
@@ -86,8 +88,13 @@ pub enum Storage {
     SConfig(Rc<RefCell<SConfig>>),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
 pub struct SettingsFile {
+    pub storage: Settings,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
+pub struct FullSettingsFile {
     pub storage: Settings,
     #[serde(flatten)]
     pub config: Option<Rc<RefCell<SConfig>>>,
@@ -168,14 +175,6 @@ pub struct LdapSettings {
     pub group_filter: String,
 }
 
-impl Default for SettingsFile {
-    fn default() -> Self {
-        Self {
-            storage: Settings::default(),
-            config: None,
-        }
-    }
-}
 
 // Default implementation for Settings
 impl Default for Settings {
@@ -197,7 +196,7 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     }
 }
 
-pub fn save_settings<S>(path: &S,settings: Rc<RefCell<SettingsFile>>, privileged: bool) -> Result<(), Box<dyn Error>>
+pub fn full_save_settings<S>(path: &S,settings: Rc<RefCell<FullSettingsFile>>, privileged: bool) -> Result<(), Box<dyn Error>>
 where
     S: AsRef<Path>,
 {
@@ -226,7 +225,7 @@ where
         toggle_lock_config(path, ImmutableLock::Unset)?;
     }
     // a single file
-    let versionned: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    let versionned: Versioning<Rc<RefCell<FullSettingsFile>>> = Versioning::new(settings.clone());
     write_json_config(&versionned, path)?;
     if immuable {
         debug!("Toggling immutable on for config file");
@@ -235,7 +234,7 @@ where
     Ok(())
 }
 
-fn separate_save<S,T>(settings_path: &S, data_path: &T, settings: Rc<RefCell<SettingsFile>>, immutable: bool) -> Result<(), Box<dyn Error>>
+fn separate_save<S,T>(settings_path: &S, data_path: &T, settings: Rc<RefCell<FullSettingsFile>>, immutable: bool) -> Result<(), Box<dyn Error>>
 where
     S: AsRef<Path>,
     T: AsRef<Path>,
@@ -265,7 +264,7 @@ where
         }
     }
     settings.as_ref().borrow_mut().config = None;
-    let versioned_settings: Versioning<Rc<RefCell<SettingsFile>>> = Versioning::new(settings.clone());
+    let versioned_settings: Versioning<Rc<RefCell<FullSettingsFile>>> = Versioning::new(settings.clone());
     if immutable {
         debug!("Toggling immutable off for config file");
         toggle_lock_config(settings_path, ImmutableLock::Unset)?;
@@ -279,17 +278,17 @@ where
     Ok(())
 }
 
-pub fn get_settings<S>(path: &S) -> Result<Rc<RefCell<SettingsFile>>, Box<dyn Error>>
+pub fn get_full_settings<S>(path: &S) -> Result<Rc<RefCell<FullSettingsFile>>, Box<dyn Error>>
 where
     S: AsRef<Path>,
 {
     // if file does not exist, return default settings
     if !std::path::Path::new(path.as_ref()).exists() {
-        return Ok(rc_refcell!(SettingsFile::default()));
+        return Ok(rc_refcell!(FullSettingsFile::default()));
     }
     // if user does not have read permission, try to enable privilege
     let file = open_with_privileges(path.as_ref())?;
-    let value: Versioning<SettingsFile> = serde_json::from_reader(file)
+    let value: Versioning<FullSettingsFile> = serde_json::from_reader(file)
         .inspect_err(|e| {
             debug!("Error reading file: {}", e);
         })
@@ -328,15 +327,34 @@ fn retrieve_sconfig(
                 debug!("Error reading file: {}", e);
             })
             .unwrap_or_default(),
-        StorageMethod::CBOR => ciborium::from_reader(file)
+        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
             .inspect_err(|e| {
                 debug!("Error reading file: {}", e);
             })
             .unwrap_or_default(),
         StorageMethod::Unknown => todo!(),
     };
-    read_effective(false).or(dac_override_effective(false))?;
+    //read_effective(false).or(dac_override_effective(false))?;
     //assert_eq!(value.version.to_string(), PACKAGE_VERSION, "Version mismatch");
+    debug!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(value.data)
+}
+
+pub fn get_settings<S>(path: &S) -> Result<SettingsFile, Box<dyn Error>>
+where
+    S: AsRef<Path>,
+{
+    // if user does not have read permission, try to enable privilege
+    let file = open_with_privileges(path.as_ref())?;
+    let value: Versioning<SettingsFile> = serde_json::from_reader(file)
+        .inspect_err(|e| {
+            debug!("Error reading file: {}", e);
+        })
+        .unwrap_or_else(|_| {
+            warn!("Using default settings file!!");
+            Default::default()
+        });
+    //read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     Ok(value.data)
 }
@@ -356,7 +374,7 @@ mod tests {
     fn test_get_settings_same_file() {
         // Create a test JSON file
         let value = "test_get_settings_same_file.json";
-        let config = Versioning::new(Rc::new(RefCell::new(SettingsFile::builder()
+        let config = Versioning::new(Rc::new(RefCell::new(FullSettingsFile::builder()
             .storage(Settings::builder()
                 .method(StorageMethod::JSON)
                 .settings(RemoteStorageSettings::builder()
@@ -380,7 +398,7 @@ mod tests {
                 .build())
             .build())));
         write_json_config(&config, value).unwrap();
-        let settings = get_settings(&value).unwrap();
+        let settings = get_full_settings(&value).unwrap();
         assert_eq!(*config.data.borrow(), *settings.borrow());
         fs::remove_file(value).unwrap();
     }
@@ -390,7 +408,7 @@ mod tests {
         // Create a test JSON file
         let external_file = "test_get_settings_different_file_external.json";
         let test_file = "test_get_settings_different_file.json";
-        let settings_config = Versioning::new(Rc::new(RefCell::new(SettingsFile::builder()
+        let settings_config = Versioning::new(Rc::new(RefCell::new(FullSettingsFile::builder()
             .storage(Settings::builder()
                 .method(StorageMethod::JSON)
                 .settings(RemoteStorageSettings::builder()
@@ -418,7 +436,7 @@ mod tests {
                 .build())
             .build();
         write_json_config(&Versioning::new(config.clone()), &external_file).unwrap();
-        let settings = get_settings(&test_file).unwrap();
+        let settings = get_full_settings(&test_file).unwrap();
         assert_eq!(*config.borrow(), *settings.as_ref().borrow().config.as_ref().unwrap().borrow());
         fs::remove_file(test_file).unwrap();
         fs::remove_file(external_file).unwrap();
@@ -428,7 +446,7 @@ mod tests {
     fn test_save_settings_same_file() {
         let test_file = "test_save_settings_same_file.json";
         // Create a test JSON file
-        let config = Rc::new(RefCell::new(SettingsFile::builder()
+        let config = Rc::new(RefCell::new(FullSettingsFile::builder()
             .storage(Settings::builder()
                 .method(StorageMethod::JSON)
                 .settings(RemoteStorageSettings::builder()
@@ -451,8 +469,8 @@ mod tests {
                     .build())
                 .build())
             .build()));
-        save_settings(&test_file, config.clone(), false).unwrap();
-        let settings = get_settings(&test_file).unwrap();
+        full_save_settings(&test_file, config.clone(), false).unwrap();
+        let settings = get_full_settings(&test_file).unwrap();
         assert_eq!(*config.borrow(), *settings.borrow());
         fs::remove_file(test_file).unwrap();
     }
@@ -476,7 +494,7 @@ mod tests {
             .build())
         .build();
         // Create a test JSON file
-        let config = Rc::new(RefCell::new(SettingsFile::builder()
+        let config = Rc::new(RefCell::new(FullSettingsFile::builder()
             .storage(Settings::builder()
                 .method(StorageMethod::JSON)
                 .settings(RemoteStorageSettings::builder()
@@ -486,7 +504,7 @@ mod tests {
                 .build())
             .config(sconfig.clone())
             .build()));
-        save_settings(&test_file, config.clone(), false).unwrap();
+        full_save_settings(&test_file, config.clone(), false).unwrap();
         //assert that test_external.json contains /usr/bin/true
         let mut file = open_with_privileges(external_file).unwrap();
         let mut content = String::new();
@@ -498,7 +516,7 @@ mod tests {
         file.read_to_string(&mut content).unwrap();
         assert!(!content.contains("/usr/bin/true"));
 
-        let settings = get_settings(&test_file).unwrap();
+        let settings = get_full_settings(&test_file).unwrap();
         assert_eq!(*sconfig.borrow(), *settings.borrow().config.as_ref().unwrap().borrow());
         settings.as_ref().borrow_mut().config = None;
         assert_eq!(*config.borrow(), *settings.borrow());
@@ -524,7 +542,7 @@ mod tests {
                 .build())
             .build())
         .build();
-        let settings = Rc::new(RefCell::new(SettingsFile::builder()
+        let settings = Rc::new(RefCell::new(FullSettingsFile::builder()
             .storage(Settings::builder()
                 .method(StorageMethod::CBOR)
                 .settings(RemoteStorageSettings::builder()
@@ -534,13 +552,13 @@ mod tests {
                 .build())
             .config(sconfig.clone())
             .build()));
-        save_settings(&test_file, settings.clone(), false).unwrap();
+        full_save_settings(&test_file, settings.clone(), false).unwrap();
         //asset that external_file is a binary file
         let mut file = open_with_privileges(external_file).unwrap();
         // try to parse as ciborium
         let mut content = Vec::new();
         file.read_to_end(&mut content).unwrap();
-        let deserialized: Versioning<Rc<RefCell<SConfig>>> = ciborium::de::from_reader(&content[..]).unwrap();
+        let deserialized: Versioning<Rc<RefCell<SConfig>>> = cbor4ii::serde::from_reader(&content[..]).unwrap();
         assert_eq!(deserialized.version.to_string(), PACKAGE_VERSION);
         fs::remove_file(test_file).unwrap();
         fs::remove_file(external_file).unwrap();

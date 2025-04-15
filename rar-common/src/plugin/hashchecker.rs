@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read, os::fd::AsRawFd};
+use std::{error::Error, fs::File, io::Read, os::fd::AsRawFd};
 
 use crate::{
     api::PluginManager,
@@ -77,39 +77,43 @@ fn complex_command_parse(
     debug!("Checking command {:?}", checker);
     match checker {
         Ok(checker) => {
-            let cmd = parse_conf_command(&checker.command)?;
-            let path = final_path(&cmd[0]);
-            if access(&path, AccessFlags::W_OK).is_ok() {
-                if checker.read_only.is_some_and(|read_only| read_only) {
-                    return Err("Executor must not have write access to the executable".into());
-                }
-                warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
-            }
-            let mut open = open_with_privileges(&path)?;
-            if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
-                return Err("Executable file must be immutable".into());
-            }
-            let mut buf = Vec::new();
-            open.read_to_end(&mut buf)?;
-            let hash = compute(&checker.hash_type, &buf);
-            let config_hash = hex::decode(checker.hash.as_bytes())?;
-            debug!(
-                "Hash: {:?}, Config Hash: {:?}",
-                hex::encode(&hash),
-                hex::encode(&config_hash)
-            );
-            if hash == config_hash {
-                debug!("Hashes match");
-                parse_conf_command(&checker.command)
-            } else {
-                debug!("Hashes do not match");
-                Err("Hashes do not match".into())
-            }
+            process_hash_check(checker)
         }
         Err(e) => {
             debug!("Error parsing command {:?}", e);
             Err(Box::new(e))
         }
+    }
+}
+
+fn process_hash_check(checker: HashChecker) -> Result<Vec<String>, Box<dyn Error>> {
+    let cmd = parse_conf_command(&checker.command)?;
+    let path = final_path(&cmd[0]);
+    if access(&path, AccessFlags::W_OK).is_ok() {
+        if checker.read_only.is_some_and(|read_only| read_only) {
+            return Err("Executor must not have write access to the executable".into());
+        }
+        warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
+    }
+    let mut open = open_with_privileges(&path)?;
+    if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
+        return Err("Executable file must be immutable".into());
+    }
+    let mut buf = Vec::new();
+    open.read_to_end(&mut buf)?;
+    let hash = compute(&checker.hash_type, &buf);
+    let config_hash = hex::decode(checker.hash.as_bytes())?;
+    debug!(
+        "Hash: {:?}, Config Hash: {:?}",
+        hex::encode(&hash),
+        hex::encode(&config_hash)
+    );
+    if hash == config_hash {
+        debug!("Hashes match");
+        parse_conf_command(&checker.command)
+    } else {
+        debug!("Hashes do not match");
+        Err("Hashes do not match".into())
     }
 }
 
@@ -175,7 +179,7 @@ mod tests {
         let matching = config
             .matches(&cred, &None, &vec!["/tmp/hashchecker".to_string()])
             .unwrap();
-        assert!(matching.fully_matching());
+        assert!(matching.score.fully_matching());
         std::fs::remove_file("/tmp/hashchecker").unwrap();
     }
 }

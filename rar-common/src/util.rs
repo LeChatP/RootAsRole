@@ -244,13 +244,15 @@ pub fn find_from_envpath<P: AsRef<Path>>(exe_name: P) -> Option<PathBuf> {
     })
 }
 
-pub fn final_path(path: &str) -> PathBuf {
-    if let Some(env_path) = find_from_envpath(path) {
+pub fn final_path<P>(path: P) -> PathBuf
+where
+    P: AsRef<Path>,{
+    if let Some(env_path) = find_from_envpath(&path) {
         env_path
-    } else if let Ok(canon_path) = std::fs::canonicalize(path) {
+    } else if let Ok(canon_path) = std::fs::canonicalize(&path) {
         canon_path
     } else {
-        PathBuf::from(path)
+        path.as_ref().to_path_buf()
     }
 }
 
@@ -329,7 +331,7 @@ where
     S: std::convert::AsRef<Path> + Clone,
 {
     let file = create_with_privileges(path)?;
-    ciborium::into_writer(&settings, file)?;
+    cbor4ii::serde::to_writer(file, &settings)?;
     Ok(())
 }
 

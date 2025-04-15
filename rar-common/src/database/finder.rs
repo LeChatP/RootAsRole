@@ -127,26 +127,52 @@ impl PartialEq for ExecSettings {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs, Default)]
 #[repr(u32)]
 // Matching user groups for the role
 pub enum ActorMatchMin {
     UserMatch,
     GroupMatch(usize),
+    #[default]
     NoMatch,
+}
+
+impl ActorMatchMin {
+    pub fn better(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Less
+    }
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
 
 // Matching setuid and setgid for the role
-struct SetuidMin {
+pub struct SetuidMin {
     is_root: bool,
 }
+
+impl From<SUserType> for SetuidMin {
+    fn from(s: SUserType) -> Self {
+        SetuidMin {
+            is_root: user_is_root(&s),
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-struct SetgidMin {
+pub struct SetgidMin {
     is_root: bool,
     nb_groups: usize,
 }
+
+impl From<SGroups> for SetgidMin {
+    fn from(s: SGroups) -> Self {
+        SetgidMin {
+            is_root: groups_contains_root(Some(&s)),
+            nb_groups: groups_len(Some(&s)),
+        }
+    }
+}
+
 impl PartialOrd for SetgidMin {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -162,8 +188,8 @@ impl Ord for SetgidMin {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub struct SetUserMin {
-    uid: Option<SetuidMin>,
-    gid: Option<SetgidMin>,
+    pub uid: Option<SetuidMin>,
+    pub gid: Option<SetgidMin>,
 }
 impl PartialOrd for SetUserMin {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -178,7 +204,7 @@ impl Ord for SetUserMin {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
 pub struct CmdMin(u32);
 
 bitflags! {
@@ -192,8 +218,9 @@ bitflags! {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
 pub enum CapsMin {
+    #[default]
     Undefined,
     NoCaps,
     CapsNoAdmin(usize),
@@ -201,7 +228,7 @@ pub enum CapsMin {
     CapsAll,
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
 pub struct SecurityMin(u32);
 
 bitflags! {
@@ -216,7 +243,7 @@ bitflags! {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub struct Score {
     pub user_min: ActorMatchMin,
     pub cmd_min: CmdMin,
@@ -244,6 +271,31 @@ impl Score {
             .then(self.caps_min.cmp(&other.caps_min))
             .then(self.setuser_min.cmp(&other.setuser_min))
             .then(self.security_min.cmp(&other.security_min))
+    }
+
+    pub fn user_matching(&self) -> bool {
+        self.user_min != ActorMatchMin::NoMatch
+    }
+
+    pub fn command_matching(&self) -> bool {
+        !self.cmd_min.is_empty()
+    }
+
+    pub fn fully_matching(&self) -> bool {
+        self.user_matching() && self.command_matching()
+    }
+
+    /// Check if the current score is better than the other
+    pub fn better_command(&self, other: &Score) -> bool {
+        self.command_matching() && !(other.command_matching() || self.cmd_cmp(other) == Ordering::Less)
+    }
+
+    pub fn better_user(&self, other: &Score) -> bool {
+        self.user_matching() && !(other.user_matching() || self.user_cmp(other) == Ordering::Less)
+    }
+
+    pub fn better_fully(&self, other: &Score) -> bool {
+        self.fully_matching() && !(other.fully_matching() || self.cmp(other) == Ordering::Less)
     }
 }
 
@@ -317,17 +369,6 @@ pub struct TaskMatch {
 }
 
 impl TaskMatch {
-    pub fn fully_matching(&self) -> bool {
-        self.user_matching() && self.command_matching()
-    }
-
-    pub fn user_matching(&self) -> bool {
-        self.score.user_min != ActorMatchMin::NoMatch
-    }
-
-    pub fn command_matching(&self) -> bool {
-        !self.score.cmd_min.is_empty()
-    }
 
     pub fn task(&self) -> Rc<RefCell<STask>> {
         self.settings.task.upgrade().expect("Internal Error")
@@ -975,7 +1016,7 @@ impl TaskMatcher<TaskMatch> for Vec<Rc<RefCell<STask>>> {
         for task in self.iter() {
             match task.matches(user, cmd_opt, command) {
                 Ok(mut task_match) => {
-                    if !min_task.command_matching()
+                    if !min_task.score.command_matching()
                         || task_match.score.cmd_cmp(&min_task.score) == Ordering::Less
                     {
                         task_match.score.user_min = min_task.score.user_min;
@@ -1076,8 +1117,8 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SRole>> {
 
         match borrow.tasks.matches(user, cmd_opt, command) {
             Ok(task_match) => {
-                if !min_role.fully_matching()
-                    || (task_match.command_matching() && task_match.score < min_role.score)
+                if !min_role.score.fully_matching()
+                    || (task_match.score.command_matching() && task_match.score < min_role.score)
                 {
                     min_role = task_match;
                     nmatch = 1;
@@ -1136,18 +1177,18 @@ fn plugin_role_match(
     match PluginManager::notify_role_matcher(&borrow, user, cmd_opt, command, &mut matcher) {
         PluginResultAction::Override => {
             *min_role = matcher;
-            *nmatch = if min_role.fully_matching() { 1 } else { 0 };
+            *nmatch = if min_role.score.fully_matching() { 1 } else { 0 };
         }
         PluginResultAction::Edit => {
             debug!("Plugin edit");
-            if !min_role.command_matching()
-                || (matcher.command_matching() && matcher.score.cmd_min < min_role.score.cmd_min)
+            if !min_role.score.command_matching()
+                || (matcher.score.command_matching() && matcher.score.cmd_min < min_role.score.cmd_min)
             {
                 *min_role = matcher;
                 *nmatch = 1;
             } else if matcher.score == min_role.score {
                 *nmatch += 1;
-            } else if !matcher.fully_matching() {
+            } else if !matcher.score.fully_matching() {
                 *nmatch = 0;
             }
         }
@@ -1170,7 +1211,7 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<SConfig>> {
         let mut tasks: Vec<TaskMatch> = Vec::new();
         for role in self.as_ref().borrow().roles.iter() {
             if let Ok(matched) = role.matches(user, cmd_opt, command) {
-                if matched.fully_matching() {
+                if matched.score.fully_matching() {
                     if tasks.is_empty() || matched.score < tasks[0].score {
                         tasks.clear();
                         tasks.push(matched);

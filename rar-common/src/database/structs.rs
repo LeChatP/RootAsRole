@@ -78,7 +78,7 @@ where
     Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),

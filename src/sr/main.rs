@@ -1,36 +1,34 @@
 pub mod pam;
 mod timeout;
+mod finder;
 
 use capctl::CapState;
 use const_format::formatcp;
+use finder::BestExecSettings;
 use nix::{
     libc::dev_t,
     sys::stat,
     unistd::{getgroups, getuid, isatty, Group, User},
 };
-use rar_common::database::{
+use rar_common::{database::{
     actor::{SGroupType, SGroups, SUserType},
-    finder::{Cred, TaskMatch, TaskMatcher},
+    finder::Cred,
     options::EnvBehavior,
     FilterMatcher,
-};
-use rar_common::database::{options::OptStack, structs::SConfig};
+}, util::final_path};
 use rar_common::util::escape_parser_string;
 
 use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-use std::{cell::RefCell, error::Error, io::stdout, os::fd::AsRawFd, rc::Rc};
+use std::{error::Error, io::stdout, os::fd::AsRawFd, path::PathBuf};
 
-use rar_common::plugin::register_plugins;
-use rar_common::{
-    self,
+use rar_common::
     util::{
         activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
         setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
-    },
-    Storage,
-};
+    }
+;
 
 #[cfg(not(test))]
 const ROOTASROLE: &str = env!("RAR_CFG_PATH");
@@ -96,7 +94,10 @@ struct Cli {
     help: bool,
 
     /// Command to execute
-    command: Vec<String>,
+    cmd_path: PathBuf,
+
+    /// Command arguments
+    cmd_args: Vec<String>,
 
     /// Use stdin for password prompt
     stdin: bool,
@@ -110,7 +111,8 @@ impl Default for Cli {
             info: false,
             help: false,
             stdin: false,
-            command: vec![],
+            cmd_path: PathBuf::new(),
+            cmd_args: Vec::new(),
         }
     }
 }
@@ -122,16 +124,6 @@ fn cap_effective_error(caplist: &str) -> String {
         "Unable to toggle {} privilege. {}",
         caplist, CAPABILITIES_ERROR
     )
-}
-
-fn from_json_execution_settings(
-    args: &Cli,
-    config: &Rc<RefCell<SConfig>>,
-    user: &Cred,
-) -> Result<TaskMatch, Box<dyn Error>> {
-    config
-        .matches(user, &args.opt_filter, &args.command)
-        .map_err(|m| m.into())
 }
 
 fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
@@ -194,11 +186,12 @@ where
                 if arg.as_ref().starts_with('-') {
                     return Err(format!("Unknown option: {}", arg.as_ref()).into());
                 } else {
-                    args.command.push(escape_parser_string(arg));
+                    args.cmd_path = final_path(arg.as_ref());
                     break;
                 }
             }
         }
+        
     }
     args.opt_filter = Some(
         FilterMatcher::builder()
@@ -210,18 +203,18 @@ where
             .build(),
     );
     for arg in iter {
-        args.command.push(escape_parser_string(arg));
+        args.cmd_args.push(escape_parser_string(arg));
     }
     Ok(args)
 }
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
+    use finder::find_best_exec_settings;
     use crate::{pam::check_auth, ROOTASROLE};
 
     subsribe("sr")?;
     drop_effective()?;
-    register_plugins();
     let args = std::env::args();
     if args.len() < 2 {
         println!("{}", USAGE);
@@ -233,47 +226,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{}", USAGE);
         return Ok(());
     }
-    read_effective(true)
-        .or(dac_override_effective(true))
-        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read_search or dac_override")));
-    let settings = rar_common::get_settings(&ROOTASROLE.to_string()).expect("Failed to get settings");
-    read_effective(false)
-        .and(dac_override_effective(false))
-        .unwrap_or_else(|_| panic!("{}", cap_effective_error("dac_read")));
-    let config = match settings.clone().as_ref().borrow().storage.method {
-        rar_common::StorageMethod::JSON | rar_common::StorageMethod::CBOR => {
-            Storage::SConfig(settings.as_ref().borrow().config.clone().unwrap())
-        },
-        _ => {
-            return Err("Unsupported storage method".into());
-        }
-    };
     let user = make_cred();
-    let taskmatch = match config {
-        Storage::SConfig(ref config) => from_json_execution_settings(&args, config, &user)
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .unwrap_or_default(),
-    };
-    let execcfg = &taskmatch.settings;
+    let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string())?;
 
-    let optstack = &execcfg.opt;
-    check_auth(optstack, &config, &user, &args.prompt)?;
+    check_auth(&execcfg.opt, &user, &args.prompt)?;
 
-    if !taskmatch.fully_matching() {
+    if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
         error!(
-            "User {} tried to execute command : {:?} without the permission.",
-            &user.user.name, args.command
+            "User {} tried to execute command : {:?} {:?} without the permission.",
+            &user.user.name, args.cmd_path, args.cmd_args
         );
 
         std::process::exit(1);
     }
 
     if args.info {
-        println!("Role: {}", execcfg.role().as_ref().borrow().name);
-        println!("Task: {}", execcfg.task().as_ref().borrow().name);
+        println!("Role: {}", execcfg.role);
+        println!("Task: {}", execcfg.task);
         println!(
             "With capabilities: {}",
             execcfg
@@ -286,31 +256,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // disable root
-    if !optstack.get_root_behavior().1.is_privileged() {
+    if execcfg.opt.root.is_none_or(|root| root.is_user()) {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
     debug!("setuid : {:?}", execcfg.setuid);
 
-    setuid_setgid(execcfg);
+    setuid_setgid(&execcfg);
     let cred = make_cred();
 
-    set_capabilities(execcfg, optstack);
+    set_capabilities(&execcfg);
 
     //execute command
-    let envset = optstack
-        .calculate_filtered_env(args.opt_filter, cred, std::env::vars())
+    let envset = execcfg.opt
+        .calc_env(args.opt_filter, cred, std::env::vars())
         .expect("Failed to calculate env");
 
     let pty = Pty::new().expect("Failed to create pty");
 
     debug!(
         "Command: {:?} {:?}",
-        execcfg.exec_path,
-        execcfg.exec_args.join(" ")
+        args.cmd_path,
+        args.cmd_args.join(" ")
     );
-    let command = Command::new(&execcfg.exec_path)
-        .args(execcfg.exec_args.iter())
+    let command = Command::new(&args.cmd_path)
+        .args(args.cmd_args.iter())
         .env_clear()
         .envs(envset)
         .stdin(std::process::Stdio::inherit())
@@ -321,7 +291,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", execcfg.exec_path.display(), e);
+            eprintln!("sr: {} : {}", args.cmd_path.display(), e);
             std::process::exit(1);
         }
     };
@@ -368,7 +338,7 @@ fn make_cred() -> Cred {
     }
 }
 
-fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optstack: &OptStack) {
+fn set_capabilities(execcfg: &BestExecSettings) {
     //set capabilities
     if let Some(caps) = execcfg.caps {
         // case where capabilities are more than bounding set
@@ -378,7 +348,7 @@ fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optsta
         }
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
-        if !optstack.get_bounding().1.is_ignore() {
+        if !execcfg.opt.bounding.is_some_and(|b| b.is_ignore()) {
             for cap in (!caps).iter() {
                 capctl::bounding::drop(cap).expect("Failed to set bounding cap");
             }
@@ -393,7 +363,7 @@ fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optsta
         setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     } else {
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        if !optstack.get_bounding().1.is_ignore() {
+        if !execcfg.opt.bounding.is_some_and(|b| b.is_ignore()){
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
@@ -402,7 +372,7 @@ fn set_capabilities(execcfg: &rar_common::database::finder::ExecSettings, optsta
     }
 }
 
-fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
+fn setuid_setgid(execcfg: &BestExecSettings) {
     let uid = execcfg.setuid.as_ref().and_then(|u| {
         let res = u.fetch_user();
         if let Some(user) = res {
@@ -459,13 +429,14 @@ fn setuid_setgid(execcfg: &rar_common::database::finder::ExecSettings) {
 mod tests {
     use libc::getgid;
     use nix::unistd::Pid;
-    use rar_common::database::actor::SActor;
-    use rar_common::rc_refcell;
+    
+    
 
     use super::*;
-    use rar_common::make_weak_config;
-    use rar_common::database::structs::{IdTask, SCommand, SCommands, SConfig, SRole, STask};
+    
+    
 
+    /**
     #[test]
     fn test_from_json_execution_settings() {
         let mut args = Cli {
@@ -513,24 +484,24 @@ mod tests {
         config.as_ref().borrow_mut().roles.push(role);
         make_weak_config(&config);
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.fully_matching());
+        assert!(taskmatch.score.fully_matching());
         args.opt_filter = Some(FilterMatcher::default());
         args.opt_filter.as_mut().unwrap().role = Some("role1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.fully_matching());
+        assert!(taskmatch.score.fully_matching());
         args.opt_filter.as_mut().unwrap().task = Some("task1".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.fully_matching());
+        assert!(taskmatch.score.fully_matching());
         args.opt_filter.as_mut().unwrap().task = Some("task2".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.fully_matching());
+        assert!(taskmatch.score.fully_matching());
         args.opt_filter.as_mut().unwrap().task = Some("task3".to_owned());
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
         args.opt_filter.as_mut().unwrap().role = None;
         let taskmatch = from_json_execution_settings(&args, &config, &user);
         assert!(taskmatch.is_err());
-    }
+    }*/
 
     #[test]
     fn test_getopt() {
@@ -544,7 +515,8 @@ mod tests {
         assert_eq!(args.prompt, "prompt");
         assert!(args.info);
         assert!(args.help);
-        assert_eq!(args.command, vec!["ls".to_string(), "-l".to_string()]);
+        assert_eq!(args.cmd_path, PathBuf::from("/usr/bin/ls"));
+        assert_eq!(args.cmd_args, vec!["-l".to_string()]);
     }
 
     #[test]

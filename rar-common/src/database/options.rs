@@ -25,14 +25,19 @@ use crate::rc_refcell;
 
 #[cfg(feature = "finder")]
 use super::finder::Cred;
-use super::{convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher};
+#[cfg(feature = "finder")]
+use super::finder::SecurityMin;
+use super::{
+    convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher,
+};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
     structs::{SConfig, SRole, STask},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+#[repr(u8)]
 pub enum Level {
     #[default]
     None,
@@ -40,6 +45,7 @@ pub enum Level {
     Global,
     Role,
     Task,
+    
 }
 
 #[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
@@ -52,7 +58,9 @@ pub enum OptType {
     Timeout,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -64,7 +72,9 @@ pub enum PathBehavior {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -121,7 +131,9 @@ pub struct SPathOptions {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -159,13 +171,13 @@ pub struct SEnvOptions {
     pub default_behavior: EnvBehavior,
     #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
     pub override_behavior: Option<bool>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    #[builder(default, with = |iter: impl IntoIterator<Item = (impl ToString, impl ToString)>| {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[builder(with = |iter: impl IntoIterator<Item = (impl ToString, impl ToString)>| {
         let mut map = HashMap::with_hasher(Default::default());
         map.extend(iter.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         map
     })]
-    pub set: HashMap<String, String>,
+    pub set: Option<HashMap<String, String>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -195,7 +207,9 @@ pub struct SEnvOptions {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -206,7 +220,9 @@ pub enum SBounding {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
@@ -217,7 +233,9 @@ pub enum SPrivileged {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
@@ -288,47 +306,320 @@ impl Opt {
     pub fn level_default() -> Rc<RefCell<Self>> {
         Self::builder(Level::Default)
             .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
-            .maybe_bounding(
-                env!("RAR_BOUNDING").parse().ok()
-            )
+            .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
             .path(
-                SPathOptions::builder(env!("RAR_PATH_DEFAULT").parse().unwrap_or(PathBehavior::Delete))
-                    .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
-                    .sub(env!("RAR_PATH_REMOVE_LIST").split(':').collect::<Vec<&str>>())
-                    .build(),
+                SPathOptions::builder(
+                    env!("RAR_PATH_DEFAULT")
+                        .parse()
+                        .unwrap_or(PathBehavior::Delete),
+                )
+                .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
+                .sub(
+                    env!("RAR_PATH_REMOVE_LIST")
+                        .split(':')
+                        .collect::<Vec<&str>>(),
+                )
+                .build(),
             )
-            .maybe_authentication(
-                env!("RAR_AUTHENTICATION").parse().ok()
-            )
+            .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
             .env(
-                SEnvOptions::builder(env!("RAR_ENV_DEFAULT").parse().unwrap_or(EnvBehavior::Delete))
-                    .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
-                    .unwrap()
-                    .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
-                    .unwrap()
-                    .delete(
-                        env!("RAR_ENV_DELETE_LIST")
-                            .split(',')
-                            .collect::<Vec<&str>>(),
-                    )
-                    .unwrap()
-                    .set(
-                        serde_json::from_str(env!("RAR_ENV_SET_LIST"))
-                            .unwrap_or_else(|_| Map::default()),
-                    )
-                    .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
-                    .build(),
+                SEnvOptions::builder(
+                    env!("RAR_ENV_DEFAULT")
+                        .parse()
+                        .unwrap_or(EnvBehavior::Delete),
+                )
+                .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
+                .unwrap()
+                .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
+                .unwrap()
+                .delete(
+                    env!("RAR_ENV_DELETE_LIST")
+                        .split(',')
+                        .collect::<Vec<&str>>(),
+                )
+                .unwrap()
+                .set(
+                    serde_json::from_str(env!("RAR_ENV_SET_LIST"))
+                        .unwrap_or_else(|_| Map::default()),
+                )
+                .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
+                .build(),
             )
             .timeout(
                 STimeout::builder()
                     .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
                     .maybe_duration(
-                        convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string()).ok().flatten(),
+                        convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
+                            .ok()
+                            .flatten(),
                     )
                     .build(),
             )
             .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
             .build()
+    }
+
+    #[cfg(feature = "finder")]
+    fn union_path(&mut self, spath_options: SPathOptions) {
+        if let Some(self_path) = &mut self.path {
+            match spath_options.default_behavior {
+                PathBehavior::Inherit => {
+                    if let Some(add) = spath_options.add {
+                        self_path
+                            .add
+                            .get_or_insert_with(Default::default)
+                            .extend(add.iter().cloned());
+                    }
+                    if let Some(sub) = spath_options.sub {
+                        self_path
+                            .sub
+                            .get_or_insert_with(Default::default)
+                            .extend(sub.iter().cloned());
+                    }
+                }
+                PathBehavior::Delete => {
+                    if let Some(add) = spath_options.add {
+                        self_path.add.replace(add);
+                    }
+                    self_path.default_behavior = PathBehavior::Delete;
+                }
+                PathBehavior::KeepSafe | PathBehavior::KeepUnsafe => {
+                    if let Some(sub) = spath_options.sub {
+                        self_path.sub.replace(sub);
+                    }
+                    self_path.default_behavior = spath_options.default_behavior;
+                }
+            }
+        } else {
+            self.path.replace(spath_options);
+        }
+    }
+
+    #[cfg(feature = "finder")]
+    fn union_env(&mut self, env_options: SEnvOptions) {
+        if let Some(self_env) = &mut self.env {
+            match env_options.default_behavior {
+                EnvBehavior::Inherit => {
+                    if let Some(set) = env_options.set {
+                        self_env
+                            .set
+                            .get_or_insert_with(Default::default)
+                            .extend(set);
+                    }
+                    if let Some(keep) = env_options.keep {
+                        self_env
+                            .keep
+                            .get_or_insert_with(Default::default)
+                            .extend(keep);
+                    }
+                    if let Some(check) = env_options.check {
+                        self_env
+                            .check
+                            .get_or_insert_with(Default::default)
+                            .extend(check);
+                    }
+                    if let Some(delete) = env_options.delete {
+                        self_env
+                            .delete
+                            .get_or_insert_with(Default::default)
+                            .extend(delete);
+                    }
+                }
+                EnvBehavior::Delete | EnvBehavior::Keep => {
+                    self_env.set = env_options.set;
+                    if let Some(keep) = env_options.keep {
+                        self_env.keep.replace(keep);
+                    }
+                    if let Some(check) = env_options.check {
+                        self_env.check.replace(check);
+                    }
+                    if let Some(delete) = env_options.delete {
+                        self_env.delete.replace(delete);
+                    }
+                    self_env.default_behavior = env_options.default_behavior;
+                }
+            }
+        } else {
+            self.env.replace(env_options);
+        }
+    }
+
+    #[cfg(feature = "finder")]
+    pub fn union(&mut self, opt: Opt) {
+        assert!(opt.level <= self.level, "{:?} < {:?}", opt.level, self.level); // opt must be more specific than self
+        if let Some(path) = opt.path {
+            self.union_path(path);
+        }
+        if let Some(env) = opt.env {
+            self.union_env(env);
+        }
+        if let Some(root) = opt.root {
+            self.root = Some(root);
+        }
+        if let Some(bounding) = opt.bounding {
+            self.bounding = Some(bounding);
+        }
+        if let Some(authentication) = opt.authentication {
+            self.authentication = Some(authentication);
+        }
+        if let Some(wildcard_denied) = opt.wildcard_denied {
+            self.wildcard_denied = Some(wildcard_denied);
+        }
+        if let Some(timeout) = opt.timeout {
+            self.timeout = Some(timeout);
+        }
+    }
+
+    #[cfg(feature = "finder")]
+    pub fn calc_security_min(&self) -> SecurityMin {
+        let mut security_min = SecurityMin::default();
+        if self.bounding.is_some_and(|b| b == SBounding::Ignore) {
+            security_min |= SecurityMin::DisableBounding;
+        }
+        if self.root.is_some_and(|r| r == SPrivileged::Privileged) {
+            security_min |= SecurityMin::EnableRoot;
+        }
+        if self
+            .authentication
+            .is_some_and(|a| a == SAuthentication::Skip)
+        {
+            security_min |= SecurityMin::SkipAuth;
+        }
+        if self.env.as_ref().is_some_and(|e| {
+            e.default_behavior.is_keep() || e.override_behavior.as_ref().is_some_and(|o| *o)
+        }) {
+            security_min |= SecurityMin::KeepEnv;
+        }
+        if self
+            .path
+            .as_ref()
+            .is_some_and(|p| p.default_behavior.is_keep_safe())
+        {
+            security_min |= SecurityMin::KeepPath;
+        }
+        if self
+            .path
+            .as_ref()
+            .is_some_and(|p| p.default_behavior.is_keep_unsafe())
+        {
+            security_min |= SecurityMin::KeepUnsafePath;
+        }
+        security_min
+    }
+
+    #[cfg(feature = "finder")]
+    pub fn calc_path(&self, path_var: &str) -> String {
+        let binding = SPathOptions::default();
+        let path = self.path.as_ref().unwrap_or(&binding);
+        let default = LinkedHashSet::new();
+        if let Some(add) = &path.add {
+            let final_add = add.difference(path.sub.as_ref().unwrap_or(&default)).fold(
+                "".to_string(),
+                |mut acc, s| {
+                    if !acc.is_empty() {
+                        acc.insert(0, ':');
+                    }
+                    acc.insert_str(0, s);
+                    acc
+                },
+            );
+            match path.default_behavior {
+                PathBehavior::Inherit | PathBehavior::Delete => final_add,
+                is_safe => path_var
+                    .split(':')
+                    .filter(|s| {
+                        !path.sub.as_ref().unwrap_or(&default).contains(*s)
+                            && (!is_safe.is_keep_safe() || PathBuf::from(s).exists())
+                    })
+                    .fold(final_add, |mut acc, s| {
+                        if !acc.is_empty() {
+                            acc.push(':');
+                        }
+                        acc.push_str(s);
+                        acc
+                    }),
+            }
+        } else {
+            "".to_string()
+        }
+    }
+
+    #[cfg(feature = "finder")]
+    pub fn calc_env<I>(
+        &self,
+        opt_filter: Option<FilterMatcher>,
+        target: Cred,
+        env_iterator: I,
+    ) -> Result<HashMap<String, String>, String>
+    where
+        I: Iterator<Item = (String, String)> + std::fmt::Debug,
+    {
+        let env = self.env.as_ref().ok_or("No env options")?;
+        let final_behavior = opt_filter
+            .as_ref()
+            .and_then(|f| {
+                if env.override_behavior.is_some_and(|o| o) {
+                    f.env_behavior
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(env.default_behavior);
+        if final_behavior.is_keep() {
+            warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
+            Please consider using delete instead. 
+            See https://www.sudo.ws/security/advisories/bash_env/, 
+            https://www.sudo.ws/security/advisories/perl_env/ or 
+            https://nvd.nist.gov/vuln/detail/CVE-2006-0151");
+        }
+        let mut final_env: HashMap<String, String> = match final_behavior {
+            EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
+            EnvBehavior::Delete => Ok(env_iterator
+                .filter_map(|(key, value)| {
+                    let key = EnvKey::new(key).expect("Unexpected environment variable");
+                    if env.keep.env_matches(&key)
+                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
+                    {
+                        debug!("Keeping env: {}={}", key.value, value);
+                        Some((key.value, value))
+                    } else {
+                        debug!("Dropping env: {}", key.value);
+                        None
+                    }
+                })
+                .collect()),
+            EnvBehavior::Keep => Ok(env_iterator
+                .filter_map(|(key, value)| {
+                    let key = EnvKey::new(key).expect("Unexpected environment variable");
+                    if !env.delete.env_matches(&key)
+                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
+                    {
+                        debug!("Keeping env: {}={}", key.value, value);
+                        Some((key.value, value))
+                    } else {
+                        debug!("Dropping env: {}", key.value);
+                        None
+                    }
+                })
+                .collect()),
+        }?;
+        let binding = Default::default();
+        let path_var = final_env.get("PATH").unwrap_or(&binding);
+        final_env.insert("PATH".into(), self.calc_path(path_var));
+        final_env.insert("LOGNAME".into(), target.user.name.clone());
+        final_env.insert("USER".into(), target.user.name);
+        final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
+        final_env
+            .entry("TERM".into())
+            .or_insert_with(|| "unknown".into());
+        final_env.insert(
+            "SHELL".into(),
+            target.user.shell.to_string_lossy().to_string(),
+        );
+        if let Some(set) = &env.set {
+            final_env.extend(set.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        Ok(final_env)
     }
 }
 
@@ -633,9 +924,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     }
 
     fn with_default(self) -> Self {
-        self.opt(Some(
-            Opt::level_default()
-        ))
+        self.opt(Some(Opt::level_default()))
     }
 }
 
@@ -687,7 +976,7 @@ impl OptStack {
     }
 
     #[cfg(feature = "finder")]
-    fn calculate_path(&self) -> String {
+    fn calculate_path(&self, path_var: &str) -> String {
         let path = self.get_final_path();
         let default = LinkedHashSet::new();
         if let Some(add) = path.add {
@@ -703,9 +992,7 @@ impl OptStack {
             );
             match path.default_behavior {
                 PathBehavior::Inherit | PathBehavior::Delete => final_add,
-                is_safe => std::env::vars()
-                    .find_map(|(key, value)| if key == "PATH" { Some(value) } else { None })
-                    .unwrap_or(String::new())
+                is_safe => path_var
                     .split(':')
                     .filter(|s| {
                         !path.sub.as_ref().unwrap_or(&default).contains(*s)
@@ -887,7 +1174,7 @@ impl OptStack {
         final_env: I,
     ) -> Result<HashMap<String, String>, String>
     where
-        I: Iterator<Item = (String, String)>,
+        I: Iterator<Item = (String, String)> + std::fmt::Debug,
     {
         let env = self.get_final_env(opt_filter);
         if env.default_behavior.is_keep() {
@@ -928,7 +1215,9 @@ impl OptStack {
                 })
                 .collect()),
         }?;
-        final_env.insert("PATH".into(), self.calculate_path());
+        let binding = Default::default();
+        let path_var = final_env.get("PATH").unwrap_or(&binding);
+        final_env.insert("PATH".into(), self.calculate_path(path_var));
         final_env.insert("LOGNAME".into(), target.user.name.clone());
         final_env.insert("USER".into(), target.user.name);
         final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
@@ -939,7 +1228,9 @@ impl OptStack {
             "SHELL".into(),
             target.user.shell.to_string_lossy().to_string(),
         );
-        final_env.extend(env.set);
+        if let Some(set) = &env.set {
+            final_env.extend(set.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
         Ok(final_env)
     }
 
@@ -961,9 +1252,9 @@ impl OptStack {
                             .unwrap_or(&LinkedHashSet::new())
                             .iter()
                             .filter(|e| {
-                                !p.set.env_matches(e)
-                                    || !p.check.env_matches(e)
-                                    || !p.delete.env_matches(e)
+                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
+
+                                !p.check.env_matches(e) || !p.delete.env_matches(e)
                             })
                             .cloned()
                             .collect();
@@ -972,7 +1263,11 @@ impl OptStack {
                             .as_ref()
                             .unwrap_or(&LinkedHashSet::new())
                             .iter()
-                            .filter(|e| !p.set.env_matches(e) || !p.delete.env_matches(e))
+                            .filter(|e| {
+                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e))
+                                //||
+                                !p.delete.env_matches(e)
+                            })
                             .cloned()
                             .collect();
                         final_delete = p
@@ -980,10 +1275,15 @@ impl OptStack {
                             .as_ref()
                             .unwrap_or(&LinkedHashSet::new())
                             .iter()
-                            .filter(|e| !p.set.env_matches(e) || !p.check.env_matches(e))
+                            .filter(|e| {
+                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
+                                !p.check.env_matches(e)
+                            })
                             .cloned()
                             .collect();
-                        final_set = p.set.clone();
+                        if let Some(set) = &p.set {
+                            final_set = set.clone();
+                        }
                         debug!("check: {:?}", final_check);
                         p.default_behavior
                     }
@@ -1000,7 +1300,9 @@ impl OptStack {
                             .union(p.delete.as_ref().unwrap_or(&LinkedHashSet::new()))
                             .cloned()
                             .collect();
-                        final_set.extend(p.set.clone());
+                        if let Some(set) = &p.set {
+                            final_set.extend(set.clone());
+                        }
                         debug!("check: {:?}", final_check);
                         final_behavior
                     }
@@ -1344,7 +1646,7 @@ mod tests {
             })
             .build();
         let options = OptStack::from_role(config.as_ref().borrow().roles.first().unwrap().clone());
-        let res = options.calculate_path();
+        let res = options.calculate_path(&env::var("PATH").unwrap_or_default());
         assert_eq!(res, "path2:path1");
     }
 
@@ -1373,7 +1675,8 @@ mod tests {
                 .build()
             })
             .build();
-        let options = OptStack::from_role(config.role("test").unwrap()).calculate_path();
+        let options = OptStack::from_role(config.role("test").unwrap())
+            .calculate_path(&env::var("PATH").unwrap_or_default());
         assert!(options.contains("path2"));
     }
 
@@ -1402,7 +1705,8 @@ mod tests {
                 .build()
             })
             .build();
-        let options = OptStack::from_role(config.role("test").unwrap()).calculate_path();
+        let options = OptStack::from_role(config.role("test").unwrap())
+            .calculate_path(&env::var("PATH").unwrap_or_default());
         assert!(!options.contains("path1"));
     }
 
@@ -1924,6 +2228,7 @@ mod tests {
         let result = options
             .calculate_filtered_env(None, cred, test_env.into_iter())
             .unwrap();
+        println!("{:?}", result);
         assert_eq!(result.get("TEST_A").unwrap(), "value1");
         assert_eq!(result.get("TEST_B").unwrap(), "value2");
         assert!(result.get("TESTaA").is_none());
@@ -1931,8 +2236,6 @@ mod tests {
 
     #[test]
     fn test_safe_path() {
-        let path = std::env::var("PATH").unwrap();
-
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
@@ -1953,17 +2256,12 @@ mod tests {
             )
             .build();
         let options = OptStack::from_task(config.task("test", 1).unwrap());
-        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
-        let res = options.calculate_path();
-
+        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
         assert_eq!(res, "/tmp:/bin");
-        std::env::set_var("PATH", path);
     }
 
     #[test]
     fn test_unsafe_path() {
-        let path = std::env::var("PATH").unwrap();
-
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
@@ -1984,15 +2282,12 @@ mod tests {
             )
             .build();
         let options = OptStack::from_task(config.task("test", 1).unwrap());
-        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
-        let res = options.calculate_path();
+        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
         assert_eq!(res, "./proc:/tmp:/bin");
-        std::env::set_var("PATH", path);
     }
 
     #[test]
     fn test_inherit_keep_path() {
-        let path = std::env::var("PATH").unwrap();
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
@@ -2022,11 +2317,8 @@ mod tests {
             )
             .build();
         let options = OptStack::from_task(config.task("test", 1).unwrap());
-        std::env::set_var("PATH", "/sys:./proc:/tmp:/bin");
-        let res = options.calculate_path();
-
+        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
         assert_eq!(res, "/bin");
-        std::env::set_var("PATH", path);
     }
 
     #[test]

@@ -1003,21 +1003,23 @@ pub fn env_setlist_add(
             Some(SetListType::Set) => match action {
                 InputAction::Add => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set.extend(options_env_values.as_ref().unwrap().clone());
+                    env.set.get_or_insert_default().extend(options_env_values.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     debug!("options_env_values: {:?}", options_env_values);
                     options_key_env.as_ref().unwrap().into_iter().for_each(|k| {
-                        env.set.remove(&k.to_string());
+                        if let Some(env) = &mut env.set {
+                            env.remove(&k.to_string());
+                        }
                     });
                 }
                 InputAction::Purge => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set = HashMap::new();
+                    env.set = None;
                 }
                 InputAction::Set => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set = options_env_values.as_ref().unwrap().clone();
+                    env.set.replace(options_env_values.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },
