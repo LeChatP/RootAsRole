@@ -156,13 +156,15 @@ impl<'a, 'de> Visitor<'de> for GlobalSettingsVisitor<'a> {
         where
             A: MapAccess<'de>, {
         let mut settings = BestExecSettings::default();
-        let mut opt = Opt::default();
+        let mut opt = Opt::level_default();
         debug!("GlobalSettingsVisitor: map");
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "options" => {
                     debug!("GlobalSettingsVisitor: options");
-                    opt.union(map.next_value::<Opt>()?);
+                    let mut temp_opt = map.next_value::<Opt>()?;
+                    temp_opt.level = Level::Global;
+                    opt.union(temp_opt);
                     opt.level = Level::Global;
                     settings.score.security_min = opt.calc_security_min();
                 },
@@ -310,7 +312,9 @@ impl<'a, 'de> Visitor<'de> for RoleSettingsVisitor<'a> {
                     }
                 },
                 "options" => {
-                    opt.union(map.next_value::<Opt>()?);
+                    let mut temp_opt = map.next_value::<Opt>()?;
+                    temp_opt.level = Level::Role;
+                    opt.union(temp_opt);
                     opt.level = Level::Role;
                 }
                 key => {
@@ -504,8 +508,9 @@ impl<'a, 'de> Visitor<'de> for TaskSettingsVisitor<'a> {
 
                 },
                 "options" => {
-                    opt.union(map.next_value::<Opt>()?);
-                    opt.level = Level::Task;
+                    let mut temp_opt = map.next_value::<Opt>()?;
+                    temp_opt.level = Level::Task;
+                    opt.union(temp_opt);
                     result.score.security_min = opt.calc_security_min();
                 }
                 _ => {
@@ -826,7 +831,7 @@ impl<'a, 'de> Visitor<'de> for CommandListSettingsVisitor<'a> {
         let mut result = CmdMin::empty();
         while let Some(command) = seq.next_element_seed(self.command_visitor(&mut result))? {
             debug!("CommandListSettingsVisitor: command {:?} {:?}", command, result);
-            if command && (self.cmd_min.is_empty() || !result.is_empty() && result < *self.cmd_min) {
+            if command && result.better(self.cmd_min) {
                 info!("CommandListSettingsVisitor: Found a better command : {:?}", result);
                 *self.cmd_min = result;
             }
@@ -861,11 +866,12 @@ impl<'a, 'de> Visitor<'de> for CommandListSettingsVisitor<'a> {
                         cli: self.cli,
                         cmd_min: &mut temp_res,
                     };
-                    map.next_value_seed(command_visitor)?;
-                    if !temp_res.is_empty() && temp_res < *self.cmd_min {
+                    let res = map.next_value_seed(command_visitor)?;
+                    if res && temp_res.better(self.cmd_min) {
                         debug!("CommandListSettingsVisitor: Found a better command : {:?}", temp_res);
                         *self.cmd_min = temp_res;
                     }
+                    debug!("CommandListSettingsVisitor: end add {:?}", self.cmd_min);
                 }
                 "del" => {
                     let mut temp_cmd_min = CmdMin::empty();
@@ -880,6 +886,7 @@ impl<'a, 'de> Visitor<'de> for CommandListSettingsVisitor<'a> {
                         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                         return Ok(false);
                     }
+                    debug!("CommandListSettingsVisitor: end del {:?}", self.cmd_min);
                 }
                 _ => {
                     let _ = map.next_value::<IgnoredAny>()?;

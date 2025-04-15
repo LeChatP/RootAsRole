@@ -25,8 +25,7 @@ use std::{error::Error, io::stdout, os::fd::AsRawFd, path::PathBuf};
 
 use rar_common::
     util::{
-        activates_no_new_privs, dac_override_effective, drop_effective, read_effective,
-        setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
+        activates_no_new_privs, drop_effective, setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
     }
 ;
 

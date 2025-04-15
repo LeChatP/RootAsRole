@@ -282,8 +282,8 @@ impl Opt {
         #[builder(into)] wildcard_denied: Option<String>,
         timeout: Option<STimeout>,
         #[builder(default)] _extra_fields: Map<String, Value>,
-    ) -> Rc<RefCell<Self>> {
-        rc_refcell!(Opt {
+    ) -> Self {
+        Opt {
             level,
             path,
             env,
@@ -293,7 +293,7 @@ impl Opt {
             wildcard_denied,
             timeout,
             _extra_fields,
-        })
+        }
     }
 
     pub fn raw_new(level: Level) -> Self {
@@ -303,7 +303,7 @@ impl Opt {
         }
     }
 
-    pub fn level_default() -> Rc<RefCell<Self>> {
+    pub fn level_default() -> Self {
         Self::builder(Level::Default)
             .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
             .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
@@ -397,56 +397,54 @@ impl Opt {
 
     #[cfg(feature = "finder")]
     fn union_env(&mut self, env_options: SEnvOptions) {
-        if let Some(self_env) = &mut self.env {
-            match env_options.default_behavior {
-                EnvBehavior::Inherit => {
-                    if let Some(set) = env_options.set {
-                        self_env
-                            .set
-                            .get_or_insert_with(Default::default)
-                            .extend(set);
-                    }
-                    if let Some(keep) = env_options.keep {
-                        self_env
-                            .keep
-                            .get_or_insert_with(Default::default)
-                            .extend(keep);
-                    }
-                    if let Some(check) = env_options.check {
-                        self_env
-                            .check
-                            .get_or_insert_with(Default::default)
-                            .extend(check);
-                    }
-                    if let Some(delete) = env_options.delete {
-                        self_env
-                            .delete
-                            .get_or_insert_with(Default::default)
-                            .extend(delete);
-                    }
+        let self_env = self.env.get_or_insert_default();
+        match env_options.default_behavior {
+            EnvBehavior::Inherit => {
+                if let Some(set) = env_options.set {
+                    self_env
+                        .set
+                        .get_or_insert_with(Default::default)
+                        .extend(set);
                 }
-                EnvBehavior::Delete | EnvBehavior::Keep => {
-                    self_env.set = env_options.set;
-                    if let Some(keep) = env_options.keep {
-                        self_env.keep.replace(keep);
-                    }
-                    if let Some(check) = env_options.check {
-                        self_env.check.replace(check);
-                    }
-                    if let Some(delete) = env_options.delete {
-                        self_env.delete.replace(delete);
-                    }
-                    self_env.default_behavior = env_options.default_behavior;
+                if let Some(keep) = env_options.keep {
+                    self_env
+                        .keep
+                        .get_or_insert_with(Default::default)
+                        .extend(keep);
+                }
+                if let Some(check) = env_options.check {
+                    self_env
+                        .check
+                        .get_or_insert_with(Default::default)
+                        .extend(check);
+                }
+                if let Some(delete) = env_options.delete {
+                    self_env
+                        .delete
+                        .get_or_insert_with(Default::default)
+                        .extend(delete);
                 }
             }
-        } else {
-            self.env.replace(env_options);
+            EnvBehavior::Delete | EnvBehavior::Keep => {
+                self_env.set = env_options.set;
+                if let Some(keep) = env_options.keep {
+                    self_env.keep.replace(keep);
+                }
+                if let Some(check) = env_options.check {
+                    self_env.check.replace(check);
+                }
+                if let Some(delete) = env_options.delete {
+                    self_env.delete.replace(delete);
+                }
+                self_env.default_behavior = env_options.default_behavior;
+            }
         }
     }
 
     #[cfg(feature = "finder")]
     pub fn union(&mut self, opt: Opt) {
-        assert!(opt.level <= self.level, "{:?} < {:?}", opt.level, self.level); // opt must be more specific than self
+        assert!(opt.level >= self.level, "other : {:?} <= self : {:?}", opt.level, self.level); // opt must be more specific than self
+        self.level = opt.level;
         if let Some(path) = opt.path {
             self.union_path(path);
         }
@@ -642,7 +640,7 @@ impl Default for Opt {
 impl Default for OptStack {
     fn default() -> Self {
         OptStack {
-            stack: [None, Some(Opt::level_default()), None, None, None],
+            stack: [None, Some(rc_refcell!(Opt::level_default())), None, None, None],
             roles: None,
             role: None,
             task: None,
@@ -924,7 +922,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     }
 
     fn with_default(self) -> Self {
-        self.opt(Some(Opt::level_default()))
+        self.opt(Some(rc_refcell!(Opt::level_default())))
     }
 }
 
@@ -1452,7 +1450,7 @@ impl OptStack {
     }
 
     pub fn to_opt(&self) -> Rc<RefCell<Opt>> {
-        Opt::builder(self.get_level())
+        rc_refcell!(Opt::builder(self.get_level())
             .path(self.get_final_path())
             .env(self.get_final_env(None))
             .maybe_root(
@@ -1483,7 +1481,7 @@ impl OptStack {
                 self.find_in_options(|opt| opt.timeout.clone().map(|timeout| (opt.level, timeout)))
                     .map(|(_, timeout)| timeout),
             )
-            .build()
+            .build())
     }
 }
 

@@ -218,6 +218,12 @@ bitflags! {
     }
 }
 
+impl CmdMin {
+    pub fn better(&self, other: &Self) -> bool {
+        !self.is_empty() && !(!other.is_empty() || self.cmp(other) == Ordering::Less)
+    }
+}
+
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
 pub enum CapsMin {
     #[default]

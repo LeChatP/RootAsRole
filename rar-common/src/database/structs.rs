@@ -17,6 +17,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::rc_refcell;
+
 use super::{
     actor::{SActor, SGroups, SUserType},
     is_default,
@@ -546,7 +548,7 @@ impl SConfig {
     #[builder]
     pub fn new(
         #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Global)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Global))))]
         options: Option<Rc<RefCell<Opt>>>,
         _extra_fields: Option<Map<String, Value>>,
     ) -> Rc<RefCell<Self>> {
@@ -644,7 +646,7 @@ impl SRole {
         #[builder(start_fn, into)] name: String,
         #[builder(field)] tasks: Vec<Rc<RefCell<STask>>>,
         #[builder(field)] actors: Vec<SActor>,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Role)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Role))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Rc<RefCell<Self>> {
@@ -679,7 +681,7 @@ impl STask {
         purpose: Option<String>,
         #[builder(default)] cred: SCredentials,
         #[builder(default)] commands: SCommands,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Task)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Task))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
         _role: Option<Weak<RefCell<SRole>>>,
