@@ -64,6 +64,7 @@ pub enum OptType {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum PathBehavior {
     Delete,
     KeepSafe,
@@ -78,6 +79,7 @@ pub enum PathBehavior {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum TimestampType {
     #[default]
     PPID,
@@ -137,6 +139,7 @@ pub struct SPathOptions {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum EnvBehavior {
     Delete,
     Keep,
@@ -213,11 +216,12 @@ pub struct SEnvOptions {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum SBounding {
     Strict,
-    Ignore,
     #[default]
     Inherit,
+    Ignore,
 }
 
 #[derive(
@@ -226,11 +230,12 @@ pub enum SBounding {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum SPrivileged {
-    Privileged,
     #[default]
     User,
     Inherit,
+    Privileged,
 }
 
 #[derive(
@@ -239,11 +244,12 @@ pub enum SPrivileged {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum SAuthentication {
-    Skip,
     #[default]
     Perform,
     Inherit,
+    Skip,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]

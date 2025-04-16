@@ -761,7 +761,7 @@ impl<'a, 'de> Visitor<'de> for SUserChooserVisitor<'a> {
                         add = map.next_value()?;
                     }
                 }
-                "del" => {
+                "del" | "sub" => {
                     if let Some(u) = filter {
                         if map.next_value::<Vec<SUserType>>()?.contains(u) {
                             while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
@@ -824,6 +824,18 @@ impl<'a, 'de> Visitor<'de> for CommandListSettingsVisitor<'a> {
         formatter.write_str("command seq")
     }
 
+    fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        debug!("CommandListSettingsVisitor: bool");
+        if v {
+            *self.cmd_min = CmdMin::FullWildcardPath;
+        } else {
+            *self.cmd_min = CmdMin::empty();
+        }
+        Ok(v)
+    }
+
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
         where
             A: serde::de::SeqAccess<'de>, {
@@ -873,7 +885,7 @@ impl<'a, 'de> Visitor<'de> for CommandListSettingsVisitor<'a> {
                     }
                     debug!("CommandListSettingsVisitor: end add {:?}", self.cmd_min);
                 }
-                "del" => {
+                "del" | "sub" => {
                     let mut temp_cmd_min = CmdMin::empty();
                     let command_visitor = CommandListSettingsVisitor {
                         cli: self.cli,

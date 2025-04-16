@@ -781,17 +781,17 @@ impl TaskMatcher<TaskMatch> for Rc<RefCell<STask>> {
                             "Aucun utilisateur spécifié dans la commande, fallback utilisé : {:?}",
                             t.fallback
                         );
-                        Some(t.fallback.clone()) // Retourne le fallback si aucun utilisateur n'est spécifié
+                        t.fallback // Retourne le fallback si aucun utilisateur n'est spécifié
                     }
                     Some(user) => {
                         debug!("Utilisateur spécifié dans la commande : {}", user);
 
                         // Comparer l'utilisateur spécifié avec le fallback
-                        if user.fetch_eq(&t.fallback) {
+                        if t.fallback.as_ref().is_some_and(|f| user.fetch_eq(f)) {
                             debug!(
                                 "L'utilisateur spécifié dans la commande correspond au fallback !"
                             );
-                            Some(t.fallback.clone()) // Si l'utilisateur correspond au fallback, utiliser le fallback
+                            t.fallback // Si l'utilisateur correspond au fallback, utiliser le fallback
                         } else if t.sub.iter().any(|s| s.fetch_eq(user)) {
                             // Si l'utilisateur est explicitement interdit dans `sub`
                             return Err(MatchError::NoMatch(
@@ -1762,12 +1762,12 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![], // Pas d'ajout explicite
-            sub: vec![], // Pas de restriction explicite
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::None)
+            .add(vec![])
+            .sub(vec![])
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred::builder().user_name("root").group_name("root").build();
@@ -1808,12 +1808,12 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![],
-            sub: vec![],
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::None)
+            .add(vec![])
+            .sub(vec![])
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -1857,12 +1857,12 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
-            sub: vec![],                        // Pas de restriction explicite
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::None)
+            .add(vec![SUserType::from("root")]) // Ajout d'un utilisateur
+            .sub(vec![])
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -1907,12 +1907,12 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(1);
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
-            sub: vec![SUserType::from("root")], // Restriction d'un utilisateur
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::None)
+            .add(vec![SUserType::from("root")]) // Ajout d'un utilisateur
+            .sub(vec![SUserType::from("root")]) // Restriction d'un utilisateur
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -1955,12 +1955,12 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::All,
-            add: vec![],
-            sub: vec![SUserType::from("root")], // Restriction d'un utilisateur
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::All)
+            .add(vec![])
+            .sub(vec![SUserType::from("root")]) // Restriction d'un utilisateur
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -2004,12 +2004,10 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::All,
-            add: vec![],
-            sub: vec![],
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::All)
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -2051,12 +2049,9 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![],
-            sub: vec![],
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -2101,12 +2096,11 @@ mod tests {
 
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::All,
-            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
-            sub: vec![],
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .default(SetBehavior::All)
+            .add(vec![SUserType::from("root")]) // Ajout d'un utilisateur
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -2148,12 +2142,10 @@ mod tests {
         task.as_ref().borrow_mut().commands.default_behavior = Some(SetBehavior::All);
         // Définition du `setuid` avec un `fallback`
         let fallback_user = SUserType::from(get_non_root_uid());
-        let chooser_struct = SSetuidSet {
-            fallback: fallback_user.clone(),
-            default: SetBehavior::None,
-            add: vec![SUserType::from("root")], // Ajout d'un utilisateur
-            sub: vec![],
-        };
+        let chooser_struct = SSetuidSet::builder()
+            .fallback(fallback_user.clone())
+            .add(vec![SUserType::from("root")]) // Ajout d'un utilisateur
+            .build();
         task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::ChooserStruct(chooser_struct));
 
         let cred = Cred {
@@ -2305,8 +2297,7 @@ mod tests {
                             .cred(
                                 SCredentials::builder()
                                     .setuid(SUserChooser::ChooserStruct(
-                                        SSetuidSet::builder(SUserType::from(0), SetBehavior::None)
-                                            .build(),
+                                        SSetuidSet::default(),
                                     ))
                                     .build(),
                             )

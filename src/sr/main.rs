@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.info {
-        println!("Role: {}", execcfg.role);
+        println!("Role: {}", if execcfg.role.is_empty() { "None" } else { &execcfg.role });
         println!("Task: {}", execcfg.task);
         println!(
             "With capabilities: {}",

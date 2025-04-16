@@ -3,7 +3,7 @@ use capctl::{Cap, CapSet};
 use derivative::Derivative;
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
-    ser::SerializeMap,
+    ser::{SerializeMap, SerializeSeq},
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
@@ -53,6 +53,7 @@ where
 #[serde(rename_all = "kebab-case")]
 #[derivative(PartialEq, Eq)]
 pub struct SRole {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actors: Vec<SActor>,
@@ -96,6 +97,13 @@ impl std::fmt::Display for IdTask {
     }
 }
 
+fn cmds_is_default(cmds: &SCommands) -> bool {
+    cmds.default_behavior.as_ref().is_none_or(|b| *b == Default::default())
+        && cmds.add.is_empty()
+        && cmds.sub.is_empty()
+        && cmds._extra_fields.is_empty()
+}
+
 #[derive(Serialize, Deserialize, Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
 pub struct STask {
@@ -105,7 +113,7 @@ pub struct STask {
     pub purpose: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub cred: SCredentials,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default, skip_serializing_if = "cmds_is_default")]
     pub commands: SCommands,
     #[serde(
         default,
@@ -182,10 +190,11 @@ impl From<u32> for SUserChooser {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 
 pub struct SSetuidSet {
-    #[builder(start_fn, into)]
-    pub fallback: SUserType,
+    #[builder(into)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<SUserType>,
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
-    #[builder(start_fn)]
+    #[builder(default)]
     pub default: SetBehavior,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
@@ -198,10 +207,11 @@ pub struct SSetuidSet {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum SetBehavior {
-    All,
     #[default]
     None,
+    All,
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
@@ -398,7 +408,7 @@ pub enum SCommand {
     Complex(Value),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct SCommands {
     #[serde(rename = "default")]
     pub default_behavior: Option<SetBehavior>,
@@ -487,7 +497,7 @@ impl Default for SCapabilities {
 
 impl Default for SSetuidSet {
     fn default() -> Self {
-        SSetuidSet::builder(0, SetBehavior::None).build()
+        SSetuidSet::builder().build()
     }
 }
 
@@ -717,6 +727,40 @@ impl Index<usize> for SRole {
     }
 }
 
+impl Serialize for SCommands {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        if self.sub.is_empty() && self._extra_fields.is_empty() {
+            if self.add.is_empty() {
+                return serializer.serialize_bool(self.default_behavior.as_ref().is_some_and(|b| *b == SetBehavior::All));
+            } else if !self.add.is_empty() && self.default_behavior.as_ref().is_none_or(|b| *b == SetBehavior::None) {
+                let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
+                for cmd in &self.add {
+                    seq.serialize_element(cmd)?;
+                }
+                return seq.end()
+            }
+        }
+        let mut map = serializer.serialize_map(Some(3))?;
+        if self.default_behavior.is_none() {
+            map.serialize_entry("default", &self.default_behavior)?;
+        }
+        if !self.add.is_empty() {
+            map.serialize_entry("add", &self.add)?;
+        }
+        if !self.sub.is_empty() {
+            map.serialize_entry("del", &self.sub)?;
+        }
+        for (key, value) in &self._extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+        
+    }
+}
+
+
 #[bon]
 impl SCommands {
     #[builder]
@@ -747,14 +791,15 @@ impl SCapabilities {
     }
 }
 
+/* Confusing
 impl PartialEq<str> for SUserChooser {
     fn eq(&self, other: &str) -> bool {
         match self {
             SUserChooser::Actor(actor) => actor == &SUserType::from(other),
-            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
+            SUserChooser::ChooserStruct(chooser) => chooser.fallback.as_ref().is_some_and(|f| *f == *other),
         }
     }
-}
+}*/
 
 #[cfg(test)]
 mod tests {
@@ -902,12 +947,12 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
         let cred = &as_borrow!(&role[0]).cred;
-        let setuidstruct = SSetuidSet {
-            fallback: "user1".into(),
-            default: SetBehavior::All,
-            add: ["user2".into()].into(),
-            sub: ["user3".into()].into(),
-        };
+        let setuidstruct = SSetuidSet::builder()
+            .fallback("user1")
+            .default(SetBehavior::All)
+            .add(["user2".into()])
+            .sub(["user3".into()])
+            .build();
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
         );
@@ -1202,7 +1247,9 @@ mod tests {
                             .cred(
                                 SCredentials::builder()
                                     .setuid(SUserChooser::ChooserStruct(
-                                        SSetuidSet::builder("user1", SetBehavior::All)
+                                        SSetuidSet::builder()
+                                            .fallback("user1")
+                                            .default(SetBehavior::All)
                                             .add(["user2".into()])
                                             .sub(["user3".into()])
                                             .build(),
