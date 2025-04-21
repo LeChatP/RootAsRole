@@ -8,15 +8,15 @@ use std::{
 
 use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
-use glob::Pattern;
+
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use serde::Serialize;
 use strum::EnumIs;
 
-//#[cfg(feature = "finder")]
-//use crate::api::PluginManager;
-use crate::database::{score::CmdMin, structs::SCommand};
+#[cfg(feature = "finder")]
+use crate::database::score::CmdMin;
+use crate::database::structs::SCommand;
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -228,7 +228,10 @@ pub fn all_paths_from_env< P: AsRef<Path>>(env_path: &[PathBuf], exe_name: P) ->
         }).collect()
 }
 
+#[cfg(feature = "finder")]
 pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
+    use glob::Pattern;
+
     if role_path == "**" {
         return CmdMin::FullWildcardPath;
     }
