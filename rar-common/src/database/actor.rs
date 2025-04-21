@@ -294,6 +294,24 @@ impl<const N: usize> From<[SGroupType; N]> for SGroups {
     }
 }
 
+impl TryInto<Vec<u32>> for SGroups {
+    type Error = String;
+    
+    fn try_into(self) -> Result<Vec<u32>, Self::Error> {
+        match self {
+            SGroups::Single(group) => Ok(vec![group.fetch_id().ok_or(format!("{} group does not exist",group))?]),
+            SGroups::Multiple(groups) => {
+                let mut ids = Vec::new();
+                for group in groups {
+                    ids.push(group.fetch_id().ok_or(format!("{} group does not exist",group))?);
+                }
+                Ok(ids)
+            }
+        }
+    }
+
+}
+
 impl FromIterator<String> for SGroups {
     fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
         let mut iter = iter.into_iter();

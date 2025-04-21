@@ -2,20 +2,19 @@ pub mod pam;
 mod timeout;
 mod finder;
 
+use bon::Builder;
 use capctl::CapState;
 use const_format::formatcp;
 use finder::BestExecSettings;
 use nix::{
-    libc::dev_t,
     sys::stat,
-    unistd::{getgroups, getuid, isatty, Group, User},
+    unistd::isatty,
 };
 use rar_common::{database::{
     actor::{SGroupType, SGroups, SUserType},
-    finder::Cred,
     options::EnvBehavior,
     FilterMatcher,
-}, util::final_path};
+}, Cred};
 use rar_common::util::escape_parser_string;
 
 use log::{debug, error};
@@ -78,41 +77,39 @@ const USAGE: &str = formatcp!(
     RST = RST
 );
 
-#[derive(Debug)]
+#[derive(Debug, Builder)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
     opt_filter: Option<FilterMatcher>,
 
+    #[builder(into)]
     /// Prompt option allows you to override the default password prompt and use a custom one.
-    prompt: String,
+    prompt: Option<String>,
 
+    #[builder(default, with = || true)]
     /// Display rights of executor
     info: bool,
 
+    #[builder(default, with = || true)]
     /// Display help
     help: bool,
 
-    /// Command to execute
+    #[builder(default, into)]
+    /// A set of possible paths to the command
     cmd_path: PathBuf,
 
+    #[builder(default, with = |i : impl IntoIterator<Item = impl Into<String>> | i.into_iter().map(|s| s.into()).collect())]
     /// Command arguments
     cmd_args: Vec<String>,
 
+    #[builder(default, with = || true)]
     /// Use stdin for password prompt
     stdin: bool,
 }
 
 impl Default for Cli {
     fn default() -> Self {
-        Cli {
-            opt_filter: None,
-            prompt: PAM_PROMPT.to_string(),
-            info: false,
-            help: false,
-            stdin: false,
-            cmd_path: PathBuf::new(),
-            cmd_args: Vec::new(),
-        }
+        Cli::builder().prompt(PAM_PROMPT).build()
     }
 }
 
@@ -170,10 +167,10 @@ where
                 env.replace(EnvBehavior::Keep);
             }
             "-p" | "--prompt" => {
-                args.prompt = iter
+                args.prompt = Some(iter
                     .next()
                     .map(|s| escape_parser_string(s))
-                    .unwrap_or_default();
+                    .expect("Missing prompt for -p option"));
             }
             "-i" | "--info" => {
                 args.info = true;
@@ -185,7 +182,7 @@ where
                 if arg.as_ref().starts_with('-') {
                     return Err(format!("Unknown option: {}", arg.as_ref()).into());
                 } else {
-                    args.cmd_path = final_path(arg.as_ref());
+                    args.cmd_path = arg.as_ref().into();
                     break;
                 }
             }
@@ -197,8 +194,8 @@ where
             .maybe_role(role)
             .maybe_task(task)
             .maybe_env_behavior(env)
-            .maybe_user(user)
-            .maybe_group(group)
+            .maybe_user(user)?
+            .maybe_group(group)?
             .build(),
     );
     for arg in iter {
@@ -228,7 +225,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let user = make_cred();
     let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string())?;
 
-    check_auth(&execcfg.opt, &user, &args.prompt)?;
+    check_auth(&execcfg.opt, &user, &args.prompt.unwrap_or(PAM_PROMPT.to_string()))?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -241,8 +238,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.info {
-        println!("Role: {}", if execcfg.role.is_empty() { "None" } else { &execcfg.role });
-        println!("Task: {}", execcfg.task);
+        //println!("Role: {}", if execcfg.role.is_empty() { "None" } else { &execcfg.role });
+        //println!("Task: {}", execcfg.task);
         println!(
             "With capabilities: {}",
             execcfg
@@ -275,10 +272,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     debug!(
         "Command: {:?} {:?}",
-        args.cmd_path,
+        execcfg.final_path,
         args.cmd_args.join(" ")
     );
-    let command = Command::new(&args.cmd_path)
+    let command = Command::new(&execcfg.final_path)
         .args(args.cmd_args.iter())
         .env_clear()
         .envs(envset)
@@ -290,7 +287,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", args.cmd_path.display(), e);
+            eprintln!("sr: {} : {}", execcfg.final_path.display(), e);
             std::process::exit(1);
         }
     };
@@ -299,42 +296,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn make_cred() -> Cred {
-    let user = User::from_uid(getuid())
-        .expect("Failed to get user")
-        .expect("Failed to get user");
-    let mut groups = getgroups()
-        .expect("Failed to get groups")
-        .iter()
-        .map(|g| {
-            Group::from_gid(*g)
-                .expect("Failed to get group")
-                .expect("Failed to get group")
-        })
-        .collect::<Vec<_>>();
-    groups.insert(
-        0,
-        Group::from_gid(user.gid)
-            .expect("Failed to get group")
-            .expect("Failed to get group"),
-    );
-    debug!("User: {} ({}), Groups: {:?}", user.name, user.uid, groups,);
-    let mut tty: Option<dev_t> = None;
-    if let Ok(stat) = stat::fstat(stdout().as_raw_fd()) {
-        if let Ok(istty) = isatty(stdout().as_raw_fd()) {
-            if istty {
-                tty = Some(stat.st_rdev);
+    return Cred::builder()
+        .maybe_tty(stat::fstat(stdout().as_raw_fd()).ok().and_then(|s| {
+            if isatty(stdout().as_raw_fd()).ok().unwrap_or(false) {
+                Some(s.st_rdev)
+            } else {
+                None
             }
-        }
-    }
-    // get parent pid
-    let ppid = nix::unistd::getppid();
-
-    Cred {
-        user,
-        groups,
-        tty,
-        ppid,
-    }
+        })).build();
 }
 
 fn set_capabilities(execcfg: &BestExecSettings) {
@@ -427,7 +396,7 @@ fn setuid_setgid(execcfg: &BestExecSettings) {
 #[cfg(test)]
 mod tests {
     use libc::getgid;
-    use nix::unistd::Pid;
+    use nix::unistd::{getuid, Pid};
     
     
 
@@ -511,7 +480,7 @@ mod tests {
         let opt_filter = args.opt_filter.as_ref().unwrap();
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
-        assert_eq!(args.prompt, "prompt");
+        assert_eq!(args.prompt.unwrap(), "prompt");
         assert!(args.info);
         assert!(args.help);
         assert_eq!(args.cmd_path, PathBuf::from("/usr/bin/ls"));

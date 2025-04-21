@@ -9,10 +9,12 @@ use serde::{de, Deserialize, Serialize};
 
 use self::options::EnvKey;
 
+#[cfg(feature = "finder")]
+pub mod score;
 
 pub mod actor;
-#[cfg(feature = "finder")]
-pub mod finder;
+//#[cfg(feature = "finder")]
+//pub mod finder;
 pub mod migration;
 pub mod options;
 pub mod structs;
@@ -24,10 +26,12 @@ pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
     pub env_behavior: Option<EnvBehavior>,
-    #[builder(into)]
-    pub user: Option<SUserType>,
-    pub group: Option<SGroups>,
+    #[builder(with = |s: SUserType| -> Result<_,String> { s.fetch_id().ok_or("This user does not exist".into()) })]
+    pub user: Option<u32>,
+    #[builder(with = |s: SGroups| -> Result<_,String> { s.try_into() })]
+    pub group: Option<Vec<u32>>,
 }
+
 
 // deserialize the linked hash set
 fn lhs_deserialize_envkey<'de, D>(
@@ -115,8 +119,7 @@ where
     }
 }
 
-fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>>
-{
+fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())

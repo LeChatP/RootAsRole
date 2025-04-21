@@ -1,5 +1,4 @@
 use std::{
-    env,
     error::Error,
     fs::File,
     io,
@@ -9,14 +8,15 @@ use std::{
 
 use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
+use glob::Pattern;
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use serde::Serialize;
 use strum::EnumIs;
 
-#[cfg(feature = "finder")]
-use crate::api::PluginManager;
-use crate::database::structs::SCommand;
+//#[cfg(feature = "finder")]
+//use crate::api::PluginManager;
+use crate::database::{score::CmdMin, structs::SCommand};
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -208,53 +208,82 @@ fn parse_complex_command(command: &serde_json::Value) -> Result<Vec<String>, Box
             })
             .collect();
         result
-    } else {
-        parse_complex_command_with_finder(command)
+    }
+    else {
+        Err("Invalid command".into())
     }
 }
 
-#[cfg(feature = "finder")]
-fn parse_complex_command_with_finder(
-    command: &serde_json::Value,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    let res = PluginManager::notify_complex_command_parser(command);
-    debug!("Parsed command {:?}", res);
-    res
+pub fn all_paths_from_env< P: AsRef<Path>>(env_path: &[PathBuf], exe_name: P) -> Vec<PathBuf> {
+    env_path
+        .iter()
+        .filter_map(|dir| {
+            let full_path = dir.join(&exe_name);
+            debug!("Checking path: {:?}", full_path);
+            if full_path.is_file() {
+                Some(full_path)
+            } else {
+                None
+            }
+        }).collect()
 }
 
-#[cfg(not(feature = "finder"))]
-fn parse_complex_command_with_finder(
-    _command: &serde_json::Value,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    Err("Invalid command".into())
+pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
+    if role_path == "**" {
+        return CmdMin::FullWildcardPath;
+    }
+    let mut match_status = CmdMin::empty();
+    let resolved_role_path = PathBuf::from(role_path);
+    if !role_path.ends_with(cmd_path.to_str().unwrap()) || !resolved_role_path.is_absolute() {
+        // the files could not be the same
+        return CmdMin::empty();
+    }
+    debug!("Matching path {:?} with {:?}", cmd_path, resolved_role_path);
+    if *cmd_path == resolved_role_path {
+        match_status |= CmdMin::Match;
+    } else if let Ok(pattern) = Pattern::new(role_path) {
+        if pattern.matches_path(&cmd_path) {
+            match_status |= CmdMin::WildcardPath;
+        }
+    }
+    if match_status.is_empty() {
+        debug!(
+            "No match for path ``{:?}`` for evaluated path : ``{:?}``",
+            cmd_path, resolved_role_path
+        );
+    }
+    match_status
 }
 
-pub fn find_from_envpath<P: AsRef<Path>>(exe_name: P) -> Option<PathBuf> {
-    env::var_os("PATH").and_then(|paths| {
-        env::split_paths(&paths)
-            .filter_map(|dir| {
-                let full_path = dir.join(&exe_name);
-                if full_path.is_file() {
-                    Some(full_path)
-                } else {
-                    None
-                }
-            })
-            .next()
-    })
+/*
+pub fn all_paths_from_env<P: AsRef<Path>>(exe_name: P) -> impl Iterator<Item = PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| {
+            env::split_paths(&path).collect::<Vec<_>>()
+        })
+        .filter_map(move |dir| {
+            let full_path = dir.join(&exe_name);
+            debug!("Checking path: {:?}", full_path);
+            if full_path.is_file() {
+                Some(full_path)
+            } else {
+                None
+            }
+        })
 }
 
-pub fn final_path<P>(path: P) -> PathBuf
+pub fn first_path<P>(path: P) -> PathBuf
 where
-    P: AsRef<Path>,{
-    if let Some(env_path) = find_from_envpath(&path) {
-        env_path
-    } else if let Ok(canon_path) = std::fs::canonicalize(&path) {
+    P: AsRef<Path>, {
+    if let Some(path) = all_paths_from_env(&path).next() {
+        path
+    }else if let Ok(canon_path) = std::fs::canonicalize(&path) {
         canon_path
     } else {
         path.as_ref().to_path_buf()
     }
-}
+}*/
 
 #[cfg(debug_assertions)]
 pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {

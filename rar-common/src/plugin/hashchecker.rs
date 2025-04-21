@@ -4,7 +4,7 @@ use crate::{
     api::PluginManager,
     database::structs::SCommand,
     open_with_privileges,
-    util::{final_path, parse_conf_command},
+    util::{first_path, parse_conf_command},
 };
 use log::{debug, warn};
 use nix::unistd::{access, AccessFlags};
@@ -88,33 +88,41 @@ fn complex_command_parse(
 
 fn process_hash_check(checker: HashChecker) -> Result<Vec<String>, Box<dyn Error>> {
     let cmd = parse_conf_command(&checker.command)?;
-    let path = final_path(&cmd[0]);
-    if access(&path, AccessFlags::W_OK).is_ok() {
+    let path = first_path(&cmd[0]).find(
+        |path| access(path, AccessFlags::W_OK).is_ok()
+    );
+    if path.is_some() {
         if checker.read_only.is_some_and(|read_only| read_only) {
             return Err("Executor must not have write access to the executable".into());
         }
         warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
     }
-    let mut open = open_with_privileges(&path)?;
-    if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
-        return Err("Executable file must be immutable".into());
-    }
-    let mut buf = Vec::new();
-    open.read_to_end(&mut buf)?;
-    let hash = compute(&checker.hash_type, &buf);
-    let config_hash = hex::decode(checker.hash.as_bytes())?;
-    debug!(
-        "Hash: {:?}, Config Hash: {:?}",
-        hex::encode(&hash),
-        hex::encode(&config_hash)
-    );
-    if hash == config_hash {
-        debug!("Hashes match");
-        parse_conf_command(&checker.command)
+    if let Some(path) = path {
+        let mut open = open_with_privileges(&path)?;
+        if !is_immutable(&open)? && checker.immutable.is_some_and(|immutable| immutable) {
+            return Err("Executable file must be immutable".into());
+        }
+        let mut buf = Vec::new();
+        open.read_to_end(&mut buf)?;
+        let hash = compute(&checker.hash_type, &buf);
+        let config_hash = hex::decode(checker.hash.as_bytes())?;
+        debug!(
+            "Hash: {:?}, Config Hash: {:?}",
+            hex::encode(&hash),
+            hex::encode(&config_hash)
+        );
+        if hash == config_hash {
+            debug!("Hashes match");
+            parse_conf_command(&checker.command)
+        } else {
+            debug!("Hashes do not match");
+            Err("Hashes do not match".into())
+        }
     } else {
-        debug!("Hashes do not match");
-        Err("Hashes do not match".into())
+        debug!("Path not found");
+        Err("Path not found".into())
     }
+    
 }
 
 pub fn register() {
@@ -132,7 +140,7 @@ mod tests {
     use super::*;
 
     use crate::database::actor::SActor;
-    use crate::database::finder::{Cred, TaskMatcher};
+    //use crate::database::finder::{Cred, TaskMatcher};
     use crate::{
         database::structs::{IdTask, SCommand, SCommands, SConfig, SRole, STask},
         rc_refcell,

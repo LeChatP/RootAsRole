@@ -52,13 +52,15 @@ const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 use std::{cell::RefCell, error::Error, io::BufReader, path::{Path, PathBuf}, rc::Rc};
 
 use bon::Builder;
+use libc::dev_t;
 use log::{debug, warn};
+use nix::unistd::{getgroups, Gid, Group, Pid, Uid, User};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-pub mod api;
+//pub mod api;
 pub mod database;
-pub mod plugin;
+//pub mod plugin;
 pub mod util;
 
 use strum::EnumString;
@@ -69,6 +71,18 @@ use util::{
 use database::{
     migration::Migration, structs::SConfig, versionning::{Versioning, SETTINGS_MIGRATIONS}
 };
+
+#[derive(Debug, Builder)]
+pub struct Cred {
+    #[builder(field = getgroups().unwrap().iter().map(|gid| Group::from_gid(*gid).unwrap().unwrap())
+    .collect())]
+    pub groups: Vec<Group>,
+    #[builder(field = User::from_uid(Uid::current()).unwrap().unwrap())]
+    pub user: User,
+    pub tty: Option<dev_t>,
+    #[builder(default = nix::unistd::getppid(), into)]
+    pub ppid: Pid,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy, EnumString)]
 #[serde(rename_all = "lowercase")]
@@ -187,6 +201,35 @@ impl Default for Settings {
             settings: None,
             ldap: None,
         }
+    }
+}
+
+
+impl<S: cred_builder::State> CredBuilder<S> {
+    pub fn user_id(mut self, uid: impl Into<Uid>) -> Self {
+        self.user = User::from_uid(uid.into()).unwrap().unwrap();
+        self
+    }
+    pub fn user_name(mut self, name: impl Into<String>) -> Self {
+        self.user = User::from_name(&name.into()).unwrap().unwrap();
+        self
+    }
+    pub fn group_id(mut self, gid: impl Into<Gid>) -> Self {
+        self.groups
+            .push(Group::from_gid(gid.into()).unwrap().unwrap());
+        self
+    }
+    pub fn group_name(mut self, name: impl Into<String>) -> Self {
+        self.groups
+            .push(Group::from_name(&name.into()).unwrap().unwrap());
+        self
+    }
+    pub fn groups(mut self, groups: Vec<Gid>) -> Self {
+        self.groups = groups
+            .iter()
+            .map(|gid| Group::from_gid(*gid).unwrap().unwrap())
+            .collect();
+        self
     }
 }
 

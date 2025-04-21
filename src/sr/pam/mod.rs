@@ -9,8 +9,8 @@ use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
 
 use crate::timeout;
-use rar_common::
-    database::{finder::Cred, options::Opt}
+use rar_common::{
+    database::options::Opt, Cred}
 ;
 
 use self::rpassword::Terminal;

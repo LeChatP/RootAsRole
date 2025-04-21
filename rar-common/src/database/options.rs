@@ -21,12 +21,12 @@ use log::debug;
 #[cfg(feature = "finder")]
 use log::warn;
 
-use crate::rc_refcell;
+use crate::{rc_refcell, Cred};
 
-#[cfg(feature = "finder")]
-use super::finder::Cred;
-#[cfg(feature = "finder")]
-use super::finder::SecurityMin;
+//#[cfg(feature = "finder")]
+//use super::finder::Cred;
+//#[cfg(feature = "finder")]
+//use super::finder::SecurityMin;
 use super::{
     convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher,
 };
@@ -475,7 +475,8 @@ impl Opt {
     }
 
     #[cfg(feature = "finder")]
-    pub fn calc_security_min(&self) -> SecurityMin {
+    pub fn calc_security_min(&self) -> super::score::SecurityMin {
+        use super::score::SecurityMin;
         let mut security_min = SecurityMin::default();
         if self.bounding.is_some_and(|b| b == SBounding::Ignore) {
             security_min |= SecurityMin::DisableBounding;
@@ -512,39 +513,21 @@ impl Opt {
     }
 
     #[cfg(feature = "finder")]
-    pub fn calc_path(&self, path_var: &str) -> String {
+    pub fn calc_path(&self, path_var: &str) -> Vec<PathBuf> {
+
         let binding = SPathOptions::default();
         let path = self.path.as_ref().unwrap_or(&binding);
         let default = LinkedHashSet::new();
-        if let Some(add) = &path.add {
-            let final_add = add.difference(path.sub.as_ref().unwrap_or(&default)).fold(
-                "".to_string(),
-                |mut acc, s| {
-                    if !acc.is_empty() {
-                        acc.insert(0, ':');
-                    }
-                    acc.insert_str(0, s);
-                    acc
-                },
-            );
-            match path.default_behavior {
-                PathBehavior::Inherit | PathBehavior::Delete => final_add,
-                is_safe => path_var
-                    .split(':')
-                    .filter(|s| {
-                        !path.sub.as_ref().unwrap_or(&default).contains(*s)
-                            && (!is_safe.is_keep_safe() || PathBuf::from(s).exists())
-                    })
-                    .fold(final_add, |mut acc, s| {
-                        if !acc.is_empty() {
-                            acc.push(':');
-                        }
-                        acc.push_str(s);
-                        acc
-                    }),
-            }
-        } else {
-            "".to_string()
+        match path.default_behavior {
+            PathBehavior::Inherit | PathBehavior::Delete => path.add.as_ref().and_then(|add| Some(add.difference(path.sub.as_ref().unwrap_or(&default)).map(|p| PathBuf::from(p)).collect::<Vec<_>>())).unwrap_or_default(),
+            is_safe => path.add.iter().flatten().map(|s| PathBuf::from(s)).chain(path_var
+                .split(':')
+                .map(|s| PathBuf::from(s))
+                .collect::<Vec<_>>()).filter(|s| {
+                    !path.sub.as_ref().is_some_and(|set| {
+                        set.iter().any(|p| *s == PathBuf::from(p))
+                    }) && (!is_safe.is_keep_safe() || s.is_relative())
+                }).collect(),
         }
     }
 
@@ -609,7 +592,16 @@ impl Opt {
         }?;
         let binding = Default::default();
         let path_var = final_env.get("PATH").unwrap_or(&binding);
-        final_env.insert("PATH".into(), self.calc_path(path_var));
+        final_env.insert("PATH".into(), self.calc_path(path_var).iter().fold(
+            String::new(),
+            |acc, path| {
+                if acc.is_empty() {
+                    path.to_string_lossy().to_string()
+                } else {
+                    format!("{}:{}", acc, path.to_string_lossy())
+                }
+            },
+        ));
         final_env.insert("LOGNAME".into(), target.user.name.clone());
         final_env.insert("USER".into(), target.user.name);
         final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());

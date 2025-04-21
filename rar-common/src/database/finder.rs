@@ -1,10 +1,5 @@
 use std::{
-    cell::RefCell,
-    cmp::Ordering,
-    error::Error,
-    fmt::{Display, Formatter},
-    path::PathBuf,
-    rc::{Rc, Weak},
+    cell::RefCell, cmp::Ordering, collections::HashSet, error::Error, fmt::{Display, Formatter}, path::PathBuf, rc::{Rc, Weak}
 };
 
 use bon::Builder;
@@ -13,7 +8,7 @@ use glob::Pattern;
 use log::{debug, warn};
 use nix::{
     libc::dev_t,
-    unistd::{Gid, Group, Pid, Uid, User},
+    unistd::{getgroups, Gid, Group, Pid, Uid, User},
 };
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::RegexBuilder;
@@ -27,7 +22,7 @@ use crate::database::{
         SCommand, SCommands, SConfig, SGroupschooser, SRole, STask, SUserChooser, SetBehavior,
     },
 };
-use crate::util::{capabilities_are_exploitable, final_path, parse_conf_command};
+use crate::util::{capabilities_are_exploitable, first_path, parse_conf_command};
 use crate::{
     api::{PluginManager, PluginResultAction},
     as_borrow,
@@ -331,7 +326,8 @@ impl Ord for Score {
 
 #[derive(Debug, Builder)]
 pub struct Cred {
-    #[builder(field)]
+    #[builder(field = getgroups().unwrap().iter().map(|gid| Group::from_gid(*gid).unwrap().unwrap())
+    .collect())]
     pub groups: Vec<Group>,
     #[builder(field = User::from_uid(Uid::current()).unwrap().unwrap())]
     pub user: User,
@@ -436,16 +432,17 @@ fn match_path(input_path: &str, role_path: &String) -> CmdMin {
         return CmdMin::FullWildcardPath;
     }
     let mut match_status = CmdMin::empty();
-    let new_path = final_path(input_path);
-    let role_path = final_path(role_path);
+    let new_path: HashSet<PathBuf> = first_path(input_path).collect();
+    let role_path: HashSet<PathBuf> = first_path(role_path).collect();
     debug!("Matching path {:?} with {:?}", new_path, role_path);
-    if new_path == role_path {
+    if new_path.intersection(&role_path).count() > 0 {
         match_status |= CmdMin::Match;
-    } else if let Ok(pattern) = Pattern::new(role_path.to_str().unwrap()) {
+    }
+    /*else if let Ok(pattern) = Pattern::new(role_path.to_str().unwrap()) {
         if pattern.matches_path(&new_path) {
             match_status |= CmdMin::WildcardPath;
         }
-    }
+    }*/
     if match_status.is_empty() {
         debug!(
             "No match for path ``{:?}`` for evaluated path : ``{:?}``",

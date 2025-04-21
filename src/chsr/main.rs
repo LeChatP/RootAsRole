@@ -2,7 +2,6 @@
 
 use log::error;
 use rar_common::{
-    plugin::register_plugins,
     util::{drop_effective, read_effective, subsribe},
     Storage,
 };
@@ -21,7 +20,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     subsribe("chsr")?;
     drop_effective()?;
-    register_plugins();
     let settings = get_full_settings(&ROOTASROLE.to_string()).expect("Error on config read");
     let config = match settings.clone().as_ref().borrow().storage.method {
         StorageMethod::JSON | StorageMethod::CBOR => Storage::SConfig(settings.as_ref().borrow().config.clone().unwrap()),

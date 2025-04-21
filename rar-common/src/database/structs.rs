@@ -266,9 +266,7 @@ pub struct SCapabilities {
     #[builder(field)]
     pub add: CapSet,
     #[builder(field)]
-    pub sub: CapSet,
-    #[builder(default, with = <_>::from_iter)]
-    pub _extra_fields: Map<String, Value>,
+    pub sub: CapSet
 }
 
 impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
@@ -295,7 +293,7 @@ impl Serialize for SCapabilities {
     where
         S: serde::Serializer,
     {
-        if self.default_behavior.is_none() && self.sub.is_empty() && self._extra_fields.is_empty() {
+        if self.default_behavior.is_none() && self.sub.is_empty() {
             super::serialize_capset(&self.add, serializer)
         } else {
             let mut map = serializer.serialize_map(Some(3))?;
@@ -309,9 +307,6 @@ impl Serialize for SCapabilities {
             if !self.sub.is_empty() {
                 let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
                 map.serialize_entry("del", &v)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
             }
             map.end()
         }
@@ -344,7 +339,6 @@ impl<'de> Deserialize<'de> for SCapabilities {
                     default_behavior: SetBehavior::None,
                     add,
                     sub: CapSet::default(),
-                    _extra_fields: Map::new(),
                 })
             }
 
@@ -392,7 +386,6 @@ impl<'de> Deserialize<'de> for SCapabilities {
                     default_behavior,
                     add,
                     sub,
-                    _extra_fields,
                 })
             }
         }
@@ -490,7 +483,6 @@ impl Default for SCapabilities {
             default_behavior: SetBehavior::default(),
             add: CapSet::empty(),
             sub: CapSet::empty(),
-            _extra_fields: Map::default(),
         }
     }
 }
@@ -1024,8 +1016,7 @@ mod tests {
                                 "capabilities": {
                                     "default": "all",
                                     "add": ["cap_dac_override"],
-                                    "sub": ["cap_dac_override"],
-                                    "unknown": "unknown"
+                                    "sub": ["cap_dac_override"]
                                 },
                                 "unknown": "unknown"
                             },
@@ -1089,11 +1080,6 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         let cred = &role[0].as_ref().borrow().cred;
         assert_eq!(cred._extra_fields.get("unknown").unwrap(), "unknown");
-        let capabilities = cred.capabilities.as_ref().unwrap();
-        assert_eq!(
-            capabilities._extra_fields.get("unknown").unwrap(),
-            "unknown"
-        );
         let commands = &as_borrow!(role[0]).commands;
         assert_eq!(commands._extra_fields.get("unknown").unwrap(), "unknown");
     }

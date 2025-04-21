@@ -16,10 +16,8 @@ use nix::{
 use serde::{Deserialize, Serialize};
 
 use rar_common::{
-    database::{
-        finder::Cred,
-        options::{STimeout, TimestampType},
-    },
+    database::options::{STimeout, TimestampType},
+    Cred,
     util::{
         create_dir_all_with_privileges, create_with_privileges, open_with_privileges,
         remove_with_privileges,
