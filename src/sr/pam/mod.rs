@@ -10,7 +10,7 @@ use pcre2::bytes::RegexBuilder;
 
 use crate::timeout;
 use rar_common::{
-    database::options::Opt, Cred}
+    database::options::{SAuthentication, STimeout}, Cred}
 ;
 
 use self::rpassword::Terminal;
@@ -119,16 +119,15 @@ impl ConversationHandler for SrConversationHandler {
 }
 
 pub(super) fn check_auth(
-    opt: &Opt,
+    authentication: &SAuthentication,
+    timeout: &STimeout,
     user: &Cred,
     prompt: &str,
 ) -> Result<(), Box<dyn Error>> {
-    if opt.authentication.as_ref().is_some_and(|auth| auth.is_skip()) {
+    if authentication.is_skip() {
         warn!("Skipping authentication, this is a security risk!");
         return Ok(());
     }
-    let binding = Default::default();
-    let timeout = opt.timeout.as_ref().unwrap_or(&binding);
     let is_valid = timeout::is_valid(user, user, &timeout);
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {

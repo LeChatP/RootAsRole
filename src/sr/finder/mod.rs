@@ -2,9 +2,7 @@
 /// It is much more efficient to do it this way, way less memory allocation and manipulation
 /// Only the settings that are needed are kept in memory
 use std::{
-    env,
-    io::BufReader,
-    path::{Path, PathBuf},
+    collections::HashMap, io::BufReader, path::{Path, PathBuf}
 };
 
 use api::{register_plugins, Api, ApiEvent};
@@ -14,8 +12,7 @@ use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
     database::{
-        actor::{SGroups, SUserType},
-        score::{CmdMin, Score},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout}, score::{CmdMin, Score}
     },
     util::open_with_privileges,
     Cred, StorageMethod,
@@ -32,19 +29,26 @@ mod options;
 #[derive(Debug, Default, Clone)]
 pub struct BestExecSettings {
     pub score: Score,
-    pub opt: rar_common::database::options::Opt,
     pub final_path: PathBuf,
-    pub setuid: Option<SUserType>,
-    pub setgroups: Option<SGroups>,
+    pub setuid: Option<u32>,
+    pub setgroups: Option<Vec<u32>>,
     pub caps: Option<CapSet>,
     pub task: Option<String>,
     pub role: String,
+    pub env : HashMap<String, String>,
+    pub env_path: Vec<PathBuf>,
+    pub bounding: SBounding,
+    pub timeout: STimeout,
+    pub auth: SAuthentication,
+    pub root: SPrivileged,
 }
 
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
     path: &'a P,
+    env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    env_path: &[PathBuf],
 ) -> Result<BestExecSettings, Box<dyn std::error::Error>>
 where
     P: AsRef<Path>,
@@ -65,8 +69,11 @@ where
             let mut io_reader = cbor4ii::core::utils::IoReader::new(reader); // Use IoReader for streaming
             Ok(BestExecSettings::retrieve_settings(
                 cli,
-                config_finder_deserializer
+                cred,
+                &config_finder_deserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))?,
+                env_vars,
+                env_path
             )?)
         }
         StorageMethod::JSON => {
@@ -81,8 +88,11 @@ where
             let io_reader = serde_json::de::IoRead::new(reader);
             Ok(BestExecSettings::retrieve_settings(
                 cli,
-                config_finder_deserializer
+                cred,
+                &config_finder_deserializer
                     .deserialize(&mut serde_json::Deserializer::new(io_reader))?,
+                env_vars,
+                env_path
             )?)
         }
         _ => Err("Storage method not supported".into()),
@@ -92,93 +102,104 @@ where
 impl BestExecSettings {
     fn retrieve_settings<'a>(
         cli: &'a Cli,
-        data: DConfigFinder<'a>,
+        cred: &'a Cred,
+        data: &'a DConfigFinder<'a>,
+        env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+        env_path: &[PathBuf],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut result = Self::default();
         let mut matching = false;
+        let mut opt_stack = BorrowedOptStack::new(data.options.clone());
         for role in data.roles() {
-            matching |= result.role_settings(cli, role)?;
+            matching |= result.role_settings(cli, &role, &mut opt_stack, env_path)?;
         }
-        Api::notify(ApiEvent::BestGlobalSettingsFound(&cli, &data, &mut result, &mut matching))?;
         if !matching {
             return Err("No matching role found".into());
         }
+        result.env = opt_stack.calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter).calc_final_env(env_vars, env_path, cred)?;
+        result.auth = opt_stack.calc_authentication();
+        result.bounding = opt_stack.calc_bounding();
+        result.timeout = opt_stack.calc_timeout();
+        result.root = opt_stack.calc_privileged();
         Ok(result)
     }
 
-    pub fn role_settings<'a>(
+    pub fn role_settings<'c, 'a>(
         &mut self,
-        cli: &'a Cli,
-        data: DLinkedRole<'a>,
+        cli: &'c Cli,
+        data: &DLinkedRole<'c, 'a>,
+        opt_stack: &mut BorrowedOptStack<'a>,
+        env_path: &[PathBuf]
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        if !self.actors_settings(&data)? {
+        if !self.actors_settings(data)? {
             return Ok(false);
         }
         let mut res = false;
         for task in data.tasks() {
-            res |= self.task_settings(cli, task)?;
+            res = self.task_settings(cli, &task, opt_stack, env_path)?;
         }
-        if res {
-            self.role = data.role().role.to_string();
-        }
-        Api::notify(ApiEvent::BestRoleSettingsFound(&cli, &data, self, &mut res))?;
         Ok(res)
     }
 
-    pub fn actors_settings<'a>(
+    pub fn actors_settings<'c, 'a>(
         &mut self,
-        data: &'a DLinkedRole<'a>,
+        data: &DLinkedRole<'c, 'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut res = !data.role().user_min.is_no_match();
         Api::notify(ApiEvent::ActorMatching(
-            &data, self, &mut res,
+            data, self, &mut res,
         ))?;
         Ok(res)
     }
 
-    pub fn task_settings<'a>(
+    pub fn task_settings<'t, 'c, 'a>(
         &mut self,
-        cli: &'a Cli,
-        data: DLinkedTask<'a>,
+        cli: &'t Cli,
+        data: &DLinkedTask<'t, 'c, 'a>,
+        opt_stack: &mut BorrowedOptStack<'a>,
+        env_path: &[PathBuf],
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let mut res = false;
-        let opt_stack = BorrowedOptStack::from_task(&data);
-        let env_path = opt_stack.calc_path(|behavior| {
-            env::var("PATH")
-                .unwrap_or_default()
-                .split(':')
-                .map(|s| s.into())
-                .filter(|path: &PathBuf| behavior.is_keep_unsafe() || path.is_absolute())
-                .collect::<Vec<_>>()
-        });
-        if let Some(commands) = &data.commands() {
+        let temp_opt_stack = BorrowedOptStack::from_task(data);
+        
+        let env_path = opt_stack.calc_path(
+            env_path
+        );
+        let mut found = false;
+        if let Some(commands) = data.commands() {
             for command in commands.del() {
-                if self.command_settings(&env_path, cli, command)? {
+                if self.command_settings(&env_path, cli, &command)? {
                     return Ok(false);
                 }
             }
             for command in commands.add() {
-                res |= self.command_settings(&env_path, cli, command)?;
+                found = self.command_settings(&env_path, cli, &command)?;
             }
         }
-        if res {
-            self.task = Some(data.task.id.to_string());
-            let cmd_min = self.score.cmd_min.clone();
-            self.score = data.score(&opt_stack)
+        let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
+        Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, opt_stack, self, &mut score))?;
+        if found && score.better_fully(&self.score) {
+            self.role = data.role().role().role.to_string();
+            self.task = Some(data.id.to_string());
+            self.env_path = env_path;
+            self.score = score;
+            self.setuid = data.setuid.clone();
+            self.setgroups = data.setgroups.clone();
+            self.caps = data.caps.clone();
+            opt_stack.set_role(data.role().role().options.clone());
+            opt_stack.set_task(data.task().options.clone());
         }
-        Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, self, &mut res))?;
-        Ok(res)
+        
+        Ok(found)
     }
 
-    pub fn command_settings<'a>(
+    pub fn command_settings<'d, 'l, 't, 'c, 'a>(
         &mut self,
         env_path: &[PathBuf],
-        cli: &'a Cli,
-        data: DLinkedCommand<'a>,
+        cli: &'d Cli,
+        data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        
         debug!("env_path: {:?}", env_path);
-        match data.command {
+        match &**data {
             de::DCommand::Simple(role_cmd) => {
                 let mut final_path = PathBuf::new();
                 let cmd_min = cmd::evaluate_command_match(
@@ -207,13 +228,13 @@ impl BestExecSettings {
         Ok(true)
     }
 
-    fn update_command_score<'a>(
+    fn update_command_score<'d, 'l, 't, 'c, 'a>(
         &mut self,
-        data: DLinkedCommand<'a>,
+        data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
         final_path: PathBuf,
         res: CmdMin,
     ) {
-        if  self.score.cmd_min.better(&res) {
+        if self.score.cmd_min.better(&res) {
             debug!("New command found: {:?}", data.command);
             self.score.cmd_min = res;
             self.final_path = final_path;

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use bon::Builder;
 use strum::EnumIs;
 
 use super::actor::{SGroupType, SGroups, SUserType};
@@ -157,7 +158,7 @@ pub struct TaskScore {
     pub setuser_min: SetUserMin,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Builder)]
 pub struct Score {
     pub user_min: ActorMatchMin,
     pub cmd_min: CmdMin,
@@ -167,15 +168,6 @@ pub struct Score {
 }
 
 impl Score {
-    pub fn new(user_min : ActorMatchMin, task_score: &TaskScore, security_min : SecurityMin) -> Self {
-        Score {
-            user_min,
-            cmd_min: task_score.cmd_min,
-            caps_min: task_score.caps_min,
-            setuser_min: task_score.setuser_min,
-            security_min,
-        }
-    }
     pub fn set_cmd_score(&mut self, cmd_min: CmdMin) {
         self.cmd_min = cmd_min;
     }

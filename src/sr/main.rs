@@ -206,6 +206,8 @@ where
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn Error>> {
+    use std::env;
+
     use finder::find_best_exec_settings;
     use crate::{pam::check_auth, ROOTASROLE};
 
@@ -223,9 +225,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let user = make_cred();
-    let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string())?;
+    let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string(),env::vars(), env::var("PATH")
+    .unwrap_or_default()
+    .split(':')
+    .map(Into::into)
+    .collect::<Vec<_>>().as_slice())?;
 
-    check_auth(&execcfg.opt, &user, &args.prompt.unwrap_or(PAM_PROMPT.to_string()))?;
+    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args.prompt.unwrap_or(PAM_PROMPT.to_string()))?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -252,21 +258,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // disable root
-    if execcfg.opt.root.is_none_or(|root| root.is_user()) {
+    if execcfg.root.is_user() {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
     debug!("setuid : {:?}", execcfg.setuid);
 
     setuid_setgid(&execcfg);
-    let cred = make_cred();
+
 
     set_capabilities(&execcfg);
 
-    //execute command
-    let envset = execcfg.opt
-        .calc_env(args.opt_filter, cred, std::env::vars())
-        .expect("Failed to calculate env");
 
     let pty = Pty::new().expect("Failed to create pty");
 
@@ -278,7 +280,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let command = Command::new(&execcfg.final_path)
         .args(args.cmd_args.iter())
         .env_clear()
-        .envs(envset)
+        .envs(execcfg.env)
         .stdin(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -316,7 +318,7 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         }
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
-        if !execcfg.opt.bounding.is_some_and(|b| b.is_ignore()) {
+        if execcfg.bounding.is_strict() {
             for cap in (!caps).iter() {
                 capctl::bounding::drop(cap).expect("Failed to set bounding cap");
             }
@@ -331,7 +333,7 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     } else {
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        if !execcfg.opt.bounding.is_some_and(|b| b.is_ignore()){
+        if execcfg.bounding.is_strict(){
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
@@ -341,54 +343,13 @@ fn set_capabilities(execcfg: &BestExecSettings) {
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) {
-    let uid = execcfg.setuid.as_ref().and_then(|u| {
-        let res = u.fetch_user();
-        if let Some(user) = res {
-            Some(user.uid.as_raw())
-        } else {
-            None
-        }
-    });
-    let gid = execcfg.setgroups.as_ref().and_then(|g| match g {
-        SGroups::Single(g) => {
-            let res = g.fetch_group();
-            if let Some(group) = res {
-                Some(group.gid.as_raw())
-            } else {
-                None
-            }
-        }
-        SGroups::Multiple(g) => {
-            let res = g.first().unwrap().fetch_group();
-            if let Some(group) = res {
-                Some(group.gid.as_raw())
-            } else {
-                None
-            }
-        }
-    });
-    let groups = execcfg.setgroups.as_ref().and_then(|g| match g {
-        SGroups::Single(g) => {
-            let res = g.fetch_group();
-            if let Some(group) = res {
-                Some(vec![group.gid.as_raw()])
-            } else {
-                None
-            }
-        }
-        SGroups::Multiple(g) => {
-            let res = g.iter().map(|g| g.fetch_group());
-            let mut groups = Vec::new();
-            for group in res.flatten() {
-                groups.push(group.gid.as_raw());
-            }
-            Some(groups)
-        }
+    let gid = execcfg.setgroups.as_ref().and_then(|g| {
+        g.first().cloned()
     });
 
     setgid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
-    capctl::cap_set_ids(uid, gid, groups.as_deref()).expect("Failed to set ids");
+    capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref()).expect("Failed to set ids");
     setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
 }

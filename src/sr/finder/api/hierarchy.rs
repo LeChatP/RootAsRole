@@ -1,6 +1,9 @@
-use std::error::Error;
+use std::{error::Error, path::PathBuf};
 
+use bon::builder;
 use serde_json_borrow::Value;
+
+use crate::{finder::{de::DLinkedRole, options::BorrowedOptStack, BestExecSettings}, Cli};
 
 /// This module is not thread-safe.
 
@@ -11,17 +14,17 @@ use super::{Api, ApiEvent, EventKey};
 
 
 fn find_in_parents(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
-    if let ApiEvent::BestRoleSettingsFound(cli, role, settings, matching) = event {
+    if let ApiEvent::BestRoleSettingsFound(cli, role, opt_stack, env_path, settings, matching) = event {
         return match role.role()._extra_values.get("parents") {
             Some(Value::Array(parents)) => {
                 let mut parents = parents.iter();
                 while let Some(Value::Str(parent)) = parents.next() {
-                    evaluate_parent_role(parent.as_ref(), cli, role, settings, matching)?;
+                    evaluate_parent_role().parent(parent.as_ref()).cli(cli).role(role).opt_stack(opt_stack).settings(settings).matching(matching).env_path(&env_path).call()?;
                 }
                 Ok(())
             },
             Some(Value::Str(parent)) => {
-                evaluate_parent_role(parent, cli, role, settings, matching)
+                evaluate_parent_role().parent(parent.as_ref()).cli(cli).role(role).opt_stack(opt_stack).settings(settings).matching(matching).env_path(&env_path).call()
             },
             Some(_) => {
                 Err("Invalid parent value".into())
@@ -34,10 +37,11 @@ fn find_in_parents(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn evaluate_parent_role(parent: &str, cli: &mut &crate::Cli, role: &mut &crate::finder::de::DLinkedRole<'_>, settings: &mut &mut crate::finder::BestExecSettings, matching: &mut &mut bool) -> Result<(), Box<dyn Error>> {
+#[builder]
+fn evaluate_parent_role<'a>(parent: &str, cli: &mut &Cli, role: &mut &DLinkedRole<'_,'a>, opt_stack : &mut BorrowedOptStack<'a>, settings: &mut &mut BestExecSettings, matching: &mut &mut bool, env_path: &[PathBuf]) -> Result<(), Box<dyn Error>> {
     Ok(if let Some(role)= role.config().role(parent) {
         for task in role.tasks() {
-            **matching |= settings.task_settings(cli, task)?;
+            **matching |= settings.task_settings(cli, &task, opt_stack, env_path)?;
         }
     })
 }

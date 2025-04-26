@@ -1,14 +1,14 @@
 use std::{cell::UnsafeCell, collections::HashMap, error::Error, path::PathBuf};
 
 use once_cell::sync::Lazy;
-use rar_common::database::score::CmdMin;
+use rar_common::database::score::{CmdMin, Score};
 use serde_json_borrow::Value;
 use strum::Display;
 
 
 use crate::Cli;
 
-use super::{de::{DConfigFinder, DLinkedRole, DLinkedTask}, BestExecSettings};
+use super::{de::{DConfigFinder, DLinkedRole, DLinkedTask}, options::BorrowedOptStack, BestExecSettings};
 
 mod hierarchy;
 mod ssd;
@@ -34,16 +34,16 @@ pub enum EventKey {
 }
 
 #[allow(dead_code)]
-pub enum ApiEvent<'a> {
-    BestGlobalSettingsFound(&'a Cli, &'a DConfigFinder<'a>, &'a mut BestExecSettings, &'a mut bool),
-    BestRoleSettingsFound(&'a Cli, &'a DLinkedRole<'a>, &'a mut BestExecSettings, &'a mut bool),
-    BestTaskSettingsFound(&'a Cli, &'a DLinkedTask<'a>, &'a mut BestExecSettings, &'a mut bool),
+pub enum ApiEvent<'a,'t,'c,'f,'g,'h,'i,'j,'k> {
+    BestGlobalSettingsFound(&'f Cli, &'g DConfigFinder<'a>, &'j mut BorrowedOptStack<'a>, &'h mut BestExecSettings, &'i mut bool),
+    BestRoleSettingsFound(&'f Cli, &'g DLinkedRole<'c,'a>, &'h mut BorrowedOptStack<'a>, &'k &'k[PathBuf], &'i mut BestExecSettings, &'j mut bool),
+    BestTaskSettingsFound(&'f Cli, &'g DLinkedTask<'t,'c,'a>, &'j mut BorrowedOptStack<'a>, &'h mut BestExecSettings, &'i mut Score),
     // NewComplexCommand (Value, env_path, cmd_path, cmd_args, cmd_min, final_path),
-    ProcessComplexCommand (&'a Value<'a>, &'a [PathBuf], &'a PathBuf, &'a [String], &'a mut CmdMin, &'a mut PathBuf),
-    ActorMatching(&'a DLinkedRole<'a>, &'a mut BestExecSettings, &'a mut bool),
+    ProcessComplexCommand (&'f Value<'a>, &'g [PathBuf], &'h PathBuf, &'i [String], &'j mut CmdMin, &'k mut PathBuf),
+    ActorMatching(&'f DLinkedRole<'c, 'a>, &'g mut BestExecSettings, &'h mut bool),
 }
 
-impl ApiEvent<'_> {
+impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
     fn get_key(&self) -> EventKey {
         match self {
             ApiEvent::BestGlobalSettingsFound(..) => EventKey::BestGlobalSettings,

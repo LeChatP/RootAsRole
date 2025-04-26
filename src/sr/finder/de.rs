@@ -5,14 +5,14 @@ use capctl::CapSet;
 use derivative::Derivative;
 use log::{debug, info};
 use nix::unistd::Group;
-use rar_common::{database::{actor::{SActor, SGroupType, SGroups, SUserType}, options::Level, score::{ActorMatchMin, CapsMin, Score, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
+use rar_common::{database::{actor::{SActor, SGroupType, SGroups, SUserType}, options::Level, score::{ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
 use serde::{de::{DeserializeSeed, IgnoredAny, Visitor}, Deserialize};
 use serde_json_borrow::Value;
 use strum::EnumIs;
 
 use crate::Cli;
 
-use super::options::{BorrowedOptStack, Opt};
+use super::options::Opt;
 
 
 
@@ -977,106 +977,144 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
 
 
 impl<'a> DConfigFinder<'a> {
-    pub fn roles(&'a self) -> Vec<DLinkedRole<'a>> {
-        self.roles.iter().map(|role| DLinkedRole::new(self, role)).collect()
+    pub fn roles<'s>(&'s self) -> Vec<DLinkedRole<'s, 'a>> {
+        self.roles
+            .iter()
+            .map(|role| DLinkedRole::new(self, role))
+            .collect()
     }
-    pub fn role(&'a self, role: &'a str) -> Option<DLinkedRole<'a>> {
-        self.roles.iter().find(|r| r.role == role).map(|role| DLinkedRole::new(self, role))
+
+    pub fn role<'s>(&'s self, role_name: &str) -> Option<DLinkedRole<'s, 'a>> {
+        self.roles
+            .iter()
+            .find(|r| r.role == role_name)
+            .map(|role| DLinkedRole::new(self, role))
     }
 }
 
-
-pub struct DLinkedRole<'a> {
-    parent: &'a DConfigFinder<'a>,
-    role: &'a DRoleFinder<'a>,
+#[derive(Clone, Copy)]
+pub struct DLinkedRole<'c, 'a> {
+    parent: &'c DConfigFinder<'a>,
+    role: &'c DRoleFinder<'a>,
 }
 
-impl<'a> DLinkedRole<'a> {
-    fn new(parent: &'a DConfigFinder<'a>, role: &'a DRoleFinder<'a>) -> Self {
+impl<'c, 'a> DLinkedRole<'c, 'a> {
+    fn new(parent: &'c DConfigFinder<'a>, role: &'c DRoleFinder<'a>) -> Self {
         Self { parent, role }
     }
-    pub fn tasks(&'a self) -> Vec<DLinkedTask<'a>> {
-        self.role.tasks.iter().map(|task| DLinkedTask {
-            parent: self,
-            task,
-        }).collect()
+
+    pub fn tasks<'t>(&'t self) -> Vec<DLinkedTask<'t, 'c, 'a>> {
+        self.role
+            .tasks
+            .iter()
+            .map(|task| DLinkedTask::new(self, task))
+            .collect()
     }
-    pub fn role(&'a self) -> &'a DRoleFinder<'a> {
+
+    pub fn role(&self) -> &DRoleFinder<'a> {
         self.role
     }
-    pub fn config(&'a self) -> &'a DConfigFinder<'a> {
+
+    pub fn config(&self) -> &DConfigFinder<'a> {
         self.parent
     }
 }
 
-pub struct DLinkedTask<'a> {
-    pub parent: &'a DLinkedRole<'a>,
-    pub task: &'a DTaskFinder<'a>,
+#[derive(Clone, Copy)]
+pub struct DLinkedTask<'t, 'c, 'a> {
+    parent: &'t DLinkedRole<'c, 'a>,
+    pub task: &'t DTaskFinder<'a>,
 }
 
-impl<'a> DLinkedTask<'a> {
-    pub fn commands(&'a self) -> Option<DLinkedCommandList<'a>> {
-        self.task.commands.as_ref().map(|command_list| DLinkedCommandList {
-            parent: self,
-            command_list,
-        })
+impl<'t, 'c, 'a> DLinkedTask<'t, 'c, 'a> {
+    fn new(parent: &'t DLinkedRole<'c, 'a>, task: &'t DTaskFinder<'a>) -> Self {
+        Self { parent, task }
     }
-    pub fn role(&'a self) -> &'a DLinkedRole<'a> {
+
+    pub fn commands<'l>(&'l self) -> Option<DLinkedCommandList<'l, 't, 'c, 'a>> {
+        self.task.commands.as_ref().map(|list| DLinkedCommandList::new(self, list))
+    }
+
+    pub fn role(&self) -> &DLinkedRole<'c, 'a> {
         self.parent
     }
-    pub fn score(&'a self, stack: &BorrowedOptStack<'a>) -> Score {
-        Score::new(
-            self.role().role.user_min,
-            &self.task.score,
-            stack.calc_security_min(),
-        )
+
+    pub fn task(&self) -> &DTaskFinder<'a> {
+        self.task
+    }
+
+    pub fn score(&self, cmd_min: CmdMin, security_min: SecurityMin) -> Score {
+        Score::builder()
+            .user_min(self.role().role.user_min)
+            .caps_min(self.score.caps_min)
+            .cmd_min(cmd_min)
+            .security_min(security_min)
+            .setuser_min(self.score.setuser_min)
+            .build()
+        
     }
 }
 
-impl<'a> Deref for DLinkedTask<'a> {
+impl<'t, 'c, 'a> Deref for DLinkedTask<'t, 'c, 'a> {
     type Target = DTaskFinder<'a>;
     fn deref(&self) -> &Self::Target {
         self.task
     }
 }
 
-pub struct DLinkedCommandList<'a> {
-    pub parent: &'a DLinkedTask<'a>,
-    pub command_list: &'a DCommandList<'a>,
+pub struct DLinkedCommandList<'l, 't, 'c, 'a> {
+    #[allow(dead_code)] // TODO: remove this
+    parent: &'l DLinkedTask<'t, 'c, 'a>,
+    command_list: &'l DCommandList<'a>,
 }
 
-impl<'a> DLinkedCommandList<'a> {
-    pub fn add(&'a self) -> Vec<DLinkedCommand<'a>> {
-        self.command_list.add.iter().map(|command| DLinkedCommand {
-            parent: self,
-            command,
-        }).collect()
+impl<'l, 't, 'c, 'a> DLinkedCommandList<'l, 't, 'c, 'a> {
+    fn new(parent: &'l DLinkedTask<'t, 'c, 'a>, list: &'l DCommandList<'a>) -> Self {
+        Self { parent, command_list: list }
     }
-    pub fn del(&'a self) -> Vec<DLinkedCommand<'a>> {
-        self.command_list.del.iter().map(|command| DLinkedCommand {
-            parent: self,
-            command,
-        }).collect()
+
+    pub fn add<'d>(&'d self) -> Vec<DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
+        self.command_list
+            .add
+            .iter()
+            .map(|cmd| DLinkedCommand::new(self, cmd))
+            .collect()
+    }
+
+    pub fn del<'d>(&'d self) -> Vec<DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
+        self.command_list
+            .del
+            .iter()
+            .map(|cmd| DLinkedCommand::new(self, cmd))
+            .collect()
     }
 }
-impl<'a> Deref for DLinkedCommandList<'a> {
+
+impl<'l, 't, 'c, 'a> Deref for DLinkedCommandList<'l, 't, 'c, 'a> {
     type Target = DCommandList<'a>;
     fn deref(&self) -> &Self::Target {
         self.command_list
     }
 }
 
-pub struct DLinkedCommand<'a> {
-    pub parent: &'a DLinkedCommandList<'a>,
-    pub command: &'a DCommand<'a>,
+pub struct DLinkedCommand<'d, 'l, 't, 'c, 'a> {
+    #[allow(dead_code)] // TODO: remove this
+    parent: &'d DLinkedCommandList<'l, 't, 'c, 'a>,
+    pub command: &'d DCommand<'a>,
 }
 
-impl<'a> DLinkedCommand<'a> {
-    pub fn task(&'a self) -> &'a DLinkedTask<'a> {
+impl<'d, 'l, 't, 'c, 'a> DLinkedCommand<'d, 'l, 't, 'c, 'a> {
+    fn new(parent: &'d DLinkedCommandList<'l, 't, 'c, 'a>, command: &'d DCommand<'a>) -> Self {
+        Self { parent, command }
+    }
+
+    #[allow(dead_code)] // TODO: remove this
+    pub fn task(&self) -> &DLinkedTask<'t, 'c, 'a> {
         self.parent.parent
     }
 }
-impl<'a> Deref for DLinkedCommand<'a> {
+
+impl<'d, 'l, 't, 'c, 'a> Deref for DLinkedCommand<'d, 'l, 't, 'c, 'a> {
     type Target = DCommand<'a>;
     fn deref(&self) -> &Self::Target {
         self.command
