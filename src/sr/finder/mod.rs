@@ -11,10 +11,10 @@ use api::{register_plugins, Api, ApiEvent};
 use capctl::CapSet;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
+use options::BorrowedOptStack;
 use rar_common::{
     database::{
         actor::{SGroups, SUserType},
-        options::Opt,
         score::{CmdMin, Score},
     },
     util::open_with_privileges,
@@ -27,11 +27,12 @@ use crate::Cli;
 mod api;
 mod cmd;
 mod de;
+mod options;
 
 #[derive(Debug, Default, Clone)]
 pub struct BestExecSettings {
     pub score: Score,
-    pub opt: Opt,
+    pub opt: rar_common::database::options::Opt,
     pub final_path: PathBuf,
     pub setuid: Option<SUserType>,
     pub setgroups: Option<SGroups>,
@@ -117,6 +118,9 @@ impl BestExecSettings {
         for task in data.tasks() {
             res |= self.task_settings(cli, task)?;
         }
+        if res {
+            self.role = data.role().role.to_string();
+        }
         Api::notify(ApiEvent::BestRoleSettingsFound(&cli, &data, self, &mut res))?;
         Ok(res)
     }
@@ -138,15 +142,29 @@ impl BestExecSettings {
         data: DLinkedTask<'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut res = false;
+        let opt_stack = BorrowedOptStack::from_task(&data);
+        let env_path = opt_stack.calc_path(|behavior| {
+            env::var("PATH")
+                .unwrap_or_default()
+                .split(':')
+                .map(|s| s.into())
+                .filter(|path: &PathBuf| behavior.is_keep_unsafe() || path.is_absolute())
+                .collect::<Vec<_>>()
+        });
         if let Some(commands) = &data.commands() {
             for command in commands.del() {
-                if self.command_settings(cli, command)? {
+                if self.command_settings(&env_path, cli, command)? {
                     return Ok(false);
                 }
             }
             for command in commands.add() {
-                res |= self.command_settings(cli, command)?;
+                res |= self.command_settings(&env_path, cli, command)?;
             }
+        }
+        if res {
+            self.task = Some(data.task.id.to_string());
+            let cmd_min = self.score.cmd_min.clone();
+            self.score = data.score(&opt_stack)
         }
         Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, self, &mut res))?;
         Ok(res)
@@ -154,16 +172,17 @@ impl BestExecSettings {
 
     pub fn command_settings<'a>(
         &mut self,
+        env_path: &[PathBuf],
         cli: &'a Cli,
         data: DLinkedCommand<'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let env_path = data.task().options().calc_path(&env::var("PATH")?);
+        
         debug!("env_path: {:?}", env_path);
         match data.command {
             de::DCommand::Simple(role_cmd) => {
                 let mut final_path = PathBuf::new();
                 let cmd_min = cmd::evaluate_command_match(
-                    env_path.as_slice(),
+                    env_path,
                     &cli.cmd_path,
                     &cli.cmd_args,
                     role_cmd,
@@ -176,7 +195,7 @@ impl BestExecSettings {
                 let mut final_path = PathBuf::new();
                 Api::notify(ApiEvent::ProcessComplexCommand(
                     value,
-                    env_path.as_slice(),
+                    env_path,
                     &cli.cmd_path,
                     &cli.cmd_args,
                     &mut cmd_min,
@@ -196,10 +215,6 @@ impl BestExecSettings {
     ) {
         if  self.score.cmd_min.better(&res) {
             debug!("New command found: {:?}", data.command);
-            self.task = Some(data.task().id.to_string());
-            self.role = data.task().role().role().role.to_string();
-            self.opt = data.task().options().clone();
-            self.score = data.task().score();
             self.score.cmd_min = res;
             self.final_path = final_path;
         }

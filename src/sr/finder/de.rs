@@ -5,18 +5,20 @@ use capctl::CapSet;
 use derivative::Derivative;
 use log::{debug, info};
 use nix::unistd::Group;
-use rar_common::{database::{actor::{SActor, SGroupType, SGroups, SUserType}, options::{Level, Opt}, score::{ActorMatchMin, CapsMin, Score, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
+use rar_common::{database::{actor::{SActor, SGroupType, SGroups, SUserType}, options::Level, score::{ActorMatchMin, CapsMin, Score, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
 use serde::{de::{DeserializeSeed, IgnoredAny, Visitor}, Deserialize};
 use serde_json_borrow::Value;
 use strum::EnumIs;
 
 use crate::Cli;
 
+use super::options::{BorrowedOptStack, Opt};
+
 
 
 #[derive(PartialEq, Eq, Debug, Default)]
 pub struct DConfigFinder<'a> {
-    pub options: Option<Opt>,
+    pub options: Option<Opt<'a>>,
     pub roles: Vec<DRoleFinder<'a>>,
 }
 
@@ -27,7 +29,7 @@ pub struct DRoleFinder<'a> {
     pub user_min: ActorMatchMin,
     pub role: Cow<'a,str>,
     pub tasks: Vec<DTaskFinder<'a>>,
-    pub options: Option<Opt>,
+    pub options: Option<Opt<'a>>,
     pub _extra_values: HashMap<String, Value<'a>>,
 }
 
@@ -60,7 +62,7 @@ pub struct DTaskFinder<'a> {
     pub setgroups: Option<Vec<u32>>,
     pub caps: Option<CapSet>,
     pub commands: Option<DCommandList<'a>>,
-    pub options: Option<Opt>,
+    pub options: Option<Opt<'a>>,
     #[builder(default)]
     pub _extra_values: HashMap<Cow<'a,str>, Value<'a>>,
 }
@@ -1005,16 +1007,6 @@ impl<'a> DLinkedRole<'a> {
     pub fn config(&'a self) -> &'a DConfigFinder<'a> {
         self.parent
     }
-    pub fn options(&'a self) -> Opt {
-        let mut opt = Opt::level_default();
-        if let Some(global_options) = &self.parent.options {
-            opt.union(global_options.clone());
-        }
-        if let Some(role_options) = &self.role.options {
-            opt.union(role_options.clone());
-        }
-        opt
-    }
 }
 
 pub struct DLinkedTask<'a> {
@@ -1032,16 +1024,12 @@ impl<'a> DLinkedTask<'a> {
     pub fn role(&'a self) -> &'a DLinkedRole<'a> {
         self.parent
     }
-    /// calculate the options for the task
-    pub fn options(&'a self) -> Opt {
-        let mut opt = self.role().options();
-        if let Some(role_options) = self.task.options.as_ref() {
-            opt.union(role_options.clone());
-        }
-        opt
-    }
-    pub fn score(&'a self) -> Score {
-        Score::new(self.role().role.user_min, &self.task.score, self.options().calc_security_min())
+    pub fn score(&'a self, stack: &BorrowedOptStack<'a>) -> Score {
+        Score::new(
+            self.role().role.user_min,
+            &self.task.score,
+            stack.calc_security_min(),
+        )
     }
 }
 

@@ -92,7 +92,7 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
-fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -108,7 +108,7 @@ where
     }
 }
 
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
