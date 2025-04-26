@@ -5,7 +5,7 @@ use capctl::CapSet;
 use derivative::Derivative;
 use log::{debug, info};
 use nix::unistd::Group;
-use rar_common::{database::{actor::{SActor, SGroupType, SGroups, SUserType}, options::Level, score::{ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
+use rar_common::{database::{actor::{DActor, DGroups, DUserType}, options::Level, score::{ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetUserMin, TaskScore}, structs::{SCapabilities, SetBehavior}}, util::capabilities_are_exploitable, Cred};
 use serde::{de::{DeserializeSeed, IgnoredAny, Visitor}, Deserialize};
 use serde_json_borrow::Value;
 use strum::EnumIs;
@@ -58,8 +58,8 @@ pub struct DTaskFinder<'a> {
     pub id: IdTask<'a>,
     #[builder(default)]
     pub score: TaskScore,
-    pub setuid: Option<u32>,
-    pub setgroups: Option<Vec<u32>>,
+    pub setuid: Option<DUserType<'a>>,
+    pub setgroups: Option<DGroups<'a>>,
     pub caps: Option<CapSet>,
     pub commands: Option<DCommandList<'a>>,
     pub options: Option<Opt<'a>>,
@@ -289,7 +289,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                 where
                     A: serde::de::SeqAccess<'de>, {
                 let mut user_matches = ActorMatchMin::NoMatch;
-                while let Some(actor) = seq.next_element::<SActor>()? {
+                while let Some(actor) = seq.next_element::<DActor>()? {
                     debug!("ActorsSettingsVisitor: actor {:?}", actor);
                     let temp = self.user_matches(self.cred, &actor);
                     if temp != ActorMatchMin::NoMatch && temp < user_matches {
@@ -302,10 +302,10 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
         }
 
         impl ActorsFinderVisitor<'_> {
-            fn match_groups(groups: &[Group], role_groups: &[SGroups]) -> bool {
+            fn match_groups(groups: &[Group], role_groups: &[DGroups<'_>]) -> bool {
                 for role_group in role_groups {
                     if match role_group {
-                        SGroups::Single(group) => {
+                        DGroups::Single(group) => {
                             debug!(
                                 "Checking group {}, with {:?}, it must be {}",
                                 group,
@@ -314,7 +314,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                             );
                             groups.iter().any(|g| group == g)
                         }
-                        SGroups::Multiple(multiple_actors) => multiple_actors.iter().all(|actor| {
+                        DGroups::Multiple(multiple_actors) => multiple_actors.iter().all(|actor| {
                             debug!("Checking group {}, with {:?}", actor, groups);
                             groups.iter().any(|g| actor == g)
                         }),
@@ -324,23 +324,23 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                 }
                 false
             }
-            fn user_matches(&self, user: &Cred, actor: &SActor) -> ActorMatchMin {
+            fn user_matches(&self, user: &Cred, actor: &DActor<'_>) -> ActorMatchMin {
                 match actor {
-                    SActor::User { id, .. } => {
+                    DActor::User { id, .. } => {
                         if let Some(id) = id {
                             if *id == user.user {
                                 return ActorMatchMin::UserMatch;
                             }
                         }
                     }
-                    SActor::Group { groups, .. } => {
+                    DActor::Group { groups, .. } => {
                         if let Some(groups) = groups.as_ref() {
                             if Self::match_groups(&user.groups, &[groups.clone()]) {
                                 return ActorMatchMin::GroupMatch(groups.len());
                             }
                         }
                     }
-                    SActor::Unknown(element) => {
+                    DActor::Unknown(element) => {
                         unimplemented!("Unknown actor type: {:?}", element);
                     }
                 }
@@ -439,46 +439,62 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a>
             where
                 V: serde::de::MapAccess<'de>,
             {
-                let mut result = DTaskFinder::builder().id(IdTask::Number(self.i)).build();
+                // Use local temporaries for each field
+                let mut id = IdTask::Number(self.i);
+                let mut score = TaskScore::default();
+                let mut setuid = None;
+                let mut setgroups = None;
+                let mut caps = None;
+                let mut commands = None;
+                let mut options = None;
+                let mut extra_values = HashMap::new();
 
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Name => {
                             debug!("TaskFinderVisitor: name");
-                            result.id = map.next_value()?;
+                            id = map.next_value()?;
                         }
                         Field::Cred => {
                             debug!("TaskFinderVisitor: cred");
-                            if !map.next_value_seed(CredFinderDeserializer {
-                                cli: self.cli,
-                                setuid: &mut result.setuid,
-                                setgroups: &mut result.setgroups,
-                                caps: &mut result.caps,
-                                score: &mut result.score,
-                            })? {
+                            let (su, sg, ca, sc, ok) = map.next_value_seed(CredFinderDeserializerReturn { cli: self.cli })?;
+                            setuid = su;
+                            setgroups = sg;
+                            caps = ca;
+                            score = sc;
+                            if !ok {
                                 while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                                 return Ok(None);
                             }
                         }
                         Field::Commands => {
                             debug!("TaskFinderVisitor: commands");
-                            result.commands.replace(map.next_value()?);
+                            commands = Some(map.next_value()?);
                         }
                         Field::Options => {
                             debug!("TaskFinderVisitor: options");
                             let mut opt : Opt = map.next_value()?;
                             opt.level = Level::Task;
-                            result.options = Some(opt);
+                            options = Some(opt);
                         }
                         Field::Unknown(key) => {
                             debug!("TaskFinderVisitor: unknown");
                             let unknown: Value = map.next_value()?;
-                            result._extra_values.insert(key, unknown);
+                            extra_values.insert(key, unknown);
                         }
                     }
                 }
 
-                Ok(Some(result))
+                Ok(Some(DTaskFinder {
+                    id,
+                    score,
+                    setuid,
+                    setgroups,
+                    caps,
+                    commands,
+                    options,
+                    _extra_values: extra_values,
+                }))
             }
         }
 
@@ -488,18 +504,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a>
 }
 
 
-struct CredFinderDeserializer<'a> {
+struct CredFinderDeserializerReturn<'a> {
     cli: &'a Cli,
-    setuid: &'a mut Option<u32>,
-    setgroups: &'a mut Option<Vec<u32>>,
-    caps: &'a mut Option<CapSet>,
-    score: &'a mut TaskScore,
 }
 
-impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializer<'a>
-{
-    type Value = bool;
-
+impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
+    type Value = (Option<DUserType<'a>>, Option<DGroups<'a>>, Option<CapSet>, TaskScore, bool);
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -517,10 +527,6 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializer<'a>
 
         struct CredFinderVisitor<'a> {
             cli: &'a Cli,
-            setuid: &'a mut Option<u32>,
-            setgroups: &'a mut Option<Vec<u32>>,
-            caps: &'a mut Option<CapSet>,
-            score: &'a mut TaskScore,
         }
 
         fn get_caps_min(caps: &CapSet) -> CapsMin {
@@ -536,80 +542,67 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializer<'a>
         }
 
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for CredFinderVisitor<'a> {
-            type Value = bool;
+            type Value = (Option<DUserType<'a>>, Option<DGroups<'a>>, Option<CapSet>, TaskScore, bool);
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("Cred structure")
             }
-            fn visit_map<V>(mut self, mut map: V) -> Result<Self::Value, V::Error>
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
             where
                 V: serde::de::MapAccess<'de>,
             {
-
+                let mut setuid = None;
+                let mut setgroups = None;
+                let mut caps = None;
+                let mut score = TaskScore::default();
+                let mut ok = true;
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Setuid => {
                             debug!("CredFinderVisitor: setuid");
-                            if !map.next_value_seed(SetUserDeserializer {
-                                cli: self.cli,
-                                user: &mut self.setuid,
-                                score: &mut self.score.setuser_min,
-                            })? {
-                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                return Ok(false);
-                            } 
+                            let (user, setuser_min, user_ok) = map.next_value_seed(SetUserDeserializerReturn { cli: self.cli })?;
+                            setuid = user;
+                            score.setuser_min = setuser_min;
+                            if !user_ok { ok = false; }
                         }
                         Field::Setgid => {
                             debug!("CredFinderVisitor: setgid");
-                            if !map.next_value_seed(SetGroupsDeserializer {
-                                cli: self.cli,
-                                groups: &mut self.setgroups,
-                                score: &mut self.score.setuser_min,
-                            })? {
-                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                return Ok(false);
-                            }
+                            let (groups, setuser_min, groups_ok) = map.next_value_seed(SetGroupsDeserializerReturn { cli: self.cli })?;
+                            setgroups = groups;
+                            score.setuser_min = setuser_min;
+                            if !groups_ok { ok = false; }
                         }
                         Field::Caps => {
                             debug!("CredFinderVisitor: capabilities");
-                            let caps: SCapabilities = map.next_value()?;
-                            let capset = caps.to_capset();
-                            self.score.caps_min = get_caps_min(&capset);
-                            *self.caps = Some(capset);
+                            let scaps: SCapabilities = map.next_value()?;
+                            let capset = scaps.to_capset();
+                            score.caps_min = get_caps_min(&capset);
+                            caps = Some(capset);
                         }
                     }
                 }
-
-                Ok(true)
+                Ok((setuid, setgroups, caps, score, ok))
             }
         }
 
-
-
         const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities"];
-        deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor {
+        let (setuid, setgroups, caps, score, ok) = deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor {
             cli: self.cli,
-            setuid: self.setuid,
-            setgroups: self.setgroups,
-            caps: self.caps,
-            score: self.score,
-        })
+        })?;
+        Ok((setuid, setgroups, caps, score, ok))
     }
 }
 
-struct SetGroupsDeserializer<'a> {
+// New deserializer for SetGroups that returns values instead of using &mut
+struct SetGroupsDeserializerReturn<'a> {
     cli: &'a Cli,
-    groups: &'a mut Option<Vec<u32>>,
-    score: &'a mut SetUserMin,
 }
 
-impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
-    type Value = bool;
-
-    fn deserialize<D>(mut self, deserializer: D) -> Result<Self::Value, D::Error>
-        where
-            D: serde::Deserializer<'de> {
-
+impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
+    type Value = (Option<DGroups<'a>>, SetUserMin, bool);
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de> {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
@@ -621,11 +614,9 @@ impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
         }
         struct SGroupsChooserVisitor<'a> {
             cli: &'a Cli,
-            groups: &'a mut Option<Vec<u32>>,
-            score: &'a mut SetUserMin,
         }
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for SGroupsChooserVisitor<'a> {
-            type Value = bool;
+            type Value = (Option<DGroups<'a>>, SetUserMin, bool);
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("SGroups structure")
@@ -633,6 +624,9 @@ impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
             fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
                 where
                     V: serde::de::MapAccess<'de>, {
+                let mut groups = None;
+                let mut score = SetUserMin::default();
+                let mut ok = true;
                 let mut default = SetBehavior::default();
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref());
                 let mut add: Vec<Vec<u32>> = Vec::new();
@@ -644,15 +638,14 @@ impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
                         },
                         Field::Fallback => {
                             debug!("SGroupsChooserVisitor: fallback");
-                            let value: Vec<u32> = map.next_value::<SGroups>()?.try_into().map_err(
-                                |e| serde::de::Error::custom(e)
-                            )?;
+                            let value= map.next_value::<DGroups>()?;
                             if let Some(u) = filter {
+                                let value: Vec<u32> = value.try_into().map_err(serde::de::Error::custom)?;
                                 if *u == value {
-                                    return Ok(true);
+                                    ok = true;
                                 }
                             } else {
-                                self.groups.replace(value.try_into().map_err(serde::de::Error::custom)?);
+                                groups = Some(value);
                             }
                         }
                         Field::Add => {
@@ -662,11 +655,11 @@ impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
                         Field::Del => {
                             debug!("SGroupsChooserVisitor: del");
                             if let Some(u) = filter {
-                                for group in map.next_value::<Vec<SGroups>>()? {
+                                for group in map.next_value::<Vec<DGroups>>()? {
                                     if let Some(v) = TryInto::<Vec<u32>>::try_into(group).ok() {
                                         if v == *u {
                                             while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                            return Ok(false);
+                                            ok = false;
                                         }
                                     } else {
                                         return Err(serde::de::Error::custom("Invalid group"));
@@ -676,82 +669,29 @@ impl<'a, 'de> DeserializeSeed<'de> for SetGroupsDeserializer<'a> {
                         }
                     }
                 }
-                if let Some(groups) = self.groups.as_ref() {
-                    self.score.gid.replace(groups.into());
+                if let Some(ref g) = groups {
+                    score.gid.replace(g.into());
                 }
                 if default.is_all() || filter.is_some_and(|u| add.iter().any(|x| x == u)) {
-                    Ok(true)
-                } else {
-                    Ok(false)
+                    ok = true;
                 }
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
-                if self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()).is_some() {
-                    return Ok(false);
-                } else {
-                    let group  = SGroupType::from(v).fetch_group().ok_or(serde::de::Error::custom("Group does not exist"))?.gid.as_raw();
-                    let group = vec![group];
-                    self.score.gid.replace((&group).into());
-                    self.groups.replace(group);
-                    return Ok(true);
-                }
-            }
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
-                if v > u32::MAX as u64 {
-                    return Err(serde::de::Error::custom(format!("setgid {} is too big", v)));
-                }
-                if self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()).is_some() {
-                    return Ok(false);
-                } else {
-                    let group = vec![v as u32];
-                    self.score.gid.replace((&group).into());
-                    self.groups.replace(group);
-
-                    return Ok(true);
-                }
-            }
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: serde::de::SeqAccess<'de>, {
-                debug!("SGroupsChooserVisitor: seq");
-                let mut groups: Vec<u32> = Vec::new();
-                while let Some(group) = seq.next_element::<SGroups>()? {
-                    groups = group.try_into().map_err(serde::de::Error::custom)?;
-                }
-                if self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()).is_some() {
-                    // this setgid do not allow setting filter
-                    Ok(false)
-                } else {
-                    self.score.gid.replace((&groups).into());
-                    self.groups.replace(groups);
-                    Ok(true)
-                }
+                Ok((groups, score, ok))
             }
         }
         deserializer.deserialize_any(SGroupsChooserVisitor {
             cli: self.cli,
-            groups: &mut self.groups,
-            score: &mut self.score,
         })
     }
 }
 
-
-struct SetUserDeserializer<'a> {
+// New deserializer for SetUser that returns values instead of using &mut
+struct SetUserDeserializerReturn<'a> {
     cli: &'a Cli,
-    user: &'a mut Option<u32>,
-    score: &'a mut SetUserMin,
 }
 
-
-impl<'a, 'de> DeserializeSeed<'de> for SetUserDeserializer<'a> {
-    type Value = bool;
-
-    fn deserialize<D>(mut self, deserializer: D) -> Result<Self::Value, D::Error>
+impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
+    type Value = (Option<DUserType<'a>>, SetUserMin, bool);
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de> {
         #[derive(Deserialize)]
@@ -764,20 +704,21 @@ impl<'a, 'de> DeserializeSeed<'de> for SetUserDeserializer<'a> {
         }
         struct SetUserVisitor<'a> {
             cli: &'a Cli,
-            user: &'a mut Option<u32>,
-            score: &'a mut SetUserMin,
         }
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for SetUserVisitor<'a> {
-            type Value = bool;
+            type Value = (Option<DUserType<'a>>, SetUserMin, bool);
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("SUser structure")
             }
             fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
                 where
                     V: serde::de::MapAccess<'de>, {
+                let mut user = None;
+                let mut score = SetUserMin::default();
+                let mut ok = true;
                 let mut default = SetBehavior::default();
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref());
-                let mut add: Vec<SUserType> = Vec::new();
+                let mut add: Vec<DUserType<'a>> = Vec::new();
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
@@ -786,14 +727,14 @@ impl<'a, 'de> DeserializeSeed<'de> for SetUserDeserializer<'a> {
                         },
                         Field::Fallback => {
                             debug!("SUserChooserVisitor: fallback");
-                            let value  = map.next_value::<SUserType>()?.fetch_user().ok_or(serde::de::Error::custom("User does not exist"))?.uid.as_raw();
-
+                            let value = map.next_value::<DUserType>()?;
                             if let Some(u) = filter {
+                                let value  = value.fetch_id().ok_or(serde::de::Error::custom("User does not exist"))?;
                                 if u == &value {
-                                    return Ok(true);
+                                    ok = true;
                                 }
                             } else {
-                                self.user.replace(value);
+                                user = Some(value);
                             }
                         }
                         Field::Add => {
@@ -805,85 +746,30 @@ impl<'a, 'de> DeserializeSeed<'de> for SetUserDeserializer<'a> {
                         Field::Del => {
                             debug!("SUserChooserVisitor: del");
                             if let Some(u) = filter {
-                                let users = map.next_value::<Vec<SUserType>>()?;
-                                for user in users {
-                                    let user = user.fetch_user().ok_or(serde::de::Error::custom("User does not exist"))?.uid.as_raw();
-                                    if user == *u {
+                                let users = map.next_value::<Vec<DUserType>>()?;
+                                for user_item in users {
+                                    let user_id = user_item.fetch_id().ok_or(serde::de::Error::custom("User does not exist"))?;
+                                    if user_id == *u {
                                         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                        return Ok(false);
+                                        ok = false;
                                     }
                                 }
                             }
                         }
                     }
                 }
-                if let Some(user) = self.user.as_ref() {
-                    self.score.uid.replace((*user).into());
+                if let Some(ref u) = user {
+                    score.uid.replace(u.into());
                 }
                 if default.is_all() || filter.is_some_and(|u| add.iter().any(|x| x == u)) {
-                    Ok(true)
-                } else {
-                    Ok(false)
+                    ok = true;
                 }
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
-                if self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref()).is_some() {
-                    return Ok(false);
-                } else {
-                    let uid = SUserType::from(v).fetch_user().ok_or(serde::de::Error::custom("User does not exist"))?.uid.as_raw();
-                    self.score.uid.replace(uid.into());
-                    self.user.replace(uid);
-                    return Ok(true);
-                }
-            }
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
-                debug!("SUserChooserVisitor: u64");
-                if v > u32::MAX as u64 {
-                    return Err(serde::de::Error::custom(format!("setuid {} is too big", v)));
-                }
-                if self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref()).is_some() {
-                    return Ok(false);
-                } else {
-                    let uid = v as u32;
-                    self.score.uid.replace(uid.into());
-                    self.user.replace(uid);
-                    return Ok(true);
-                }
-            }
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: serde::de::SeqAccess<'de>, {
-                debug!("SUserChooserVisitor: seq");
-                let mut users = Vec::new();
-                while let Some(user) = seq.next_element::<SUserType>()? {
-                    let user = user.fetch_user().ok_or(serde::de::Error::custom("User does not exist"))?.uid.as_raw();
-                    users.push(user);
-                }
-                if let Some(u) = self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref()) {
-                    if users.contains(u) {
-                        self.score.uid.replace((*u).into());
-                        self.user.replace(*u);
-                        return Ok(true);
-                    } else {
-                        return Ok(false);
-                    }
-                } else {
-                    self.score.uid.replace(users[0].into());
-                    self.user.replace(users[0]);
-                    Ok(true)
-                }
+                Ok((user, score, ok))
             }
         }
-
-            deserializer.deserialize_any(SetUserVisitor {
-                cli: self.cli,
-                user: &mut self.user,
-                score: &mut self.score,
-            })
+        deserializer.deserialize_any(SetUserVisitor {
+            cli: self.cli,
+        })
     }
 }
 

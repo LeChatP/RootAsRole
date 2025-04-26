@@ -1,4 +1,4 @@
-use std::fmt::{self, Formatter};
+use std::{borrow::Cow, fmt::{self, Display, Formatter}};
 
 use bon::bon;
 use nix::unistd::{Group, User};
@@ -19,8 +19,20 @@ pub enum SGenericActorType {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SUserType(SGenericActorType);
 
+#[derive(Deserialize, Serialize, Debug, EnumIs, Clone, PartialEq, Eq)]
+#[serde(untagged, rename_all = "lowercase")]
+pub enum DGenericActorType<'a> {
+    Id(u32),
+    Name(#[serde(borrow)] Cow<'a, str>),
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct DUserType<'a>(
+    #[serde(borrow)]
+    DGenericActorType<'a>);
+
 impl SUserType {
-    pub(super) fn fetch_id(&self) -> Option<u32> {
+    pub fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             SGenericActorType::Id(id) => Some(*id),
             SGenericActorType::Name(name) => match User::from_name(name) {
@@ -45,6 +57,18 @@ impl SUserType {
     }
 }
 
+impl DUserType<'_> {
+    pub fn fetch_id(&self) -> Option<u32> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Some(*id),
+            DGenericActorType::Name(name) => match User::from_name(name) {
+                Ok(Some(user)) => Some(user.uid.as_raw()),
+                _ => None,
+            },
+        }
+    }
+}
+
 impl fmt::Display for SUserType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.0 {
@@ -56,6 +80,11 @@ impl fmt::Display for SUserType {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SGroupType(SGenericActorType);
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct DGroupType<'a>(
+    #[serde(borrow)]
+    DGenericActorType<'a>);
 
 impl fmt::Display for SGroupType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -92,6 +121,18 @@ impl SGroupType {
     }
 }
 
+impl DGroupType<'_> {
+    pub fn fetch_id(&self) -> Option<u32> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Some(*id),
+            DGenericActorType::Name(name) => match Group::from_name(name) {
+                Ok(Some(group)) => Some(group.gid.as_raw()),
+                _ => None,
+            },
+        }
+    }
+}
+
 impl std::fmt::Display for SGenericActorType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -106,6 +147,13 @@ impl std::fmt::Display for SGenericActorType {
 pub enum SGroups {
     Single(SGroupType),
     Multiple(Vec<SGroupType>),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
+#[serde(untagged)]
+pub enum DGroups<'a> {
+    Single(#[serde(borrow)] DGroupType<'a>),
+    Multiple(#[serde(borrow)] Cow<'a,[DGroupType<'a>]>),
 }
 
 impl SGroups {
@@ -127,6 +175,18 @@ impl SGroups {
                 .all(|group| ogroups.iter().any(|ogroup| group.fetch_eq(ogroup))),
             _ => false,
         }
+    }
+}
+
+impl DGroups<'_> {
+    pub fn len(&self) -> usize {
+        match self {
+            DGroups::Single(_) => 1,
+            DGroups::Multiple(groups) => groups.len(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -195,9 +255,39 @@ impl From<&str> for SUserType {
     }
 }
 
+impl<'a> From<&'a str> for DUserType<'a> {
+    fn from(name: &'a str) -> Self {
+        DUserType(name.into())
+    }
+}
+
+impl<'a> From<&'a str> for DGroupType<'a> {
+    fn from(name: &'a str) -> Self {
+        DGroupType(name.into())
+    }
+}
+
+impl From<u32> for DUserType<'_> {
+    fn from(id: u32) -> Self {
+        DUserType(id.into())
+    }
+}
+
+impl From<u32> for DGroupType<'_> {
+    fn from(id: u32) -> Self {
+        DGroupType(id.into())
+    }
+}
+
 impl From<&str> for SGroupType {
     fn from(name: &str) -> Self {
         SGroupType(name.into())
+    }
+}
+
+impl<'a> From<Cow<'a,str>> for DGroupType<'a> {
+    fn from(name: Cow<'a,str>) -> Self {
+        DGroupType(DGenericActorType::Name(name))
     }
 }
 
@@ -213,6 +303,18 @@ impl From<&str> for SGenericActorType {
     }
 }
 
+impl<'a> From<&'a str> for DGenericActorType<'a> {
+    fn from(name: &'a str) -> Self {
+        DGenericActorType::Name(name.into())
+    }
+}
+
+impl<'a> From<u32> for DGenericActorType<'a> {
+    fn from(name: u32) -> Self {
+        DGenericActorType::Id(name)
+    }
+}
+
 impl From<u32> for SGenericActorType {
     fn from(id: u32) -> Self {
         SGenericActorType::Id(id)
@@ -220,6 +322,16 @@ impl From<u32> for SGenericActorType {
 }
 
 impl PartialEq<User> for SUserType {
+    fn eq(&self, other: &User) -> bool {
+        let uid = self.fetch_id();
+        match uid {
+            Some(uid) => uid == other.uid.as_raw(),
+            None => false,
+        }
+    }
+}
+
+impl PartialEq<User> for DUserType<'_> {
     fn eq(&self, other: &User) -> bool {
         let uid = self.fetch_id();
         match uid {
@@ -247,6 +359,12 @@ impl PartialEq<u32> for SUserType {
     }
 }
 
+impl PartialEq<u32> for DUserType<'_> {
+    fn eq(&self, other: &u32) -> bool {
+        self.eq(&DUserType::from(*other))
+    }
+}
+
 impl PartialEq<u32> for SGroupType {
     fn eq(&self, other: &u32) -> bool {
         self.eq(&SGroupType::from(*other))
@@ -254,6 +372,16 @@ impl PartialEq<u32> for SGroupType {
 }
 
 impl PartialEq<Group> for SGroupType {
+    fn eq(&self, other: &Group) -> bool {
+        let gid = self.fetch_id();
+        match gid {
+            Some(gid) => gid == other.gid.as_raw(),
+            None => false,
+        }
+    }
+}
+
+impl PartialEq<Group> for DGroupType<'_> {
     fn eq(&self, other: &Group) -> bool {
         let gid = self.fetch_id();
         match gid {
@@ -312,6 +440,24 @@ impl TryInto<Vec<u32>> for SGroups {
 
 }
 
+impl TryInto<Vec<u32>> for DGroups<'_> {
+    type Error = String;
+    
+    fn try_into(self) -> Result<Vec<u32>, Self::Error> {
+        match self {
+            DGroups::Single(group) => Ok(vec![group.fetch_id().ok_or(format!("{} group does not exist",group))?]),
+            DGroups::Multiple(groups) => {
+                let mut ids = Vec::new();
+                for group in groups.iter() {
+                    ids.push(group.fetch_id().ok_or(format!("{} group does not exist",group))?);
+                }
+                Ok(ids)
+            }
+        }
+    }
+
+}
+
 impl FromIterator<String> for SGroups {
     fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
         let mut iter = iter.into_iter();
@@ -358,6 +504,12 @@ impl From<Vec<SGroupType>> for SGroups {
     }
 }
 
+impl<'a> From<DGroupType<'a>> for DGroups<'a> {
+    fn from(groups: DGroupType<'a>) -> Self {
+        DGroups::Single(groups)
+    }
+}
+
 impl From<u32> for SGroups {
     fn from(group: u32) -> Self {
         SGroups::Single(group.into())
@@ -401,6 +553,46 @@ impl core::fmt::Display for SGroups {
     }
 }
 
+impl Display for DGenericActorType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DGenericActorType::Id(id) => write!(f, "{}", id),
+            DGenericActorType::Name(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl Display for DUserType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            DGenericActorType::Id(id) => write!(f, "{}", id),
+            DGenericActorType::Name(ref name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl Display for DGroupType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            DGenericActorType::Id(id) => write!(f, "{}", id),
+            DGenericActorType::Name(ref name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl core::fmt::Display for DGroups<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DGroups::Single(group) => {
+                write!(f, "{}", group)
+            }
+            DGroups::Multiple(groups) => {
+                write!(f, "{:?}", groups)
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SActor {
@@ -417,6 +609,23 @@ pub enum SActor {
         groups: Option<SGroups>,
         #[serde(default, flatten)]
         _extra_fields: Map<String, Value>,
+    },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum DActor<'a> {
+    #[serde(rename = "user")]
+    User {
+        #[serde(borrow, alias = "name", skip_serializing_if = "Option::is_none")]
+        id: Option<DUserType<'a>>,
+    },
+    #[serde(rename = "group")]
+    Group {
+        #[serde(borrow, alias = "names", skip_serializing_if = "Option::is_none")]
+        groups: Option<DGroups<'a>>,
     },
     #[serde(untagged)]
     Unknown(Value),

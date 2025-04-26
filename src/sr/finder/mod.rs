@@ -12,7 +12,7 @@ use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
     database::{
-        options::{SAuthentication, SBounding, SPrivileged, STimeout}, score::{CmdMin, Score}
+        actor::DGroups, options::{SAuthentication, SBounding, SPrivileged, STimeout}, score::{CmdMin, Score}
     },
     util::open_with_privileges,
     Cred, StorageMethod,
@@ -182,8 +182,11 @@ impl BestExecSettings {
             self.task = Some(data.id.to_string());
             self.env_path = env_path;
             self.score = score;
-            self.setuid = data.setuid.clone();
-            self.setgroups = data.setgroups.clone();
+            self.setuid = data.setuid.clone().map(|u|u.fetch_id()).flatten();
+            self.setgroups = data.setgroups.clone().and_then(|g| match g {
+                DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
+                DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
+            });
             self.caps = data.caps.clone();
             opt_stack.set_role(data.role().role().options.clone());
             opt_stack.set_task(data.task().options.clone());

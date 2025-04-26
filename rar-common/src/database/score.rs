@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use bon::Builder;
 use strum::EnumIs;
 
-use super::actor::{SGroupType, SGroups, SUserType};
+use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
 
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs, Default)]
@@ -40,6 +40,14 @@ impl From<SUserType> for SetuidMin {
     }
 }
 
+impl From<&DUserType<'_>> for SetuidMin {
+    fn from(s: &DUserType) -> Self {
+        SetuidMin {
+            is_root: duser_is_root(s),
+        }
+    }
+}
+
 impl From<u32> for SetuidMin {
     fn from(s: u32) -> Self {
         SetuidMin {
@@ -59,6 +67,24 @@ impl From<SGroups> for SetgidMin {
         SetgidMin {
             is_root: groups_contains_root(Some(&s)),
             nb_groups: groups_len(Some(&s)),
+        }
+    }
+}
+
+impl From<&DGroups<'_>> for SetgidMin {
+    fn from(s: &DGroups<'_>) -> Self {
+        SetgidMin {
+            is_root: dgroups_contains_root(Some(s)),
+            nb_groups: dgroups_len(Some(&s)),
+        }
+    }
+}
+
+impl From<&DGroupType<'_>> for SetgidMin {
+    fn from(s: &DGroupType<'_>) -> Self {
+        SetgidMin {
+            is_root: dgroup_is_root(&s),
+            nb_groups: 1,
         }
     }
 }
@@ -253,8 +279,14 @@ impl Ord for Score {
 fn group_is_root(actortype: &SGroupType) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
+fn dgroup_is_root(actortype: &DGroupType<'_>) -> bool {
+    (*actortype).fetch_id().map_or(false, |id| id == 0)
+}
 
 fn user_is_root(actortype: &SUserType) -> bool {
+    (*actortype).fetch_id().map_or(false, |id| id == 0)
+}
+fn duser_is_root(actortype: &DUserType<'_>) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
 
@@ -269,7 +301,25 @@ fn groups_contains_root(list: Option<&SGroups>) -> bool {
     }
 }
 
+fn dgroups_contains_root(list: Option<&DGroups<'_>>) -> bool {
+    if let Some(list) = list {
+        match list {
+            DGroups::Single(group) => dgroup_is_root(group),
+            DGroups::Multiple(groups) => groups.iter().any(dgroup_is_root),
+        }
+    } else {
+        false
+    }
+}
+
 fn groups_len(groups: Option<&SGroups>) -> usize {
+    match groups {
+        Some(groups) => groups.len(),
+        None => 0,
+    }
+}
+
+fn dgroups_len(groups: Option<&DGroups<'_>>) -> usize {
     match groups {
         Some(groups) => groups.len(),
         None => 0,
