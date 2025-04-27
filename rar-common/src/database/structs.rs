@@ -137,21 +137,18 @@ where
     Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
-#[derive(Serialize, Deserialize, Debug, Builder, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Builder, PartialEq, Eq)]
+//#[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
-    #[serde(skip_serializing_if = "Option::is_none")]
+//    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserChooser>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+//    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupschooser>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+//    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[builder(into)]
-    pub additional_auth: Option<String>, // TODO: to extract as plugin
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+//    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
     pub _extra_fields: Map<String, Value>,
 }
@@ -312,12 +309,135 @@ impl Serialize for SCapabilities {
         }
     }
 }
+
+impl<'de> Deserialize<'de> for SCredentials {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de> {
+        #[derive(Deserialize, Display)]
+        #[serde(field_identifier, rename_all = "kebab-case")]
+        #[repr(u8)]
+        enum Field {
+            Setuid,
+            Setgid,
+            Capabilities,
+            #[serde(untagged)]
+            Other(String),
+        }
+        struct SCredentialsVisitor;
+        impl<'de> Visitor<'de> for SCredentialsVisitor {
+            type Value = SCredentials;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a map with SCredentials fields")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut setuid = None;
+                let mut setgid = None;
+                let mut capabilities = None;
+                let mut _extra_fields = Map::new();
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Setuid => {
+                            setuid = Some(map.next_value()?);
+                        }
+                        Field::Setgid => {
+                            setgid = Some(map.next_value()?);
+                        }
+                        Field::Capabilities => {
+                            capabilities = Some(map.next_value()?);
+                        }
+                        Field::Other(s) => {
+                            _extra_fields.insert(s.to_string(), map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SCredentials {
+                    setuid,
+                    setgid,
+                    capabilities,
+                    _extra_fields,
+                })
+            }
+        }
+        deserializer.deserialize_map(SCredentialsVisitor)
+    }
+}
+
+impl Serialize for SCredentials {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize, Display)]
+        #[serde(rename_all = "kebab-case")]
+        #[strum(serialize_all = "kebab-case")]
+        #[repr(u8)]
+        enum Field {
+            Setuid,
+            Setgid,
+            #[serde(rename = "caps")]
+            Capabilities,
+        }
+        if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.setuid.is_some() {
+                map.serialize_entry(&Field::Setuid.to_string(), &self.setuid)?;
+            }
+            if self.setgid.is_some() {
+                map.serialize_entry(&Field::Setgid.to_string(), &self.setgid)?;
+            }
+            if self.capabilities.is_some() {
+                map.serialize_entry(&Field::Capabilities.to_string(), &self.capabilities)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.setuid.is_some() {
+                map.serialize_entry(&Field::Setuid, &self.setuid)?;
+            }
+            if self.setgid.is_some() {
+                map.serialize_entry(&Field::Setgid, &self.setgid)?;
+            }
+            if self.capabilities.is_some() {
+                map.serialize_entry(&Field::Capabilities, &self.capabilities)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        }
+
+    }
+}
+
 impl<'de> Deserialize<'de> for SCapabilities {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         struct SCapabilitiesVisitor;
+
+        #[derive(Deserialize, Display)]
+        #[serde(rename_all = "kebab-case")]
+        #[repr(u8)]
+        enum Field {
+            Default,
+            Add,
+            #[serde(rename = "del")]
+            Sub,
+            #[serde(untagged)]
+            Other(String),
+        }
 
         impl<'de> Visitor<'de> for SCapabilitiesVisitor {
             type Value = SCapabilities;
@@ -351,14 +471,14 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 let mut sub = CapSet::default();
                 let mut _extra_fields = Map::new();
 
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "default" => {
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Default => {
                             default_behavior = map
                                 .next_value()
                                 .expect("default entry must be either 'all' or 'none'");
                         }
-                        "add" => {
+                        Field::Add => {
                             let values: Vec<String> =
                                 map.next_value().expect("add entry must be a list");
                             for value in values {
@@ -367,7 +487,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                                 })?);
                             }
                         }
-                        "sub" | "del" => {
+                        Field::Sub => {
                             let values: Vec<String> =
                                 map.next_value().expect("sub entry must be a list");
                             for value in values {
@@ -376,7 +496,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                                 })?);
                             }
                         }
-                        other => {
+                        Field::Other(other) => {
                             _extra_fields.insert(other.to_string(), map.next_value()?);
                         }
                     }
@@ -460,7 +580,6 @@ impl Default for SCredentials {
             setuid: None,
             setgid: None,
             capabilities: Some(SCapabilities::default()),
-            additional_auth: None,
             _extra_fields: Map::default(),
         }
     }
