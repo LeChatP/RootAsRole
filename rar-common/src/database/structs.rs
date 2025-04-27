@@ -403,13 +403,13 @@ impl Serialize for SCredentials {
         } else {
             let mut map = serializer.serialize_map(Some(3))?;
             if self.setuid.is_some() {
-                map.serialize_entry(&Field::Setuid, &self.setuid)?;
+                map.serialize_entry(&(Field::Setuid as u8), &self.setuid)?;
             }
             if self.setgid.is_some() {
-                map.serialize_entry(&Field::Setgid, &self.setgid)?;
+                map.serialize_entry(&(Field::Setgid as u8), &self.setgid)?;
             }
             if self.capabilities.is_some() {
-                map.serialize_entry(&Field::Capabilities, &self.capabilities)?;
+                map.serialize_entry(&(Field::Capabilities as u8), &self.capabilities)?;
             }
             for (key, value) in &self._extra_fields {
                 map.serialize_entry(key, value)?;
