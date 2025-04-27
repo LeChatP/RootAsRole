@@ -25,8 +25,16 @@ maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/
 [profile.release]
 strip = "symbols"
 lto = true
-opt-level = "s"
+opt-level = 3
 codegen-units = 1
+
+[profile.profiling]
+strip = "none"
+lto = false
+opt-level = 1
+inherits = "release"
+debug = true
+
 
 #[features]
 #cursive_lib = [ "cursive" ]

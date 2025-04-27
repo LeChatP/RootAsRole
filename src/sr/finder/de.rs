@@ -302,7 +302,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
         }
 
         impl ActorsFinderVisitor<'_> {
-            fn match_groups(groups: &[Group], role_groups: &[DGroups<'_>]) -> bool {
+            fn match_groups(groups: &[Group], role_groups: &[&DGroups<'_>]) -> bool {
                 for role_group in role_groups {
                     if match role_group {
                         DGroups::Single(group) => {
@@ -335,7 +335,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                     }
                     DActor::Group { groups, .. } => {
                         if let Some(groups) = groups.as_ref() {
-                            if Self::match_groups(&user.groups, &[groups.clone()]) {
+                            if Self::match_groups(&user.groups, &[groups]) {
                                 return ActorMatchMin::GroupMatch(groups.len());
                             }
                         }
@@ -414,10 +414,13 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a>
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field<'a> {
+            #[serde(alias="n")]
             Name,
+            #[serde(alias="i", alias = "credentials")]
             Cred,
-            #[serde(alias = "cmds")]
+            #[serde(alias="c", alias="cmds")]
             Commands,
+            #[serde(alias="o")]
             Options,
             #[serde(untagged)]
             Unknown(Cow<'a,str>),
@@ -516,15 +519,16 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
     {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
-        #[repr(u8)]
-        enum Field {
+        enum Field<'a> {
+            #[serde(alias="u")]
             Setuid,
-            #[serde(alias = "setgroups")]
+            #[serde(alias="g", alias = "setgroups")]
             Setgid,
-            #[serde(alias = "capabilities")]
+            #[serde(alias="c", alias = "capabilities")]
             Caps,
-            #[serde(untagged)]
-            Binary(u8),
+            #[serde(untagged, borrow)]
+            Other(Cow<'a,str>),
+
         }
 
         struct CredFinderVisitor<'a> {
@@ -560,36 +564,37 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                 let mut ok = true;
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Binary(0) | Field::Setuid => {
+                        Field::Setuid => {
                             debug!("CredFinderVisitor: setuid");
                             let (user, setuser_min, user_ok) = map.next_value_seed(SetUserDeserializerReturn { cli: self.cli })?;
                             setuid = user;
                             score.setuser_min = setuser_min;
                             if !user_ok { ok = false; }
                         }
-                        Field::Binary(1) | Field::Setgid => {
+                        Field::Setgid => {
                             debug!("CredFinderVisitor: setgid");
                             let (groups, setuser_min, groups_ok) = map.next_value_seed(SetGroupsDeserializerReturn { cli: self.cli })?;
                             setgroups = groups;
                             score.setuser_min = setuser_min;
                             if !groups_ok { ok = false; }
                         }
-                        Field::Binary(2) | Field::Caps => {
+                        Field::Caps => {
                             debug!("CredFinderVisitor: capabilities");
                             let scaps: SCapabilities = map.next_value()?;
                             let capset = scaps.to_capset();
                             score.caps_min = get_caps_min(&capset);
                             caps = Some(capset);
                         }
-                        Field::Binary(n) => {
+                        Field::Other(n) => {
                             return Err(serde::de::Error::custom(format!("Unknown Cred field {}", n)));
                         }
                     }
                 }
+                debug!("CredFinderVisitor: end");
                 Ok((setuid, setgroups, caps, score, ok))
             }
         }
-        const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities"];
+        const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities", "0", "1", "2"];
         let (setuid, setgroups, caps, score, ok) = deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor {
             cli: self.cli,
         })?;
@@ -611,9 +616,13 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field {
+            #[serde(alias = "d")]
             Default,
+            #[serde(alias = "f")]
             Fallback,
+            #[serde(alias = "a")]
             Add,
+            #[serde(alias = "s", alias="sub")]
             Del,
         }
         struct SGroupsChooserVisitor<'a> {
@@ -633,7 +642,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let mut ok = true;
                 let mut default = SetBehavior::default();
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref());
-                let mut add: Vec<Vec<u32>> = Vec::new();
+                let mut add: Cow<'_,[DGroups<'_>]> = Cow::Borrowed(&[]);
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
@@ -659,7 +668,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                         Field::Del => {
                             debug!("SGroupsChooserVisitor: del");
                             if let Some(u) = filter {
-                                for group in map.next_value::<Vec<DGroups>>()? {
+                                for group in map.next_value::<Cow<'_,[DGroups]>>()?.iter() {
                                     if let Some(v) = TryInto::<Vec<u32>>::try_into(group).ok() {
                                         if v == *u {
                                             while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
@@ -676,7 +685,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 if let Some(ref g) = groups {
                     score.gid.replace(g.into());
                 }
-                if default.is_all() || filter.is_some_and(|u| add.iter().any(|x| x == u)) {
+                if default.is_all() || filter.is_some_and(|u| add.iter().any(|x| match TryInto::<Vec<u32>>::try_into(x) {
+                    Ok(vec) => vec == *u,
+                    Err(_) => false,
+                })) {
                     ok = true;
                 }
                 Ok((groups, score, ok))
@@ -700,10 +712,15 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
         D: serde::Deserializer<'de> {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
+        #[repr(u8)]
         enum Field {
+            #[serde(alias = "d")]
             Default,
+            #[serde(alias = "f")]
             Fallback,
+            #[serde(alias = "a")]
             Add,
+            #[serde(alias = "s", alias="sub")]
             Del,
         }
         struct SetUserVisitor<'a> {
@@ -722,7 +739,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 let mut ok = true;
                 let mut default = SetBehavior::default();
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref());
-                let mut add: Vec<DUserType<'a>> = Vec::new();
+                let mut add: Cow<'a, [DUserType<'a>]> = Cow::Borrowed(&[]);
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
@@ -750,8 +767,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                         Field::Del => {
                             debug!("SUserChooserVisitor: del");
                             if let Some(u) = filter {
-                                let users = map.next_value::<Vec<DUserType>>()?;
-                                for user_item in users {
+                                let users = map.next_value::<Cow<'_, [DUserType]>>()?;
+                                for user_item in users.iter() {
                                     let user_id = user_item.fetch_id().ok_or(serde::de::Error::custom("User does not exist"))?;
                                     if user_id == *u {
                                         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
@@ -780,8 +797,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
 #[derive(PartialEq, Eq, Debug)]
 pub struct DCommandList<'a> {
     pub default_behavior: Option<SetBehavior>,
-    pub add: Vec<DCommand<'a>>,
-    pub del: Vec<DCommand<'a>>,
+    pub add: Cow<'a,[DCommand<'a>]>,
+    pub del: Cow<'a,[DCommand<'a>]>,
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
@@ -800,8 +817,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
         struct DCommandListVisitor<'a> {
             _phantom: std::marker::PhantomData<&'a ()>,
         }
-        impl<'a, 'de> serde::de::Visitor<'de> for DCommandListVisitor<'a> {
-            type Value = DCommandList<'de>;
+        impl<'de:'a, 'a> serde::de::Visitor<'de> for DCommandListVisitor<'a> {
+            type Value = DCommandList<'a>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("CommandList structure")
@@ -811,8 +828,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
                 where
                     V: serde::de::MapAccess<'de>, {
                 let mut default_behavior = None;
-                let mut add = Vec::new();
-                let mut del = Vec::new();
+                let mut add: Cow<'_, [DCommand<'_>]> = Cow::Borrowed(&[]);
+                let mut del: Cow<'_, [DCommand<'_>]> = Cow::Borrowed(&[]);
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
@@ -842,8 +859,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
                 }
                 return Ok(DCommandList {
                     default_behavior,
-                    add,
-                    del: Vec::new(),
+                    add: Cow::Owned(add),
+                    del: Cow::Borrowed(&[]),
                 });
             }
 
@@ -856,8 +873,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
                     } else {
                         SetBehavior::None
                     }),
-                    add: Vec::new(),
-                    del: Vec::new(),
+                    add: Cow::Borrowed(&[]),
+                    del: Cow::Borrowed(&[]),
                 });
             }
         }
@@ -867,11 +884,10 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
 
 
 impl<'a> DConfigFinder<'a> {
-    pub fn roles<'s>(&'s self) -> Vec<DLinkedRole<'s, 'a>> {
+    pub fn roles<'s>(&'s self) -> impl Iterator<Item=DLinkedRole<'s, 'a>> {
         self.roles
             .iter()
             .map(|role| DLinkedRole::new(self, role))
-            .collect()
     }
 
     pub fn role<'s>(&'s self, role_name: &str) -> Option<DLinkedRole<'s, 'a>> {
@@ -893,12 +909,11 @@ impl<'c, 'a> DLinkedRole<'c, 'a> {
         Self { parent, role }
     }
 
-    pub fn tasks<'t>(&'t self) -> Vec<DLinkedTask<'t, 'c, 'a>> {
+    pub fn tasks<'t>(&'t self) -> impl Iterator<Item=DLinkedTask<'t, 'c, 'a>> {
         self.role
             .tasks
             .iter()
             .map(|task| DLinkedTask::new(self, task))
-            .collect()
     }
 
     pub fn role(&self) -> &DRoleFinder<'a> {
@@ -963,20 +978,18 @@ impl<'l, 't, 'c, 'a> DLinkedCommandList<'l, 't, 'c, 'a> {
         Self { parent, command_list: list }
     }
 
-    pub fn add<'d>(&'d self) -> Vec<DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
+    pub fn add<'d>(&'d self) -> impl Iterator<Item=DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
         self.command_list
             .add
             .iter()
             .map(|cmd| DLinkedCommand::new(self, cmd))
-            .collect()
     }
 
-    pub fn del<'d>(&'d self) -> Vec<DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
+    pub fn del<'d>(&'d self) -> impl Iterator<Item=DLinkedCommand<'d, 'l, 't, 'c, 'a>> {
         self.command_list
             .del
             .iter()
             .map(|cmd| DLinkedCommand::new(self, cmd))
-            .collect()
     }
 }
 

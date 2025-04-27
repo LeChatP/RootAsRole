@@ -3,13 +3,12 @@ use std::{borrow::Cow, fmt::{self, Display, Formatter}};
 use bon::bon;
 use nix::unistd::{Group, User};
 use serde::{
-    de::{self, Visitor},
-    Deserialize, Deserializer, Serialize,
+    Deserialize, Serialize,
 };
 use serde_json::{Map, Value};
 use strum::EnumIs;
 
-#[derive(Serialize, Debug, EnumIs, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, EnumIs, Clone, PartialEq, Eq)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SGenericActorType {
     Id(u32),
@@ -23,7 +22,8 @@ pub struct SUserType(SGenericActorType);
 #[serde(untagged, rename_all = "lowercase")]
 pub enum DGenericActorType<'a> {
     Id(u32),
-    Name(#[serde(borrow)] Cow<'a, str>),
+    #[serde(borrow)]
+    Name(Cow<'a, str>),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -187,53 +187,6 @@ impl DGroups<'_> {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-}
-
-impl<'de> Deserialize<'de> for SGenericActorType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct IdVisitor;
-
-        impl<'de> Visitor<'de> for IdVisitor {
-            type Value = SGenericActorType;
-
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("user ID as a number or string")
-            }
-
-            fn visit_u32<E>(self, id: u32) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Ok(SGenericActorType::Id(id))
-            }
-
-            fn visit_u64<E>(self, id: u64) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                if id > u32::MAX as u64 {
-                    return Err(E::custom("user ID too large"));
-                }
-                Ok(SGenericActorType::Id(id as u32))
-            }
-
-            fn visit_str<E>(self, id: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                let rid: Result<u32, _> = id.parse();
-                match rid {
-                    Ok(id) => Ok(SGenericActorType::Id(id)),
-                    Err(_) => Ok(SGenericActorType::Name(id.to_string())),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(IdVisitor)
     }
 }
 
@@ -422,6 +375,23 @@ impl<const N: usize> From<[SGroupType; N]> for SGroups {
     }
 }
 
+impl TryInto<Vec<u32>> for &DGroups<'_> {
+    type Error = String;
+    
+    fn try_into(self) -> Result<Vec<u32>, Self::Error> {
+        match self {
+            DGroups::Single(group) => Ok(vec![group.fetch_id().ok_or(format!("{} group does not exist",group))?]),
+            DGroups::Multiple(groups) => {
+                let mut ids = Vec::new();
+                for group in groups.iter() {
+                    ids.push(group.fetch_id().ok_or(format!("{} group does not exist",group))?);
+                }
+                Ok(ids)
+            }
+        }
+    }
+}
+
 impl TryInto<Vec<u32>> for SGroups {
     type Error = String;
     
@@ -437,7 +407,6 @@ impl TryInto<Vec<u32>> for SGroups {
             }
         }
     }
-
 }
 
 impl TryInto<Vec<u32>> for DGroups<'_> {

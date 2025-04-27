@@ -7,7 +7,7 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs};
+use strum::{Display, EnumIs, EnumString, FromRepr};
 
 use std::{
     cell::RefCell,
@@ -104,18 +104,19 @@ fn cmds_is_default(cmds: &SCommands) -> bool {
         && cmds._extra_fields.is_empty()
 }
 
-#[derive(Serialize, Deserialize, Debug, Derivative)]
+#[derive(Deserialize, Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
 pub struct STask {
-    #[serde(default, skip_serializing_if = "IdTask::is_number")]
+    #[serde(alias="n", default, skip_serializing_if = "IdTask::is_number")]
     pub name: IdTask,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias="p", skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(alias="i", default, skip_serializing_if = "is_default")]
     pub cred: SCredentials,
-    #[serde(default, skip_serializing_if = "cmds_is_default")]
+    #[serde(alias="c", default, skip_serializing_if = "cmds_is_default")]
     pub commands: SCommands,
     #[serde(
+        alias="o",
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "stask_opt"
@@ -137,18 +138,18 @@ where
     Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
-#[derive(Debug, Builder, PartialEq, Eq)]
-//#[serde(rename_all = "kebab-case")]
+#[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
+ #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
-//    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias="d", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserChooser>,
-//    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias="1", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupschooser>,
-//    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias="2", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
-//    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
     pub _extra_fields: Map<String, Value>,
 }
@@ -184,25 +185,25 @@ impl From<u32> for SUserChooser {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 
 pub struct SSetuidSet {
-    #[builder(into)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<SUserType>,
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(alias="d", rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(default)]
     pub default: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(into)]
+    #[serde(alias="1", skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<SUserType>,
+    #[serde(default, alias="2", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SUserType>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias="del", alias="3", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
-#[serde(rename_all = "lowercase")]
+#[derive(PartialEq, Eq, Display, Debug, EnumIs, Clone, Copy, FromRepr, EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[derive(Default)]
 #[repr(u8)]
 pub enum SetBehavior {
@@ -241,17 +242,19 @@ impl From<u32> for SGroupschooser {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
-    #[builder(start_fn, into)]
-    pub fallback: SGroups,
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+
+    #[serde(rename = "default", alias = "d", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
     pub default: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(alias="f")]
+    #[builder(start_fn, into)]
+    pub fallback: SGroups,
+    #[serde(default, alias="a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias="s", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
 }
@@ -285,17 +288,115 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
     }
 }
 
-impl Serialize for SCapabilities {
+impl Serialize for SetBehavior {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        if self.default_behavior.is_none() && self.sub.is_empty() {
-            super::serialize_capset(&self.add, serializer)
+        if serializer.is_human_readable() {
+            return serializer.serialize_str(&self.to_string());
         } else {
-            let mut map = serializer.serialize_map(Some(3))?;
-            if self.default_behavior.is_none() {
-                map.serialize_entry("default", &self.default_behavior)?;
+            return serializer.serialize_u8(*self as u8);
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SetBehavior {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SetBehaviorVisitor;
+
+        impl<'de> Visitor<'de> for SetBehaviorVisitor {
+            type Value = SetBehavior;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a number")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                value.parse().map_err(de::Error::custom)
+            }
+            fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                if v > 1 || v < 0 {
+                    return Err(de::Error::custom(format!(
+                        "Invalid value for SetBehavior: {}",
+                        v
+                    )));
+                }
+                SetBehavior::from_repr(v as u8).ok_or(de::Error::custom(format!(
+                    "Invalid value for SetBehavior: {}",
+                    v
+                )))
+            }
+            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                self.visit_i32(v as i32)
+            }
+            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                self.visit_i32(v as i32)
+            }
+            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                self.visit_i32(v as i32)
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                if v > i32::MAX as u64 {
+                    return Err(de::Error::custom(format!(
+                        "Invalid value for SetBehavior: {}",
+                        v
+                    )));
+                }
+                self.visit_i32(v as i32)
+            }
+            fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                self.visit_i32(v as i32)
+            }
+            fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                self.visit_i32(v as i32)
+            }
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                if v > i32::MAX as i64 || v < i32::MIN as i64 {
+                    return Err(de::Error::custom(format!(
+                        "Invalid value for SetBehavior: {}",
+                        v
+                    )));
+                }
+                self.visit_i32(v as i32)
+            }
+        }
+
+        deserializer.deserialize_any(SetBehaviorVisitor)
+    }
+}
+
+impl Serialize for SSetuidSet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("default", &self.default)?;
+            if let Some(fallback) = &self.fallback {
+                map.serialize_entry("fallback", fallback)?;
             }
             if !self.add.is_empty() {
                 let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
@@ -306,67 +407,111 @@ impl Serialize for SCapabilities {
                 map.serialize_entry("del", &v)?;
             }
             map.end()
+        } else {
+
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("d", &(self.default as u8))?;
+            if let Some(fallback) = &self.fallback {
+                map.serialize_entry("f", fallback)?;
+            }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("a", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("s", &v)?;
+            }
+            map.end()
         }
     }
 }
 
-impl<'de> Deserialize<'de> for SCredentials {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+impl Serialize for SSetgidSet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        D: Deserializer<'de> {
-        #[derive(Deserialize, Display)]
-        #[serde(field_identifier, rename_all = "kebab-case")]
-        #[repr(u8)]
-        enum Field {
-            Setuid,
-            Setgid,
-            Capabilities,
-            #[serde(untagged)]
-            Other(String),
-        }
-        struct SCredentialsVisitor;
-        impl<'de> Visitor<'de> for SCredentialsVisitor {
-            type Value = SCredentials;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a map with SCredentials fields")
+        S: serde::Serializer,
+    {
+        if self.default.is_none() && self.sub.is_empty() {
+            let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
+            for sgroups in &self.add {
+                seq.serialize_element(sgroups)?;
             }
+            seq.end()
+        }else if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("default", &self.default)?;
+            if !self.fallback.is_empty() {
+                map.serialize_entry("fallback", &self.fallback)?;
+            }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("add", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("del", &v)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("d", &(self.default as u8))?;
+            if !self.fallback.is_empty() {
+                map.serialize_entry("f", &self.fallback)?;
+            }
+            
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("a", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("s", &v)?;
+            }
+            map.end()
+        }
+    }
+}
 
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut setuid = None;
-                let mut setgid = None;
-                let mut capabilities = None;
-                let mut _extra_fields = Map::new();
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Setuid => {
-                            setuid = Some(map.next_value()?);
-                        }
-                        Field::Setgid => {
-                            setgid = Some(map.next_value()?);
-                        }
-                        Field::Capabilities => {
-                            capabilities = Some(map.next_value()?);
-                        }
-                        Field::Other(s) => {
-                            _extra_fields.insert(s.to_string(), map.next_value()?);
-                        }
-                    }
+impl Serialize for SCapabilities {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.default_behavior.is_none() && self.sub.is_empty() {
+            super::serialize_capset(&self.add, serializer)
+        } else {
+            if serializer.is_human_readable() {
+                let mut map = serializer.serialize_map(Some(3))?;
+                if self.default_behavior.is_all() {
+                    map.serialize_entry("default", &self.default_behavior)?;
                 }
-
-                Ok(SCredentials {
-                    setuid,
-                    setgid,
-                    capabilities,
-                    _extra_fields,
-                })
+                if !self.add.is_empty() {
+                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                    map.serialize_entry("add", &v)?;
+                }
+                if !self.sub.is_empty() {
+                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                    map.serialize_entry("del", &v)?;
+                }
+                map.end()
+            } else {
+                let mut map = serializer.serialize_map(Some(3))?;
+                if self.default_behavior.is_all() {
+                    map.serialize_entry("d", &(self.default_behavior as u8))?;
+                }
+                if !self.add.is_empty() {
+                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                    map.serialize_entry("a", &v)?;
+                }
+                if !self.sub.is_empty() {
+                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                    map.serialize_entry("s", &v)?;
+                }
+                map.end()
             }
+
         }
-        deserializer.deserialize_map(SCredentialsVisitor)
     }
 }
 
@@ -375,48 +520,38 @@ impl Serialize for SCredentials {
     where
         S: serde::Serializer,
     {
-        #[derive(Serialize, Display)]
-        #[serde(rename_all = "kebab-case")]
-        #[strum(serialize_all = "kebab-case")]
-        #[repr(u8)]
-        enum Field {
-            Setuid,
-            Setgid,
-            #[serde(rename = "caps")]
-            Capabilities,
-        }
         if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(Some(3))?;
+            let mut map = serializer.serialize_map(None)?;
             if self.setuid.is_some() {
-                map.serialize_entry(&Field::Setuid.to_string(), &self.setuid)?;
+                map.serialize_entry("setuid", &self.setuid)?;
             }
             if self.setgid.is_some() {
-                map.serialize_entry(&Field::Setgid.to_string(), &self.setgid)?;
+                map.serialize_entry("setgid", &self.setgid)?;
             }
             if self.capabilities.is_some() {
-                map.serialize_entry(&Field::Capabilities.to_string(), &self.capabilities)?;
+                map.serialize_entry("capabilities", &self.capabilities)?;
             }
             for (key, value) in &self._extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
         } else {
-            let mut map = serializer.serialize_map(Some(3))?;
+            let mut map = serializer.serialize_map(None)?;
             if self.setuid.is_some() {
-                map.serialize_entry(&(Field::Setuid as u8), &self.setuid)?;
+                map.serialize_entry("u", &self.setuid)?;
             }
             if self.setgid.is_some() {
-                map.serialize_entry(&(Field::Setgid as u8), &self.setgid)?;
+                map.serialize_entry("g", &self.setgid)?;
             }
             if self.capabilities.is_some() {
-                map.serialize_entry(&(Field::Capabilities as u8), &self.capabilities)?;
+                map.serialize_entry("c", &self.capabilities)?;
             }
             for (key, value) in &self._extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
         }
-
+        
     }
 }
 
@@ -431,9 +566,11 @@ impl<'de> Deserialize<'de> for SCapabilities {
         #[serde(rename_all = "kebab-case")]
         #[repr(u8)]
         enum Field {
+            #[serde(alias = "d")]
             Default,
+            #[serde(alias = "a")]
             Add,
-            #[serde(rename = "del")]
+            #[serde(rename = "del", alias = "s")]
             Sub,
             #[serde(untagged)]
             Other(String),
@@ -514,6 +651,53 @@ impl<'de> Deserialize<'de> for SCapabilities {
     }
 }
 
+
+impl Serialize for STask {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("name", &self.name)?;
+            if let Some(purpose) = &self.purpose {
+                map.serialize_entry("purpose", purpose)?;
+            }
+            if !is_default(&self.cred) {
+                map.serialize_entry("cred", &self.cred)?;
+            }
+            if !cmds_is_default(&self.commands) {
+                map.serialize_entry("commands", &self.commands)?;
+            }
+            if let Some(options) = &self.options {
+                map.serialize_entry("options", options)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(None)?;
+            map.serialize_entry("n", &self.name)?;
+            if let Some(purpose) = &self.purpose {
+                map.serialize_entry("p", purpose)?;
+            }
+            if !is_default(&self.cred) {
+                map.serialize_entry("i", &self.cred)?;
+            }
+            if !cmds_is_default(&self.commands) {
+                map.serialize_entry("c", &self.commands)?;
+            }
+            if let Some(options) = &self.options {
+                map.serialize_entry("o", options)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
 pub enum SCommand {
@@ -523,11 +707,11 @@ pub enum SCommand {
 
 #[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct SCommands {
-    #[serde(rename = "default")]
+    #[serde(rename = "default", alias = "d")]
     pub default_behavior: Option<SetBehavior>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(default, alias = "del", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "del", alias = "s", skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
@@ -853,20 +1037,37 @@ impl Serialize for SCommands {
                 return seq.end()
             }
         }
-        let mut map = serializer.serialize_map(Some(3))?;
-        if self.default_behavior.is_none() {
-            map.serialize_entry("default", &self.default_behavior)?;
+        if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.default_behavior.is_none() {
+                map.serialize_entry("default", &self.default_behavior)?;
+            }
+            if !self.add.is_empty() {
+                map.serialize_entry("add", &self.add)?;
+            }
+            if !self.sub.is_empty() {
+                map.serialize_entry("del", &self.sub)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if let Some(behavior) = &self.default_behavior {
+                map.serialize_entry("d", &(*behavior as u8))?;
+            }
+            if !self.add.is_empty() {
+                map.serialize_entry("a", &self.add)?;
+            }
+            if !self.sub.is_empty() {
+                map.serialize_entry("s", &self.sub)?;
+            }
+            for (key, value) in &self._extra_fields {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
         }
-        if !self.add.is_empty() {
-            map.serialize_entry("add", &self.add)?;
-        }
-        if !self.sub.is_empty() {
-            map.serialize_entry("del", &self.sub)?;
-        }
-        for (key, value) in &self._extra_fields {
-            map.serialize_entry(key, value)?;
-        }
-        map.end()
         
     }
 }
