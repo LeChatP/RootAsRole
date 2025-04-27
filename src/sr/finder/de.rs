@@ -523,6 +523,8 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
             Setgid,
             #[serde(alias = "capabilities")]
             Caps,
+            #[serde(untagged)]
+            Binary(u8),
         }
 
         struct CredFinderVisitor<'a> {
@@ -558,33 +560,35 @@ impl <'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                 let mut ok = true;
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Setuid => {
+                        Field::Binary(0) | Field::Setuid => {
                             debug!("CredFinderVisitor: setuid");
                             let (user, setuser_min, user_ok) = map.next_value_seed(SetUserDeserializerReturn { cli: self.cli })?;
                             setuid = user;
                             score.setuser_min = setuser_min;
                             if !user_ok { ok = false; }
                         }
-                        Field::Setgid => {
+                        Field::Binary(1) | Field::Setgid => {
                             debug!("CredFinderVisitor: setgid");
                             let (groups, setuser_min, groups_ok) = map.next_value_seed(SetGroupsDeserializerReturn { cli: self.cli })?;
                             setgroups = groups;
                             score.setuser_min = setuser_min;
                             if !groups_ok { ok = false; }
                         }
-                        Field::Caps => {
+                        Field::Binary(2) | Field::Caps => {
                             debug!("CredFinderVisitor: capabilities");
                             let scaps: SCapabilities = map.next_value()?;
                             let capset = scaps.to_capset();
                             score.caps_min = get_caps_min(&capset);
                             caps = Some(capset);
                         }
+                        Field::Binary(n) => {
+                            return Err(serde::de::Error::custom(format!("Unknown Cred field {}", n)));
+                        }
                     }
                 }
                 Ok((setuid, setgroups, caps, score, ok))
             }
         }
-
         const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities"];
         let (setuid, setgroups, caps, score, ok) = deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor {
             cli: self.cli,
