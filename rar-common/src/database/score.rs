@@ -145,7 +145,7 @@ bitflags::bitflags! {
 
 impl CmdMin {
     pub fn better(&self, other: &Self) -> bool {
-        !self.matching() || (other.matching() && self.cmp(other) == Ordering::Less)
+        (!self.matching() && other.matching()) || (other.matching() && self.cmp(other) == Ordering::Less)
     }
     pub fn matching(&self) -> bool {
         !self.is_empty()
