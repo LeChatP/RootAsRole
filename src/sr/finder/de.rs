@@ -162,7 +162,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         }
         const FIELDS: &[&str] = &["options", "roles", "version"];
         let human_readable = deserializer.is_human_readable();
-        coz::begin!("deserialize_config");
         let res = deserializer.deserialize_struct(
             "Config",
             FIELDS,
@@ -173,7 +172,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                 env_path: self.env_path,
             },
         );
-        coz::end!("deserialize_config");
         res
     }
 }

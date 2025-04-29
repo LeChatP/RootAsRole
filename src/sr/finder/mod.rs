@@ -108,7 +108,6 @@ impl BestExecSettings {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: &[PathBuf],
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        coz::begin!("retrieve_settings");
         let mut result = Self::default();
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.clone());
@@ -118,13 +117,11 @@ impl BestExecSettings {
         if !matching {
             return Err("No matching role found".into());
         }
-        coz::progress!("retrieve_settings: roles crawled");
         result.env = opt_stack.calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter).calc_final_env(env_vars, env_path, cred)?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
         result.root = opt_stack.calc_privileged();
-        coz::end!("retrieve_settings");
         Ok(result)
     }
 
@@ -135,7 +132,6 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[PathBuf]
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        coz::progress!("retrieve_role");
         if !self.actors_settings(data)? {
             return Ok(false);
         }
@@ -164,7 +160,6 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[PathBuf],
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        coz::progress!("retrieve_task");
         let temp_opt_stack = BorrowedOptStack::from_task(data);
         
         let env_path = opt_stack.calc_path(
