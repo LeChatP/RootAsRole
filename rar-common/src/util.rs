@@ -231,14 +231,13 @@ pub fn all_paths_from_env< P: AsRef<Path>>(env_path: &[PathBuf], exe_name: P) ->
 #[cfg(feature = "finder")]
 pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     use glob::Pattern;
-    let mut match_status = CmdMin::empty();
-    let resolved_role_path = PathBuf::from(role_path);
-    if !role_path.ends_with(cmd_path.to_str().unwrap()) || !resolved_role_path.is_absolute() {
+    if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
         // the files could not be the same
         return CmdMin::empty();
     }
-    debug!("Matching path {:?} with {:?}", cmd_path, resolved_role_path);
-    if *cmd_path == resolved_role_path {
+    let mut match_status = CmdMin::empty();
+    debug!("Matching path {:?} with {:?}", cmd_path, role_path);
+    if cmd_path == Path::new(role_path) {
         match_status |= CmdMin::Match;
     } else if let Ok(pattern) = Pattern::new(role_path) {
         if pattern.matches_path(&cmd_path) {
@@ -248,7 +247,7 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     if match_status.is_empty() {
         debug!(
             "No match for path ``{:?}`` for evaluated path : ``{:?}``",
-            cmd_path, resolved_role_path
+            cmd_path, role_path
         );
     }
     match_status
