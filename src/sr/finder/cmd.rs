@@ -6,17 +6,27 @@ fn match_path(
     env_path: &[PathBuf],
     cmd_path: &PathBuf,
     role_path: &String,
-    final_path: &mut PathBuf,
+    previous_min: &CmdMin,
+    final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
-    all_paths_from_env(env_path,cmd_path).iter().find_map(|cmd_path| {
+    if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
-        if min.matching() {
-            *final_path = cmd_path.clone();
-            Some(min)
-        } else {
-            None
+        if previous_min.better(&min) {
+            *final_path = Some(cmd_path.clone());
         }
-    }).unwrap_or_default()
+        return min;
+    } else {
+        all_paths_from_env(env_path,cmd_path).iter().find_map(|cmd_path| {
+            let min = match_single_path(cmd_path, role_path);
+            if previous_min.better(&min) {
+                *final_path = Some(cmd_path.clone());
+                Some(min)
+            } else {
+                None
+            }
+        }).unwrap_or_default()
+    }
+    
 }
 
 /// Check if input args is matching with role args and return the score
@@ -70,9 +80,10 @@ fn match_command_line(
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_command: &[String],
-    final_path: &mut PathBuf,
+    previous_min: &CmdMin,
+    final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
-    let mut result = match_path(env_path, &cmd_path, &role_command[0], final_path);
+    let mut result = match_path(env_path, &cmd_path, &role_command[0], previous_min, final_path);
     if result.is_empty() || role_command.len() == 1 {
         return result;
     }
@@ -91,10 +102,11 @@ pub fn evaluate_command_match(
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_cmd: &str,
-    final_path: &mut PathBuf,
+    previous_min: &CmdMin,
+    final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     match shell_words::split(role_cmd).map_err(|e| Into::<Box<dyn std::error::Error>>::into(e)) {
-        Ok(command) => match_command_line(env_path, cmd_path, cmd_args, &command, final_path),
+        Ok(role_cmd) => match_command_line(env_path, cmd_path, cmd_args, &role_cmd, previous_min, final_path),
         Err(err) => {
             warn!("Error: {}", err);
             CmdMin::empty()

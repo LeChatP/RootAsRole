@@ -95,7 +95,7 @@ struct Cli {
     help: bool,
 
     #[builder(default, into)]
-    /// A set of possible paths to the command
+    /// A non-absolute path to the command that needs to be found in the PATH
     cmd_path: PathBuf,
 
     #[builder(default, with = |i : impl IntoIterator<Item = impl Into<String>> | i.into_iter().map(|s| s.into()).collect())]
@@ -228,7 +228,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string(),env::vars(), env::var("PATH")
     .unwrap_or_default()
     .split(':')
-    .map(Into::into)
     .collect::<Vec<_>>().as_slice())?;
 
     check_auth(&execcfg.auth, &execcfg.timeout, &user, &args.prompt.unwrap_or(PAM_PROMPT.to_string()))?;

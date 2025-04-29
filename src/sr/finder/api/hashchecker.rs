@@ -93,7 +93,7 @@ fn match_path(
     env_path: &[PathBuf],
     cmd_path: &PathBuf,
     role_path: &String,
-    final_path: &mut PathBuf,
+    final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     all_paths_from_env(env_path,cmd_path).iter().find_map(|cmd_path| {
         let min = match_single_path(cmd_path, role_path);
@@ -132,7 +132,7 @@ fn match_path(
                     return None;
                 }
             }
-            *final_path = cmd_path.clone();
+            *final_path = Some(cmd_path.clone());
             Some(min)
         } else {
             None
@@ -148,7 +148,7 @@ fn match_command_line(
     cmd_args: &[String],
     role_command: &[String],
     cmd_min: &mut CmdMin,
-    final_path: &mut PathBuf,
+    final_path: &mut Option<PathBuf>,
 ) {
     let mut result = match_path(checker, env_path, cmd_path, &role_command[0], final_path);
     if result.is_empty() || role_command.len() == 1 {
@@ -170,7 +170,7 @@ fn process_hash_check(
     cmd_path: &PathBuf,
     cmd_args: &[String],
     min_score: &mut CmdMin,
-    final_path: &mut PathBuf,
+    final_path: &mut Option<PathBuf>,
 ) {
     match shell_words::split(&checker.command)
         .map_err(|e| Into::<Box<dyn std::error::Error>>::into(e))

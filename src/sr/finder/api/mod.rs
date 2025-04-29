@@ -39,7 +39,7 @@ pub enum ApiEvent<'a,'t,'c,'f,'g,'h,'i,'j,'k> {
     BestRoleSettingsFound(&'f Cli, &'g DLinkedRole<'c,'a>, &'h mut BorrowedOptStack<'a>, &'k &'k[PathBuf], &'i mut BestExecSettings, &'j mut bool),
     BestTaskSettingsFound(&'f Cli, &'g DLinkedTask<'t,'c,'a>, &'j mut BorrowedOptStack<'a>, &'h mut BestExecSettings, &'i mut Score),
     // NewComplexCommand (Value, env_path, cmd_path, cmd_args, cmd_min, final_path),
-    ProcessComplexCommand (&'f Value<'a>, &'g [PathBuf], &'h PathBuf, &'i [String], &'j mut CmdMin, &'k mut PathBuf),
+    ProcessComplexCommand (&'f Value<'a>, &'g [PathBuf], &'h PathBuf, &'i [String], &'j mut CmdMin, &'k mut Option<PathBuf>),
     ActorMatching(&'f DLinkedRole<'c, 'a>, &'g mut BestExecSettings, &'h mut bool),
 }
 

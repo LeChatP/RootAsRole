@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-#[cfg(feature = "finder")]
 use std::path::PathBuf;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
@@ -127,10 +126,34 @@ pub struct SPathOptions {
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<LinkedHashSet<String>>,
-    #[serde(default)]
-    #[serde(flatten)]
-    #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+}
+
+impl SPathOptions {
+    pub fn calc_path(
+        &self,
+        path_var: &[&str],
+    ) -> Vec<PathBuf> {
+        let default = LinkedHashSet::new();
+        match self.default_behavior {
+            PathBehavior::Inherit | PathBehavior::Delete => self
+                .add
+                .as_ref()
+                .and_then(|add| Some(add.difference(self.sub.as_ref().unwrap_or(&default)).map(|p| PathBuf::from(p)).collect::<Vec<_>>()))
+                .unwrap_or_default(),
+            is_safe => self
+                .add
+                .iter()
+                .flatten()
+                .map(|s| PathBuf::from(s))
+                .chain(path_var.iter().map(|s| PathBuf::from(*s)).collect::<Vec<_>>())
+                .filter(|s| {
+                    !self.sub.as_ref().is_some_and(|set| {
+                        set.iter().any(|p| *s == PathBuf::from(p))
+                    }) && (!is_safe.is_keep_safe() || s.is_relative())
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(
@@ -314,18 +337,7 @@ impl Opt {
             .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
             .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
             .path(
-                SPathOptions::builder(
-                    env!("RAR_PATH_DEFAULT")
-                        .parse()
-                        .unwrap_or(PathBehavior::Delete),
-                )
-                .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
-                .sub(
-                    env!("RAR_PATH_REMOVE_LIST")
-                        .split(':')
-                        .collect::<Vec<&str>>(),
-                )
-                .build(),
+                SPathOptions::level_default(),
             )
             .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
             .env(
@@ -652,10 +664,45 @@ impl Default for SPathOptions {
             default_behavior: PathBehavior::Inherit,
             add: None,
             sub: None,
-            _extra_fields: Map::default(),
         }
     }
 }
+
+impl SPathOptions {
+    pub fn level_default() -> Self {
+        SPathOptions::builder(
+            env!("RAR_PATH_DEFAULT")
+                .parse()
+                .unwrap_or(PathBehavior::Delete),
+        )
+        .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
+        .sub(
+            env!("RAR_PATH_REMOVE_LIST")
+                .split(':')
+                .collect::<Vec<&str>>(),
+        )
+        .build()
+    }
+    pub fn union(&mut self, path_options: SPathOptions) {
+        match path_options.default_behavior {
+            PathBehavior::Inherit => {
+                if let Some(add) = path_options.add {
+                    self.add.get_or_insert_with(Default::default).extend(add);
+                }
+                if let Some(sub) = path_options.sub {
+                    self.sub.get_or_insert_with(Default::default).extend(sub);
+                }
+            }
+            behaviors => {
+                self.add = path_options.add;
+                self.sub = path_options.sub;
+                self.default_behavior = behaviors;
+            }
+        }
+    }
+}
+
+
 
 fn is_valid_env_name(s: &str) -> bool {
     let mut chars = s.chars();

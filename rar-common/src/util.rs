@@ -231,10 +231,6 @@ pub fn all_paths_from_env< P: AsRef<Path>>(env_path: &[PathBuf], exe_name: P) ->
 #[cfg(feature = "finder")]
 pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     use glob::Pattern;
-
-    if role_path == "**" {
-        return CmdMin::FullWildcardPath;
-    }
     let mut match_status = CmdMin::empty();
     let resolved_role_path = PathBuf::from(role_path);
     if !role_path.ends_with(cmd_path.to_str().unwrap()) || !resolved_role_path.is_absolute() {

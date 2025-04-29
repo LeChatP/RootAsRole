@@ -5,7 +5,7 @@ use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use options::EnvBehavior;
-use serde::{de, Deserialize, Serialize};
+use serde::{de::Deserialize, de::Deserializer, Serialize};
 
 use self::options::EnvKey;
 
@@ -19,6 +19,8 @@ pub mod migration;
 pub mod options;
 pub mod structs;
 pub mod versionning;
+pub mod ser;
+pub mod de;
 
 #[derive(Debug, Default, Builder)]
 #[builder(on(_, overwritable))]
@@ -38,7 +40,7 @@ fn lhs_deserialize_envkey<'de, D>(
     deserializer: D,
 ) -> Result<Option<LinkedHashSet<EnvKey>>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>
 {
     if let Ok(v) = Vec::<EnvKey>::deserialize(deserializer) {
         Ok(Some(v.into_iter().collect()))
@@ -66,7 +68,7 @@ where
 // deserialize the linked hash set
 fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<LinkedHashSet<String>>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     if let Ok(v) = Vec::<String>::deserialize(deserializer) {
         Ok(Some(v.into_iter().collect()))
@@ -110,12 +112,12 @@ where
 
 pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
     match convert_string_to_duration(&s) {
         Ok(d) => Ok(d),
-        Err(e) => Err(de::Error::custom(e)),
+        Err(e) => Err(serde::de::Error::custom(e)),
     }
 }
 

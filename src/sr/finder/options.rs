@@ -9,7 +9,7 @@ use chrono::Duration;
 
 #[cfg(feature = "finder")]
 use libc::PATH_MAX;
-use rar_common::database::options::{EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPrivileged, STimeout};
+use rar_common::database::options::{EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged, STimeout};
 use rar_common::database::score::SecurityMin;
 use rar_common::database::FilterMatcher;
 use std::hash::Hash;
@@ -34,7 +34,7 @@ fn default<'a>() -> Opt<'a> {
     .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
     .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
     .path(
-        SPathOptions::builder(
+        DPathOptions::builder(
             env!("RAR_PATH_DEFAULT")
                 .parse()
                 .unwrap_or(PathBehavior::Delete),
@@ -95,7 +95,7 @@ fn default<'a>() -> Opt<'a> {
 
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
-pub struct SPathOptions<'a> {
+pub struct DPathOptions<'a> {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
     pub default_behavior: PathBehavior,
@@ -143,7 +143,7 @@ pub struct Opt<'a> {
     #[serde(skip)]
     pub level: Level,
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
-    pub path: Option<SPathOptions<'a>>,
+    pub path: Option<DPathOptions<'a>>,
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
     pub env: Option<SEnvOptions<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,7 +165,7 @@ impl<'a> Opt<'a> {
     #[builder]
     pub fn new(
         #[builder(start_fn)] level: Level,
-        path: Option<SPathOptions<'a>>,
+        path: Option<DPathOptions<'a>>,
         env: Option<SEnvOptions<'a>>,
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
@@ -284,6 +284,15 @@ impl Into<rar_common::database::options::Opt> for Opt<'_> {
             .maybe_authentication(self.authentication)
             .maybe_wildcard_denied(self.wildcard_denied)
             .maybe_timeout(self.timeout)
+            .build()
+    }
+}
+
+impl Into<SPathOptions> for DPathOptions<'_> {
+    fn into(self) -> SPathOptions {
+        SPathOptions::builder(self.default_behavior)
+            .maybe_add(self.add.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
+            .maybe_sub(self.sub.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
             .build()
     }
 }

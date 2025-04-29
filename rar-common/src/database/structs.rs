@@ -2,8 +2,6 @@ use bon::{bon, builder, Builder};
 use capctl::{Cap, CapSet};
 use derivative::Derivative;
 use serde::{
-    de::{self, MapAccess, SeqAccess, Visitor},
-    ser::{SerializeMap, SerializeSeq},
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
@@ -21,22 +19,20 @@ use crate::rc_refcell;
 
 use super::{
     actor::{SActor, SGroups, SUserType},
-    is_default,
     options::{Level, Opt, OptBuilder},
 };
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
     #[serde(
         default,
-        skip_serializing_if = "Option::is_none",
         deserialize_with = "sconfig_opt"
     )]
     pub options: Option<Rc<RefCell<Opt>>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub roles: Vec<Rc<RefCell<SRole>>>,
     #[serde(default)]
-    #[serde(flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(flatten)]
     pub _extra_fields: Map<String, Value>,
 }
 
@@ -49,7 +45,7 @@ where
     Ok(Some(Rc::new(RefCell::new(opt))))
 }
 
-#[derive(Serialize, Deserialize, Debug, Derivative)]
+#[derive(Deserialize, Debug, Derivative)]
 #[serde(rename_all = "kebab-case")]
 #[derivative(PartialEq, Eq)]
 pub struct SRole {
@@ -97,7 +93,7 @@ impl std::fmt::Display for IdTask {
     }
 }
 
-fn cmds_is_default(cmds: &SCommands) -> bool {
+pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
     cmds.default_behavior.as_ref().is_none_or(|b| *b == Default::default())
         && cmds.add.is_empty()
         && cmds.sub.is_empty()
@@ -285,416 +281,6 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
     pub fn sub_all(mut self, set: CapSet) -> Self {
         self.sub = set;
         self
-    }
-}
-
-impl Serialize for SetBehavior {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if serializer.is_human_readable() {
-            return serializer.serialize_str(&self.to_string());
-        } else {
-            return serializer.serialize_u8(*self as u8);
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for SetBehavior {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SetBehaviorVisitor;
-
-        impl<'de> Visitor<'de> for SetBehaviorVisitor {
-            type Value = SetBehavior;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string or a number")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                value.parse().map_err(de::Error::custom)
-            }
-            fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                if v > 1 || v < 0 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                SetBehavior::from_repr(v as u8).ok_or(de::Error::custom(format!(
-                    "Invalid value for SetBehavior: {}",
-                    v
-                )))
-            }
-            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                self.visit_i32(v as i32)
-            }
-            fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                self.visit_i32(v as i32)
-            }
-            fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                self.visit_i32(v as i32)
-            }
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                if v > i32::MAX as u64 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                self.visit_i32(v as i32)
-            }
-            fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                self.visit_i32(v as i32)
-            }
-            fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                self.visit_i32(v as i32)
-            }
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
-                if v > i32::MAX as i64 || v < i32::MIN as i64 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                self.visit_i32(v as i32)
-            }
-        }
-
-        deserializer.deserialize_any(SetBehaviorVisitor)
-    }
-}
-
-impl Serialize for SSetuidSet {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("default", &self.default)?;
-            if let Some(fallback) = &self.fallback {
-                map.serialize_entry("fallback", fallback)?;
-            }
-            if !self.add.is_empty() {
-                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("add", &v)?;
-            }
-            if !self.sub.is_empty() {
-                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("del", &v)?;
-            }
-            map.end()
-        } else {
-
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("d", &(self.default as u8))?;
-            if let Some(fallback) = &self.fallback {
-                map.serialize_entry("f", fallback)?;
-            }
-            if !self.add.is_empty() {
-                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("a", &v)?;
-            }
-            if !self.sub.is_empty() {
-                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("s", &v)?;
-            }
-            map.end()
-        }
-    }
-}
-
-impl Serialize for SSetgidSet {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if self.default.is_none() && self.sub.is_empty() {
-            let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
-            for sgroups in &self.add {
-                seq.serialize_element(sgroups)?;
-            }
-            seq.end()
-        }else if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("default", &self.default)?;
-            if !self.fallback.is_empty() {
-                map.serialize_entry("fallback", &self.fallback)?;
-            }
-            if !self.add.is_empty() {
-                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("add", &v)?;
-            }
-            if !self.sub.is_empty() {
-                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("del", &v)?;
-            }
-            map.end()
-        } else {
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("d", &(self.default as u8))?;
-            if !self.fallback.is_empty() {
-                map.serialize_entry("f", &self.fallback)?;
-            }
-            
-            if !self.add.is_empty() {
-                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("a", &v)?;
-            }
-            if !self.sub.is_empty() {
-                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("s", &v)?;
-            }
-            map.end()
-        }
-    }
-}
-
-impl Serialize for SCapabilities {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if self.default_behavior.is_none() && self.sub.is_empty() {
-            super::serialize_capset(&self.add, serializer)
-        } else {
-            if serializer.is_human_readable() {
-                let mut map = serializer.serialize_map(Some(3))?;
-                if self.default_behavior.is_all() {
-                    map.serialize_entry("default", &self.default_behavior)?;
-                }
-                if !self.add.is_empty() {
-                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("add", &v)?;
-                }
-                if !self.sub.is_empty() {
-                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("del", &v)?;
-                }
-                map.end()
-            } else {
-                let mut map = serializer.serialize_map(Some(3))?;
-                if self.default_behavior.is_all() {
-                    map.serialize_entry("d", &(self.default_behavior as u8))?;
-                }
-                if !self.add.is_empty() {
-                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("a", &v)?;
-                }
-                if !self.sub.is_empty() {
-                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("s", &v)?;
-                }
-                map.end()
-            }
-
-        }
-    }
-}
-
-impl Serialize for SCredentials {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(None)?;
-            if self.setuid.is_some() {
-                map.serialize_entry("setuid", &self.setuid)?;
-            }
-            if self.setgid.is_some() {
-                map.serialize_entry("setgid", &self.setgid)?;
-            }
-            if self.capabilities.is_some() {
-                map.serialize_entry("capabilities", &self.capabilities)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        } else {
-            let mut map = serializer.serialize_map(None)?;
-            if self.setuid.is_some() {
-                map.serialize_entry("u", &self.setuid)?;
-            }
-            if self.setgid.is_some() {
-                map.serialize_entry("g", &self.setgid)?;
-            }
-            if self.capabilities.is_some() {
-                map.serialize_entry("c", &self.capabilities)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
-        
-    }
-}
-
-impl<'de> Deserialize<'de> for SCapabilities {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SCapabilitiesVisitor;
-
-        #[derive(Deserialize, Display)]
-        #[serde(rename_all = "kebab-case")]
-        #[repr(u8)]
-        enum Field {
-            #[serde(alias = "d")]
-            Default,
-            #[serde(alias = "a")]
-            Add,
-            #[serde(rename = "del", alias = "s")]
-            Sub,
-            #[serde(untagged)]
-            Other(String),
-        }
-
-        impl<'de> Visitor<'de> for SCapabilitiesVisitor {
-            type Value = SCapabilities;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an array of strings or a map with SCapabilities fields")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut add = CapSet::default();
-                while let Some(cap) = seq.next_element::<String>()? {
-                    add.add(cap.parse().map_err(de::Error::custom)?);
-                }
-
-                Ok(SCapabilities {
-                    default_behavior: SetBehavior::None,
-                    add,
-                    sub: CapSet::default(),
-                })
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut default_behavior = SetBehavior::None;
-                let mut add = CapSet::default();
-                let mut sub = CapSet::default();
-                let mut _extra_fields = Map::new();
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Default => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
-                        }
-                        Field::Add => {
-                            let values: Vec<String> =
-                                map.next_value().expect("add entry must be a list");
-                            for value in values {
-                                add.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
-                        }
-                        Field::Sub => {
-                            let values: Vec<String> =
-                                map.next_value().expect("sub entry must be a list");
-                            for value in values {
-                                sub.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
-                        }
-                        Field::Other(other) => {
-                            _extra_fields.insert(other.to_string(), map.next_value()?);
-                        }
-                    }
-                }
-
-                Ok(SCapabilities {
-                    default_behavior,
-                    add,
-                    sub,
-                })
-            }
-        }
-
-        deserializer.deserialize_any(SCapabilitiesVisitor)
-    }
-}
-
-
-impl Serialize for STask {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("name", &self.name)?;
-            if let Some(purpose) = &self.purpose {
-                map.serialize_entry("purpose", purpose)?;
-            }
-            if !is_default(&self.cred) {
-                map.serialize_entry("cred", &self.cred)?;
-            }
-            if !cmds_is_default(&self.commands) {
-                map.serialize_entry("commands", &self.commands)?;
-            }
-            if let Some(options) = &self.options {
-                map.serialize_entry("options", options)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        } else {
-            let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("n", &self.name)?;
-            if let Some(purpose) = &self.purpose {
-                map.serialize_entry("p", purpose)?;
-            }
-            if !is_default(&self.cred) {
-                map.serialize_entry("i", &self.cred)?;
-            }
-            if !cmds_is_default(&self.commands) {
-                map.serialize_entry("c", &self.commands)?;
-            }
-            if let Some(options) = &self.options {
-                map.serialize_entry("o", options)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
     }
 }
 
@@ -1022,55 +608,7 @@ impl Index<usize> for SRole {
     }
 }
 
-impl Serialize for SCommands {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        if self.sub.is_empty() && self._extra_fields.is_empty() {
-            if self.add.is_empty() {
-                return serializer.serialize_bool(self.default_behavior.as_ref().is_some_and(|b| *b == SetBehavior::All));
-            } else if !self.add.is_empty() && self.default_behavior.as_ref().is_none_or(|b| *b == SetBehavior::None) {
-                let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
-                for cmd in &self.add {
-                    seq.serialize_element(cmd)?;
-                }
-                return seq.end()
-            }
-        }
-        if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(Some(3))?;
-            if self.default_behavior.is_none() {
-                map.serialize_entry("default", &self.default_behavior)?;
-            }
-            if !self.add.is_empty() {
-                map.serialize_entry("add", &self.add)?;
-            }
-            if !self.sub.is_empty() {
-                map.serialize_entry("del", &self.sub)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        } else {
-            let mut map = serializer.serialize_map(Some(3))?;
-            if let Some(behavior) = &self.default_behavior {
-                map.serialize_entry("d", &(*behavior as u8))?;
-            }
-            if !self.add.is_empty() {
-                map.serialize_entry("a", &self.add)?;
-            }
-            if !self.sub.is_empty() {
-                map.serialize_entry("s", &self.sub)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
-        
-    }
-}
+
 
 
 #[bon]
@@ -1360,8 +898,6 @@ mod tests {
 
         let binding = config.options.unwrap();
         let options = binding.as_ref().borrow();
-        let path = options.path.as_ref().unwrap();
-        assert_eq!(path._extra_fields.get("unknown").unwrap(), "unknown");
         let env = &options.env.as_ref().unwrap();
         assert_eq!(env._extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(options._extra_fields.get("unknown").unwrap(), "unknown");

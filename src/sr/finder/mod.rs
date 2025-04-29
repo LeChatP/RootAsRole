@@ -48,14 +48,15 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cred: &'a Cred,
     path: &'a P,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-    env_path: &[PathBuf],
+    env_path: &[&str],
 ) -> Result<BestExecSettings, Box<dyn std::error::Error>>
 where
     P: AsRef<Path>,
 {
     register_plugins();
     let settings_file = rar_common::get_settings(path)?;
-    let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
+    let config_finder_deserializer = ConfigFinderDeserializer { cli, cred, env_path };
+    let env_path = env_path.iter().map(|s| PathBuf::from(s)).collect::<Vec<_>>();
     match settings_file.storage.method {
         StorageMethod::CBOR => {
             let file_path = settings_file
@@ -73,7 +74,7 @@ where
                 &config_finder_deserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))?,
                 env_vars,
-                env_path
+                &env_path,
             )?)
         }
         StorageMethod::JSON => {
@@ -92,7 +93,7 @@ where
                 &config_finder_deserializer
                     .deserialize(&mut serde_json::Deserializer::new(io_reader))?,
                 env_vars,
-                env_path
+                &env_path
             )?)
         }
         _ => Err("Storage method not supported".into()),
@@ -107,6 +108,7 @@ impl BestExecSettings {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: &[PathBuf],
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        coz::begin!("retrieve_settings");
         let mut result = Self::default();
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.clone());
@@ -116,11 +118,13 @@ impl BestExecSettings {
         if !matching {
             return Err("No matching role found".into());
         }
+        coz::progress!("retrieve_settings: roles crawled");
         result.env = opt_stack.calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter).calc_final_env(env_vars, env_path, cred)?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
         result.root = opt_stack.calc_privileged();
+        coz::end!("retrieve_settings");
         Ok(result)
     }
 
@@ -131,6 +135,7 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[PathBuf]
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        coz::progress!("retrieve_role");
         if !self.actors_settings(data)? {
             return Ok(false);
         }
@@ -159,6 +164,7 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[PathBuf],
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        coz::progress!("retrieve_task");
         let temp_opt_stack = BorrowedOptStack::from_task(data);
         
         let env_path = opt_stack.calc_path(
@@ -174,6 +180,9 @@ impl BestExecSettings {
             for command in commands.add() {
                 found = self.command_settings(&env_path, cli, &command)?;
             }
+        } else if let Some(final_path) = &data.final_path {
+            debug!("final_path already found: {:?}", final_path);
+            found = self.update_command_score(final_path.to_path_buf(), data.score.cmd_min);
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
         Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, opt_stack, self, &mut score))?;
@@ -202,21 +211,26 @@ impl BestExecSettings {
         data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         debug!("env_path: {:?}", env_path);
-        match &**data {
+        Ok(match &**data {
             de::DCommand::Simple(role_cmd) => {
-                let mut final_path = PathBuf::new();
+                let mut final_path = None;
                 let cmd_min = cmd::evaluate_command_match(
                     env_path,
                     &cli.cmd_path,
                     &cli.cmd_args,
                     role_cmd,
+                    &self.score.cmd_min,
                     &mut final_path,
                 );
-                self.update_command_score(data, final_path, cmd_min);
+                if let Some(final_path) = final_path {
+                    self.update_command_score(final_path, cmd_min)
+                } else {
+                    false
+                }
             }
             de::DCommand::Complex(value) => {
                 let mut cmd_min = CmdMin::empty();
-                let mut final_path = PathBuf::new();
+                let mut final_path = None;
                 Api::notify(ApiEvent::ProcessComplexCommand(
                     value,
                     env_path,
@@ -225,22 +239,26 @@ impl BestExecSettings {
                     &mut cmd_min,
                     &mut final_path,
                 ))?;
-                self.update_command_score(data, final_path, cmd_min);
+                if let Some(final_path) = final_path {
+                    self.update_command_score(final_path, cmd_min)
+                } else {
+                    false
+                }
             }
-        }
-        Ok(true)
+        })
     }
 
-    fn update_command_score<'d, 'l, 't, 'c, 'a>(
+    fn update_command_score(
         &mut self,
-        data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
         final_path: PathBuf,
         res: CmdMin,
-    ) {
+    ) -> bool {
         if self.score.cmd_min.better(&res) {
-            debug!("New command found: {:?}", data.command);
             self.score.cmd_min = res;
             self.final_path = final_path;
+            true
+        } else {
+            false
         }
     }
 }
