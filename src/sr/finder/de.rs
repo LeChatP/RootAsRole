@@ -1043,7 +1043,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
 }
 
 pub struct DCommandListDeserializer<'a> {
-    env_path: &'a [PathBuf],
+    env_path: &'a [&'a str],
     cmd_path: &'a PathBuf,
     cmd_args: &'a [String],
     pub final_path: &'a mut Option<PathBuf>,
@@ -1153,7 +1153,7 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
 }
 
 struct DCommandDeserializer<'a> {
-    env_path: &'a [PathBuf],
+    env_path: &'a [&'a str],
     cmd_path: &'a PathBuf,
     cmd_args: &'a [String],
     final_path: &'a mut Option<PathBuf>,
@@ -1167,7 +1167,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
         D: serde::Deserializer<'de>,
     {
         struct DCommandVisitor<'a> {
-            env_path: &'a [PathBuf],
+            env_path: &'a [&'a str],
             cmd_path: &'a PathBuf,
             cmd_args: &'a [String],
             final_path: &'a mut Option<PathBuf>,

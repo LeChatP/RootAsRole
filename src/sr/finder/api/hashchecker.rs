@@ -90,7 +90,7 @@ fn is_immutable(file: &File) -> Result<bool, Box<dyn std::error::Error>> {
 
 fn match_path(
     checker: &HashChecker,
-    env_path: &[PathBuf],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     role_path: &String,
     final_path: &mut Option<PathBuf>,
@@ -143,7 +143,7 @@ fn match_path(
 /// Check if input command line is matching with role command line and return the score
 fn match_command_line(
     checker: &HashChecker,
-    env_path: &[PathBuf],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_command: &[String],
@@ -166,7 +166,7 @@ fn match_command_line(
 
 fn process_hash_check(
     checker: HashChecker,
-    env_path: &[PathBuf],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
     min_score: &mut CmdMin,

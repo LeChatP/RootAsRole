@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf};
+use std::error::Error;
 
 use bon::builder;
 use serde_json_borrow::Value;
@@ -38,7 +38,7 @@ fn find_in_parents(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
 }
 
 #[builder]
-fn evaluate_parent_role<'a>(parent: &str, cli: &mut &Cli, role: &mut &DLinkedRole<'_,'a>, opt_stack : &mut BorrowedOptStack<'a>, settings: &mut &mut BestExecSettings, matching: &mut &mut bool, env_path: &[PathBuf]) -> Result<(), Box<dyn Error>> {
+fn evaluate_parent_role<'a>(parent: &str, cli: &mut &Cli, role: &mut &DLinkedRole<'_,'a>, opt_stack : &mut BorrowedOptStack<'a>, settings: &mut &mut BestExecSettings, matching: &mut &mut bool, env_path: &[&str]) -> Result<(), Box<dyn Error>> {
     Ok(if let Some(role)= role.config().role(parent) {
         for task in role.tasks() {
             **matching |= settings.task_settings(cli, &task, opt_stack, env_path)?;

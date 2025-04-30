@@ -3,7 +3,7 @@ use log::{debug, warn};
 use rar_common::{database::score::CmdMin, util::{all_paths_from_env, match_single_path}};
 
 fn match_path(
-    env_path: &[PathBuf],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     role_path: &String,
     previous_min: &CmdMin,
@@ -76,7 +76,7 @@ fn evaluate_regex_cmd(
 
 /// Check if input command line is matching with role command line and return the score
 fn match_command_line(
-    env_path: &[PathBuf],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_command: &[String],
@@ -98,7 +98,7 @@ fn match_command_line(
 }
 
 pub fn evaluate_command_match(
-    env_path: &[PathBuf],
+    env_path: &[& str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_cmd: &str,

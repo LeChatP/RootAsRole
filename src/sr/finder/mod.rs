@@ -36,7 +36,7 @@ pub struct BestExecSettings {
     pub task: Option<String>,
     pub role: String,
     pub env : HashMap<String, String>,
-    pub env_path: Vec<PathBuf>,
+    pub env_path: Vec<String>,
     pub bounding: SBounding,
     pub timeout: STimeout,
     pub auth: SAuthentication,
@@ -56,7 +56,6 @@ where
     register_plugins();
     let settings_file = rar_common::get_settings(path)?;
     let config_finder_deserializer = ConfigFinderDeserializer { cli, cred, env_path };
-    let env_path = env_path.iter().map(|s| PathBuf::from(s)).collect::<Vec<_>>();
     match settings_file.storage.method {
         StorageMethod::CBOR => {
             let file_path = settings_file
@@ -106,7 +105,7 @@ impl BestExecSettings {
         cred: &'a Cred,
         data: &'a DConfigFinder<'a>,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-        env_path: &[PathBuf],
+        env_path: &[&str],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut result = Self::default();
         let mut matching = false;
@@ -130,7 +129,7 @@ impl BestExecSettings {
         cli: &'c Cli,
         data: &DLinkedRole<'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
-        env_path: &[PathBuf]
+        env_path: &[&str]
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if !self.actors_settings(data)? {
             return Ok(false);
@@ -158,50 +157,53 @@ impl BestExecSettings {
         cli: &'t Cli,
         data: &DLinkedTask<'t, 'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
-        env_path: &[PathBuf],
+        env_path: &[&str],
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let temp_opt_stack = BorrowedOptStack::from_task(data);
-        
-        let env_path = opt_stack.calc_path(
-            env_path
-        );
         let mut found = false;
+        let mut f_env_path = None;
         if let Some(commands) = data.commands() {
+            let t_env_path = opt_stack.calc_path(
+                env_path
+            );
             for command in commands.del() {
-                if self.command_settings(&env_path, cli, &command)? {
+                if self.command_settings(&t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(), cli, &command)? {
                     return Ok(false);
                 }
             }
             for command in commands.add() {
-                found = self.command_settings(&env_path, cli, &command)?;
+                found = self.command_settings(&t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(), cli, &command)?;
             }
+            f_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
             debug!("final_path already found: {:?}", final_path);
             found = self.update_command_score(final_path.to_path_buf(), data.score.cmd_min);
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
-        Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, opt_stack, self, &mut score))?;
-        if found && score.better_fully(&self.score) {
-            self.role = data.role().role().role.to_string();
-            self.task = Some(data.id.to_string());
-            self.env_path = env_path;
-            self.score = score;
-            self.setuid = data.setuid.clone().map(|u|u.fetch_id()).flatten();
-            self.setgroups = data.setgroups.clone().and_then(|g| match g {
-                DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
-                DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
-            });
-            self.caps = data.caps.clone();
-            opt_stack.set_role(data.role().role().options.clone());
-            opt_stack.set_task(data.task().options.clone());
-        }
+            Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, opt_stack, self, &mut score))?;
+            if found && score.better_fully(&self.score) {
+                self.role = data.role().role().role.to_string();
+                self.task = Some(data.id.to_string());
+                self.env_path = f_env_path.unwrap_or(opt_stack.calc_path(
+                    env_path
+                )).iter().map(|s| s.to_string()).collect();
+                self.score = score;
+                self.setuid = data.setuid.clone().map(|u|u.fetch_id()).flatten();
+                self.setgroups = data.setgroups.clone().and_then(|g| match g {
+                    DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
+                    DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
+                });
+                self.caps = data.caps.clone();
+                opt_stack.set_role(data.role().role().options.clone());
+                opt_stack.set_task(data.task().options.clone());
+            }
         
         Ok(found)
     }
 
     pub fn command_settings<'d, 'l, 't, 'c, 'a>(
         &mut self,
-        env_path: &[PathBuf],
+        env_path: &[&str],
         cli: &'d Cli,
         data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {

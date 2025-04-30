@@ -128,33 +128,43 @@ pub struct SPathOptions {
     pub sub: Option<LinkedHashSet<String>>,
 }
 
+// ...existing code...
 impl SPathOptions {
-    pub fn calc_path(
-        &self,
-        path_var: &[&str],
-    ) -> Vec<PathBuf> {
+    pub fn calc_path<'a>(
+        &'a self,
+        path_var: &'a [&'a str],
+    ) -> Vec<&'a str> {
         let default = LinkedHashSet::new();
         match self.default_behavior {
-            PathBehavior::Inherit | PathBehavior::Delete => self
-                .add
-                .as_ref()
-                .and_then(|add| Some(add.difference(self.sub.as_ref().unwrap_or(&default)).map(|p| PathBuf::from(p)).collect::<Vec<_>>()))
-                .unwrap_or_default(),
-            is_safe => self
-                .add
-                .iter()
-                .flatten()
-                .map(|s| PathBuf::from(s))
-                .chain(path_var.iter().map(|s| PathBuf::from(*s)).collect::<Vec<_>>())
-                .filter(|s| {
-                    !self.sub.as_ref().is_some_and(|set| {
-                        set.iter().any(|p| *s == PathBuf::from(p))
-                    }) && (!is_safe.is_keep_safe() || s.is_relative())
-                })
-                .collect(),
+            PathBehavior::Inherit | PathBehavior::Delete => {
+                if let Some(add) = &self.add {
+                    let sub = self.sub.as_ref().unwrap_or(&default);
+                    add.iter()
+                        .filter(|item| !sub.contains(*item))
+                        .map(|s| s.as_str())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            is_safe => {
+                let sub = self.sub.as_ref();
+                self.add
+                    .iter()
+                    .flatten()
+                    .map(|s| s.as_str())
+                    .chain(path_var.iter().copied())
+                    .filter(move |s| {
+                        let path = PathBuf::from(s);
+                        let not_in_sub = !sub.is_some_and(|set| set.iter().any(|p| *s == p));
+                        not_in_sub && (!is_safe.is_keep_safe() || path.is_relative())
+                    })
+                    .collect()
+            }
         }
     }
 }
+// ...existing code...
 
 #[derive(
     Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,

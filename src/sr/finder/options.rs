@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::{borrow::Cow, collections::HashMap};
-#[cfg(feature = "finder")]
-use std::path::PathBuf;
 
 use bon::{bon, builder, Builder};
 use chrono::Duration;
@@ -194,7 +192,7 @@ impl<'a> SEnvOptions<'a> {
     pub fn calc_final_env(
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-        env_path: &[PathBuf],
+        env_path: &[&str],
         target: &Cred,
     ) -> Result<HashMap<String, String>, Box<dyn Error>> {
         let mut final_set = match self.default_behavior {
@@ -232,9 +230,9 @@ impl<'a> SEnvOptions<'a> {
             "PATH".into(),
             env_path.iter().fold(String::new(), |acc, path| {
                 if acc.is_empty() {
-                    path.to_string_lossy().to_string()
+                    path.to_string()
                 } else {
-                    format!("{}:{}", acc, path.to_string_lossy())
+                    format!("{}:{}", acc, path)
                 }
             }),
         );
@@ -467,37 +465,47 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             task: task_opt,
         }
     }
-    pub fn calc_path(&self, path_var: &[PathBuf]) -> Vec<PathBuf> {
-        let mut combined_paths: Vec<PathBuf> = Vec::new();
-
-        for config in [
+    pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
+        // Preallocate with a reasonable guess, but will only allocate once.
+        let mut combined_paths: Vec<String> = Vec::with_capacity(path_var.len());
+    
+        // Stack of options in order: default, config, role, task
+        let stack = [
             Some(&self.default_opt),
             self.config.as_ref(),
             self.role.as_ref(),
             self.task.as_ref(),
-            
-        ].iter().flatten().map(|o|o.path.clone()).flatten()
-        {
-            match &config.default_behavior {
-                PathBehavior::Inherit => {
-                    if let Some(add_paths) = &config.add {
-                        combined_paths
-                            .extend(add_paths.iter().map(|path| PathBuf::from(path.as_ref())));
+        ];
+    
+        for opt in stack.iter().flatten() {
+            if let Some(ref path_opt) = opt.path {
+                match path_opt.default_behavior {
+                    PathBehavior::Inherit => {
+                        if let Some(ref add_paths) = path_opt.add {
+                            combined_paths.extend(add_paths.iter().map(|p| p.to_string()));
+                        }
+                        if let Some(ref sub_paths) = path_opt.sub {
+                            // Avoid allocation by using retain and Cow::Borrowed
+                            combined_paths.retain(|path| {
+                                !sub_paths.contains(&Cow::Borrowed(path))
+                            });
+                        }
                     }
-                    if let Some(sub_paths) = &config.sub {
-                        combined_paths.retain(|path| !sub_paths.contains(&path.to_string_lossy()));
+                    PathBehavior::Delete => {
+                        combined_paths.clear();
+                        if let Some(ref add_paths) = path_opt.add {
+                            combined_paths.extend(add_paths.iter().map(|p| p.to_string()));
+                        }
                     }
-                }
-                PathBehavior::Delete => {
-                    combined_paths.clear();
-                    if let Some(add_paths) = &config.add {
-                        combined_paths
-                            .extend(add_paths.iter().map(|path| PathBuf::from(path.as_ref())));
+                    ref is_safe => {
+                        combined_paths.clear();
+                        combined_paths.extend(
+                            path_var
+                                .iter()
+                                .map(|s| s.to_string())
+                                .filter(|path| is_safe.is_keep_unsafe() || path.starts_with('/')),
+                        );
                     }
-                }
-                is_safe => {
-                    combined_paths.clear();
-                    combined_paths.extend(path_var.iter().filter(|path: &&PathBuf| is_safe.is_keep_unsafe() || path.is_absolute()).cloned());
                 }
             }
         }
