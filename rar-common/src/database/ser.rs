@@ -3,15 +3,13 @@ use serde::{
     Serialize,
 };
 
-use super::{
-    is_default,
-    structs::*,
-};
+use super::{is_default, structs::*};
 
 impl Serialize for SConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             if let Some(options) = &self.options {
@@ -43,7 +41,8 @@ impl Serialize for SConfig {
 impl Serialize for SRole {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("name", &self.name)?;
@@ -96,7 +95,8 @@ impl Serialize for SetBehavior {
 impl Serialize for SSetuidSet {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("default", &self.default)?;
@@ -113,7 +113,6 @@ impl Serialize for SSetuidSet {
             }
             map.end()
         } else {
-
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("d", &(self.default as u8))?;
             if let Some(fallback) = &self.fallback {
@@ -137,13 +136,9 @@ impl Serialize for SSetgidSet {
     where
         S: serde::Serializer,
     {
-        if self.default.is_none() && self.sub.is_empty() {
-            let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
-            for sgroups in &self.add {
-                seq.serialize_element(sgroups)?;
-            }
-            seq.end()
-        }else if serializer.is_human_readable() {
+        if self.default.is_none() && self.sub.is_empty() && self.add.is_empty() {
+            serializer.serialize_some(&self.fallback)
+        } else if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("default", &self.default)?;
             if !self.fallback.is_empty() {
@@ -164,7 +159,7 @@ impl Serialize for SSetgidSet {
             if !self.fallback.is_empty() {
                 map.serialize_entry("f", &self.fallback)?;
             }
-            
+
             if !self.add.is_empty() {
                 let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
                 map.serialize_entry("a", &v)?;
@@ -215,7 +210,6 @@ impl Serialize for SCapabilities {
                 }
                 map.end()
             }
-
         }
     }
 }
@@ -256,15 +250,14 @@ impl Serialize for SCredentials {
             }
             map.end()
         }
-        
     }
 }
-
 
 impl Serialize for STask {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("name", &self.name)?;
@@ -310,16 +303,26 @@ impl Serialize for STask {
 impl Serialize for SCommands {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         if self.sub.is_empty() && self._extra_fields.is_empty() {
             if self.add.is_empty() {
-                return serializer.serialize_bool(self.default_behavior.as_ref().is_some_and(|b| *b == SetBehavior::All));
-            } else if !self.add.is_empty() && self.default_behavior.as_ref().is_none_or(|b| *b == SetBehavior::None) {
+                return serializer.serialize_bool(
+                    self.default_behavior
+                        .as_ref()
+                        .is_some_and(|b| *b == SetBehavior::All),
+                );
+            } else if !self.add.is_empty()
+                && self
+                    .default_behavior
+                    .as_ref()
+                    .is_none_or(|b| *b == SetBehavior::None)
+            {
                 let mut seq = serializer.serialize_seq(Some(self.add.len()))?;
                 for cmd in &self.add {
                     seq.serialize_element(cmd)?;
                 }
-                return seq.end()
+                return seq.end();
             }
         }
         if serializer.is_human_readable() {
@@ -353,6 +356,140 @@ impl Serialize for SCommands {
             }
             map.end()
         }
-        
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use capctl::Cap;
+    use serde_json::{json, to_value};
+
+    use crate::database::actor::SActor;
+
+    use super::*;
+
+    #[test]
+    fn test_sconfig_human_readable() {
+        let config = SConfig {
+            options: Some(Default::default()),
+            roles: vec![],
+            _extra_fields: Default::default(),
+        };
+        let value = to_value(&config).unwrap();
+        assert!(value.get("options").is_some());
+    }
+
+    #[test]
+    fn test_srole_binary() {
+        let role = SRole::builder("admin").actor(SActor::user(0).build()).task(STask::builder("test").build()).options(|o|o.bounding(crate::database::options::SBounding::Ignore).build()).build();
+        //cbor4ii encode
+        let bin: Vec<u8> = Vec::new();
+        let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
+        let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
+        role.serialize(&mut serializer).unwrap();
+        assert!(!writer.buffer().is_empty());
+        assert!(!writer.buffer().windows("tasks".len()).any(|window| window == "tasks".as_bytes()));
+        assert!(!writer.buffer().windows("name".len()).any(|window| window == "name".as_bytes()));
+        assert!(!writer.buffer().windows("options".len()).any(|window| window == "options".as_bytes()));
+        assert!(!writer.buffer().windows("actors".len()).any(|window| window == "actors".as_bytes()));
+
+    }
+
+    #[test]
+    fn test_setbehavior_serialize() {
+        let b = SetBehavior::All;
+        let value = to_value(&b).unwrap();
+        assert_eq!(value, json!("all"));
+        let b = SetBehavior::None;
+        let bin: Vec<u8> = Vec::new();
+        let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
+        let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
+        b.serialize(&mut serializer).unwrap();
+        assert!(!writer.buffer().is_empty());
+        assert!(writer.buffer() == [0x00]);        
+    }
+
+    #[test]
+    fn test_ssetuidset_human_readable() {
+        let set = SSetuidSet::builder()
+            .default(SetBehavior::None)
+            .fallback(1)
+            .add(vec![1.into(), 3.into()])
+            .sub(vec![4.into(), 5.into()])
+            .build();
+        let value = to_value(&set).unwrap();
+        assert!(value.get("add").is_some());
+    }
+
+    #[test]
+    fn test_ssetgidset_seq() {
+        let set = SSetgidSet::builder(SetBehavior::None, vec![0, 1])
+            .build();
+        let value = to_value(&set).unwrap();
+        println!("setgidset: {}", serde_json::to_string_pretty(&set).unwrap());
+        assert!(value.is_array());
+        assert_eq!(value.as_array().unwrap().len(), 2);
+        assert_eq!(value.as_array().unwrap()[0], json!(0));
+        assert_eq!(value.as_array().unwrap()[1], json!(1));
+    }
+
+    #[test]
+    fn test_scapabilities_minimal() {
+        let caps = SCapabilities::builder(SetBehavior::None).add_cap(Cap::SYS_ADMIN).build();
+        let value = to_value(&caps).unwrap();
+        assert!(value.is_array());
+    }
+
+    #[test]
+    fn test_scredentials_human_readable() {
+        let creds = SCredentials::builder()
+            .setuid(1)
+            .setgid(2)
+            .capabilities(SCapabilities::builder(SetBehavior::None).add_cap(Cap::SYS_ADMIN).build())
+            .build();
+        let value = to_value(&creds).unwrap();
+        assert!(value.get("setuid").is_some());
+        assert!(value.get("setgid").is_some());
+        assert!(value.get("capabilities").is_some());
+    }
+
+    #[test]
+    fn test_stask_binary() {
+        let task = STask::builder("test")
+            .options(|o| o.bounding(crate::database::options::SBounding::Ignore).build())
+            .cred(SCredentials::builder().setuid(1).setgid(2).build())
+            .commands(SCommands::builder(SetBehavior::All).add(vec!["ls".into()]).build())
+            .build();
+        let bin: Vec<u8> = Vec::new();
+        let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
+        let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
+        task.serialize(&mut serializer).unwrap();
+        assert!(!writer.buffer().is_empty());
+        assert!(!writer.buffer().windows("name".len()).any(|window| window == "name".as_bytes()));
+        assert!(!writer.buffer().windows("options".len()).any(|window| window == "options".as_bytes()));
+        assert!(!writer.buffer().windows("cred".len()).any(|window| window == "cred".as_bytes()));
+        assert!(!writer.buffer().windows("commands".len()).any(|window| window == "commands".as_bytes()));
+        assert!(writer.buffer().windows("test".len()).any(|window| window == "test".as_bytes()));
+    }
+
+    #[test]
+    fn test_scommands_bool() {
+        let cmds = SCommands {
+            default_behavior: Some(SetBehavior::All),
+            add: vec![],
+            sub: vec![],
+            _extra_fields: Default::default(),
+        };
+        let value = to_value(&cmds).unwrap();
+        assert!(value.is_boolean());
+    }
+
+    #[test]
+    fn test_scommands_seq() {
+        let cmds = SCommands::builder(SetBehavior::None)
+            .add(vec!["ls".into()])
+            .build();
+        let value = to_value(&cmds).unwrap();
+        assert!(value.is_array());
     }
 }

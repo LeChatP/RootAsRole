@@ -713,4 +713,42 @@ mod tests {
 
         assert!(!group1.fetch_eq(&group2));
     }
+
+    #[test]
+    fn test_duser_type_creation() {
+        let user_by_id = DUserType::from(0);
+        let user_by_name = DUserType::from("testuser");
+
+        assert_eq!(user_by_id.to_string(), "0");
+        assert_eq!(user_by_name.to_string(), "testuser");
+    }
+    #[test]
+    fn test_fetch_did() {
+        let user = DUserType::from(0);
+        assert_eq!(user.fetch_id(), Some(0));
+
+        let group = DGroupType::from(0);
+        assert_eq!(group.fetch_id(), Some(0));
+    }
+
+    #[test]
+    fn test_dgroups_single() {
+        let groups = DGroups::from(DGroupType::from(0));
+
+        assert_eq!(groups.len(), 1);
+        assert!(!groups.is_empty());
+
+        if let DGroups::Single(group_list) = groups {
+            assert_eq!(group_list.to_string(), "0");
+        } else {
+            panic!("Expected SGroups::Single");
+        }
+    }
+
+    #[test]
+    fn test_is_dempty() {
+        let groups = DGroups::Multiple(Cow::Borrowed(&[]));
+        assert!(groups.is_empty());
+    }
+
 }
