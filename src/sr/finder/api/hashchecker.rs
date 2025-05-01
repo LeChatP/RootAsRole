@@ -154,7 +154,7 @@ fn match_command_line(
     if result.is_empty() || role_command.len() == 1 {
         return;
     }
-    match match_args(cmd_args, &role_command[1..]) {
+    match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
         Ok(args_result) => result |= args_result,
         Err(err) => {
             debug!("Error: {}", err);

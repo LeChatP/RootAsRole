@@ -113,7 +113,7 @@ pub struct SettingsFile {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
 pub struct FullSettingsFile {
     pub storage: Settings,
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     pub config: Option<Rc<RefCell<SConfig>>>,
 }
 
@@ -337,11 +337,11 @@ where
     let value: Versioning<FullSettingsFile> = serde_json::from_reader(file)
         .inspect_err(|e| {
             debug!("Error reading file: {}", e);
-        })
-        .unwrap_or_default();
+        }).unwrap();
     read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
+    println!("settingsfile: {:?}", settingsfile);
     let default_remote = RemoteStorageSettings::default();
     let into = env!("RAR_CFG_DATA_PATH").to_string().into();
     {
@@ -356,11 +356,14 @@ where
             .unwrap_or(&into);
         if data_path != path.as_ref() {
             binding.config = Some(retrieve_sconfig(&binding.storage.method, data_path)?);
+        } else {
+            make_weak_config(binding.config.as_ref().unwrap());
         }
     }
-    make_weak_config(settingsfile.as_ref().borrow_mut().config.as_ref().unwrap());
+    
     Ok(settingsfile.clone())
 }
+
 
 fn retrieve_sconfig(
     file_type: &StorageMethod,
@@ -380,6 +383,8 @@ fn retrieve_sconfig(
             .unwrap_or_default(),
         StorageMethod::Unknown => todo!(),
     };
+    println!("value: {:?}", value);
+    make_weak_config(&value.data);
     //read_effective(false).or(dac_override_effective(false))?;
     //assert_eq!(value.version.to_string(), PACKAGE_VERSION, "Version mismatch");
     debug!("{}", serde_json::to_string_pretty(&value)?);

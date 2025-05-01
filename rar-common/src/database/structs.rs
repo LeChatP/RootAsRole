@@ -26,13 +26,13 @@ use super::{
 pub struct SConfig {
     #[serde(
         default,
-        deserialize_with = "sconfig_opt"
+        deserialize_with = "sconfig_opt",
+        alias = "o"
     )]
     pub options: Option<Rc<RefCell<Opt>>>,
-    #[serde(default)]
+    #[serde(default, alias = "r")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
-    #[serde(default)]
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     pub _extra_fields: Map<String, Value>,
 }
 
@@ -40,9 +40,15 @@ fn sconfig_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::E
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Global;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    println!("sconfig_opt {:?}", opt);
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Global;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
+    
 }
 
 #[derive(Deserialize, Debug, Derivative)]
@@ -72,9 +78,13 @@ fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Err
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Role;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Role;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -129,21 +139,25 @@ fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Err
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Task;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Task;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
 }
 
 #[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
  #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
-    #[serde(alias="d", skip_serializing_if = "Option::is_none")]
+    #[serde(alias="u", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserChooser>,
-    #[serde(alias="1", skip_serializing_if = "Option::is_none")]
+    #[serde(alias="g", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupschooser>,
-    #[serde(default, alias="2", skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias="c", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
@@ -188,12 +202,12 @@ pub struct SSetuidSet {
     #[builder(default)]
     pub default: SetBehavior,
     #[builder(into)]
-    #[serde(alias="1", skip_serializing_if = "Option::is_none")]
+    #[serde(alias="f", skip_serializing_if = "Option::is_none")]
     pub fallback: Option<SUserType>,
-    #[serde(default, alias="2", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias="a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SUserType>,
-    #[serde(default, alias="del", alias="3", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias="del", alias="s", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
 }
@@ -291,15 +305,11 @@ pub enum SCommand {
     Complex(Value),
 }
 
-#[derive(Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct SCommands {
-    #[serde(rename = "default", alias = "d")]
     pub default_behavior: Option<SetBehavior>,
-    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(default, alias = "del", alias = "s", skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
 }
 

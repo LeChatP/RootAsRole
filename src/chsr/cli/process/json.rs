@@ -27,7 +27,6 @@ pub fn list_json(
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
     let config = rconfig.as_ref().borrow();
-    debug!("list_json {:?}", config);
     if let Some(role_id) = role_id {
         if let Some(role) = rconfig.role(&role_id) {
             list_task(task_id, &role, options, options_type, task_type, role_type)
@@ -51,6 +50,7 @@ fn list_task(
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
+                debug!("task {:?}", task);
                 let rcopt = OptStack::from_task(task.clone()).to_opt();
                 let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {

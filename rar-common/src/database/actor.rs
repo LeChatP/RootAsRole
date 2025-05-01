@@ -8,7 +8,7 @@ use serde::{
 use serde_json::{Map, Value};
 use strum::EnumIs;
 
-#[derive(Deserialize, Serialize, Debug, EnumIs, Clone, PartialEq, Eq)]
+#[derive(Serialize, Debug, EnumIs, Clone, PartialEq, Eq)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SGenericActorType {
     Id(u32),

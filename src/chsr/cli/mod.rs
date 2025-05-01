@@ -1157,9 +1157,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
-    let binding = settings.as_ref().borrow();
-    let config = binding.config.as_ref().unwrap();
+        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let binding = settings.as_ref().borrow();
+        let config = binding.config.as_ref().unwrap();
+
         assert!(main(
             &Storage::SConfig(config.clone()),
             "r complete options show path".split(" "),

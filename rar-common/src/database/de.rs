@@ -2,9 +2,9 @@ use core::fmt;
 
 use serde::Deserialize;
 
-use crate::database::structs::SetBehavior;
+use crate::database::structs::{SCommand, SetBehavior};
 
-use super::structs::SCapabilities;
+use super::{actor::SGenericActorType, structs::{SCapabilities, SCommands}};
 use capctl::CapSet;
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -115,7 +115,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
             Default,
             #[serde(alias = "a")]
             Add,
-            #[serde(rename = "del", alias = "s")]
+            #[serde(alias = "del", alias = "s")]
             Sub,
             #[serde(untagged)]
             Other(String),
@@ -193,5 +193,110 @@ impl<'de> Deserialize<'de> for SCapabilities {
         }
 
         deserializer.deserialize_any(SCapabilitiesVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for SGenericActorType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw: serde_json::Value = Deserialize::deserialize(deserializer)?;
+        match raw {
+            serde_json::Value::Number(num) if num.is_u64() => {
+                Ok(SGenericActorType::Id(num.as_u64().unwrap() as u32))
+            }
+            serde_json::Value::String(ref s) => {
+                if let Ok(num) = s.parse() {
+                    Ok(SGenericActorType::Id(num))
+                } else {
+                    Ok(SGenericActorType::Name(s.clone()))
+                }
+            }
+            _ => Err(serde::de::Error::custom("Invalid input for SGenericActorType")),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SCommands {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de> {
+        #[derive(Deserialize, Display)]
+        #[serde(field_identifier,rename_all = "kebab-case")]
+        enum Fields {
+            #[serde(alias = "d")]
+            Default,
+            #[serde(alias = "a")]
+            Add,
+            #[serde(alias = "del", alias = "s")]
+            Sub,
+            #[serde(untagged)]
+            Other(String),
+        }
+        struct SCommandsVisitor;
+        impl<'de> Visitor<'de> for SCommandsVisitor {
+            type Value = SCommands;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a number")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>, {
+                let mut add = Vec::new();
+                while let Some(cmd) = seq.next_element::<SCommand>()? {
+                    add.push(cmd);
+                }
+                Ok(SCommands {
+                    default_behavior: Some(SetBehavior::None),
+                    add,
+                    sub: Vec::new(),
+                    _extra_fields: Map::new(),
+                })
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut default_behavior = None;
+                let mut add = Vec::new();
+                let mut sub = Vec::new();
+                let mut _extra_fields = Map::new();
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Fields::Default => {
+                            default_behavior = Some(map
+                                .next_value()
+                                .expect("default entry must be either 'all' or 'none'"));
+                        }
+                        Fields::Add => {
+                            let values: Vec<SCommand> =
+                                map.next_value().expect("add entry must be a list");
+                            add.extend(values);
+                        }
+                        Fields::Sub => {
+                            let values: Vec<SCommand> =
+                                map.next_value().expect("sub entry must be a list");
+                            sub.extend(values);
+                        }
+                        Fields::Other(other) => {
+                            _extra_fields.insert(other.to_string(), map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SCommands {
+                    default_behavior,
+                    add,
+                    sub,
+                    _extra_fields,
+                })
+            }
+        }
+        deserializer.deserialize_any(SCommandsVisitor)
     }
 }

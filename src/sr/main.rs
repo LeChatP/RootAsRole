@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(args.prompt.unwrap(), "prompt");
         assert!(args.info);
         assert!(args.help);
-        assert_eq!(args.cmd_path, PathBuf::from("/usr/bin/ls"));
+        assert_eq!(args.cmd_path, PathBuf::from("ls"));
         assert_eq!(args.cmd_args, vec!["-l".to_string()]);
     }
 
