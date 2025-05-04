@@ -15,12 +15,12 @@ pub mod score;
 pub mod actor;
 //#[cfg(feature = "finder")]
 //pub mod finder;
+pub mod de;
 pub mod migration;
 pub mod options;
+pub mod ser;
 pub mod structs;
 pub mod versionning;
-pub mod ser;
-pub mod de;
 
 #[derive(Debug, Default, Builder)]
 #[builder(on(_, overwritable))]
@@ -34,13 +34,12 @@ pub struct FilterMatcher {
     pub group: Option<Vec<u32>>,
 }
 
-
 // deserialize the linked hash set
 fn lhs_deserialize_envkey<'de, D>(
     deserializer: D,
 ) -> Result<Option<LinkedHashSet<EnvKey>>, D::Error>
 where
-    D: Deserializer<'de>
+    D: Deserializer<'de>,
 {
     if let Ok(v) = Vec::<EnvKey>::deserialize(deserializer) {
         Ok(Some(v.into_iter().collect()))
@@ -148,7 +147,7 @@ where
 mod tests {
     use super::*;
 
-    struct LinkedHashSetTester<T>(LinkedHashSet<T>);
+    struct LinkedHashSetTester<T>(pub Option<LinkedHashSet<T>>);
 
     impl<'de> Deserialize<'de> for LinkedHashSetTester<EnvKey> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -156,7 +155,7 @@ mod tests {
             D: serde::Deserializer<'de>,
         {
             Ok(Self(
-                lhs_deserialize_envkey(deserializer).map(|v| v.unwrap())?,
+                lhs_deserialize_envkey(deserializer)?,
             ))
         }
     }
@@ -166,7 +165,7 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            lhs_serialize_envkey(&Some(self.0.clone()), serializer)
+            lhs_serialize_envkey(&self.0, serializer)
         }
     }
 
@@ -175,7 +174,9 @@ mod tests {
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(lhs_deserialize(deserializer).map(|v| v.unwrap())?))
+            Ok(Self(
+                lhs_deserialize(deserializer)?,
+            ))
         }
     }
 
@@ -184,11 +185,11 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            lhs_serialize(&Some(self.0.clone()), serializer)
+            lhs_serialize(&self.0, serializer)
         }
     }
 
-    struct DurationTester(Duration);
+    struct DurationTester(Option<Duration>);
 
     impl<'de> Deserialize<'de> for DurationTester {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -196,7 +197,7 @@ mod tests {
             D: serde::Deserializer<'de>,
         {
             Ok(Self(
-                deserialize_duration(deserializer).map(|v| v.unwrap())?,
+                deserialize_duration(deserializer)?,
             ))
         }
     }
@@ -206,7 +207,7 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            serialize_duration(&Some(self.0.clone()), serializer)
+            serialize_duration(&self.0, serializer)
         }
     }
 
@@ -215,21 +216,11 @@ mod tests {
         let json = r#"["key1", "key2", "key3"]"#;
         let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
-        let set = deserialized.unwrap();
-        assert_eq!(set.0.len(), 3);
-        assert!(set.0.contains(&EnvKey::from("key1")));
-        assert!(set.0.contains(&EnvKey::from("key2")));
-        assert!(set.0.contains(&EnvKey::from("key3")));
-    }
-
-    #[test]
-    fn test_lhs_serialize_envkey() {
-        let mut set = LinkedHashSetTester(LinkedHashSet::new());
-        set.0.insert(EnvKey::from("key1"));
-        set.0.insert(EnvKey::from("key2"));
-        set.0.insert(EnvKey::from("key3"));
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"["key1","key2","key3"]"#);
+        let set = deserialized.unwrap().0.unwrap();
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(&EnvKey::from("key1")));
+        assert!(set.contains(&EnvKey::from("key2")));
+        assert!(set.contains(&EnvKey::from("key3")));
     }
 
     #[test]
@@ -237,26 +228,26 @@ mod tests {
         let json = r#"["value1", "value2", "value3"]"#;
         let deserialized: Option<LinkedHashSetTester<String>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
-        let set = deserialized.unwrap();
-        assert_eq!(set.0.len(), 3);
-        assert!(set.0.contains("value1"));
-        assert!(set.0.contains("value2"));
-        assert!(set.0.contains("value3"));
+        let set = deserialized.unwrap().0.unwrap();
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("value1"));
+        assert!(set.contains("value2"));
+        assert!(set.contains("value3"));
     }
 
     #[test]
     fn test_lhs_serialize() {
-        let mut set = LinkedHashSetTester(LinkedHashSet::new());
-        set.0.insert("value1".to_string());
-        set.0.insert("value2".to_string());
-        set.0.insert("value3".to_string());
+        let mut set = LinkedHashSetTester(Some(LinkedHashSet::new()));
+        set.0.as_mut().unwrap().insert("value1".to_string());
+        set.0.as_mut().unwrap().insert("value2".to_string());
+        set.0.as_mut().unwrap().insert("value3".to_string());
         let serialized = serde_json::to_string(&Some(set)).unwrap();
         assert_eq!(serialized, r#"["value1","value2","value3"]"#);
     }
 
     #[test]
     fn test_serialize_duration() {
-        let duration = Some(DurationTester(Duration::seconds(3661)));
+        let duration = DurationTester(Some(Duration::seconds(3661)));
         let serialized = serde_json::to_string(&duration).unwrap();
         assert_eq!(serialized, r#""01:01:01""#);
     }
@@ -264,10 +255,10 @@ mod tests {
     #[test]
     fn test_deserialize_duration() {
         let json = r#""01:01:01""#;
-        let deserialized: Option<DurationTester> = serde_json::from_str(json).unwrap();
-        assert!(deserialized.is_some());
-        let duration = deserialized.unwrap();
-        assert_eq!(duration.0.num_seconds(), 3661);
+        let deserialized: DurationTester = serde_json::from_str(json).unwrap();
+        assert!(deserialized.0.is_some());
+        let duration = deserialized.0.unwrap();
+        assert_eq!(duration.num_seconds(), 3661);
     }
 
     #[test]
@@ -276,5 +267,81 @@ mod tests {
         assert!(is_default(&String::new()));
         assert!(!is_default(&1));
         assert!(!is_default(&"non-default".to_string()));
+    }
+    #[test]
+    fn test_lhs_serialize_empty() {
+        let set: LinkedHashSetTester<EnvKey> = LinkedHashSetTester(None);
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"null"#);
+        let set: LinkedHashSetTester<String> = LinkedHashSetTester(None);
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"null"#);
+        let duration = DurationTester(None);
+        let serialized = serde_json::to_string(&duration).unwrap();
+        assert_eq!(serialized, r#"null"#);
+    }
+    #[test]
+    fn test_lhs_deserialize_envkey_null() {
+        let json = r#"null"#;
+        let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
+        assert!(deserialized.is_none());
+    }
+
+    #[test]
+    fn test_lhs_deserialize_empty_object() {
+        let json = r#"{}"#;
+        let deserialized: Result<Option<LinkedHashSetTester<String>>, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_lhs_serialize_empty_set() {
+        let set = LinkedHashSetTester(Some(LinkedHashSet::<EnvKey>::new()));
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"[]"#);
+    }
+
+    #[test]
+    fn test_serialize_duration_large() {
+        let duration = Some(DurationTester(Some(Duration::seconds(3600 * 25 + 61))));
+        let serialized = serde_json::to_string(&duration).unwrap();
+        assert_eq!(serialized, r#""25:01:01""#);
+    }
+
+    #[test]
+    fn test_deserialize_duration_leading_zeros() {
+        let json = r#""001:002:003""#;
+        let deserialized: DurationTester = serde_json::from_str(json).unwrap();
+        assert!(deserialized.0.is_some());
+        let duration = deserialized.0.unwrap();
+        assert_eq!(duration.num_seconds(), 3723);
+    }
+
+    #[test]
+    fn test_deserialize_duration_with_spaces() {
+        let json = r#"" 01:01:01 ""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_duration_non_numeric() {
+        let json = r#""aa:bb:cc""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_duration_invalid() {
+        let json = r#""test""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_lhs_deserialize_envkey_mixed_types() {
+        let json = r#"["key1", 123, null]"#;
+        let deserialized: Result<LinkedHashSetTester<EnvKey>, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
     }
 }

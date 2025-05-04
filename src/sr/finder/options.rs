@@ -5,7 +5,6 @@ use std::{borrow::Cow, collections::HashMap};
 use bon::{bon, builder, Builder};
 use chrono::Duration;
 
-#[cfg(feature = "finder")]
 use libc::PATH_MAX;
 use rar_common::database::options::{EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged, STimeout};
 use rar_common::database::score::SecurityMin;
@@ -32,18 +31,7 @@ fn default<'a>() -> Opt<'a> {
     .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
     .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
     .path(
-        DPathOptions::builder(
-            env!("RAR_PATH_DEFAULT")
-                .parse()
-                .unwrap_or(PathBehavior::Delete),
-        )
-        .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
-        .sub(
-            env!("RAR_PATH_REMOVE_LIST")
-                .split(':')
-                .collect::<Vec<&str>>(),
-        )
-        .build(),
+        DPathOptions::default_path(),
     )
     .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
     .env(
@@ -295,7 +283,82 @@ impl Into<SPathOptions> for DPathOptions<'_> {
     }
 }
 
-#[cfg(feature = "finder")]
+impl DPathOptions<'_> {
+    pub fn default_path<'a>() -> DPathOptions<'a> {
+        DPathOptions::builder(
+            env!("RAR_PATH_DEFAULT")
+                .parse()
+                .unwrap_or(PathBehavior::Delete),
+        )
+        .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
+        .sub(
+            env!("RAR_PATH_REMOVE_LIST")
+                .split(':')
+                .collect::<Vec<&str>>(),
+        )
+        .build()
+    }
+    pub fn calc_path<'a>(
+        &'a self,
+        path_var: &'a [&'a str],
+    ) -> Vec<&'a str> {
+        let default = Default::default();
+        match self.default_behavior {
+            PathBehavior::Inherit | PathBehavior::Delete => {
+                if let Some(add) = &self.add {
+                    let sub = self.sub.as_ref().unwrap_or(&default);
+                    add.iter()
+                        .filter(|item| !sub.contains(*item))
+                        .map(|s| s.as_ref())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            is_safe => {
+                let sub = self.sub.as_ref();
+                self.add
+                    .as_ref()
+                    .map(|cow| cow.iter())
+                    .into_iter()
+                    .flatten()
+                    .map(|s| s.as_ref())
+                    .chain(path_var.iter().copied())
+                    .filter(move |s| {
+                        let not_in_sub = !sub.is_some_and(|set| set.iter().any(|p| *s == p));
+                        not_in_sub && (!is_safe.is_keep_safe() || !s.starts_with('/'))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+}
+
+impl<'a> DPathOptions<'a> {
+    pub fn union(&mut self, path_options: DPathOptions<'a>) {
+        match path_options.default_behavior {
+            PathBehavior::Inherit => {
+                if let Some(add) = &path_options.add {
+                    self.add.get_or_insert_with(Default::default).to_mut().extend_from_slice(
+                        &add,
+                    );
+                }
+                if let Some(sub) = &path_options.sub {
+                    self.sub.get_or_insert_with(Default::default).to_mut().extend_from_slice(
+                        &sub,
+                    );
+                }
+            }
+            behaviors => {
+                self.add = path_options.add.clone();
+                self.sub = path_options.sub.clone();
+                self.default_behavior = behaviors;
+            }
+        }
+    }
+}
+
 fn check_env(key: impl AsRef<str>, value: impl AsRef<str>) -> bool {
     debug!("Checking env: {}={}", key.as_ref(), value.as_ref());
     match key.as_ref() {
@@ -350,8 +413,6 @@ fn test_pattern(_: impl AsRef<str>, _: impl AsRef<str>) -> bool {
     false
 }
 
-
-#[cfg(feature = "finder")]
 fn tz_is_safe(tzval: &str) -> bool {
     // tzcode treats a value beginning with a ':' as a path.
     let tzval = if let Some(val) = tzval.strip_prefix(':') {
@@ -701,5 +762,23 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         ].iter().flatten().filter_map(|o| o.root)
             .next()
             .unwrap_or(SPrivileged::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tz_is_safe() {
+        assert!(tz_is_safe("America/New_York"));
+        assert!(!tz_is_safe("/America/New_York"));
+        assert!(!tz_is_safe("America/New_York/.."));
+        //assert path max
+        assert!(!tz_is_safe(
+            String::from_utf8(vec![b'a'; (PATH_MAX + 1).try_into().unwrap()])
+                .unwrap()
+                .as_str()
+        ));
     }
 }

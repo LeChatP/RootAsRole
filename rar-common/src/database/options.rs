@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 use std::env;
-use std::path::PathBuf;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 use bon::{bon, builder, Builder};
 use chrono::Duration;
 
-#[cfg(feature = "finder")]
-use libc::PATH_MAX;
 use linked_hash_set::LinkedHashSet;
 
 #[cfg(feature = "pcre2")]
@@ -17,10 +14,8 @@ use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumIter, EnumString, FromRepr};
 
 use log::debug;
-#[cfg(feature = "finder")]
-use log::warn;
 
-use crate::{rc_refcell, Cred};
+use crate::rc_refcell;
 
 //#[cfg(feature = "finder")]
 //use super::finder::Cred;
@@ -130,39 +125,7 @@ pub struct SPathOptions {
 
 // ...existing code...
 impl SPathOptions {
-    pub fn calc_path<'a>(
-        &'a self,
-        path_var: &'a [&'a str],
-    ) -> Vec<&'a str> {
-        let default = LinkedHashSet::new();
-        match self.default_behavior {
-            PathBehavior::Inherit | PathBehavior::Delete => {
-                if let Some(add) = &self.add {
-                    let sub = self.sub.as_ref().unwrap_or(&default);
-                    add.iter()
-                        .filter(|item| !sub.contains(*item))
-                        .map(|s| s.as_str())
-                        .collect()
-                } else {
-                    Vec::new()
-                }
-            }
-            is_safe => {
-                let sub = self.sub.as_ref();
-                self.add
-                    .iter()
-                    .flatten()
-                    .map(|s| s.as_str())
-                    .chain(path_var.iter().copied())
-                    .filter(move |s| {
-                        let path = PathBuf::from(s);
-                        let not_in_sub = !sub.is_some_and(|set| set.iter().any(|p| *s == p));
-                        not_in_sub && (!is_safe.is_keep_safe() || path.is_relative())
-                    })
-                    .collect()
-            }
-        }
-    }
+    
 }
 // ...existing code...
 
@@ -335,13 +298,6 @@ impl Opt {
         }
     }
 
-    pub fn raw_new(level: Level) -> Self {
-        Opt {
-            level,
-            ..Default::default()
-        }
-    }
-
     pub fn level_default() -> Self {
         Self::builder(Level::Default)
             .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
@@ -386,259 +342,6 @@ impl Opt {
             .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
             .build()
     }
-
-    #[cfg(feature = "finder")]
-    fn union_path(&mut self, spath_options: SPathOptions) {
-        if let Some(self_path) = &mut self.path {
-            match spath_options.default_behavior {
-                PathBehavior::Inherit => {
-                    if let Some(add) = spath_options.add {
-                        self_path
-                            .add
-                            .get_or_insert_with(Default::default)
-                            .extend(add.iter().cloned());
-                    }
-                    if let Some(sub) = spath_options.sub {
-                        self_path
-                            .sub
-                            .get_or_insert_with(Default::default)
-                            .extend(sub.iter().cloned());
-                    }
-                }
-                PathBehavior::Delete => {
-                    if let Some(add) = spath_options.add {
-                        self_path.add.replace(add);
-                    }
-                    self_path.default_behavior = PathBehavior::Delete;
-                }
-                PathBehavior::KeepSafe | PathBehavior::KeepUnsafe => {
-                    if let Some(sub) = spath_options.sub {
-                        self_path.sub.replace(sub);
-                    }
-                    self_path.default_behavior = spath_options.default_behavior;
-                }
-            }
-        } else {
-            self.path.replace(spath_options);
-        }
-    }
-
-    #[cfg(feature = "finder")]
-    fn union_env(&mut self, env_options: SEnvOptions) {
-        let self_env = self.env.get_or_insert_default();
-        match env_options.default_behavior {
-            EnvBehavior::Inherit => {
-                if let Some(set) = env_options.set {
-                    self_env
-                        .set
-                        .get_or_insert_with(Default::default)
-                        .extend(set);
-                }
-                if let Some(keep) = env_options.keep {
-                    self_env
-                        .keep
-                        .get_or_insert_with(Default::default)
-                        .extend(keep);
-                }
-                if let Some(check) = env_options.check {
-                    self_env
-                        .check
-                        .get_or_insert_with(Default::default)
-                        .extend(check);
-                }
-                if let Some(delete) = env_options.delete {
-                    self_env
-                        .delete
-                        .get_or_insert_with(Default::default)
-                        .extend(delete);
-                }
-            }
-            EnvBehavior::Delete | EnvBehavior::Keep => {
-                self_env.set = env_options.set;
-                if let Some(keep) = env_options.keep {
-                    self_env.keep.replace(keep);
-                }
-                if let Some(check) = env_options.check {
-                    self_env.check.replace(check);
-                }
-                if let Some(delete) = env_options.delete {
-                    self_env.delete.replace(delete);
-                }
-                self_env.default_behavior = env_options.default_behavior;
-            }
-        }
-    }
-
-    #[cfg(feature = "finder")]
-    pub fn union(&mut self, opt: Opt) {
-        assert!(opt.level >= self.level, "other : {:?} <= self : {:?}", opt.level, self.level); // opt must be more specific than self
-        self.level = opt.level;
-        if let Some(path) = opt.path {
-            self.union_path(path);
-        }
-        if let Some(env) = opt.env {
-            self.union_env(env);
-        }
-        if let Some(root) = opt.root {
-            self.root = Some(root);
-        }
-        if let Some(bounding) = opt.bounding {
-            self.bounding = Some(bounding);
-        }
-        if let Some(authentication) = opt.authentication {
-            self.authentication = Some(authentication);
-        }
-        if let Some(wildcard_denied) = opt.wildcard_denied {
-            self.wildcard_denied = Some(wildcard_denied);
-        }
-        if let Some(timeout) = opt.timeout {
-            self.timeout = Some(timeout);
-        }
-    }
-
-    #[cfg(feature = "finder")]
-    pub fn calc_security_min(&self) -> super::score::SecurityMin {
-        use super::score::SecurityMin;
-        let mut security_min = SecurityMin::default();
-        if self.bounding.is_some_and(|b| b == SBounding::Ignore) {
-            security_min |= SecurityMin::DisableBounding;
-        }
-        if self.root.is_some_and(|r| r == SPrivileged::Privileged) {
-            security_min |= SecurityMin::EnableRoot;
-        }
-        if self
-            .authentication
-            .is_some_and(|a| a == SAuthentication::Skip)
-        {
-            security_min |= SecurityMin::SkipAuth;
-        }
-        if self.env.as_ref().is_some_and(|e| {
-            e.default_behavior.is_keep() || e.override_behavior.as_ref().is_some_and(|o| *o)
-        }) {
-            security_min |= SecurityMin::KeepEnv;
-        }
-        if self
-            .path
-            .as_ref()
-            .is_some_and(|p| p.default_behavior.is_keep_safe())
-        {
-            security_min |= SecurityMin::KeepPath;
-        }
-        if self
-            .path
-            .as_ref()
-            .is_some_and(|p| p.default_behavior.is_keep_unsafe())
-        {
-            security_min |= SecurityMin::KeepUnsafePath;
-        }
-        security_min
-    }
-
-    #[cfg(feature = "finder")]
-    pub fn calc_path(&self, path_var: &str) -> Vec<PathBuf> {
-
-        let binding = SPathOptions::default();
-        let path = self.path.as_ref().unwrap_or(&binding);
-        let default = LinkedHashSet::new();
-        match path.default_behavior {
-            PathBehavior::Inherit | PathBehavior::Delete => path.add.as_ref().and_then(|add| Some(add.difference(path.sub.as_ref().unwrap_or(&default)).map(|p| PathBuf::from(p)).collect::<Vec<_>>())).unwrap_or_default(),
-            is_safe => path.add.iter().flatten().map(|s| PathBuf::from(s)).chain(path_var
-                .split(':')
-                .map(|s| PathBuf::from(s))
-                .collect::<Vec<_>>()).filter(|s| {
-                    !path.sub.as_ref().is_some_and(|set| {
-                        set.iter().any(|p| *s == PathBuf::from(p))
-                    }) && (!is_safe.is_keep_safe() || s.is_relative())
-                }).collect(),
-        }
-    }
-
-    #[cfg(feature = "finder")]
-    pub fn calc_env<I>(
-        &self,
-        opt_filter: Option<FilterMatcher>,
-        target: Cred,
-        env_iterator: I,
-    ) -> Result<HashMap<String, String>, String>
-    where
-        I: Iterator<Item = (String, String)> + std::fmt::Debug,
-    {
-        let env = self.env.as_ref().ok_or("No env options")?;
-        let final_behavior = opt_filter
-            .as_ref()
-            .and_then(|f| {
-                if env.override_behavior.is_some_and(|o| o) {
-                    f.env_behavior
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(env.default_behavior);
-        if final_behavior.is_keep() {
-            warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
-            Please consider using delete instead. 
-            See https://www.sudo.ws/security/advisories/bash_env/, 
-            https://www.sudo.ws/security/advisories/perl_env/ or 
-            https://nvd.nist.gov/vuln/detail/CVE-2006-0151");
-        }
-        let mut final_env: HashMap<String, String> = match final_behavior {
-            EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
-            EnvBehavior::Delete => Ok(env_iterator
-                .filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if env.keep.env_matches(&key)
-                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
-                    {
-                        debug!("Keeping env: {}={}", key.value, value);
-                        Some((key.value, value))
-                    } else {
-                        debug!("Dropping env: {}", key.value);
-                        None
-                    }
-                })
-                .collect()),
-            EnvBehavior::Keep => Ok(env_iterator
-                .filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if !env.delete.env_matches(&key)
-                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
-                    {
-                        debug!("Keeping env: {}={}", key.value, value);
-                        Some((key.value, value))
-                    } else {
-                        debug!("Dropping env: {}", key.value);
-                        None
-                    }
-                })
-                .collect()),
-        }?;
-        let binding = Default::default();
-        let path_var = final_env.get("PATH").unwrap_or(&binding);
-        final_env.insert("PATH".into(), self.calc_path(path_var).iter().fold(
-            String::new(),
-            |acc, path| {
-                if acc.is_empty() {
-                    path.to_string_lossy().to_string()
-                } else {
-                    format!("{}:{}", acc, path.to_string_lossy())
-                }
-            },
-        ));
-        final_env.insert("LOGNAME".into(), target.user.name.clone());
-        final_env.insert("USER".into(), target.user.name);
-        final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
-        final_env
-            .entry("TERM".into())
-            .or_insert_with(|| "unknown".into());
-        final_env.insert(
-            "SHELL".into(),
-            target.user.shell.to_string_lossy().to_string(),
-        );
-        if let Some(set) = &env.set {
-            final_env.extend(set.iter().map(|(k, v)| (k.clone(), v.clone())));
-        }
-        Ok(final_env)
-    }
 }
 
 impl Default for Opt {
@@ -657,16 +360,6 @@ impl Default for Opt {
     }
 }
 
-impl Default for OptStack {
-    fn default() -> Self {
-        OptStack {
-            stack: [None, Some(rc_refcell!(Opt::level_default())), None, None, None],
-            roles: None,
-            role: None,
-            task: None,
-        }
-    }
-}
 
 impl Default for SPathOptions {
     fn default() -> Self {
@@ -693,23 +386,6 @@ impl SPathOptions {
         )
         .build()
     }
-    pub fn union(&mut self, path_options: SPathOptions) {
-        match path_options.default_behavior {
-            PathBehavior::Inherit => {
-                if let Some(add) = path_options.add {
-                    self.add.get_or_insert_with(Default::default).extend(add);
-                }
-                if let Some(sub) = path_options.sub {
-                    self.sub.get_or_insert_with(Default::default).extend(sub);
-                }
-            }
-            behaviors => {
-                self.add = path_options.add;
-                self.sub = path_options.sub;
-                self.default_behavior = behaviors;
-            }
-        }
-    }
 }
 
 
@@ -732,12 +408,12 @@ fn is_valid_env_name(s: &str) -> bool {
 
 #[cfg(feature = "pcre2")]
 fn is_regex(s: &str) -> bool {
-    Regex::new(s).is_ok()
+    Regex::new(&format!("^{}$", s)).is_ok()
 }
 
 #[cfg(not(feature = "pcre2"))]
 fn is_regex(_s: &str) -> bool {
-    true // Always return true if regex feature is disabled
+    false // Always return true if regex feature is disabled
 }
 
 impl EnvKey {
@@ -796,26 +472,8 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
-impl SEnvOptions {
-    pub fn new(behavior: EnvBehavior) -> Self {
-        SEnvOptions {
-            default_behavior: behavior,
-            ..Default::default()
-        }
-    }
-}
-
 trait EnvSet {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool;
-}
-
-impl<T> EnvSet for HashMap<String, T> {
-    fn env_matches(&self, wildcarded: &EnvKey) -> bool {
-        match wildcarded.env_type {
-            EnvKeyType::Normal => self.contains_key(&wildcarded.value),
-            EnvKeyType::Wildcarded => self.keys().any(|s| check_wildcarded(wildcarded, s)),
-        }
-    }
 }
 
 impl EnvSet for LinkedHashSet<EnvKey> {
@@ -844,64 +502,6 @@ fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
 #[cfg(not(feature = "pcre2"))]
 fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
     true
-}
-
-#[cfg(feature = "finder")]
-fn tz_is_safe(tzval: &str) -> bool {
-    // tzcode treats a value beginning with a ':' as a path.
-    let tzval = if let Some(val) = tzval.strip_prefix(':') {
-        val
-    } else {
-        tzval
-    };
-
-    // Reject fully-qualified TZ that doesn't begin with the zoneinfo dir.
-    if tzval.starts_with('/') {
-        return false;
-    }
-
-    // Make sure TZ only contains printable non-space characters
-    // and does not contain a '..' path element.
-    let mut lastch = '/';
-    for cp in tzval.chars() {
-        if cp.is_ascii_whitespace() || !cp.is_ascii_graphic() {
-            return false;
-        }
-        if lastch == '/'
-            && cp == '.'
-            && tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 1)
-                == Some('.')
-            && (tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                == Some('/')
-                || tzval
-                    .chars()
-                    .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                    .is_none())
-        {
-            return false;
-        }
-        lastch = cp;
-    }
-
-    // Reject extra long TZ values (even if not a path).
-    if tzval.len() >= <i32 as TryInto<usize>>::try_into(PATH_MAX).unwrap() {
-        return false;
-    }
-
-    true
-}
-
-#[cfg(feature = "finder")]
-fn check_env(key: &str, value: &str) -> bool {
-    debug!("Checking env: {}={}", key, value);
-    match key {
-        "TZ" => tz_is_safe(value),
-        _ => !value.chars().any(|c| c == '/' || c == '%'),
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1028,42 +628,6 @@ impl OptStack {
         }
     }
 
-    #[cfg(feature = "finder")]
-    fn calculate_path(&self, path_var: &str) -> String {
-        let path = self.get_final_path();
-        let default = LinkedHashSet::new();
-        if let Some(add) = path.add {
-            let final_add = add.difference(path.sub.as_ref().unwrap_or(&default)).fold(
-                "".to_string(),
-                |mut acc, s| {
-                    if !acc.is_empty() {
-                        acc.insert(0, ':');
-                    }
-                    acc.insert_str(0, s);
-                    acc
-                },
-            );
-            match path.default_behavior {
-                PathBehavior::Inherit | PathBehavior::Delete => final_add,
-                is_safe => path_var
-                    .split(':')
-                    .filter(|s| {
-                        !path.sub.as_ref().unwrap_or(&default).contains(*s)
-                            && (!is_safe.is_keep_safe() || PathBuf::from(s).exists())
-                    })
-                    .fold(final_add, |mut acc, s| {
-                        if !acc.is_empty() {
-                            acc.push(':');
-                        }
-                        acc.push_str(s);
-                        acc
-                    }),
-            }
-        } else {
-            "".to_string()
-        }
-    }
-
     fn get_final_path(&self) -> SPathOptions {
         let mut final_behavior = PathBehavior::Delete;
         let default = LinkedHashSet::new();
@@ -1131,160 +695,6 @@ impl OptStack {
                     .as_slice(),
             )
             .build()
-    }
-
-    #[allow(dead_code)]
-    #[cfg(not(tarpaulin_include))]
-    fn union_all_path(&self) -> SPathOptions {
-        let mut final_behavior = PathBehavior::Delete;
-        let default = LinkedHashSet::new();
-        let final_add = rc_refcell!(LinkedHashSet::new());
-        // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(LinkedHashSet::new());
-        self.iter_in_options(|opt| {
-            let final_add_clone = Rc::clone(&final_add);
-            let final_sub_clone = Rc::clone(&final_sub);
-            if let Some(p) = opt.path.borrow().as_ref() {
-                match p.default_behavior {
-                    PathBehavior::Delete => {
-                        let union = final_add_clone
-                            .as_ref()
-                            .borrow()
-                            .union(p.add.as_ref().unwrap_or(&default))
-                            .filter(|e| !p.sub.as_ref().unwrap_or(&default).contains(*e))
-                            .cloned()
-                            .collect();
-                        // policy is to delete, so we add whitelist and remove blacklist
-                        final_add_clone.as_ref().replace(union);
-                        debug!("delete final_add: {:?}", final_add_clone.as_ref().borrow());
-                    }
-                    PathBehavior::KeepSafe | PathBehavior::KeepUnsafe => {
-                        let union = final_sub_clone
-                            .as_ref()
-                            .borrow()
-                            .union(p.sub.as_ref().unwrap_or(&default))
-                            .filter(|e| !p.add.as_ref().unwrap_or(&default).contains(*e))
-                            .cloned()
-                            .collect();
-                        //policy is to keep, so we remove blacklist and add whitelist
-                        final_sub_clone.as_ref().replace(union);
-                    }
-                    PathBehavior::Inherit => {
-                        if final_behavior.is_delete() {
-                            let union: LinkedHashSet<String> = final_add_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.add.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.sub.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_add_clone.as_ref().borrow_mut().extend(union);
-                            debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
-                        } else {
-                            let union: LinkedHashSet<String> = final_sub_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.sub.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.add.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_sub_clone.as_ref().borrow_mut().extend(union);
-                        }
-                    }
-                }
-                if !p.default_behavior.is_inherit() {
-                    final_behavior = p.default_behavior;
-                }
-            }
-        });
-        SPathOptions::builder(final_behavior)
-            .add(
-                final_add
-                    .clone()
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .sub(
-                final_sub
-                    .clone()
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .build()
-    }
-
-    #[cfg(feature = "finder")]
-    pub fn calculate_filtered_env<I>(
-        &self,
-        opt_filter: Option<FilterMatcher>,
-        target: Cred,
-        final_env: I,
-    ) -> Result<HashMap<String, String>, String>
-    where
-        I: Iterator<Item = (String, String)> + std::fmt::Debug,
-    {
-        let env = self.get_final_env(opt_filter);
-        if env.default_behavior.is_keep() {
-            warn!("Keeping environment variables is dangerous operation, it can lead to security vulnerabilities. 
-            Please consider using delete instead. 
-            See https://www.sudo.ws/security/advisories/bash_env/, 
-            https://www.sudo.ws/security/advisories/perl_env/ or 
-            https://nvd.nist.gov/vuln/detail/CVE-2006-0151");
-        }
-        let mut final_env: HashMap<String, String> = match env.default_behavior {
-            EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
-            EnvBehavior::Delete => Ok(final_env
-                .filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if env.keep.env_matches(&key)
-                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
-                    {
-                        debug!("Keeping env: {}={}", key.value, value);
-                        Some((key.value, value))
-                    } else {
-                        debug!("Dropping env: {}", key.value);
-                        None
-                    }
-                })
-                .collect()),
-            EnvBehavior::Keep => Ok(final_env
-                .filter_map(|(key, value)| {
-                    let key = EnvKey::new(key).expect("Unexpected environment variable");
-                    if !env.delete.env_matches(&key)
-                        || (env.check.env_matches(&key) && check_env(&key.value, &value))
-                    {
-                        debug!("Keeping env: {}={}", key.value, value);
-                        Some((key.value, value))
-                    } else {
-                        debug!("Dropping env: {}", key.value);
-                        None
-                    }
-                })
-                .collect()),
-        }?;
-        let binding = Default::default();
-        let path_var = final_env.get("PATH").unwrap_or(&binding);
-        final_env.insert("PATH".into(), self.calculate_path(path_var));
-        final_env.insert("LOGNAME".into(), target.user.name.clone());
-        final_env.insert("USER".into(), target.user.name);
-        final_env.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
-        final_env
-            .entry("TERM".into())
-            .or_insert_with(|| "unknown".into());
-        final_env.insert(
-            "SHELL".into(),
-            target.user.shell.to_string_lossy().to_string(),
-        );
-        if let Some(set) = &env.set {
-            final_env.extend(set.iter().map(|(k, v)| (k.clone(), v.clone())));
-        }
-        Ok(final_env)
     }
 
     fn get_final_env(&self, cmd_filter: Option<FilterMatcher>) -> SEnvOptions {
@@ -1373,130 +783,6 @@ impl OptStack {
             .build()
     }
 
-    #[allow(dead_code)]
-    #[cfg(not(tarpaulin_include))]
-    fn union_all_env(
-        &self,
-    ) -> (
-        EnvBehavior,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-        LinkedHashSet<EnvKey>,
-    ) {
-        let mut final_behavior = EnvBehavior::default();
-        let mut final_keep = LinkedHashSet::new();
-        let mut final_check = LinkedHashSet::new();
-        let mut final_delete = LinkedHashSet::new();
-        self.iter_in_options(|opt| {
-            if let Some(p) = opt.env.borrow().as_ref() {
-                final_behavior = match p.default_behavior {
-                    EnvBehavior::Delete => {
-                        // policy is to delete, so we add whitelist and remove blacklist
-                        final_keep = final_keep
-                            .union(p.keep.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_check = final_check
-                            .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .filter(|e| !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        p.default_behavior
-                    }
-                    EnvBehavior::Keep => {
-                        //policy is to keep, so we remove blacklist and add whitelist
-                        final_delete = final_delete
-                            .union(p.delete.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_check = final_check
-                            .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .filter(|e| !p.keep.env_matches(e))
-                            .cloned()
-                            .collect();
-                        p.default_behavior
-                    }
-                    EnvBehavior::Inherit => {
-                        if final_behavior.is_delete() {
-                            final_keep = final_keep
-                                .union(p.keep.as_ref().unwrap_or(&LinkedHashSet::new()))
-                                .filter(|e| !p.delete.env_matches(e) || !p.check.env_matches(e))
-                                .cloned()
-                                .collect();
-                            final_check = final_check
-                                .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                                .filter(|e| !p.delete.env_matches(e))
-                                .cloned()
-                                .collect();
-                        } else {
-                            final_delete = final_delete
-                                .union(p.delete.as_ref().unwrap_or(&LinkedHashSet::new()))
-                                .filter(|e| !p.keep.env_matches(e) || !p.check.env_matches(e))
-                                .cloned()
-                                .collect();
-                            final_check = final_check
-                                .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                                .filter(|e| !p.keep.env_matches(e))
-                                .cloned()
-                                .collect();
-                        }
-                        final_behavior
-                    }
-                };
-            }
-        });
-        (final_behavior, final_keep, final_check, final_delete)
-    }
-    pub fn get_root_behavior(&self) -> (Level, SPrivileged) {
-        self.find_in_options(|opt| {
-            if let Some(p) = &opt.borrow().root {
-                return Some((opt.level, *p));
-            }
-            None
-        })
-        .unwrap_or((Level::None, SPrivileged::default()))
-    }
-    pub fn get_bounding(&self) -> (Level, SBounding) {
-        self.find_in_options(|opt| {
-            if let Some(p) = &opt.borrow().bounding {
-                return Some((opt.level, *p));
-            }
-            None
-        })
-        .unwrap_or((Level::None, SBounding::default()))
-    }
-    pub fn get_authentication(&self) -> (Level, SAuthentication) {
-        self.find_in_options(|opt| {
-            if let Some(p) = &opt.borrow().authentication {
-                return Some((opt.level, *p));
-            }
-            None
-        })
-        .unwrap_or((Level::None, SAuthentication::default()))
-    }
-
-    pub fn get_wildcard(&self) -> (Level, String) {
-        self.find_in_options(|opt| {
-            if let Some(p) = opt.borrow().wildcard_denied.borrow().as_ref() {
-                return Some((opt.level, p.clone()));
-            }
-            None
-        })
-        .unwrap_or((Level::None, "".to_owned()))
-    }
-
-    pub fn get_timeout(&self) -> (Level, STimeout) {
-        self.find_in_options(|opt| {
-            if let Some(p) = &opt.borrow().timeout {
-                return Some((opt.level, p.clone()));
-            }
-            None
-        })
-        .unwrap_or((Level::None, STimeout::default()))
-    }
-
     fn get_level(&self) -> Level {
         let (level, _) = self
             .find_in_options(|opt| Some((opt.level, ())))
@@ -1540,71 +826,8 @@ impl OptStack {
     }
 }
 
-impl PartialEq for OptStack {
-    fn eq(&self, other: &Self) -> bool {
-        // we must assess that every option result in the same final result
-        let path = self.get_final_path();
-        let default = LinkedHashSet::new();
-        let other_path = other.get_final_path();
-        let res = path.default_behavior == other_path.default_behavior
-            && path
-                .add
-                .as_ref()
-                .unwrap_or(&default)
-                .symmetric_difference(other_path.add.as_ref().unwrap_or(&default))
-                .count()
-                == 0
-            && path
-                .sub
-                .as_ref()
-                .unwrap_or(&default)
-                .symmetric_difference(other_path.sub.as_ref().unwrap_or(&default))
-                .count()
-                == 0
-            && self.get_root_behavior().1 == other.get_root_behavior().1
-            && self.get_bounding().1 == other.get_bounding().1
-            && self.get_wildcard().1 == other.get_wildcard().1
-            && self.get_authentication().1 == other.get_authentication().1
-            && self.get_timeout().1 == other.get_timeout().1;
-        debug!(
-            "final_behavior == other_path.behavior : {}
-        && add {:?} - other_add {:?} == 0 : {}
-        && sub - other_sub == 0 : {}
-        && self.get_root_behavior().1 == other.get_root_behavior().1 : {}
-        && self.get_bounding().1 == other.get_bounding().1 : {}
-        && self.get_wildcard().1 == other.get_wildcard().1 : {}
-        && self.get_authentication().1 == other.get_authentication().1 : {}
-        && self.get_timeout().1 == other.get_timeout().1 : {}",
-            path.default_behavior == other_path.default_behavior,
-            path.add,
-            other_path.add,
-            path.add
-                .as_ref()
-                .unwrap_or(&default)
-                .symmetric_difference(other_path.add.as_ref().unwrap_or(&default))
-                .count()
-                == 0,
-            path.sub
-                .as_ref()
-                .unwrap_or(&default)
-                .symmetric_difference(other_path.sub.as_ref().unwrap_or(&default))
-                .count()
-                == 0,
-            self.get_root_behavior().1 == other.get_root_behavior().1,
-            self.get_bounding().1 == other.get_bounding().1,
-            self.get_wildcard().1 == other.get_wildcard().1,
-            self.get_authentication().1 == other.get_authentication().1,
-            self.get_timeout().1 == other.get_timeout().1
-        );
-        debug!("OPT check: {}", res);
-        res
-    }
-}
-
 #[cfg(test)]
 mod tests {
-
-    use nix::unistd::Pid;
 
     use super::super::options::*;
     use super::super::structs::*;
@@ -1671,96 +894,6 @@ mod tests {
                     .build()
             ))
         );
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_get_path() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| {
-                        opt.path(
-                            SPathOptions::builder(PathBehavior::Inherit)
-                                .add(["path2"])
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .build(),
-            )
-            .options(|opt| {
-                opt.path(
-                    SPathOptions::builder(PathBehavior::Delete)
-                        .add(["path1"])
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-        let options = OptStack::from_role(config.as_ref().borrow().roles.first().unwrap().clone());
-        let res = options.calculate_path(&env::var("PATH").unwrap_or_default());
-        assert_eq!(res, "path2:path1");
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_get_path_delete() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| {
-                        opt.path(
-                            SPathOptions::builder(PathBehavior::Delete)
-                                .add(["path2"])
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .build(),
-            )
-            .options(|opt| {
-                opt.path(
-                    SPathOptions::builder(PathBehavior::Delete)
-                        .add(["path1"])
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-        let options = OptStack::from_role(config.role("test").unwrap())
-            .calculate_path(&env::var("PATH").unwrap_or_default());
-        assert!(options.contains("path2"));
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_opt_add_sub() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| {
-                        opt.path(
-                            SPathOptions::builder(PathBehavior::Delete)
-                                .sub(["path1"])
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .build(),
-            )
-            .options(|opt| {
-                opt.path(
-                    SPathOptions::builder(PathBehavior::Delete)
-                        .add(["path1"])
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-        let options = OptStack::from_role(config.role("test").unwrap())
-            .calculate_path(&env::var("PATH").unwrap_or_default());
-        assert!(!options.contains("path1"));
     }
 
     #[test]
@@ -1930,6 +1063,16 @@ mod tests {
                 .clone(),
             vec![EnvKey::from("env2")]
         ));
+        assert_eq!(global_options
+            .env
+            .as_ref()
+            .unwrap()
+            .keep
+            .as_ref()
+            .unwrap_or(&LinkedHashSet::new())
+            .iter().map(|e| e.clone().into())
+            .collect::<Vec<String>>(),
+        vec!["env2".to_string()]);
         assert_eq!(global_options.root.unwrap(), SPrivileged::Privileged);
         assert_eq!(global_options.bounding.unwrap(), SBounding::Ignore);
         assert_eq!(
@@ -2038,210 +1181,7 @@ mod tests {
         assert_eq!(task_options.wildcard_denied.as_ref().unwrap(), "c");
     }
 
-    #[test]
-    fn test_get_timeout() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| {
-                        opt.timeout(STimeout::builder().duration(Duration::minutes(5)).build())
-                            .build()
-                    })
-                    .build(),
-            )
-            .options(|opt| {
-                opt.timeout(
-                    STimeout::builder()
-                        .type_field(TimestampType::PPID)
-                        .duration(Duration::minutes(10))
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-        let options = OptStack::from_role(config.role("test").unwrap()).get_timeout();
-        assert_eq!(options.1.duration.unwrap(), Duration::minutes(5));
-        assert_eq!(options.0, Level::Role);
-        assert!(options.1.type_field.is_none());
-    }
 
-    #[test]
-    fn test_get_root_behavior() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(STask::builder(1).build())
-                    .options(|opt| opt.root(SPrivileged::User).build())
-                    .build(),
-            )
-            .options(|opt| opt.root(SPrivileged::Privileged).build())
-            .build();
-        let (level, sprivilege) =
-            OptStack::from_task(config.task("test", 1).unwrap()).get_root_behavior();
-        assert_eq!(level, Level::Role);
-        assert_eq!(sprivilege, SPrivileged::User);
-    }
-
-    #[test]
-    fn test_get_bounding() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| opt.bounding(SBounding::Strict).build())
-                    .build(),
-            )
-            .options(|opt| opt.bounding(SBounding::Ignore).build())
-            .build();
-        let (level, bounding) = OptStack::from_role(config.role("test").unwrap()).get_bounding();
-        assert_eq!(level, Level::Role);
-        assert_eq!(bounding, SBounding::Strict);
-    }
-
-    #[test]
-    fn test_get_wildcard() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| opt.wildcard_denied("b").build())
-                    .build(),
-            )
-            .options(|opt| opt.wildcard_denied("a").build())
-            .build();
-        let (level, wildcard) = OptStack::from_role(config.role("test").unwrap()).get_wildcard();
-        assert_eq!(level, Level::Role);
-        assert_eq!(wildcard, "b");
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_tz_is_safe() {
-        assert!(tz_is_safe("America/New_York"));
-        assert!(!tz_is_safe("/America/New_York"));
-        assert!(!tz_is_safe("America/New_York/.."));
-        //assert path max
-        assert!(!tz_is_safe(
-            String::from_utf8(vec![b'a'; (PATH_MAX + 1).try_into().unwrap()])
-                .unwrap()
-                .as_str()
-        ));
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_check_env() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .options(|opt| {
-                        opt.env(
-                            SEnvOptions::builder(EnvBehavior::Inherit)
-                                .check(["env2"])
-                                .unwrap()
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.env(
-                                    SEnvOptions::builder(EnvBehavior::Inherit)
-                                        .keep(["env1"])
-                                        .unwrap()
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .build(),
-            )
-            .options(|opt| {
-                opt.env(
-                    SEnvOptions::builder(EnvBehavior::Delete)
-                        .check(["env3"])
-                        .unwrap()
-                        .set([("env4".to_string(), "value4".to_string())])
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let mut test_env = HashMap::new();
-        test_env.insert("env1".to_string(), "value1".to_string());
-        test_env.insert("env2".into(), "va%lue2".into());
-        test_env.insert("env3".into(), "value3".into());
-        let cred = Cred::builder()
-            .user_id(0)
-            .group_id(0)
-            .ppid(Pid::from_raw(0))
-            .build();
-        let result = options
-            .calculate_filtered_env(None, cred, test_env.into_iter())
-            .unwrap();
-        assert_eq!(result.get("env1").unwrap(), "value1");
-        assert_eq!(result.get("env3").unwrap(), "value3");
-        assert!(result.get("env2").is_none());
-        assert_eq!(result.get("env4").unwrap(), "value4");
-    }
-
-    #[cfg(feature = "finder")]
-    #[test]
-    fn test_override_env() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.env(
-                                    SEnvOptions::builder(EnvBehavior::Inherit)
-                                        .keep(["env1"])
-                                        .unwrap()
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .options(|opt| {
-                        opt.env(
-                            SEnvOptions::builder(EnvBehavior::Inherit)
-                                .check(["env2"])
-                                .unwrap()
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .build(),
-            )
-            .options(|opt| {
-                opt.env(
-                    SEnvOptions::builder(EnvBehavior::Delete)
-                        .check(["env3"])
-                        .unwrap()
-                        .set([("env4".to_string(), "value4".to_string())])
-                        .build(),
-                )
-                .build()
-            })
-            .build();
-
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let mut test_env = HashMap::new();
-        test_env.insert("env1".to_string(), "value1".to_string());
-        test_env.insert("env2".into(), "va%lue2".into());
-        test_env.insert("env3".into(), "value3".into());
-        let cred = Cred::builder().user_id(0).group_id(0).build();
-        let result = options
-            .calculate_filtered_env(None, cred, test_env.into_iter())
-            .unwrap();
-        assert_eq!(result.get("env1").unwrap(), "value1");
-        assert_eq!(result.get("env3").unwrap(), "value3");
-        assert!(result.get("env2").is_none());
-        assert_eq!(result.get("env4").unwrap(), "value4");
-    }
 
     #[test]
     fn is_wildcard_env_key() {
@@ -2252,140 +1192,16 @@ mod tests {
     }
 
     #[test]
-    fn test_wildcard_env() {
+    fn test_get_final_env_set_inherit() {
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
                     .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.env(
-                                    SEnvOptions::builder(EnvBehavior::Delete)
-                                        .keep(["TEST_.*"])
-                                        .unwrap()
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .build(),
-            )
-            .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let mut test_env = HashMap::new();
-        test_env.insert("TEST_A".to_string(), "value1".to_string());
-        test_env.insert("TEST_B".into(), "value2".into());
-        test_env.insert("TESTaA".into(), "value3".into());
-        let cred = Cred::builder().user_id(0).group_id(0).build();
-        let result = options
-            .calculate_filtered_env(None, cred, test_env.into_iter())
-            .unwrap();
-        println!("{:?}", result);
-        assert_eq!(result.get("TEST_A").unwrap(), "value1");
-        assert_eq!(result.get("TEST_B").unwrap(), "value2");
-        assert!(result.get("TESTaA").is_none());
-    }
-
-    #[test]
-    fn test_safe_path() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.path(
-                                    SPathOptions::builder(PathBehavior::KeepSafe)
-                                        .add(Vec::<String>::new())
-                                        .sub(["/sys"])
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .build(),
-            )
-            .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
-        assert_eq!(res, "/tmp:/bin");
-    }
-
-    #[test]
-    fn test_unsafe_path() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.path(
-                                    SPathOptions::builder(PathBehavior::KeepUnsafe)
-                                        .add(Vec::<String>::new())
-                                        .sub(["/sys"])
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .build(),
-            )
-            .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
-        assert_eq!(res, "./proc:/tmp:/bin");
-    }
-
-    #[test]
-    fn test_inherit_keep_path() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(
-                        STask::builder(IdTask::Number(1))
-                            .options(|opt| {
-                                opt.path(
-                                    SPathOptions::builder(PathBehavior::Inherit)
-                                        .add(Vec::<String>::new())
-                                        .sub(["/sys"])
-                                        .build(),
-                                )
-                                .build()
-                            })
-                            .build(),
-                    )
-                    .options(|opt| {
-                        opt.path(
-                            SPathOptions::builder(PathBehavior::KeepSafe)
-                                .add(Vec::<String>::new())
-                                .sub(["/tmp"])
-                                .build(),
-                        )
-                        .build()
-                    })
-                    .build(),
-            )
-            .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let res = options.calculate_path("/sys:./proc:/tmp:/bin");
-        assert_eq!(res, "/bin");
-    }
-
-    #[test]
-    fn test_final_env_keep() {
-        let config = SConfig::builder()
-            .role(
-                SRole::builder("test")
-                    .task(
-                        STask::builder(IdTask::Number(1))
+                        STask::builder(1)
                             .options(|opt| {
                                 opt.env(
                                     SEnvOptions::builder(EnvBehavior::Inherit)
-                                        .delete(["env1"])
-                                        .unwrap()
+                                        .set([("env1", "value3")])
                                         .build(),
                                 )
                                 .build()
@@ -2395,8 +1211,7 @@ mod tests {
                     .options(|opt| {
                         opt.env(
                             SEnvOptions::builder(EnvBehavior::Inherit)
-                                .delete(["env2"])
-                                .unwrap()
+                                .set([("env2", "value2")])
                                 .build(),
                         )
                         .build()
@@ -2405,77 +1220,127 @@ mod tests {
             )
             .options(|opt| {
                 opt.env(
-                    SEnvOptions::builder(EnvBehavior::Keep)
-                        .delete(["env3"])
-                        .unwrap()
+                    SEnvOptions::builder(EnvBehavior::Delete)
+                        .set([("env1", "value1")])
                         .build(),
                 )
                 .build()
             })
             .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let test_env = [
-            ("env1", "value1"),
-            ("env2", "value2"),
-            ("env3", "value3"),
-            ("env4", "value4"),
-            ("env5", "value5"),
-        ]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()));
-
-        let cred = Cred::builder().user_id(0).group_id(0).build();
-        let result = options
-            .calculate_filtered_env(None, cred, test_env.into_iter())
-            .unwrap();
-        assert!(result.get("env1").is_none());
-        assert!(result.get("env2").is_none());
-        assert!(result.get("env3").is_none());
-        assert_eq!(result.get("env4").unwrap(), "value4");
-        assert_eq!(result.get("env5").unwrap(), "value5");
+        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let opt = stack.to_opt();
+        let options = opt.as_ref().borrow();
+        assert_eq!(
+            options
+                .env
+                .as_ref()
+                .unwrap()
+                .set
+                .as_ref()
+                .unwrap_or(&HashMap::new())
+                .get("env1")
+                .unwrap(),
+            "value3"
+        );
     }
 
     #[test]
-    fn test_opt_filter_env() {
+    fn test_get_final_path_inherit() {
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
                     .task(
-                        STask::builder(IdTask::Number(1))
+                        STask::builder(1)
                             .options(|opt| {
-                                opt.env(
-                                    SEnvOptions::builder(EnvBehavior::Delete)
-                                        .delete(["envA"])
-                                        .unwrap()
-                                        .override_behavior(true)
+                                opt.path(
+                                    SPathOptions::builder(PathBehavior::Inherit)
+                                        .sub(["/path3"])
                                         .build(),
                                 )
                                 .build()
                             })
                             .build(),
                     )
+                    .options(|opt| {
+                        opt.path(
+                            SPathOptions::builder(PathBehavior::Inherit)
+                                .sub(["/path2"])
+                                .build(),
+                        )
+                        .build()
+                    })
+                    .build(),
+            )
+            .options(|opt| {
+                opt.path(
+                    SPathOptions::builder(PathBehavior::KeepSafe)
+                        .sub(["/path1"])
+                        .build(),
+                )
+                .build()
+            })
+            .build();
+        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let opt = stack.to_opt();
+        let options = opt.as_ref().borrow();
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path1")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path2")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path3")
+        );
+    }
+
+    #[test]
+    fn test_find_in_options_none() {
+        let config = SConfig::builder()
+            .role(
+                SRole::builder("test")
+                    .task(
+                        STask::builder(1)
+                            .build(),
+                    )
                     .build(),
             )
             .build();
-        let options = OptStack::from_task(config.task("test", 1).unwrap());
-        let test_env = [("envA", "value1"), ("envB", "value2"), ("envC", "value3")]
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()));
+        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let res: Option<(Level, SPathOptions)> =
+            stack.find_in_options(|_| None);
+        assert_eq!(res, None);
+    }
 
-        let cred = Cred::builder().user_id(0).group_id(0).build();
-        let result = options
-            .calculate_filtered_env(
-                Some(
-                    FilterMatcher::builder()
-                        .env_behavior(EnvBehavior::Keep)
-                        .build(),
-                ),
-                cred,
-                test_env.into_iter(),
-            )
-            .unwrap();
-        assert!(result.get("envA").is_none());
-        assert_eq!(result.get("envB").unwrap(), "value2");
-        assert_eq!(result.get("envC").unwrap(), "value3");
+    #[test]
+    fn test_invalid_envkey() {
+        let invalid_env = "3TE(ST_a";
+        let env_key = EnvKey::new(invalid_env.to_string());
+        assert!(env_key.is_err());
+        assert_eq!(
+            env_key.unwrap_err(),
+            format!("env key {}, must be a valid env, or a valid regex", invalid_env)
+        );
     }
 }

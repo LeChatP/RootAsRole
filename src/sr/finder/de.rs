@@ -8,7 +8,7 @@ use nix::unistd::Group;
 use rar_common::{
     database::{
         actor::{DActor, DGroups, DUserType},
-        options::{Level, SPathOptions},
+        options::Level,
         score::{ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetUserMin, TaskScore},
         structs::{SCapabilities, SetBehavior},
     },
@@ -25,7 +25,7 @@ use strum::EnumIs;
 use crate::{
     finder::{
         api::{Api, ApiEvent},
-        cmd,
+        cmd, options::DPathOptions,
     },
     Cli,
 };
@@ -128,7 +128,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             {
                 let mut options = None;
                 let mut roles = Vec::new();
-                let mut spath = SPathOptions::level_default();
+                let mut spath = DPathOptions::default_path();
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Options => {
@@ -137,7 +137,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                             opt.level = Level::Global;
                             if self.human_readable {
                                 if let Some(path) = opt.path.as_ref() {
-                                    spath.union(path.clone().into());
+                                    spath.union(path.clone());
                                 }
                             }
                             options = Some(opt);
@@ -179,7 +179,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
 struct RoleListFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     cred: &'a Cred,
-    spath: &'b mut SPathOptions,
+    spath: &'b mut DPathOptions<'a>,
     env_path: &'a [&'a str],
 }
 
@@ -192,7 +192,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
         struct RoleListFinderVisitor<'a, 'b> {
             cli: &'a Cli,
             cred: &'a Cred,
-            spath: &'b mut SPathOptions,
+            spath: &'b mut DPathOptions<'a>,
             env_path: &'a [&'a str],
         }
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for RoleListFinderVisitor<'a, '_> {
@@ -232,7 +232,7 @@ struct RoleFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     cred: &'a Cred,
     env_path: &'a [&'a str],
-    spath: &'b mut SPathOptions,
+    spath: &'b mut DPathOptions<'a>,
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
@@ -261,7 +261,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             cli: &'a Cli,
             cred: &'a Cred,
             env_path: &'a [&'a str],
-            spath: &'b mut SPathOptions,
+            spath: &'b mut DPathOptions<'a>,
             human_readable: bool,
         }
 
@@ -401,17 +401,13 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
             fn user_matches(&self, user: &Cred, actor: &DActor<'_>) -> ActorMatchMin {
                 match actor {
                     DActor::User { id, .. } => {
-                        if let Some(id) = id {
-                            if *id == user.user {
-                                return ActorMatchMin::UserMatch;
-                            }
+                        if *id == user.user {
+                            return ActorMatchMin::UserMatch;
                         }
                     }
                     DActor::Group { groups, .. } => {
-                        if let Some(groups) = groups.as_ref() {
-                            if Self::match_groups(&user.groups, &[groups]) {
-                                return ActorMatchMin::GroupMatch(groups.len());
-                            }
+                        if Self::match_groups(&user.groups, &[groups]) {
+                            return ActorMatchMin::GroupMatch(groups.len());
                         }
                     }
                     DActor::Unknown(element) => {
@@ -429,7 +425,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
 struct TaskListFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     env_path: &'a [&'a str],
-    spath: &'b mut SPathOptions,
+    spath: &'b mut DPathOptions<'a>,
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
@@ -441,7 +437,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
     {
         struct TaskListFinderVisitor<'a, 'b> {
             cli: &'a Cli,
-            spath: &'b mut SPathOptions,
+            spath: &'b mut DPathOptions<'a>,
             env_path: &'a [&'a str],
         }
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskListFinderVisitor<'a, '_> {
@@ -484,7 +480,7 @@ struct TaskFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     i: usize,
     env_path: &'a [&'a str],
-    spath: &'b mut SPathOptions,
+    spath: &'b mut DPathOptions<'a>,
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
@@ -514,7 +510,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
             cli: &'a Cli,
             i: usize,
             env_path: &'a [&'a str],
-            spath: &'b mut SPathOptions,
+            spath: &'b mut DPathOptions<'a>,
             human_readable: bool,
         }
 
@@ -793,7 +789,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                             let value = map.next_value::<DGroups>()?;
                             if let Some(u) = filter {
                                 let value: Vec<u32> =
-                                    value.try_into().map_err(serde::de::Error::custom)?;
+                                    (&value).try_into().map_err(serde::de::Error::custom)?;
                                 if *u == value {
                                     ok = true;
                                 }
