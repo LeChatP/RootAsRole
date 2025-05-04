@@ -1,4 +1,8 @@
-use std::{collections::HashSet, error::Error, hash::{DefaultHasher, Hash, Hasher}};
+use std::{
+    collections::HashSet,
+    error::Error,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use log::error;
 use serde_json_borrow::Value;
@@ -12,7 +16,6 @@ fn calculate_hash<T: Hash>(value: &T) -> u64 {
     value.hash(&mut hasher);
     hasher.finish()
 }
-
 
 fn check_ssd_recursive(
     role: &DLinkedRole,
@@ -54,7 +57,6 @@ fn check_ssd_recursive(
     }
     Ok(false)
 }
-
 
 fn check_ssd(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
     if let ApiEvent::ActorMatching(role, _settings, matching) = event {

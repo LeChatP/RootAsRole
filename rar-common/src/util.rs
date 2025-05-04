@@ -208,20 +208,20 @@ fn parse_complex_command(command: &serde_json::Value) -> Result<Vec<String>, Box
             })
             .collect();
         result
-    }
-    else {
+    } else {
         Err("Invalid command".into())
     }
 }
 
-pub fn all_paths_from_env< P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec<PathBuf> {
+pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec<PathBuf> {
     env_path
         .iter()
         .filter_map(|dir| {
             let full_path = Path::new(dir).join(&exe_name);
             debug!("Checking path: {:?}", full_path);
             full_path.is_file().then_some(full_path)
-        }).collect()
+        })
+        .collect()
 }
 
 #[cfg(feature = "finder")]

@@ -1,32 +1,31 @@
+mod finder;
 pub mod pam;
 mod timeout;
-mod finder;
 
 use bon::Builder;
 use capctl::CapState;
 use const_format::formatcp;
 use finder::BestExecSettings;
-use nix::{
-    sys::stat,
-    unistd::isatty,
-};
-use rar_common::{database::{
-    actor::{SGroupType, SGroups, SUserType},
-    options::EnvBehavior,
-    FilterMatcher,
-}, Cred};
+use nix::{sys::stat, unistd::isatty};
 use rar_common::util::escape_parser_string;
+use rar_common::{
+    database::{
+        actor::{SGroupType, SGroups, SUserType},
+        options::EnvBehavior,
+        FilterMatcher,
+    },
+    Cred,
+};
 
 use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
 use std::{error::Error, io::stdout, os::fd::AsRawFd, path::PathBuf};
 
-use rar_common::
-    util::{
-        activates_no_new_privs, drop_effective, setgid_effective, setpcap_effective, setuid_effective, subsribe, BOLD, RST, UNDERLINE,
-    }
-;
+use rar_common::util::{
+    activates_no_new_privs, drop_effective, setgid_effective, setpcap_effective, setuid_effective,
+    subsribe, BOLD, RST, UNDERLINE,
+};
 
 #[cfg(not(test))]
 const ROOTASROLE: &str = env!("RAR_CFG_PATH");
@@ -167,10 +166,11 @@ where
                 env.replace(EnvBehavior::Keep);
             }
             "-p" | "--prompt" => {
-                args.prompt = Some(iter
-                    .next()
-                    .map(|s| escape_parser_string(s))
-                    .expect("Missing prompt for -p option"));
+                args.prompt = Some(
+                    iter.next()
+                        .map(|s| escape_parser_string(s))
+                        .expect("Missing prompt for -p option"),
+                );
             }
             "-i" | "--info" => {
                 args.info = true;
@@ -187,7 +187,6 @@ where
                 }
             }
         }
-        
     }
     args.opt_filter = Some(
         FilterMatcher::builder()
@@ -208,8 +207,8 @@ where
 fn main() -> Result<(), Box<dyn Error>> {
     use std::env;
 
-    use finder::find_best_exec_settings;
     use crate::{pam::check_auth, ROOTASROLE};
+    use finder::find_best_exec_settings;
 
     subsribe("sr")?;
     drop_effective()?;
@@ -225,12 +224,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let user = make_cred();
-    let execcfg = find_best_exec_settings(&args, &user, &ROOTASROLE.to_string(),env::vars(), env::var("PATH")
-    .unwrap_or_default()
-    .split(':')
-    .collect::<Vec<_>>().as_slice())?;
+    let execcfg = find_best_exec_settings(
+        &args,
+        &user,
+        &ROOTASROLE.to_string(),
+        env::vars(),
+        env::var("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )?;
 
-    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args.prompt.unwrap_or(PAM_PROMPT.to_string()))?;
+    check_auth(
+        &execcfg.auth,
+        &execcfg.timeout,
+        &user,
+        &args.prompt.unwrap_or(PAM_PROMPT.to_string()),
+    )?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -265,9 +276,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     setuid_setgid(&execcfg);
 
-
     set_capabilities(&execcfg);
-
 
     let pty = Pty::new().expect("Failed to create pty");
 
@@ -304,7 +313,8 @@ fn make_cred() -> Cred {
             } else {
                 None
             }
-        })).build();
+        }))
+        .build();
 }
 
 fn set_capabilities(execcfg: &BestExecSettings) {
@@ -332,7 +342,7 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     } else {
         setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        if execcfg.bounding.is_strict(){
+        if execcfg.bounding.is_strict() {
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
         let capstate = CapState::empty();
@@ -342,13 +352,12 @@ fn set_capabilities(execcfg: &BestExecSettings) {
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) {
-    let gid = execcfg.setgroups.as_ref().and_then(|g| {
-        g.first().cloned()
-    });
+    let gid = execcfg.setgroups.as_ref().and_then(|g| g.first().cloned());
 
     setgid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
-    capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref()).expect("Failed to set ids");
+    capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref())
+        .expect("Failed to set ids");
     setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
     setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
 }
@@ -357,12 +366,8 @@ fn setuid_setgid(execcfg: &BestExecSettings) {
 mod tests {
     use libc::getgid;
     use nix::unistd::{getuid, Pid};
-    
-    
 
     use super::*;
-    
-    
 
     /**
     #[test]

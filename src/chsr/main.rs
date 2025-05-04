@@ -12,7 +12,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use rar_common::{get_full_settings, full_save_settings};
+    use rar_common::{full_save_settings, get_full_settings};
 
     subsribe("chsr")?;
     drop_effective()?;

@@ -39,7 +39,6 @@ pub enum Level {
     Global,
     Role,
     Task,
-    
 }
 
 #[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
@@ -124,9 +123,7 @@ pub struct SPathOptions {
 }
 
 // ...existing code...
-impl SPathOptions {
-    
-}
+impl SPathOptions {}
 // ...existing code...
 
 #[derive(
@@ -302,9 +299,7 @@ impl Opt {
         Self::builder(Level::Default)
             .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
             .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
-            .path(
-                SPathOptions::level_default(),
-            )
+            .path(SPathOptions::level_default())
             .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
             .env(
                 SEnvOptions::builder(
@@ -360,7 +355,6 @@ impl Default for Opt {
     }
 }
 
-
 impl Default for SPathOptions {
     fn default() -> Self {
         SPathOptions {
@@ -387,8 +381,6 @@ impl SPathOptions {
         .build()
     }
 }
-
-
 
 fn is_valid_env_name(s: &str) -> bool {
     let mut chars = s.chars();
@@ -1063,16 +1055,19 @@ mod tests {
                 .clone(),
             vec![EnvKey::from("env2")]
         ));
-        assert_eq!(global_options
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap_or(&LinkedHashSet::new())
-            .iter().map(|e| e.clone().into())
-            .collect::<Vec<String>>(),
-        vec!["env2".to_string()]);
+        assert_eq!(
+            global_options
+                .env
+                .as_ref()
+                .unwrap()
+                .keep
+                .as_ref()
+                .unwrap_or(&LinkedHashSet::new())
+                .iter()
+                .map(|e| e.clone().into())
+                .collect::<Vec<String>>(),
+            vec!["env2".to_string()]
+        );
         assert_eq!(global_options.root.unwrap(), SPrivileged::Privileged);
         assert_eq!(global_options.bounding.unwrap(), SBounding::Ignore);
         assert_eq!(
@@ -1181,8 +1176,6 @@ mod tests {
         assert_eq!(task_options.wildcard_denied.as_ref().unwrap(), "c");
     }
 
-
-
     #[test]
     fn is_wildcard_env_key() {
         assert!(!is_valid_env_name("TEST_.*"));
@@ -1283,36 +1276,30 @@ mod tests {
         let stack = OptStack::from_task(config.task("test", 1).unwrap());
         let opt = stack.to_opt();
         let options = opt.as_ref().borrow();
-        assert!(
-            options
-                .path
-                .as_ref()
-                .unwrap()
-                .sub
-                .as_ref()
-                .unwrap()
-                .contains("/path1")
-        );
-        assert!(
-            options
-                .path
-                .as_ref()
-                .unwrap()
-                .sub
-                .as_ref()
-                .unwrap()
-                .contains("/path2")
-        );
-        assert!(
-            options
-                .path
-                .as_ref()
-                .unwrap()
-                .sub
-                .as_ref()
-                .unwrap()
-                .contains("/path3")
-        );
+        assert!(options
+            .path
+            .as_ref()
+            .unwrap()
+            .sub
+            .as_ref()
+            .unwrap()
+            .contains("/path1"));
+        assert!(options
+            .path
+            .as_ref()
+            .unwrap()
+            .sub
+            .as_ref()
+            .unwrap()
+            .contains("/path2"));
+        assert!(options
+            .path
+            .as_ref()
+            .unwrap()
+            .sub
+            .as_ref()
+            .unwrap()
+            .contains("/path3"));
     }
 
     #[test]
@@ -1320,16 +1307,12 @@ mod tests {
         let config = SConfig::builder()
             .role(
                 SRole::builder("test")
-                    .task(
-                        STask::builder(1)
-                            .build(),
-                    )
+                    .task(STask::builder(1).build())
                     .build(),
             )
             .build();
         let stack = OptStack::from_task(config.task("test", 1).unwrap());
-        let res: Option<(Level, SPathOptions)> =
-            stack.find_in_options(|_| None);
+        let res: Option<(Level, SPathOptions)> = stack.find_in_options(|_| None);
         assert_eq!(res, None);
     }
 
@@ -1340,7 +1323,10 @@ mod tests {
         assert!(env_key.is_err());
         assert_eq!(
             env_key.unwrap_err(),
-            format!("env key {}, must be a valid env, or a valid regex", invalid_env)
+            format!(
+                "env key {}, must be a valid env, or a valid regex",
+                invalid_env
+            )
         );
     }
 }

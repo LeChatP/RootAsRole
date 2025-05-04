@@ -12,7 +12,8 @@ use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock, Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE
+    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock,
+    Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE,
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
@@ -52,7 +53,6 @@ fn is_running_in_container() -> bool {
 }
 
 pub fn check_filesystem() -> io::Result<()> {
-
     let config = BufReader::new(File::open(ROOTASROLE)?);
     let mut config: SettingsFile = serde_json::from_reader(config)?;
 
@@ -78,13 +78,13 @@ pub fn check_filesystem() -> io::Result<()> {
             info!("Failed to get filesystem type, removing immutable flag");
         }
     }
-    
+
     set_immutable(&mut config, false);
     File::create(ROOTASROLE)?.write_all(serde_json::to_string_pretty(&config)?.as_bytes())?;
     Ok(())
 }
 
-fn set_options(content : &mut String) -> io::Result<()> {
+fn set_options(content: &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
     config.storage.method = env!("RAR_CFG_TYPE").parse().unwrap();
     if let Some(settings) = &mut config.storage.settings {
@@ -98,7 +98,8 @@ fn set_options(content : &mut String) -> io::Result<()> {
     config.storage.options = Some(Opt {
         timeout: Some(STimeout {
             type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
-            duration: convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string()).unwrap(),
+            duration: convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
+                .unwrap(),
             max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").len() > 0 {
                 Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
             } else {
@@ -108,17 +109,54 @@ fn set_options(content : &mut String) -> io::Result<()> {
         }),
         path: Some(SPathOptions {
             default_behavior: env!("RAR_PATH_DEFAULT").parse().unwrap(),
-            add: Some(env!("RAR_PATH_ADD_LIST").split(":").map(|s| s.to_string()).collect()),
-            sub: if env!("RAR_PATH_REMOVE_LIST").len() > 0 { Some(env!("RAR_PATH_REMOVE_LIST").split(":").map(|s| s.to_string()).collect()) } else { None },
+            add: Some(
+                env!("RAR_PATH_ADD_LIST")
+                    .split(":")
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            sub: if env!("RAR_PATH_REMOVE_LIST").len() > 0 {
+                Some(
+                    env!("RAR_PATH_REMOVE_LIST")
+                        .split(":")
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            } else {
+                None
+            },
             _extra_fields: Value::Null,
         }),
         env: Some(SEnvOptions {
             default_behavior: env!("RAR_ENV_DEFAULT").parse().unwrap(),
-            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap() { Some(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap()) } else { None },
-            keep: Some(env!("RAR_ENV_KEEP_LIST").split(",").map(|s| s.to_string()).collect()),
-            check: Some(env!("RAR_ENV_CHECK_LIST").split(",").map(|s| s.to_string()).collect()),
-            delete: Some(env!("RAR_ENV_DELETE_LIST").split(",").map(|s| s.to_string()).collect()),
-            set: if env!("RAR_ENV_SET_LIST").len() > 0 && env!("RAR_ENV_SET_LIST") != "{}" { serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()} else { HashMap::new() },
+            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap() {
+                Some(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap())
+            } else {
+                None
+            },
+            keep: Some(
+                env!("RAR_ENV_KEEP_LIST")
+                    .split(",")
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            check: Some(
+                env!("RAR_ENV_CHECK_LIST")
+                    .split(",")
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            delete: Some(
+                env!("RAR_ENV_DELETE_LIST")
+                    .split(",")
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            set: if env!("RAR_ENV_SET_LIST").len() > 0 && env!("RAR_ENV_SET_LIST") != "{}" {
+                serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()
+            } else {
+                HashMap::new()
+            },
             _extra_fields: Value::Null,
         }),
         root: Some(env!("RAR_USER_CONSIDERED").parse().unwrap()),
@@ -215,7 +253,10 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     let mut status = ConfigState::Unchanged;
     // Check if the target file exists
     if !Path::new(ROOTASROLE).exists() {
-        info!("Config file {} does not exist, deploying default file", ROOTASROLE);
+        info!(
+            "Config file {} does not exist, deploying default file",
+            ROOTASROLE
+        );
         // If the target file does not exist, copy the default file
         cap_effective(Cap::DAC_OVERRIDE, true).context("Failed to raise DAC_OVERRIDE")?;
         deploy_config(ROOTASROLE)?;

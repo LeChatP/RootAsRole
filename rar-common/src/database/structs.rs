@@ -1,9 +1,7 @@
 use bon::{bon, builder, Builder};
 use capctl::{Cap, CapSet};
 use derivative::Derivative;
-use serde::{
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use strum::{Display, EnumIs, EnumString, FromRepr};
 
@@ -24,11 +22,7 @@ use super::{
 
 #[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
-    #[serde(
-        default,
-        deserialize_with = "sconfig_opt",
-        alias = "o"
-    )]
+    #[serde(default, deserialize_with = "sconfig_opt", alias = "o")]
     pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, alias = "r")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
@@ -48,7 +42,6 @@ where
     } else {
         Ok(None)
     }
-    
 }
 
 #[derive(Deserialize, Debug, Derivative)]
@@ -104,7 +97,9 @@ impl std::fmt::Display for IdTask {
 }
 
 pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
-    cmds.default_behavior.as_ref().is_none_or(|b| *b == Default::default())
+    cmds.default_behavior
+        .as_ref()
+        .is_none_or(|b| *b == Default::default())
         && cmds.add.is_empty()
         && cmds.sub.is_empty()
         && cmds._extra_fields.is_empty()
@@ -113,16 +108,16 @@ pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
 #[derive(Deserialize, Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
 pub struct STask {
-    #[serde(alias="n", default, skip_serializing_if = "IdTask::is_number")]
+    #[serde(alias = "n", default, skip_serializing_if = "IdTask::is_number")]
     pub name: IdTask,
-    #[serde(alias="p", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "p", skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
-    #[serde(alias="i", default, skip_serializing_if = "is_default")]
+    #[serde(alias = "i", default, skip_serializing_if = "is_default")]
     pub cred: SCredentials,
-    #[serde(alias="c", default, skip_serializing_if = "cmds_is_default")]
+    #[serde(alias = "c", default, skip_serializing_if = "cmds_is_default")]
     pub commands: SCommands,
     #[serde(
-        alias="o",
+        alias = "o",
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "stask_opt"
@@ -149,15 +144,15 @@ where
 }
 
 #[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
- #[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
-    #[serde(alias="u", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "u", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserChooser>,
-    #[serde(alias="g", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "g", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupschooser>,
-    #[serde(default, alias="c", skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "c", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
@@ -198,16 +193,26 @@ impl From<u32> for SUserChooser {
 #[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 
 pub struct SSetuidSet {
-    #[serde(alias="d", rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(
+        alias = "d",
+        rename = "default",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(default)]
     pub default: SetBehavior,
     #[builder(into)]
-    #[serde(alias="f", skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "f", skip_serializing_if = "Option::is_none")]
     pub fallback: Option<SUserType>,
-    #[serde(default, alias="a", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SUserType>,
-    #[serde(default, alias="del", alias="s", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        alias = "del",
+        alias = "s",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
 }
@@ -254,17 +259,21 @@ impl From<u32> for SGroupschooser {
 
 #[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
-
-    #[serde(rename = "default", alias = "d", default, skip_serializing_if = "is_default")]
+    #[serde(
+        rename = "default",
+        alias = "d",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(start_fn)]
     pub default: SetBehavior,
-    #[serde(alias="f")]
+    #[serde(alias = "f")]
     #[builder(start_fn, into)]
     pub fallback: SGroups,
-    #[serde(default, alias="a", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
-    #[serde(default, alias="s", skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "s", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
 }
@@ -276,7 +285,7 @@ pub struct SCapabilities {
     #[builder(field)]
     pub add: CapSet,
     #[builder(field)]
-    pub sub: CapSet
+    pub sub: CapSet,
 }
 
 impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
@@ -617,9 +626,6 @@ impl Index<usize> for SRole {
         &self.tasks[index]
     }
 }
-
-
-
 
 #[bon]
 impl SCommands {

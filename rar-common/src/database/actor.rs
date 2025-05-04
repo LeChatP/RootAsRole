@@ -1,10 +1,11 @@
-use std::{borrow::Cow, fmt::{self, Display, Formatter}};
+use std::{
+    borrow::Cow,
+    fmt::{self, Display, Formatter},
+};
 
 use bon::bon;
 use nix::unistd::{Group, User};
-use serde::{
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use strum::EnumIs;
 
@@ -27,9 +28,7 @@ pub enum DGenericActorType<'a> {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct DUserType<'a>(
-    #[serde(borrow)]
-    DGenericActorType<'a>);
+pub struct DUserType<'a>(#[serde(borrow)] DGenericActorType<'a>);
 
 impl SUserType {
     pub fn fetch_id(&self) -> Option<u32> {
@@ -81,11 +80,8 @@ impl fmt::Display for SUserType {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SGroupType(SGenericActorType);
 
-
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct DGroupType<'a>(
-    #[serde(borrow)]
-    DGenericActorType<'a>);
+pub struct DGroupType<'a>(#[serde(borrow)] DGenericActorType<'a>);
 
 impl fmt::Display for SGroupType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -179,7 +175,7 @@ impl Display for SGroups {
 #[serde(untagged)]
 pub enum DGroups<'a> {
     Single(#[serde(borrow)] DGroupType<'a>),
-    Multiple(#[serde(borrow)] Cow<'a,[DGroupType<'a>]>),
+    Multiple(#[serde(borrow)] Cow<'a, [DGroupType<'a>]>),
 }
 
 impl SGroups {
@@ -264,8 +260,8 @@ impl From<&str> for SGroupType {
     }
 }
 
-impl<'a> From<Cow<'a,str>> for DGroupType<'a> {
-    fn from(name: Cow<'a,str>) -> Self {
+impl<'a> From<Cow<'a, str>> for DGroupType<'a> {
+    fn from(name: Cow<'a, str>) -> Self {
         DGroupType(DGenericActorType::Name(name))
     }
 }
@@ -382,14 +378,20 @@ impl<const N: usize> From<[SGroupType; N]> for SGroups {
 
 impl TryInto<Vec<u32>> for &DGroups<'_> {
     type Error = String;
-    
+
     fn try_into(self) -> Result<Vec<u32>, Self::Error> {
         match self {
-            DGroups::Single(group) => Ok(vec![group.fetch_id().ok_or(format!("{} group does not exist",group))?]),
+            DGroups::Single(group) => Ok(vec![group
+                .fetch_id()
+                .ok_or(format!("{} group does not exist", group))?]),
             DGroups::Multiple(groups) => {
                 let mut ids = Vec::new();
                 for group in groups.iter() {
-                    ids.push(group.fetch_id().ok_or(format!("{} group does not exist",group))?);
+                    ids.push(
+                        group
+                            .fetch_id()
+                            .ok_or(format!("{} group does not exist", group))?,
+                    );
                 }
                 Ok(ids)
             }
@@ -399,14 +401,20 @@ impl TryInto<Vec<u32>> for &DGroups<'_> {
 
 impl TryInto<Vec<u32>> for SGroups {
     type Error = String;
-    
+
     fn try_into(self) -> Result<Vec<u32>, Self::Error> {
         match self {
-            SGroups::Single(group) => Ok(vec![group.fetch_id().ok_or(format!("{} group does not exist",group))?]),
+            SGroups::Single(group) => Ok(vec![group
+                .fetch_id()
+                .ok_or(format!("{} group does not exist", group))?]),
             SGroups::Multiple(groups) => {
                 let mut ids = Vec::new();
                 for group in groups {
-                    ids.push(group.fetch_id().ok_or(format!("{} group does not exist",group))?);
+                    ids.push(
+                        group
+                            .fetch_id()
+                            .ok_or(format!("{} group does not exist", group))?,
+                    );
                 }
                 Ok(ids)
             }
@@ -715,7 +723,10 @@ mod tests {
         assert_eq!(user.to_string(), "User: 0");
         assert_eq!(group.to_string(), "Group: [0]");
         let group = SActor::Group {
-            groups: Some(SGroups::from(vec![SGroupType::from(0), SGroupType::from("test")])),
+            groups: Some(SGroups::from(vec![
+                SGroupType::from(0),
+                SGroupType::from("test"),
+            ])),
             _extra_fields: Map::new(),
         };
         assert_eq!(group.to_string(), "Group: [0, test]");
@@ -738,7 +749,11 @@ mod tests {
         assert_ne!(groups, other_groups);
         let other_groups = vec![SGroupType::from(0)];
         assert_ne!(groups, other_groups);
-        let other_groups = vec![SGroupType::from(0), SGroupType::from("test"), SGroupType::from("test2")];
+        let other_groups = vec![
+            SGroupType::from(0),
+            SGroupType::from("test"),
+            SGroupType::from("test2"),
+        ];
         assert_ne!(groups, other_groups);
         let groups = SGroups::from(0);
         let other_groups = vec![SGroupType::from(0)];
@@ -758,8 +773,14 @@ mod tests {
         let group2 = SGroupType::from("unkown");
         assert!(!group1.fetch_eq(&group2));
 
-        let groups = SGroups::from(vec![SGroupType::from(0), SGroupType::from(getuid().as_raw())]);
-        let other_groups = SGroups::from(vec![SGroupType::from(0), SGroupType::from(getuid().as_raw())]);
+        let groups = SGroups::from(vec![
+            SGroupType::from(0),
+            SGroupType::from(getuid().as_raw()),
+        ]);
+        let other_groups = SGroups::from(vec![
+            SGroupType::from(0),
+            SGroupType::from(getuid().as_raw()),
+        ]);
         assert!(groups.fetch_eq(&other_groups));
         let other_groups = SGroups::from(vec![SGroupType::from(0), SGroupType::from("test2")]);
         assert!(!groups.fetch_eq(&other_groups));
@@ -844,7 +865,6 @@ mod tests {
         let groups = SGroups::from(vec![SGroupType::from("unkown")]);
         let ids: Result<Vec<u32>, _> = groups.try_into();
         assert!(ids.is_err());
-
     }
 
     #[test]
@@ -860,6 +880,5 @@ mod tests {
         let groups = DGroups::from(vec![DGroupType::from("unkown")]);
         let ids: Result<Vec<u32>, _> = (&groups).try_into();
         assert!(ids.is_err());
-
     }
 }

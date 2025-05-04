@@ -2,7 +2,9 @@
 /// It is much more efficient to do it this way, way less memory allocation and manipulation
 /// Only the settings that are needed are kept in memory
 use std::{
-    collections::HashMap, io::BufReader, path::{Path, PathBuf}
+    collections::HashMap,
+    io::BufReader,
+    path::{Path, PathBuf},
 };
 
 use api::{register_plugins, Api, ApiEvent};
@@ -12,7 +14,9 @@ use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
     database::{
-        actor::DGroups, options::{SAuthentication, SBounding, SPrivileged, STimeout}, score::{CmdMin, Score}
+        actor::DGroups,
+        options::{SAuthentication, SBounding, SPrivileged, STimeout},
+        score::{CmdMin, Score},
     },
     util::open_with_privileges,
     Cred, StorageMethod,
@@ -35,7 +39,7 @@ pub struct BestExecSettings {
     pub caps: Option<CapSet>,
     pub task: Option<String>,
     pub role: String,
-    pub env : HashMap<String, String>,
+    pub env: HashMap<String, String>,
     pub env_path: Vec<String>,
     pub bounding: SBounding,
     pub timeout: STimeout,
@@ -55,7 +59,11 @@ where
 {
     register_plugins();
     let settings_file = rar_common::get_settings(path)?;
-    let config_finder_deserializer = ConfigFinderDeserializer { cli, cred, env_path };
+    let config_finder_deserializer = ConfigFinderDeserializer {
+        cli,
+        cred,
+        env_path,
+    };
     match settings_file.storage.method {
         StorageMethod::CBOR => {
             let file_path = settings_file
@@ -92,7 +100,7 @@ where
                 &config_finder_deserializer
                     .deserialize(&mut serde_json::Deserializer::new(io_reader))?,
                 env_vars,
-                &env_path
+                &env_path,
             )?)
         }
     }
@@ -115,7 +123,9 @@ impl BestExecSettings {
         if !matching {
             return Err("No matching role found".into());
         }
-        result.env = opt_stack.calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter).calc_final_env(env_vars, env_path, cred)?;
+        result.env = opt_stack
+            .calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter)
+            .calc_final_env(env_vars, env_path, cred)?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
@@ -128,7 +138,7 @@ impl BestExecSettings {
         cli: &'c Cli,
         data: &DLinkedRole<'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
-        env_path: &[&str]
+        env_path: &[&str],
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if !self.actors_settings(data)? {
             return Ok(false);
@@ -145,9 +155,7 @@ impl BestExecSettings {
         data: &DLinkedRole<'c, 'a>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut res = !data.role().user_min.is_no_match();
-        Api::notify(ApiEvent::ActorMatching(
-            data, self, &mut res,
-        ))?;
+        Api::notify(ApiEvent::ActorMatching(data, self, &mut res))?;
         Ok(res)
     }
 
@@ -162,16 +170,22 @@ impl BestExecSettings {
         let mut found = false;
         let mut f_env_path = None;
         if let Some(commands) = data.commands() {
-            let t_env_path = opt_stack.calc_path(
-                env_path
-            );
+            let t_env_path = opt_stack.calc_path(env_path);
             for command in commands.del() {
-                if self.command_settings(&t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(), cli, &command)? {
+                if self.command_settings(
+                    &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    cli,
+                    &command,
+                )? {
                     return Ok(false);
                 }
             }
             for command in commands.add() {
-                found = self.command_settings(&t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(), cli, &command)?;
+                found = self.command_settings(
+                    &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    cli,
+                    &command,
+                )?;
             }
             f_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
@@ -179,24 +193,28 @@ impl BestExecSettings {
             found = self.update_command_score(final_path.to_path_buf(), data.score.cmd_min);
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
-            Api::notify(ApiEvent::BestTaskSettingsFound(&cli, &data, opt_stack, self, &mut score))?;
-            if found && score.better_fully(&self.score) {
-                self.role = data.role().role().role.to_string();
-                self.task = Some(data.id.to_string());
-                self.env_path = f_env_path.unwrap_or(opt_stack.calc_path(
-                    env_path
-                )).iter().map(|s| s.to_string()).collect();
-                self.score = score;
-                self.setuid = data.setuid.clone().map(|u|u.fetch_id()).flatten();
-                self.setgroups = data.setgroups.clone().and_then(|g| match g {
-                    DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
-                    DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
-                });
-                self.caps = data.caps.clone();
-                opt_stack.set_role(data.role().role().options.clone());
-                opt_stack.set_task(data.task().options.clone());
-            }
-        
+        Api::notify(ApiEvent::BestTaskSettingsFound(
+            &cli, &data, opt_stack, self, &mut score,
+        ))?;
+        if found && score.better_fully(&self.score) {
+            self.role = data.role().role().role.to_string();
+            self.task = Some(data.id.to_string());
+            self.env_path = f_env_path
+                .unwrap_or(opt_stack.calc_path(env_path))
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            self.score = score;
+            self.setuid = data.setuid.clone().map(|u| u.fetch_id()).flatten();
+            self.setgroups = data.setgroups.clone().and_then(|g| match g {
+                DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
+                DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
+            });
+            self.caps = data.caps.clone();
+            opt_stack.set_role(data.role().role().options.clone());
+            opt_stack.set_task(data.task().options.clone());
+        }
+
         Ok(found)
     }
 
@@ -244,11 +262,7 @@ impl BestExecSettings {
         })
     }
 
-    fn update_command_score(
-        &mut self,
-        final_path: PathBuf,
-        res: CmdMin,
-    ) -> bool {
+    fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
         if self.score.cmd_min.better(&res) {
             self.score.cmd_min = res;
             self.final_path = final_path;

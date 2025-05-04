@@ -5,7 +5,6 @@ use semver::Version;
 
 use crate::PACKAGE_VERSION;
 
-
 type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), Box<dyn Error>>;
 
 pub struct Migration<T> {

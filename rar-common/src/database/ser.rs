@@ -381,18 +381,36 @@ mod tests {
 
     #[test]
     fn test_srole_binary() {
-        let role = SRole::builder("admin").actor(SActor::user(0).build()).task(STask::builder("test").build()).options(|o|o.bounding(crate::database::options::SBounding::Ignore).build()).build();
+        let role = SRole::builder("admin")
+            .actor(SActor::user(0).build())
+            .task(STask::builder("test").build())
+            .options(|o| {
+                o.bounding(crate::database::options::SBounding::Ignore)
+                    .build()
+            })
+            .build();
         //cbor4ii encode
         let bin: Vec<u8> = Vec::new();
         let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         role.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        assert!(!writer.buffer().windows("tasks".len()).any(|window| window == "tasks".as_bytes()));
-        assert!(!writer.buffer().windows("name".len()).any(|window| window == "name".as_bytes()));
-        assert!(!writer.buffer().windows("options".len()).any(|window| window == "options".as_bytes()));
-        assert!(!writer.buffer().windows("actors".len()).any(|window| window == "actors".as_bytes()));
-
+        assert!(!writer
+            .buffer()
+            .windows("tasks".len())
+            .any(|window| window == "tasks".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("name".len())
+            .any(|window| window == "name".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("options".len())
+            .any(|window| window == "options".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("actors".len())
+            .any(|window| window == "actors".as_bytes()));
     }
 
     #[test]
@@ -406,7 +424,7 @@ mod tests {
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         b.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        assert!(writer.buffer() == [0x00]);        
+        assert!(writer.buffer() == [0x00]);
     }
 
     #[test]
@@ -423,8 +441,7 @@ mod tests {
 
     #[test]
     fn test_ssetgidset_seq() {
-        let set = SSetgidSet::builder(SetBehavior::None, vec![0, 1])
-            .build();
+        let set = SSetgidSet::builder(SetBehavior::None, vec![0, 1]).build();
         let value = to_value(&set).unwrap();
         println!("setgidset: {}", serde_json::to_string_pretty(&set).unwrap());
         assert!(value.is_array());
@@ -435,7 +452,9 @@ mod tests {
 
     #[test]
     fn test_scapabilities_minimal() {
-        let caps = SCapabilities::builder(SetBehavior::None).add_cap(Cap::SYS_ADMIN).build();
+        let caps = SCapabilities::builder(SetBehavior::None)
+            .add_cap(Cap::SYS_ADMIN)
+            .build();
         let value = to_value(&caps).unwrap();
         assert!(value.is_array());
     }
@@ -445,7 +464,11 @@ mod tests {
         let creds = SCredentials::builder()
             .setuid(1)
             .setgid(2)
-            .capabilities(SCapabilities::builder(SetBehavior::None).add_cap(Cap::SYS_ADMIN).build())
+            .capabilities(
+                SCapabilities::builder(SetBehavior::None)
+                    .add_cap(Cap::SYS_ADMIN)
+                    .build(),
+            )
             .build();
         let value = to_value(&creds).unwrap();
         assert!(value.get("setuid").is_some());
@@ -456,20 +479,42 @@ mod tests {
     #[test]
     fn test_stask_binary() {
         let task = STask::builder("test")
-            .options(|o| o.bounding(crate::database::options::SBounding::Ignore).build())
+            .options(|o| {
+                o.bounding(crate::database::options::SBounding::Ignore)
+                    .build()
+            })
             .cred(SCredentials::builder().setuid(1).setgid(2).build())
-            .commands(SCommands::builder(SetBehavior::All).add(vec!["ls".into()]).build())
+            .commands(
+                SCommands::builder(SetBehavior::All)
+                    .add(vec!["ls".into()])
+                    .build(),
+            )
             .build();
         let bin: Vec<u8> = Vec::new();
         let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         task.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        assert!(!writer.buffer().windows("name".len()).any(|window| window == "name".as_bytes()));
-        assert!(!writer.buffer().windows("options".len()).any(|window| window == "options".as_bytes()));
-        assert!(!writer.buffer().windows("cred".len()).any(|window| window == "cred".as_bytes()));
-        assert!(!writer.buffer().windows("commands".len()).any(|window| window == "commands".as_bytes()));
-        assert!(writer.buffer().windows("test".len()).any(|window| window == "test".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("name".len())
+            .any(|window| window == "name".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("options".len())
+            .any(|window| window == "options".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("cred".len())
+            .any(|window| window == "cred".as_bytes()));
+        assert!(!writer
+            .buffer()
+            .windows("commands".len())
+            .any(|window| window == "commands".as_bytes()));
+        assert!(writer
+            .buffer()
+            .windows("test".len())
+            .any(|window| window == "test".as_bytes()));
     }
 
     #[test]

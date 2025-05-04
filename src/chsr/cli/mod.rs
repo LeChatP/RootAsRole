@@ -52,7 +52,7 @@ mod tests {
         },
         get_full_settings,
         util::remove_with_privileges,
-        RemoteStorageSettings, Settings, FullSettingsFile, StorageMethod,
+        FullSettingsFile, RemoteStorageSettings, Settings, StorageMethod,
     };
 
     use crate::ROOTASROLE;
@@ -290,29 +290,23 @@ mod tests {
             })
             .is_ok_and(|b| !b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r r1 create".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(main(settings.clone(), "r r1 create".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete delete".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(main(settings.clone(), "r complete delete".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         teardown("all_main");
     }
     #[test]
@@ -320,53 +314,43 @@ mod tests {
         setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete show actors".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
+        assert!(main(settings.clone(), "r complete show actors".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| !b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete show tasks".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
+        assert!(main(settings.clone(), "r complete show tasks".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| !b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete show all".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
+        assert!(main(settings.clone(), "r complete show all".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| !b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete purge actors".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(
+            main(settings.clone(), "r complete purge actors".split(" "),)
+                .inspect_err(|e| {
+                    error!("{}", e);
+                })
+                .inspect(|e| {
+                    debug!("{}", e);
+                })
+                .is_ok_and(|b| b)
+        );
         teardown("r_complete_show_actors");
     }
     #[test]
@@ -374,17 +358,14 @@ mod tests {
         setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete purge tasks".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(main(settings.clone(), "r complete purge tasks".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         teardown("purge_tasks");
     }
     #[test]
@@ -392,17 +373,14 @@ mod tests {
         setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete purge all".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(main(settings.clone(), "r complete purge all".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         teardown("r_complete_purge_all");
     }
     #[test]
@@ -424,17 +402,38 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
             .contains(&SActor::user("user1").build()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
             .contains(&SActor::group("group1").build()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
@@ -450,17 +449,38 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
             .contains(&SActor::user("user1").build()));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
             .contains(&SActor::group("group1").build()));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
             .as_ref()
             .borrow()
             .actors
@@ -483,7 +503,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete show cmd".split(" "),
@@ -495,7 +515,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete show cred".split(" "),
@@ -507,7 +527,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete purge all".split(" "),
@@ -558,35 +578,62 @@ mod tests {
         debug!("=====");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        let task_count = settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks.len();
-        assert!(main(
-            settings.clone(),
-            "r complete t t1 add".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let task_count = settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks
+            .len();
+        assert!(main(settings.clone(), "r complete t t1 add".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks.len(),
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks
+                .len(),
             task_count + 1
         );
-        assert!(main(
-            settings.clone(),
-            "r complete t t1 del".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        assert!(main(settings.clone(), "r complete t t1 del".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks.len(),
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks
+                .len(),
             task_count
         );
         teardown("r_complete_task_t_complete_purge_cred");
@@ -611,7 +658,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .commands
@@ -640,7 +697,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .commands
@@ -668,7 +735,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .commands
@@ -685,7 +762,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .commands
@@ -702,7 +789,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .commands
@@ -741,7 +838,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .commands
@@ -764,7 +871,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -773,7 +890,17 @@ mod tests {
             .unwrap()
             .default_behavior
             .is_none());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -782,7 +909,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::DAC_OVERRIDE));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -791,7 +928,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::SYS_ADMIN));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -801,7 +948,17 @@ mod tests {
             .add
             .has(Cap::SYS_BOOT));
         assert!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .cred
@@ -813,7 +970,17 @@ mod tests {
                 == 0
         );
         assert!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .cred
@@ -835,7 +1002,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -844,13 +1021,33 @@ mod tests {
             .unwrap()
             .add
             .is_empty());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
             .setuid
             .is_none());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -878,7 +1075,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .cred
@@ -910,7 +1117,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .cred
@@ -936,7 +1153,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -945,7 +1172,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::DAC_OVERRIDE));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -954,7 +1191,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::SYS_ADMIN));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -980,7 +1227,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -989,7 +1246,17 @@ mod tests {
             .unwrap()
             .sub
             .has(Cap::DAC_OVERRIDE));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -998,7 +1265,17 @@ mod tests {
             .unwrap()
             .sub
             .has(Cap::SYS_ADMIN));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1019,7 +1296,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1028,7 +1315,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::DAC_OVERRIDE));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1037,7 +1334,17 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::SYS_ADMIN));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1058,7 +1365,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1067,7 +1384,17 @@ mod tests {
             .unwrap()
             .sub
             .has(Cap::DAC_OVERRIDE));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1076,7 +1403,17 @@ mod tests {
             .unwrap()
             .sub
             .has(Cap::SYS_ADMIN));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .cred
@@ -1092,31 +1429,27 @@ mod tests {
         setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "options show all".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
+        assert!(main(settings.clone(), "options show all".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_ok_and(|b| !b));
         let settings = get_full_settings(&path).expect("Failed to get settings");
 
-        assert!(main(
-            settings.clone(),
-            "r complete options show path".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        assert!(
+            main(settings.clone(), "r complete options show path".split(" "),)
+                .inspect_err(|e| {
+                    error!("{}", e);
+                })
+                .inspect(|e| {
+                    debug!("{}", e);
+                })
+                .is_ok_and(|b| !b)
+        );
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete options show bounding".split(" "),
@@ -1149,7 +1482,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show root".split(" "),
@@ -1161,7 +1494,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show bounding".split(" "),
@@ -1173,7 +1506,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show wildcard-denied".split(" "),
@@ -1185,7 +1518,7 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-    let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path set /usr/bin:/bin".split(" "),
@@ -1218,7 +1551,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1252,7 +1595,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1276,7 +1629,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1301,7 +1664,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1336,7 +1709,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         let default = LinkedHashSet::new();
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1351,7 +1734,17 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1377,7 +1770,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1392,7 +1795,17 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1419,7 +1832,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1446,7 +1869,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1461,7 +1894,17 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1477,7 +1920,17 @@ mod tests {
             .unwrap_or(&default)
             .contains(&"/bin".to_string()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1518,7 +1971,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1546,7 +2009,17 @@ mod tests {
         .is_ok_and(|b| b));
         debug!(
             "add : {:?}",
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1560,7 +2033,17 @@ mod tests {
                 .sub
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1577,7 +2060,17 @@ mod tests {
                 .len(),
             1
         );
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1592,7 +2085,17 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/tmp".to_string()));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1607,7 +2110,17 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/usr/bin".to_string()));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1664,7 +2177,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1677,7 +2200,17 @@ mod tests {
             .unwrap()
             .default_behavior
             .is_delete());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1692,7 +2225,17 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1708,7 +2251,17 @@ mod tests {
             .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1746,7 +2299,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1759,7 +2322,17 @@ mod tests {
             .unwrap()
             .default_behavior
             .is_keep());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1774,7 +2347,17 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -1790,7 +2373,17 @@ mod tests {
             .unwrap()
             .contains(&"VAR2".to_string().into()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1829,7 +2422,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1848,7 +2451,17 @@ mod tests {
             (&"MYVAR".to_string(), &"value".to_string())
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1867,7 +2480,17 @@ mod tests {
             (&"VAR2".to_string(), &"value2".to_string())
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1917,7 +2540,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1936,7 +2569,17 @@ mod tests {
             (&"MYVAR".to_string(), &"value".to_string())
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1955,7 +2598,17 @@ mod tests {
             (&"VAR2".to_string(), &"value2".to_string())
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -1974,7 +2627,17 @@ mod tests {
             (&"VAR3".to_string(), &"value3".to_string())
         );
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2003,7 +2666,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2020,7 +2693,17 @@ mod tests {
                 .len(),
             1
         );
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2036,7 +2719,17 @@ mod tests {
             .unwrap()
             .get_key_value("MYVAR")
             .is_none());
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2063,7 +2756,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2098,7 +2801,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2134,7 +2847,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2170,7 +2893,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2205,7 +2938,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2221,7 +2964,17 @@ mod tests {
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2249,7 +3002,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2276,7 +3039,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2292,7 +3065,17 @@ mod tests {
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2330,7 +3113,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2364,7 +3157,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2390,7 +3193,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2426,7 +3239,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2442,7 +3265,17 @@ mod tests {
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2480,7 +3313,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2514,7 +3357,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2541,7 +3394,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(!settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(!settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2568,7 +3431,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2584,7 +3457,17 @@ mod tests {
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2613,7 +3496,17 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        assert!(settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+        assert!(settings
+            .as_ref()
+            .borrow()
+            .config
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()[0]
+            .as_ref()
+            .borrow()
+            .tasks[0]
             .as_ref()
             .borrow()
             .options
@@ -2648,7 +3541,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2674,7 +3577,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2700,7 +3613,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2735,7 +3658,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2770,7 +3703,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2805,7 +3748,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2837,7 +3790,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2863,7 +3826,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2889,7 +3862,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2924,7 +3907,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2950,7 +3943,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -2976,7 +3979,17 @@ mod tests {
         })
         .is_ok_and(|b| b));
         assert_eq!(
-            settings.as_ref().borrow().config.as_ref().unwrap().as_ref().borrow()[0].as_ref().borrow().tasks[0]
+            settings
+                .as_ref()
+                .borrow()
+                .config
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()[0]
+                .as_ref()
+                .borrow()
+                .tasks[0]
                 .as_ref()
                 .borrow()
                 .options
@@ -3060,17 +4073,14 @@ mod tests {
             assert!(bindingopt.timeout.as_ref().is_none());
         }
         let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete tosk".split(" "),
-        )
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_err());
+        assert!(main(settings.clone(), "r complete tosk".split(" "),)
+            .inspect_err(|e| {
+                error!("{}", e);
+            })
+            .inspect(|e| {
+                debug!("{}", e);
+            })
+            .is_err());
         teardown("r_complete_t_t_complete_o_wildcard_denied_set");
     }
 }

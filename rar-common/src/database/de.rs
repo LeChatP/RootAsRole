@@ -4,7 +4,10 @@ use serde::Deserialize;
 
 use crate::database::structs::{SCommand, SetBehavior};
 
-use super::{actor::SGenericActorType, structs::{SCapabilities, SCommands}};
+use super::{
+    actor::SGenericActorType,
+    structs::{SCapabilities, SCommands},
+};
 use capctl::CapSet;
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
@@ -34,8 +37,9 @@ impl<'de> Deserialize<'de> for SetBehavior {
                 value.parse().map_err(de::Error::custom)
             }
             fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 if v > 1 || v < 0 {
                     return Err(de::Error::custom(format!(
                         "Invalid value for SetBehavior: {}",
@@ -48,23 +52,27 @@ impl<'de> Deserialize<'de> for SetBehavior {
                 )))
             }
             fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 self.visit_i32(v as i32)
             }
             fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 self.visit_i32(v as i32)
             }
             fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 self.visit_i32(v as i32)
             }
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 if v > i32::MAX as u64 {
                     return Err(de::Error::custom(format!(
                         "Invalid value for SetBehavior: {}",
@@ -74,18 +82,21 @@ impl<'de> Deserialize<'de> for SetBehavior {
                 self.visit_i32(v as i32)
             }
             fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 self.visit_i32(v as i32)
             }
             fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 self.visit_i32(v as i32)
             }
             fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 if v > i32::MAX as i64 || v < i32::MIN as i64 {
                     return Err(de::Error::custom(format!(
                         "Invalid value for SetBehavior: {}",
@@ -213,7 +224,9 @@ impl<'de> Deserialize<'de> for SGenericActorType {
                     Ok(SGenericActorType::Name(s.clone()))
                 }
             }
-            _ => Err(serde::de::Error::custom("Invalid input for SGenericActorType")),
+            _ => Err(serde::de::Error::custom(
+                "Invalid input for SGenericActorType",
+            )),
         }
     }
 }
@@ -221,9 +234,10 @@ impl<'de> Deserialize<'de> for SGenericActorType {
 impl<'de> Deserialize<'de> for SCommands {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de> {
+        D: Deserializer<'de>,
+    {
         #[derive(Deserialize, Display)]
-        #[serde(field_identifier,rename_all = "kebab-case")]
+        #[serde(field_identifier, rename_all = "kebab-case")]
         enum Fields {
             #[serde(alias = "d")]
             Default,
@@ -243,8 +257,9 @@ impl<'de> Deserialize<'de> for SCommands {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>, {
+            where
+                A: SeqAccess<'de>,
+            {
                 let mut add = Vec::new();
                 while let Some(cmd) = seq.next_element::<SCommand>()? {
                     add.push(cmd);
@@ -269,9 +284,10 @@ impl<'de> Deserialize<'de> for SCommands {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Fields::Default => {
-                            default_behavior = Some(map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'"));
+                            default_behavior = Some(
+                                map.next_value()
+                                    .expect("default entry must be either 'all' or 'none'"),
+                            );
                         }
                         Fields::Add => {
                             let values: Vec<SCommand> =
@@ -331,9 +347,7 @@ mod tests {
 
     #[test]
     fn test_s_capabilities_deserialization_seq() {
-        let json_data = json!(
-            ["CAP_SYS_ADMIN", "CAP_NET_BIND_SERVICE", "CAP_CHOWN"]
-        );
+        let json_data = json!(["CAP_SYS_ADMIN", "CAP_NET_BIND_SERVICE", "CAP_CHOWN"]);
         let caps: SCapabilities = serde_json::from_value(json_data).unwrap();
 
         assert!(caps.add.has(Cap::SYS_ADMIN));
@@ -360,9 +374,7 @@ mod tests {
 
     #[test]
     fn test_invalid_capabilities() {
-        let invalid_data = json!(
-            ["INVALID_CAPABILITY", "CAP_FAKE"]
-        );
+        let invalid_data = json!(["INVALID_CAPABILITY", "CAP_FAKE"]);
         assert!(serde_json::from_value::<SCapabilities>(invalid_data).is_err());
     }
 
@@ -374,7 +386,10 @@ mod tests {
 
         let json_data = json!("actor_name");
         let actor_type: SGenericActorType = serde_json::from_value(json_data).unwrap();
-        assert_eq!(actor_type, SGenericActorType::Name("actor_name".to_string()));
+        assert_eq!(
+            actor_type,
+            SGenericActorType::Name("actor_name".to_string())
+        );
 
         let invalid_data = json!(null);
         assert!(serde_json::from_value::<SGenericActorType>(invalid_data).is_err());
@@ -382,10 +397,7 @@ mod tests {
 
     #[test]
     fn test_s_commands_deserialization_seq() {
-        let json_data = json!([
-            "/bin/ls",
-            "/bin/cat"
-        ]);
+        let json_data = json!(["/bin/ls", "/bin/cat"]);
 
         let commands: SCommands = serde_json::from_value(json_data).unwrap();
 

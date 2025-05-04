@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 
 use rar_common::{
     database::options::{STimeout, TimestampType},
-    Cred,
     util::{
         create_dir_all_with_privileges, create_with_privileges, open_with_privileges,
         remove_with_privileges,
     },
+    Cred,
 };
 
 /// This module checks the validity of a user's credentials

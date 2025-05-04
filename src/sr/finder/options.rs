@@ -6,7 +6,10 @@ use bon::{bon, builder, Builder};
 use chrono::Duration;
 
 use libc::PATH_MAX;
-use rar_common::database::options::{EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged, STimeout};
+use rar_common::database::options::{
+    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged,
+    STimeout,
+};
 use rar_common::database::score::SecurityMin;
 use rar_common::database::FilterMatcher;
 use std::hash::Hash;
@@ -28,57 +31,54 @@ use super::de::DLinkedTask;
 //use super::finder::SecurityMin;
 fn default<'a>() -> Opt<'a> {
     Opt::builder(Level::Default)
-    .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
-    .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
-    .path(
-        DPathOptions::default_path(),
-    )
-    .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
-    .env(
-        SEnvOptions::builder(
-            env!("RAR_ENV_DEFAULT")
-                .parse()
-                .unwrap_or(EnvBehavior::Delete),
-        )
-        .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
-        .unwrap()
-        .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
-        .unwrap()
-        .delete(
-            env!("RAR_ENV_DELETE_LIST")
-                .split(',')
-                .collect::<Vec<&str>>(),
-        )
-        .unwrap()
-        .set(
-            serde_json::from_str(env!("RAR_ENV_SET_LIST"))
-                .unwrap_or_else(|_| Map::default())
-                .into_iter()
-                .filter_map(|(k, v)| {
-                    if let Some(v) = v.as_str() {
-                        Some((k.to_string(), v.to_string()))
-                    } else {
-                        None
-                    }
-                }),
-        )
-        .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
-        .build(),
-    )
-    .timeout(
-        STimeout::builder()
-            .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
-            .maybe_duration(
-                convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
-                    .ok()
-                    .flatten(),
+        .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
+        .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
+        .path(DPathOptions::default_path())
+        .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
+        .env(
+            SEnvOptions::builder(
+                env!("RAR_ENV_DEFAULT")
+                    .parse()
+                    .unwrap_or(EnvBehavior::Delete),
             )
+            .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
+            .unwrap()
+            .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
+            .unwrap()
+            .delete(
+                env!("RAR_ENV_DELETE_LIST")
+                    .split(',')
+                    .collect::<Vec<&str>>(),
+            )
+            .unwrap()
+            .set(
+                serde_json::from_str(env!("RAR_ENV_SET_LIST"))
+                    .unwrap_or_else(|_| Map::default())
+                    .into_iter()
+                    .filter_map(|(k, v)| {
+                        if let Some(v) = v.as_str() {
+                            Some((k.to_string(), v.to_string()))
+                        } else {
+                            None
+                        }
+                    }),
+            )
+            .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
             .build(),
-    )
-    .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
-    .build()
+        )
+        .timeout(
+            STimeout::builder()
+                .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
+                .maybe_duration(
+                    convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
+                        .ok()
+                        .flatten(),
+                )
+                .build(),
+        )
+        .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
+        .build()
 }
-
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
 pub struct DPathOptions<'a> {
@@ -172,9 +172,7 @@ impl<'a> Opt<'a> {
             _extra_fields,
         }
     }
-
 }
-
 
 impl<'a> SEnvOptions<'a> {
     pub fn calc_final_env(
@@ -242,26 +240,56 @@ impl Into<rar_common::database::options::Opt> for Opt<'_> {
     fn into(self) -> rar_common::database::options::Opt {
         rar_common::database::options::Opt::builder(self.level)
             .maybe_path(if let Some(spath) = self.path {
-                Some(rar_common::database::options::SPathOptions::builder(spath.default_behavior)
-                    .maybe_add(spath.add.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
-                    .maybe_sub(spath.sub.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
-                    .build())
+                Some(
+                    rar_common::database::options::SPathOptions::builder(spath.default_behavior)
+                        .maybe_add(
+                            spath
+                                .add
+                                .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                        )
+                        .maybe_sub(
+                            spath
+                                .sub
+                                .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                        )
+                        .build(),
+                )
             } else {
                 None
             })
             .maybe_env(if let Some(senv) = self.env {
-                Some(rar_common::database::options::SEnvOptions::builder(
-                    senv.default_behavior,
+                Some(
+                    rar_common::database::options::SEnvOptions::builder(senv.default_behavior)
+                        .maybe_override_behavior(senv.override_behavior)
+                        .set(
+                            senv.set
+                                .into_iter()
+                                .map(|(k, v)| (k.to_string(), v.to_string()))
+                                .collect::<HashMap<_, _>>(),
+                        )
+                        .keep(
+                            senv.keep
+                                .into_iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>(),
+                        )
+                        .unwrap()
+                        .check(
+                            senv.check
+                                .into_iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>(),
+                        )
+                        .unwrap()
+                        .delete(
+                            senv.delete
+                                .into_iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>(),
+                        )
+                        .unwrap()
+                        .build(),
                 )
-                .maybe_override_behavior(senv.override_behavior)
-                .set(senv.set.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_,_>>())
-                .keep(senv.keep.into_iter().map(|v| v.to_string()).collect::<Vec<_>>())
-                .unwrap()
-                .check(senv.check.into_iter().map(|v| v.to_string()).collect::<Vec<_>>())
-                .unwrap()
-                .delete(senv.delete.into_iter().map(|v| v.to_string()).collect::<Vec<_>>())
-                .unwrap()   
-                .build())
             } else {
                 None
             })
@@ -277,8 +305,14 @@ impl Into<rar_common::database::options::Opt> for Opt<'_> {
 impl Into<SPathOptions> for DPathOptions<'_> {
     fn into(self) -> SPathOptions {
         SPathOptions::builder(self.default_behavior)
-            .maybe_add(self.add.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
-            .maybe_sub(self.sub.map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()))
+            .maybe_add(
+                self.add
+                    .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+            )
+            .maybe_sub(
+                self.sub
+                    .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+            )
             .build()
     }
 }
@@ -298,10 +332,7 @@ impl DPathOptions<'_> {
         )
         .build()
     }
-    pub fn calc_path<'a>(
-        &'a self,
-        path_var: &'a [&'a str],
-    ) -> Vec<&'a str> {
+    pub fn calc_path<'a>(&'a self, path_var: &'a [&'a str]) -> Vec<&'a str> {
         let default = Default::default();
         match self.default_behavior {
             PathBehavior::Inherit | PathBehavior::Delete => {
@@ -332,7 +363,6 @@ impl DPathOptions<'_> {
             }
         }
     }
-
 }
 
 impl<'a> DPathOptions<'a> {
@@ -340,14 +370,16 @@ impl<'a> DPathOptions<'a> {
         match path_options.default_behavior {
             PathBehavior::Inherit => {
                 if let Some(add) = &path_options.add {
-                    self.add.get_or_insert_with(Default::default).to_mut().extend_from_slice(
-                        &add,
-                    );
+                    self.add
+                        .get_or_insert_with(Default::default)
+                        .to_mut()
+                        .extend_from_slice(&add);
                 }
                 if let Some(sub) = &path_options.sub {
-                    self.sub.get_or_insert_with(Default::default).to_mut().extend_from_slice(
-                        &sub,
-                    );
+                    self.sub
+                        .get_or_insert_with(Default::default)
+                        .to_mut()
+                        .extend_from_slice(&sub);
                 }
             }
             behaviors => {
@@ -373,7 +405,6 @@ where
 {
     set.contains(&needle) || set.iter().any(|key| test_pattern(&needle, key.as_ref()))
 }
-
 
 fn is_valid_env_name(s: &str) -> bool {
     let mut chars = s.chars();
@@ -461,11 +492,9 @@ fn tz_is_safe(tzval: &str) -> bool {
     true
 }
 
-
 pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
-
 
 fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
@@ -490,9 +519,7 @@ pub struct BorrowedOptStack<'a> {
 }
 
 impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
-    pub fn new(
-        config: Option<Opt<'a>>,
-    ) -> Self {
+    pub fn new(config: Option<Opt<'a>>) -> Self {
         Self {
             default_opt: default(),
             config,
@@ -500,21 +527,13 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             task: None,
         }
     }
-    pub fn set_role(
-        &mut self,
-        role: Option<Opt<'a>>,
-    ) {
+    pub fn set_role(&mut self, role: Option<Opt<'a>>) {
         self.role = role;
     }
-    pub fn set_task(
-        &mut self,
-        task: Option<Opt<'a>>,
-    ) {
+    pub fn set_task(&mut self, task: Option<Opt<'a>>) {
         self.task = task;
     }
-    pub fn from_task(
-        task: &DLinkedTask<'t, 'c, 'a>
-    ) -> Self {
+    pub fn from_task(task: &DLinkedTask<'t, 'c, 'a>) -> Self {
         let default_opt = default();
         let config = task.role().config().options.clone();
         let role = task.role().role().options.clone();
@@ -529,7 +548,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
     pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
         // Preallocate with a reasonable guess, but will only allocate once.
         let mut combined_paths: Vec<String> = Vec::with_capacity(path_var.len());
-    
+
         // Stack of options in order: default, config, role, task
         let stack = [
             Some(&self.default_opt),
@@ -537,7 +556,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.task.as_ref(),
         ];
-    
+
         for opt in stack.iter().flatten() {
             if let Some(ref path_opt) = opt.path {
                 match path_opt.default_behavior {
@@ -547,9 +566,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
                         }
                         if let Some(ref sub_paths) = path_opt.sub {
                             // Avoid allocation by using retain and Cow::Borrowed
-                            combined_paths.retain(|path| {
-                                !sub_paths.contains(&Cow::Borrowed(path))
-                            });
+                            combined_paths.retain(|path| !sub_paths.contains(&Cow::Borrowed(path)));
                         }
                     }
                     PathBehavior::Delete => {
@@ -574,7 +591,6 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_security_min(&self) -> SecurityMin {
-
         let mut security_min = SecurityMin::default();
         // todo: fix the algorithm
         [
@@ -582,7 +598,10 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten().for_each(|o| {
+        ]
+        .iter()
+        .flatten()
+        .for_each(|o| {
             if !security_min.contains(SecurityMin::DisableBounding)
                 && o.bounding.is_some_and(|b| b.is_ignore())
             {
@@ -629,15 +648,16 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten()
-            .filter_map(|o| o.env.as_ref())
-            .find_map(|o| o.override_behavior)
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.env.as_ref())
+        .find_map(|o| o.override_behavior)
     }
     pub fn calc_temp_env(
         &self,
         override_behavior: &Option<bool>,
         opt_filter: &Option<FilterMatcher>,
-        
     ) -> SEnvOptions<'_> {
         let mut result = SEnvOptions::default();
         fn determine_final_behavior<'a>(
@@ -676,51 +696,53 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.config.as_ref(),
             self.role.as_ref(),
             self.task.as_ref(),
-            
-        ].iter().flatten().filter_map(|o| o.env.as_ref())
-            .for_each(|o| {
-                determine_final_behavior(
-                    &override_behavior,
-                    &opt_filter,
-                    &mut result.default_behavior,
-                    &mut overriden,
-                    o,
-                );
-                if o.default_behavior.is_keep() || o.default_behavior.is_delete() {
-                    result.set.clear();
-                    result.keep.clear();
-                    result.delete.clear();
-                    result.check.clear();
-                }
-                result.set.extend(
-                    o.set
-                        .iter()
-                        .filter(|(k, _)| is_valid_env_name(k.as_ref()))
-                        .map(|(k, v)| (k.to_string().into(), v.to_string().into())),
-                );
-                result.keep.extend(
-                    o.keep
-                        .iter()
-                        .cloned()
-                        .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
-                        .map(|k| k.to_string().into()),
-                );
-                result.delete.extend(
-                    o.delete
-                        .iter()
-                        .cloned()
-                        .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
-                        .map(|k| k.to_string().into()),
-                );
-                result.check.extend(
-                    o.check
-                        .iter()
-                        .cloned()
-                        .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
-                        .map(|k| k.to_string().into()),
-                );
-            });
-            result
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.env.as_ref())
+        .for_each(|o| {
+            determine_final_behavior(
+                &override_behavior,
+                &opt_filter,
+                &mut result.default_behavior,
+                &mut overriden,
+                o,
+            );
+            if o.default_behavior.is_keep() || o.default_behavior.is_delete() {
+                result.set.clear();
+                result.keep.clear();
+                result.delete.clear();
+                result.check.clear();
+            }
+            result.set.extend(
+                o.set
+                    .iter()
+                    .filter(|(k, _)| is_valid_env_name(k.as_ref()))
+                    .map(|(k, v)| (k.to_string().into(), v.to_string().into())),
+            );
+            result.keep.extend(
+                o.keep
+                    .iter()
+                    .cloned()
+                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
+                    .map(|k| k.to_string().into()),
+            );
+            result.delete.extend(
+                o.delete
+                    .iter()
+                    .cloned()
+                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
+                    .map(|k| k.to_string().into()),
+            );
+            result.check.extend(
+                o.check
+                    .iter()
+                    .cloned()
+                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
+                    .map(|k| k.to_string().into()),
+            );
+        });
+        result
     }
 
     pub fn calc_bounding(&self) -> SBounding {
@@ -729,9 +751,12 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten().filter_map(|o| o.bounding)
-            .next()
-            .unwrap_or(SBounding::default())
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.bounding)
+        .next()
+        .unwrap_or(SBounding::default())
     }
     pub fn calc_timeout(&self) -> STimeout {
         [
@@ -739,9 +764,12 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten().filter_map(|o| o.timeout.clone())
-            .next()
-            .unwrap_or(STimeout::default())
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.timeout.clone())
+        .next()
+        .unwrap_or(STimeout::default())
     }
     pub fn calc_authentication(&self) -> SAuthentication {
         [
@@ -749,9 +777,12 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten().filter_map(|o| o.authentication)
-            .next()
-            .unwrap_or(SAuthentication::default())
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.authentication)
+        .next()
+        .unwrap_or(SAuthentication::default())
     }
     pub fn calc_privileged(&self) -> SPrivileged {
         [
@@ -759,9 +790,12 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             self.role.as_ref(),
             self.config.as_ref(),
             Some(&self.default_opt),
-        ].iter().flatten().filter_map(|o| o.root)
-            .next()
-            .unwrap_or(SPrivileged::default())
+        ]
+        .iter()
+        .flatten()
+        .filter_map(|o| o.root)
+        .next()
+        .unwrap_or(SPrivileged::default())
     }
 }
 

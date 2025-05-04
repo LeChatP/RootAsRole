@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use super::migration::Migration;
 use crate::{FullSettingsFile, PACKAGE_VERSION};
 
-
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Versioning<T: Default + Debug> {
     pub version: Version,

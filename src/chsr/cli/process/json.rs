@@ -1003,7 +1003,9 @@ pub fn env_setlist_add(
             Some(SetListType::Set) => match action {
                 InputAction::Add => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set.get_or_insert_default().extend(options_env_values.as_ref().unwrap().clone());
+                    env.set
+                        .get_or_insert_default()
+                        .extend(options_env_values.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     debug!("options_env_values: {:?}", options_env_values);
@@ -1019,7 +1021,8 @@ pub fn env_setlist_add(
                 }
                 InputAction::Set => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set.replace(options_env_values.as_ref().unwrap().clone());
+                    env.set
+                        .replace(options_env_values.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },

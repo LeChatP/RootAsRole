@@ -1,5 +1,5 @@
-mod json;
 mod convert;
+mod json;
 
 use std::{cell::RefCell, error::Error, rc::Rc};
 
@@ -11,7 +11,8 @@ use rar_common::{
     database::{
         options::{Opt, OptType},
         structs::{IdTask, RoleGetter},
-    }, FullSettingsFile
+    },
+    FullSettingsFile,
 };
 
 use super::{
@@ -19,7 +20,10 @@ use super::{
     usage,
 };
 
-pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) -> Result<bool, Box<dyn Error>> {
+pub fn process_input(
+    storage: &Rc<RefCell<FullSettingsFile>>,
+    inputs: Inputs,
+) -> Result<bool, Box<dyn Error>> {
     let binding = storage.as_ref().borrow();
     let rconfig = binding.config.as_ref().unwrap();
     match inputs {
@@ -37,26 +41,26 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_type, // in json
             ..
         } => {
-                debug!("chsr list");
-                match json::list_json(
-                    rconfig,
-                    role_id,
-                    task_id,
-                    options,
-                    options_type,
-                    task_type,
-                    role_type,
-                ) {
-                    Ok(_) => {
-                        debug!("chsr list ok");
-                        Ok(false)
-                    }
-                    Err(e) => {
-                        debug!("chsr list err {:?}", e);
-                        Err(e)
-                    }
+            debug!("chsr list");
+            match json::list_json(
+                rconfig,
+                role_id,
+                task_id,
+                options,
+                options_type,
+                task_type,
+                role_type,
+            ) {
+                Ok(_) => {
+                    debug!("chsr list ok");
+                    Ok(false)
                 }
-            },
+                Err(e) => {
+                    debug!("chsr list err {:?}", e);
+                    Err(e)
+                }
+            }
+        }
         Inputs {
             // chsr role r1 add|del
             action,
@@ -68,7 +72,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             role_type,
             ..
         } => role_add_del(rconfig, action, role_id, role_type),
-        
+
         Inputs {
             // chsr role r1 grant|revoke -u u1 -u u2 -g g1,g2
             action,
@@ -77,7 +81,6 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options: false,
             ..
         } => grant_revoke(rconfig, role_id, action, actors),
-        
 
         Inputs {
             // chsr role r1 task t1 add|del
@@ -95,7 +98,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             cred_policy: None,
             ..
         } => task_add_del(rconfig, role_id, action, task_id, task_type),
-        
+
         Inputs {
             //chsr role r1 task t1 cred set --caps "cap_net_raw,cap_sys_admin"
             action: InputAction::Set,
@@ -110,14 +113,14 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options: false,
             ..
         } => cred_set(
-                rconfig,
-                role_id,
-                task_id,
-                cred_caps,
-                cred_setuid,
-                cred_setgid,
-            ),
-        
+            rconfig,
+            role_id,
+            task_id,
+            cred_caps,
+            cred_setuid,
+            cred_setgid,
+        ),
+
         Inputs {
             //chsr role r1 task t1 cred unset --caps "cap_net_raw,cap_sys_admin"
             action: InputAction::Del,
@@ -132,14 +135,14 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             setlist_type: None,
             ..
         } => cred_unset(
-                rconfig,
-                role_id,
-                task_id,
-                cred_caps,
-                cred_setuid,
-                cred_setgid,
-            ),
-        
+            rconfig,
+            role_id,
+            task_id,
+            cred_caps,
+            cred_setuid,
+            cred_setgid,
+        ),
+
         Inputs {
             action,
             role_id: Some(role_id),
@@ -157,7 +160,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options: false,
             ..
         } => cred_setpolicy(rconfig, role_id, task_id, cred_policy),
-        
+
         Inputs {
             // chsr role r1 task t1 command whitelist add c1
             action,
@@ -173,7 +176,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             cmd_policy: Some(cmd_policy),
             ..
         } => cmd_setpolicy(rconfig, role_id, task_id, cmd_policy),
-        
+
         // Set options
         Inputs {
             // chsr o env set A,B,C
@@ -193,7 +196,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_root: Some(options_root),
             ..
         } => set_privileged(rconfig, role_id, task_id, options_root),
-        
+
         Inputs {
             // chsr o bounding set strict
             action: InputAction::Set,
@@ -202,7 +205,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_bounding: Some(options_bounding),
             ..
         } => set_bounding(rconfig, role_id, task_id, options_bounding),
-        
+
         Inputs {
             // chsr o bounding set strict
             action: InputAction::Set,
@@ -211,7 +214,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_auth: Some(options_auth),
             ..
         } => set_authentication(rconfig, role_id, task_id, options_auth),
-        
+
         Inputs {
             // chsr o wildcard-denied set ";&*$"
             action,
@@ -241,7 +244,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             setlist_type,
             ..
         } => path_purge(rconfig, role_id, task_id, setlist_type),
-        
+
         Inputs {
             // chsr o env whitelist set A,B,C
             action: InputAction::Set,
@@ -264,7 +267,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             setlist_type: None,
             ..
         } => unset_timeout(rconfig, role_id, task_id, timeout_arg),
-        
+
         Inputs {
             // chsr o timeout set --type tty --duration 00:00:00 --max-usage 1
             action: InputAction::Set,
@@ -277,14 +280,13 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             timeout_max_usage,
             ..
         } => set_timeout(
-                rconfig,
-                role_id,
-                task_id,
-                timeout_type,
-                timeout_duration,
-                timeout_max_usage,
-            ),
-        
+            rconfig,
+            role_id,
+            task_id,
+            timeout_type,
+            timeout_duration,
+            timeout_max_usage,
+        ),
 
         Inputs {
             // chsr o path setpolicy delete-all
@@ -307,15 +309,15 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_env_policy: None,
             ..
         } => env_setlist_add(
-                rconfig,
-                role_id,
-                task_id,
-                setlist_type,
-                action,
-                options_key_env,
-                options_env_values,
-            ),
-        
+            rconfig,
+            role_id,
+            task_id,
+            setlist_type,
+            action,
+            options_key_env,
+            options_env_values,
+        ),
+
         Inputs {
             // chsr o path whitelist add path1:path2:path3
             action,
@@ -326,14 +328,14 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             setlist_type,
             ..
         } => path_setlist2(
-                rconfig,
-                role_id,
-                task_id,
-                setlist_type,
-                action,
-                options_path,
-            ),
-        
+            rconfig,
+            role_id,
+            task_id,
+            setlist_type,
+            action,
+            options_path,
+        ),
+
         Inputs {
             // chsr o env setpolicy delete-all
             role_id,
@@ -343,7 +345,7 @@ pub fn process_input(storage: &Rc<RefCell<FullSettingsFile>>, inputs: Inputs) ->
             options_key_env: None,
             ..
         } => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
-        
+
         Inputs {
             action: InputAction::Convert,
             convertion: Some(convertion),

@@ -1,6 +1,9 @@
-use std::path::PathBuf;
 use log::{debug, warn};
-use rar_common::{database::score::CmdMin, util::{all_paths_from_env, match_single_path}};
+use rar_common::{
+    database::score::CmdMin,
+    util::{all_paths_from_env, match_single_path},
+};
+use std::path::PathBuf;
 
 fn match_path(
     env_path: &[&str],
@@ -10,25 +13,27 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-         return CmdMin::FullWildcardPath;
-    }else if cmd_path.is_absolute() {
+        return CmdMin::FullWildcardPath;
+    } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
         if previous_min.better(&min) {
             *final_path = Some(cmd_path.clone());
         }
         return min;
     } else {
-        all_paths_from_env(env_path,cmd_path).iter().find_map(|cmd_path| {
-            let min = match_single_path(cmd_path, role_path);
-            if previous_min.better(&min) {
-                *final_path = Some(cmd_path.clone());
-                Some(min)
-            } else {
-                None
-            }
-        }).unwrap_or_default()
+        all_paths_from_env(env_path, cmd_path)
+            .iter()
+            .find_map(|cmd_path| {
+                let min = match_single_path(cmd_path, role_path);
+                if previous_min.better(&min) {
+                    *final_path = Some(cmd_path.clone());
+                    Some(min)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default()
     }
-    
 }
 
 /// Check if input args is matching with role args and return the score
@@ -83,7 +88,13 @@ fn match_command_line(
     if role_command.is_empty() {
         return CmdMin::empty();
     }
-    let mut result = match_path(env_path, &cmd_path, &role_command[0], previous_min, final_path);
+    let mut result = match_path(
+        env_path,
+        &cmd_path,
+        &role_command[0],
+        previous_min,
+        final_path,
+    );
     if result.is_empty() || role_command.len() == 1 {
         return result;
     }
@@ -103,7 +114,7 @@ fn match_command_line(
 }
 
 pub fn evaluate_command_match(
-    env_path: &[& str],
+    env_path: &[&str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
     role_cmd: &str,
@@ -111,7 +122,14 @@ pub fn evaluate_command_match(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     match shell_words::split(role_cmd).map_err(|e| Into::<Box<dyn std::error::Error>>::into(e)) {
-        Ok(role_cmd) => match_command_line(env_path, cmd_path, cmd_args, &role_cmd, previous_min, final_path),
+        Ok(role_cmd) => match_command_line(
+            env_path,
+            cmd_path,
+            cmd_args,
+            &role_cmd,
+            previous_min,
+            final_path,
+        ),
         Err(err) => {
             warn!("Error: {}", err);
             CmdMin::empty()
@@ -132,7 +150,13 @@ mod tests {
         let role_path = String::from("**");
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_path(&env_path, &cmd_path, &role_path, &previous_min, &mut final_path);
+        let result = match_path(
+            &env_path,
+            &cmd_path,
+            &role_path,
+            &previous_min,
+            &mut final_path,
+        );
         assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }
@@ -144,7 +168,13 @@ mod tests {
         let role_path = String::from("/bin/ls");
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_path(&env_path, &cmd_path, &role_path, &previous_min, &mut final_path);
+        let result = match_path(
+            &env_path,
+            &cmd_path,
+            &role_path,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -156,7 +186,13 @@ mod tests {
         let role_path = String::from("/bin/ls");
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_path(&env_path, &cmd_path, &role_path, &previous_min, &mut final_path);
+        let result = match_path(
+            &env_path,
+            &cmd_path,
+            &role_path,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, None);
     }
@@ -168,7 +204,13 @@ mod tests {
         let role_path = String::from("/bin/ls");
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_path(&env_path, &cmd_path, &role_path, &previous_min, &mut final_path);
+        let result = match_path(
+            &env_path,
+            &cmd_path,
+            &role_path,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -180,7 +222,13 @@ mod tests {
         let role_path = String::from("/bin/ls");
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_path(&env_path, &cmd_path, &role_path, &previous_min, &mut final_path);
+        let result = match_path(
+            &env_path,
+            &cmd_path,
+            &role_path,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, None);
     }
@@ -249,7 +297,14 @@ mod tests {
         let role_command = vec!["/bin/ls".to_string(), "-l".to_string(), "/tmp".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -263,7 +318,14 @@ mod tests {
         let role_command = vec!["/bin/ls".to_string(), "-l".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -276,7 +338,14 @@ mod tests {
         let role_command = vec!["/bin/ls".to_string(), "-l".to_string(), "/tmp".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -289,7 +358,14 @@ mod tests {
         let role_command = vec!["/bin/ls".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -302,7 +378,14 @@ mod tests {
         let role_command: Vec<String> = vec![];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, None);
     }
@@ -315,7 +398,14 @@ mod tests {
         let role_command = vec!["-l".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         // Should not match, as the binary is not specified
         assert!(!result.matching());
         assert_eq!(final_path, None);
@@ -329,7 +419,14 @@ mod tests {
         let role_command = vec!["**".to_string()];
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }
@@ -342,7 +439,14 @@ mod tests {
         let role_command = vec!["/bin/ls".to_string()];
         let previous_min = CmdMin::FullWildcardPath; // higher than empty
         let mut final_path = None;
-        let result = match_command_line(&env_path, &cmd_path, &cmd_args, &role_command, &previous_min, &mut final_path);
+        let result = match_command_line(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            &role_command,
+            &previous_min,
+            &mut final_path,
+        );
         // Should still match, but final_path should not be set because previous_min is better
         assert_eq!(result, CmdMin::empty());
         assert_eq!(final_path, None);
@@ -356,7 +460,14 @@ mod tests {
         let role_cmd = "/bin/ls -l /tmp";
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = evaluate_command_match(&env_path, &cmd_path, &cmd_args, role_cmd, &previous_min, &mut final_path);
+        let result = evaluate_command_match(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            role_cmd,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(result.matching());
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
@@ -369,7 +480,14 @@ mod tests {
         let role_cmd = "\"unterminated string";
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = evaluate_command_match(&env_path, &cmd_path, &cmd_args, role_cmd, &previous_min, &mut final_path);
+        let result = evaluate_command_match(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            role_cmd,
+            &previous_min,
+            &mut final_path,
+        );
         assert!(!result.matching());
         assert_eq!(final_path, None);
     }
@@ -382,7 +500,14 @@ mod tests {
         let role_cmd = "**";
         let previous_min = CmdMin::empty();
         let mut final_path = None;
-        let result = evaluate_command_match(&env_path, &cmd_path, &cmd_args, role_cmd, &previous_min, &mut final_path);
+        let result = evaluate_command_match(
+            &env_path,
+            &cmd_path,
+            &cmd_args,
+            role_cmd,
+            &previous_min,
+            &mut final_path,
+        );
         assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }

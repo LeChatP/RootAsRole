@@ -6,14 +6,17 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 
 use pest_derive::Parser;
-use rar_common::{database::{
-    actor::{SActor, SGroups, SUserType},
-    options::{
-        EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
-        TimestampType,
+use rar_common::{
+    database::{
+        actor::{SActor, SGroups, SUserType},
+        options::{
+            EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
+            TimestampType,
+        },
+        structs::{IdTask, SetBehavior},
     },
-    structs::{IdTask, SetBehavior},
-}, StorageMethod};
+    StorageMethod,
+};
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]

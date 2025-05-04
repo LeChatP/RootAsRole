@@ -25,7 +25,8 @@ use strum::EnumIs;
 use crate::{
     finder::{
         api::{Api, ApiEvent},
-        cmd, options::DPathOptions,
+        cmd,
+        options::DPathOptions,
     },
     Cli,
 };
@@ -580,7 +581,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                                     cmd_min: &mut score.cmd_min,
                                     blocker: false,
                                 })?;
-                                
                             }
                         }
                         Field::Unknown(key) => {

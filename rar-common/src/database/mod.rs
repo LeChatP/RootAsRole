@@ -154,9 +154,7 @@ mod tests {
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(
-                lhs_deserialize_envkey(deserializer)?,
-            ))
+            Ok(Self(lhs_deserialize_envkey(deserializer)?))
         }
     }
 
@@ -174,9 +172,7 @@ mod tests {
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(
-                lhs_deserialize(deserializer)?,
-            ))
+            Ok(Self(lhs_deserialize(deserializer)?))
         }
     }
 
@@ -196,9 +192,7 @@ mod tests {
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(
-                deserialize_duration(deserializer)?,
-            ))
+            Ok(Self(deserialize_duration(deserializer)?))
         }
     }
 
@@ -290,7 +284,8 @@ mod tests {
     #[test]
     fn test_lhs_deserialize_empty_object() {
         let json = r#"{}"#;
-        let deserialized: Result<Option<LinkedHashSetTester<String>>, _> = serde_json::from_str(json);
+        let deserialized: Result<Option<LinkedHashSetTester<String>>, _> =
+            serde_json::from_str(json);
         assert!(deserialized.is_err());
     }
 

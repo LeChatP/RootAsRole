@@ -5,7 +5,6 @@ use strum::EnumIs;
 
 use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
 
-
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs, Default)]
 #[repr(u32)]
 // Matching user groups for the role
@@ -50,9 +49,7 @@ impl From<&DUserType<'_>> for SetuidMin {
 
 impl From<u32> for SetuidMin {
     fn from(s: u32) -> Self {
-        SetuidMin {
-            is_root: s == 0,
-        }
+        SetuidMin { is_root: s == 0 }
     }
 }
 
@@ -145,7 +142,8 @@ bitflags::bitflags! {
 
 impl CmdMin {
     pub fn better(&self, other: &Self) -> bool {
-        (!self.matching() && other.matching()) || (other.matching() && self.cmp(other) == Ordering::Less)
+        (!self.matching() && other.matching())
+            || (other.matching() && self.cmp(other) == Ordering::Less)
     }
     pub fn matching(&self) -> bool {
         !self.is_empty()
@@ -238,7 +236,8 @@ impl Score {
 
     /// Check if the current score is better than the other
     pub fn better_command(&self, other: &Score) -> bool {
-        self.command_matching() && !(other.command_matching() || self.cmd_cmp(other) == Ordering::Less)
+        self.command_matching()
+            && !(other.command_matching() || self.cmd_cmp(other) == Ordering::Less)
     }
 
     pub fn better_user(&self, other: &Score) -> bool {
@@ -273,8 +272,6 @@ impl Ord for Score {
         self.max(min).min(max)
     }
 }
-
-
 
 fn group_is_root(actortype: &SGroupType) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)

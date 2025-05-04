@@ -1,5 +1,11 @@
 use std::{
-    collections::HashMap, error::Error, fs::{self, File}, io, os::{fd::AsRawFd, unix::fs::MetadataExt}, path::Path, process::Command
+    collections::HashMap,
+    error::Error,
+    fs::{self, File},
+    io,
+    os::{fd::AsRawFd, unix::fs::MetadataExt},
+    path::Path,
+    process::Command,
 };
 
 use anyhow::{anyhow, Context};
@@ -76,7 +82,6 @@ pub enum StorageMethod {
     Unknown,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     pub method: StorageMethod,
@@ -100,7 +105,9 @@ pub struct RemoteStorageSettings {
     pub _extra_fields: Value,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -112,7 +119,9 @@ pub enum PathBehavior {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -144,23 +153,18 @@ pub struct STimeout {
 pub struct SPathOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     pub default_behavior: PathBehavior,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub add: Option<Vec<String>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        alias = "del"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "del")]
     pub sub: Option<Vec<String>>,
     #[serde(default)]
     #[serde(flatten)]
     pub _extra_fields: Value,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -179,26 +183,19 @@ pub struct SEnvOptions {
     pub override_behavior: Option<bool>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub set: HashMap<String, String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep: Option<Vec<String>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<Vec<String>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete: Option<Vec<String>>,
     #[serde(default, flatten)]
     pub _extra_fields: Value,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -209,7 +206,9 @@ pub enum SBounding {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
@@ -220,7 +219,9 @@ pub enum SPrivileged {
     Inherit,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString)]
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
@@ -261,7 +262,6 @@ pub enum ImmutableLock {
     Unset,
 }
 
-
 pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
@@ -293,8 +293,7 @@ where
     }
 }
 
-pub fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>>
-{
+pub fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())

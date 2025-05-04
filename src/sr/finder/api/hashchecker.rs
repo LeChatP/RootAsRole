@@ -4,7 +4,10 @@ use ::serde::{Deserialize, Serialize};
 use libc::FS_IOC_GETFLAGS;
 use log::{debug, warn};
 use nix::unistd::{access, AccessFlags};
-use rar_common::{database::score::CmdMin, util::{all_paths_from_env, match_single_path, open_with_privileges}};
+use rar_common::{
+    database::score::CmdMin,
+    util::{all_paths_from_env, match_single_path, open_with_privileges},
+};
 use serde_json::to_value;
 use sha2::Digest;
 
@@ -44,9 +47,24 @@ struct HashChecker {
 }
 
 fn new_complex_command(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
-    if let ApiEvent::ProcessComplexCommand(value, env_path, cmd_path, cmd_args, cmd_min, final_path) = event {
+    if let ApiEvent::ProcessComplexCommand(
+        value,
+        env_path,
+        cmd_path,
+        cmd_args,
+        cmd_min,
+        final_path,
+    ) = event
+    {
         let hash_checker: HashChecker = serde_json::from_value(to_value(value)?)?;
-        process_hash_check(hash_checker, env_path, cmd_path, cmd_args, *cmd_min, *final_path);
+        process_hash_check(
+            hash_checker,
+            env_path,
+            cmd_path,
+            cmd_args,
+            *cmd_min,
+            *final_path,
+        );
     }
     Ok(())
 }

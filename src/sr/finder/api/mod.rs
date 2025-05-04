@@ -5,24 +5,26 @@ use rar_common::database::score::{CmdMin, Score};
 use serde_json_borrow::Value;
 use strum::Display;
 
-
 use crate::Cli;
 
-use super::{de::{DConfigFinder, DLinkedRole, DLinkedTask}, options::BorrowedOptStack, BestExecSettings};
+use super::{
+    de::{DConfigFinder, DLinkedRole, DLinkedTask},
+    options::BorrowedOptStack,
+    BestExecSettings,
+};
 
+mod hashchecker;
 mod hierarchy;
 mod ssd;
-mod hashchecker;
 
 thread_local! {
     static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
 }
 
-
 pub struct Api {
-    callbacks: HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> Result<(), Box<dyn Error>> + Send>>>,
+    callbacks:
+        HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> Result<(), Box<dyn Error>> + Send>>>,
 }
-
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, Display)]
 pub enum EventKey {
@@ -34,13 +36,43 @@ pub enum EventKey {
 }
 
 #[allow(dead_code)]
-pub enum ApiEvent<'a,'t,'c,'f,'g,'h,'i,'j,'k> {
-    BestGlobalSettingsFound(&'f Cli, &'g DConfigFinder<'a>, &'j mut BorrowedOptStack<'a>, &'h mut BestExecSettings, &'i mut bool),
-    BestRoleSettingsFound(&'f Cli, &'g DLinkedRole<'c,'a>, &'h mut BorrowedOptStack<'a>, &'k &'k[&'k str], &'i mut BestExecSettings, &'j mut bool),
-    BestTaskSettingsFound(&'f Cli, &'g DLinkedTask<'t,'c,'a>, &'j mut BorrowedOptStack<'a>, &'h mut BestExecSettings, &'i mut Score),
+pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
+    BestGlobalSettingsFound(
+        &'f Cli,
+        &'g DConfigFinder<'a>,
+        &'j mut BorrowedOptStack<'a>,
+        &'h mut BestExecSettings,
+        &'i mut bool,
+    ),
+    BestRoleSettingsFound(
+        &'f Cli,
+        &'g DLinkedRole<'c, 'a>,
+        &'h mut BorrowedOptStack<'a>,
+        &'k &'k [&'k str],
+        &'i mut BestExecSettings,
+        &'j mut bool,
+    ),
+    BestTaskSettingsFound(
+        &'f Cli,
+        &'g DLinkedTask<'t, 'c, 'a>,
+        &'j mut BorrowedOptStack<'a>,
+        &'h mut BestExecSettings,
+        &'i mut Score,
+    ),
     // NewComplexCommand (Value, env_path, cmd_path, cmd_args, cmd_min, final_path),
-    ProcessComplexCommand (&'f Value<'a>, &'g [&'g str], &'h PathBuf, &'i [String], &'j mut CmdMin, &'k mut Option<PathBuf>),
-    ActorMatching(&'f DLinkedRole<'c, 'a>, &'g mut BestExecSettings, &'h mut bool),
+    ProcessComplexCommand(
+        &'f Value<'a>,
+        &'g [&'g str],
+        &'h PathBuf,
+        &'i [String],
+        &'j mut CmdMin,
+        &'k mut Option<PathBuf>,
+    ),
+    ActorMatching(
+        &'f DLinkedRole<'c, 'a>,
+        &'g mut BestExecSettings,
+        &'h mut bool,
+    ),
 }
 
 impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
@@ -78,13 +110,11 @@ impl Api {
     where
         F: Fn(&mut ApiEvent) -> Result<(), Box<dyn Error>> + Send + 'static,
     {
-        API.with(|api| 
-            unsafe {
-                let api = &mut *api.get();
-                let callbacks = api.callbacks.entry(event).or_insert_with(Vec::new);
-                callbacks.push(Box::new(function));
-            }
-        );
+        API.with(|api| unsafe {
+            let api = &mut *api.get();
+            let callbacks = api.callbacks.entry(event).or_insert_with(Vec::new);
+            callbacks.push(Box::new(function));
+        });
     }
 }
 

@@ -10,8 +10,9 @@ use pcre2::bytes::RegexBuilder;
 
 use crate::timeout;
 use rar_common::{
-    database::options::{SAuthentication, STimeout}, Cred}
-;
+    database::options::{SAuthentication, STimeout},
+    Cred,
+};
 
 use self::rpassword::Terminal;
 
