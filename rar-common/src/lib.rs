@@ -84,7 +84,7 @@ pub struct Cred {
     pub ppid: Pid,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy, EnumString)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, Copy, EnumString, strum::VariantNames)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum StorageMethod {
@@ -97,12 +97,6 @@ pub enum StorageMethod {
     //    PostgreSQL,
     //    MySQL,
     //    LDAP,
-    #[serde(other)]
-    Unknown,
-}
-
-pub enum Storage {
-    SConfig(Rc<RefCell<SConfig>>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
@@ -302,7 +296,6 @@ where
             StorageMethod::CBOR => {
                 write_cbor_config(&versioned_config, data_path)?;
             }
-            StorageMethod::Unknown => todo!(),
         }
         if immutable {
             debug!("Toggling immutable on for config file");
@@ -365,7 +358,7 @@ where
 }
 
 
-fn retrieve_sconfig(
+pub fn retrieve_sconfig(
     file_type: &StorageMethod,
     path: &PathBuf,
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
@@ -381,7 +374,6 @@ fn retrieve_sconfig(
                 debug!("Error reading file: {}", e);
             })
             .unwrap_or_default(),
-        StorageMethod::Unknown => todo!(),
     };
     println!("value: {:?}", value);
     make_weak_config(&value.data);

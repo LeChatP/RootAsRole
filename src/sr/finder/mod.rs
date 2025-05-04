@@ -95,7 +95,6 @@ where
                 &env_path
             )?)
         }
-        _ => Err("Storage method not supported".into()),
     }
 }
 

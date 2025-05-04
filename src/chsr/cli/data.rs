@@ -1,18 +1,19 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
+use bon::Builder;
 use capctl::CapSet;
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 
 use pest_derive::Parser;
-use rar_common::database::{
+use rar_common::{database::{
     actor::{SActor, SGroups, SUserType},
     options::{
         EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
         TimestampType,
     },
     structs::{IdTask, SetBehavior},
-};
+}, StorageMethod};
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]
@@ -40,6 +41,7 @@ pub enum InputAction {
     Add,
     Del,
     Purge,
+    Convert,
     None,
 }
 
@@ -89,6 +91,16 @@ pub struct Inputs {
     pub options_bounding: Option<SBounding>,
     pub options_wildcard: Option<String>,
     pub options_auth: Option<SAuthentication>,
+    pub convertion: Option<Convertion>,
+    pub convert_reconfigure: bool,
+}
+
+#[derive(Builder, Debug, Default)]
+pub struct Convertion {
+    pub from_type: Option<StorageMethod>,
+    pub from: Option<PathBuf>,
+    pub to_type: StorageMethod,
+    pub to: PathBuf,
 }
 
 impl Default for Inputs {
@@ -122,6 +134,8 @@ impl Default for Inputs {
             options_bounding: None,
             options_wildcard: None,
             options_auth: None,
+            convertion: None,
+            convert_reconfigure: false,
         }
     }
 }
