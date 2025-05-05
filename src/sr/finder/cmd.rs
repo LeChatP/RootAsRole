@@ -16,7 +16,7 @@ fn match_path(
         return CmdMin::FullWildcardPath;
     } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
-        if previous_min.better(&min) {
+        if min.better(&previous_min) {
             *final_path = Some(cmd_path.clone());
         }
         return min;
@@ -25,7 +25,7 @@ fn match_path(
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
-                if previous_min.better(&min) {
+                if min.better(&previous_min) {
                     *final_path = Some(cmd_path.clone());
                     Some(min)
                 } else {
@@ -96,6 +96,7 @@ fn match_command_line(
         final_path,
     );
     if result.is_empty() || role_command.len() == 1 {
+        debug!("result : {:?}", result);
         return result;
     }
     match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
@@ -435,10 +436,10 @@ mod tests {
     fn test_match_command_line_previous_min_set() {
         let env_path = ["/usr/bin", "/bin"];
         let cmd_path = PathBuf::from("ls");
-        let cmd_args: Vec<String> = vec![];
-        let role_command = vec!["/bin/ls".to_string()];
-        let previous_min = CmdMin::FullWildcardPath; // higher than empty
-        let mut final_path = None;
+        let cmd_args: Vec<String> = vec!["-l".to_string()];
+        let role_command = vec!["/bin/l*".to_string(),"^.*$".to_string()];
+        let previous_min = CmdMin::Match; // better than regex
+        let mut final_path = Some("/usr/bin/ls".into());
         let result = match_command_line(
             &env_path,
             &cmd_path,
@@ -447,9 +448,8 @@ mod tests {
             &previous_min,
             &mut final_path,
         );
-        // Should still match, but final_path should not be set because previous_min is better
         assert_eq!(result, CmdMin::empty());
-        assert_eq!(final_path, None);
+        assert_eq!(final_path, Some("/usr/bin/ls".into()));
     }
 
     #[test]

@@ -60,7 +60,7 @@ use std::{
 use bon::Builder;
 use libc::dev_t;
 use log::{debug, warn};
-use nix::unistd::{getgroups, Gid, Group, Pid, Uid, User};
+use nix::unistd::{getgroups, Group, Pid, Uid, User};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -214,34 +214,6 @@ impl Default for Settings {
             settings: None,
             ldap: None,
         }
-    }
-}
-
-impl<S: cred_builder::State> CredBuilder<S> {
-    pub fn user_id(mut self, uid: impl Into<Uid>) -> Self {
-        self.user = User::from_uid(uid.into()).unwrap().unwrap();
-        self
-    }
-    pub fn user_name(mut self, name: impl Into<String>) -> Self {
-        self.user = User::from_name(&name.into()).unwrap().unwrap();
-        self
-    }
-    pub fn group_id(mut self, gid: impl Into<Gid>) -> Self {
-        self.groups
-            .push(Group::from_gid(gid.into()).unwrap().unwrap());
-        self
-    }
-    pub fn group_name(mut self, name: impl Into<String>) -> Self {
-        self.groups
-            .push(Group::from_name(&name.into()).unwrap().unwrap());
-        self
-    }
-    pub fn groups(mut self, groups: Vec<Gid>) -> Self {
-        self.groups = groups
-            .iter()
-            .map(|gid| Group::from_gid(*gid).unwrap().unwrap())
-            .collect();
-        self
     }
 }
 

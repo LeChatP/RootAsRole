@@ -16,7 +16,6 @@ use strum::EnumIs;
 
 #[cfg(feature = "finder")]
 use crate::database::score::CmdMin;
-use crate::database::structs::SCommand;
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -183,33 +182,6 @@ fn remove_outer_quotes(input: &str) -> String {
         remove_outer_quotes(&input[1..input.len() - 1])
     } else {
         input.to_string()
-    }
-}
-
-pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Error>> {
-    match command {
-        SCommand::Simple(command) => parse_simple_command(command),
-        SCommand::Complex(command) => parse_complex_command(command),
-    }
-}
-
-fn parse_simple_command(command: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    shell_words::split(command).map_err(Into::into)
-}
-
-fn parse_complex_command(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn Error>> {
-    if let Some(array) = command.as_array() {
-        let result: Result<Vec<String>, _> = array
-            .iter()
-            .map(|item| {
-                item.as_str()
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| "Invalid command".into())
-            })
-            .collect();
-        result
-    } else {
-        Err("Invalid command".into())
     }
 }
 

@@ -37,6 +37,7 @@ impl<T> Migration<T> {
         to: &Version,
     ) -> Result<ChangeResult, Box<dyn Error>> {
         debug!("Checking migration from {} to {} :", self.from(), self.to());
+        #[cfg(not(tarpaulin_include))]
         debug!(
             "
 \tself.from() == *from -> {}\tself.from() == *to -> {}

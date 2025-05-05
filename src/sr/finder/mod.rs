@@ -263,7 +263,7 @@ impl BestExecSettings {
     }
 
     fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
-        if self.score.cmd_min.better(&res) {
+        if res.better(&self.score.cmd_min) {
             self.score.cmd_min = res;
             self.final_path = final_path;
             true
@@ -274,4 +274,37 @@ impl BestExecSettings {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use rar_common::database::score::{Score, CmdMin};
+
+    #[test]
+    fn test_update_command_score_better() {
+        let mut settings = BestExecSettings {
+            score: Score { cmd_min: CmdMin::RegexArgs, ..Default::default() },
+            final_path: PathBuf::from("/old/path"),
+            ..Default::default()
+        };
+        let new_cmd_min = CmdMin::Match;
+        let new_path = PathBuf::from("/new/path");
+        let updated = settings.update_command_score(new_path.clone(), new_cmd_min.clone());
+        assert!(updated);
+        assert_eq!(settings.score.cmd_min, new_cmd_min);
+        assert_eq!(settings.final_path, new_path);
+    }
+
+    #[test]
+    fn test_update_command_score_not_better() {
+        let mut settings = BestExecSettings {
+            score: Score { cmd_min: CmdMin::Match, ..Default::default() },
+            final_path: PathBuf::from("/old/path"),
+            ..Default::default()
+        };
+        let worse_cmd_min = CmdMin::RegexArgs;
+        let new_path = PathBuf::from("/new/path");
+        let updated = settings.update_command_score(new_path, worse_cmd_min);
+        assert!(!updated);
+        assert_eq!(settings.final_path, PathBuf::from("/old/path"));
+    }
+}

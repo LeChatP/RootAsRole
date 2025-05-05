@@ -942,6 +942,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
     }
 }
 
+/// This struct keeps the list of commands because options may be written after
 #[derive(PartialEq, Eq, Debug)]
 pub struct DCommandList<'a> {
     pub default_behavior: Option<SetBehavior>,
@@ -1007,13 +1008,12 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let default_behavior = None;
                 let mut add = Vec::new();
                 while let Some(command) = seq.next_element()? {
                     add.push(command);
                 }
                 return Ok(DCommandList {
-                    default_behavior,
+                    default_behavior: None,
                     add: Cow::Owned(add),
                     del: Cow::Borrowed(&[]),
                 });
@@ -1038,6 +1038,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
     }
 }
 
+
+/// This struct evaluates commands directly from deserialization
 pub struct DCommandListDeserializer<'a> {
     env_path: &'a [&'a str],
     cmd_path: &'a PathBuf,
@@ -1122,7 +1124,8 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
                         cmd_min: self.cmd_min,
                         blocker: true,
                     };
-                    if map.next_value_seed(deserializer)? {
+                    let res = map.next_value_seed(deserializer)?;
+                    if res {
                         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                         return Ok(false);
                     }
@@ -1148,12 +1151,12 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
     }
 }
 
-struct DCommandDeserializer<'a> {
-    env_path: &'a [&'a str],
-    cmd_path: &'a PathBuf,
-    cmd_args: &'a [String],
-    final_path: &'a mut Option<PathBuf>,
-    cmd_min: &'a mut CmdMin,
+pub(super) struct DCommandDeserializer<'a> {
+    pub(super) env_path: &'a [&'a str],
+    pub(super) cmd_path: &'a PathBuf,
+    pub(super) cmd_args: &'a [String],
+    pub(super) final_path: &'a mut Option<PathBuf>,
+    pub(super) cmd_min: &'a mut CmdMin,
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
@@ -1191,7 +1194,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
                     self.cmd_min,
                     &mut final_path,
                 );
-                if self.cmd_min.better(&cmd_min) {
+                if cmd_min.better(&self.cmd_min) {
                     debug!("DCommandVisitor: better command found");
                     result = true;
                     *self.final_path = final_path;
@@ -1205,8 +1208,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut map_value = Vec::new();
-                while let Some((key, value)) = map.next_entry::<&str, Cow<'_, str>>()? {
-                    map_value.push((key, Value::Str(value)));
+                while let Some((key, value)) = map.next_entry::<&str, Value>()? {
+                    map_value.push((key, value));
                 }
                 Api::notify(ApiEvent::ProcessComplexCommand(
                     &Value::Object(map_value.into()),
@@ -1372,4 +1375,108 @@ impl<'d, 'l, 't, 'c, 'a> Deref for DLinkedCommand<'d, 'l, 't, 'c, 'a> {
     fn deref(&self) -> &Self::Target {
         self.command
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn test_idtask_display() {
+        let name = IdTask::Name(Cow::Borrowed("test"));
+        let number = IdTask::Number(42);
+        assert_eq!(format!("{}", name), "test");
+        assert_eq!(format!("{}", number), "42");
+    }
+
+    #[test]
+    fn test_dcommandlist_deserialize_seq() {
+        let json = r#"["ls", "cat"]"#;
+        let list: DCommandList = serde_json::from_str(json).unwrap();
+        assert_eq!(list.add.len(), 2);
+        assert!(matches!(list.add[0], DCommand::Simple(_)));
+    }
+
+    #[test]
+    fn test_dcommandlist_deserialize_map() {
+        let json = r#"{"default": "all", "add": ["ls"], "del": ["rm"]}"#;
+        let list: DCommandList = serde_json::from_str(json).unwrap();
+        assert_eq!(list.default_behavior.unwrap(), SetBehavior::All);
+        assert_eq!(list.add.len(), 1);
+        assert_eq!(list.del.len(), 1);
+    }
+
+    #[test]
+    fn test_dcommandlist_deserialize_bool() {
+        let json = "true";
+        let list: DCommandList = serde_json::from_str(json).unwrap();
+        assert_eq!(list.default_behavior, Some(SetBehavior::All));
+        assert_eq!(list.add.len(), 0);
+        assert_eq!(list.del.len(), 0);
+        let json = "false";
+        let list: DCommandList = serde_json::from_str(json).unwrap();
+        assert_eq!(list.default_behavior, Some(SetBehavior::None));
+        assert_eq!(list.add.len(), 0);
+        assert_eq!(list.del.len(), 0);
+    }
+
+    #[test]
+    fn test_dcommandlist_deserialize_empty() {
+        let json = "{}";
+        let list: DCommandList = serde_json::from_str(json).unwrap();
+        assert_eq!(list.default_behavior, None);
+        assert_eq!(list.add.len(), 0);
+        assert_eq!(list.del.len(), 0);
+    }
+
+    #[test]
+    fn test_dcommandlist_deserialize_invalid() {
+        let json = r#"{"default": "invalid", "add": ["ls"], "del": ["rm"]}"#;
+        let result: Result<DCommandList, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dcommandlist_seed() {
+        let json = r#"{"default": "none", "add": ["/usr/bin/ls"], "del": ["/usr/bin/rm"]}"#;
+        let mut final_path = None;
+        let mut cmd_min = CmdMin::default();
+        let deserializer = DCommandListDeserializer {
+            env_path: &["/usr/bin"],
+            cmd_path: &PathBuf::from("/usr/bin/ls"),
+            cmd_args: &vec![],
+            final_path: &mut final_path,
+            cmd_min: &mut cmd_min,
+            blocker: false,
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
+        assert!(result);
+    }
+
+    #[test]
+    fn test_dcommand_seed() {
+        let json = r#""/usr/bin/ls""#;
+        let mut final_path = None;
+        let mut cmd_min = CmdMin::default();
+        let deserializer = DCommandDeserializer {
+            env_path: &["/usr/bin"],
+            cmd_path: &PathBuf::from("/usr/bin/ls"),
+            cmd_args: &vec![],
+            final_path: &mut final_path,
+            cmd_min: &mut cmd_min,
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
+        assert!(result);
+    }
+
+
+
 }
