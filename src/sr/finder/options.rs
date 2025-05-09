@@ -80,7 +80,7 @@ fn default<'a>() -> Opt<'a> {
         .build()
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct DPathOptions<'a> {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]

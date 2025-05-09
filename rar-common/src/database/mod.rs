@@ -28,9 +28,9 @@ pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
     pub env_behavior: Option<EnvBehavior>,
-    #[builder(with = |s: SUserType| -> Result<_,String> { s.fetch_id().ok_or("This user does not exist".into()) })]
+    #[builder(with = |s: impl Into<SUserType>| -> Result<_,String> { s.into().fetch_id().ok_or("This user does not exist".into()) })]
     pub user: Option<u32>,
-    #[builder(with = |s: SGroups| -> Result<_,String> { s.try_into() })]
+    #[builder(with = |s: impl Into<SGroups>| -> Result<_,String> { s.into().try_into() })]
     pub group: Option<Vec<u32>>,
 }
 

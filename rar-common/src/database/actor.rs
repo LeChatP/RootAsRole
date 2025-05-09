@@ -147,7 +147,7 @@ impl Display for DUserType<'_> {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs)]
+#[derive(Serialize, PartialEq, Eq, Debug, Clone, EnumIs)]
 #[serde(untagged)]
 pub enum SGroups {
     Single(SGroupType),
@@ -171,7 +171,7 @@ impl Display for SGroups {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, EnumIs, strum::Display)]
+#[derive(Serialize, PartialEq, Eq, Debug, Clone, EnumIs, strum::Display)]
 #[serde(untagged)]
 pub enum DGroups<'a> {
     Single(#[serde(borrow)] DGroupType<'a>),
@@ -209,6 +209,112 @@ impl DGroups<'_> {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+impl<'de:'a, 'a> Deserialize<'de> for DGroups<'a> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct DGroupsVisitor<'a> {
+            marker: std::marker::PhantomData<&'a ()>,
+        }
+        impl<'de:'a, 'a> serde::de::Visitor<'de> for DGroupsVisitor<'a> {
+            type Value = DGroups<'a>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a number")
+            }
+
+            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                } else {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(Cow::Borrowed(v)))));
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if value > u32::MAX as u64 {
+                    return Err(E::custom("value is too large"));
+                }
+                Ok(DGroups::Single(DGroupType(DGenericActorType::Id(value as u32))))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: serde::de::SeqAccess<'de>, {
+                let mut groups = Vec::new();
+                while let Some(group) = seq.next_element::<DGroupType<'a>>()? {
+                    groups.push(group);
+                }
+                if groups.len() == 1 {
+                    Ok(DGroups::Single(groups.remove(0)))
+                } else {
+                    Ok(DGroups::Multiple(Cow::Owned(groups)))
+                }
+            }
+        }
+        deserializer.deserialize_any(DGroupsVisitor {
+            marker: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<'de:'a, 'a> Deserialize<'de> for SGroups {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SGroupsVisitor;
+        impl<'de:'a, 'a> serde::de::Visitor<'de> for SGroupsVisitor {
+            type Value = SGroups;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a number")
+            }
+
+            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                } else {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(v.to_string()))));
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if value > u32::MAX as u64 {
+                    return Err(E::custom("value is too large"));
+                }
+                Ok(SGroups::Single(SGroupType(SGenericActorType::Id(value as u32))))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: serde::de::SeqAccess<'de>, {
+                let mut groups = Vec::new();
+                while let Some(group) = seq.next_element::<SGroupType>()? {
+                    groups.push(group);
+                }
+                if groups.len() == 1 {
+                    Ok(SGroups::Single(groups.remove(0)))
+                } else {
+                    Ok(SGroups::Multiple(groups))
+                }
+            }
+        }
+        deserializer.deserialize_any(SGroupsVisitor)
     }
 }
 
