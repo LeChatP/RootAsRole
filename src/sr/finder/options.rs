@@ -36,7 +36,7 @@ fn default<'a>() -> Opt<'a> {
         .path(DPathOptions::default_path())
         .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
         .env(
-            SEnvOptions::builder(
+            DEnvOptions::builder(
                 env!("RAR_ENV_DEFAULT")
                     .parse()
                     .unwrap_or(EnvBehavior::Delete),
@@ -99,7 +99,7 @@ pub struct DPathOptions<'a> {
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
-pub struct SEnvOptions<'a> {
+pub struct DEnvOptions<'a> {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
     pub default_behavior: EnvBehavior,
@@ -131,7 +131,7 @@ pub struct Opt<'a> {
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
     pub path: Option<DPathOptions<'a>>,
     #[serde(borrow, skip_serializing_if = "Option::is_none")]
-    pub env: Option<SEnvOptions<'a>>,
+    pub env: Option<DEnvOptions<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,7 +152,7 @@ impl<'a> Opt<'a> {
     pub fn new(
         #[builder(start_fn)] level: Level,
         path: Option<DPathOptions<'a>>,
-        env: Option<SEnvOptions<'a>>,
+        env: Option<DEnvOptions<'a>>,
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
@@ -174,7 +174,7 @@ impl<'a> Opt<'a> {
     }
 }
 
-impl<'a> SEnvOptions<'a> {
+impl<'a> DEnvOptions<'a> {
     pub fn calc_final_env(
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
@@ -429,7 +429,7 @@ fn is_regex(s: impl AsRef<str>) -> bool {
 
 #[cfg(not(feature = "pcre2"))]
 fn is_regex(_s: impl AsRef<str>) -> bool {
-    true // Always return true if regex feature is disabled
+    false // Always return false if regex feature is disabled
 }
 
 #[cfg(feature = "pcre2")]
@@ -658,14 +658,14 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         &self,
         override_behavior: &Option<bool>,
         opt_filter: &Option<FilterMatcher>,
-    ) -> SEnvOptions<'_> {
-        let mut result = SEnvOptions::default();
+    ) -> DEnvOptions<'_> {
+        let mut result = DEnvOptions::default();
         fn determine_final_behavior<'a>(
             override_behavior: &Option<bool>,
             opt_filter: &Option<FilterMatcher>,
             final_behavior: &mut EnvBehavior,
             overriden: &mut bool,
-            o: &SEnvOptions<'_>,
+            o: &DEnvOptions<'_>,
         ) {
             if !*overriden {
                 if let Some(behavior) = opt_filter
@@ -814,5 +814,23 @@ mod tests {
                 .unwrap()
                 .as_str()
         ));
+    }
+
+    #[test]
+    fn test_is_valid_env_name() {
+        assert!(is_valid_env_name("VAR_NAME"));
+        assert!(is_valid_env_name("_VAR_NAME"));
+        assert!(!is_valid_env_name("1_VAR_NAME"));
+        assert!(!is_valid_env_name("VAR-NAME"));
+        assert!(!is_valid_env_name("VAR NAME"));
+        assert!(!is_valid_env_name(""));
+    }
+    #[test]
+    fn test_is_regex() {
+        #[cfg(feature = "pcre2")]
+        assert!(is_regex("^[a-zA-Z0-9_]+$"));
+        #[cfg(not(feature = "pcre2"))]
+        assert!(!is_regex("^[a-zA-Z0-9_]+$"));
+        assert!(!is_regex("[a-z"));
     }
 }

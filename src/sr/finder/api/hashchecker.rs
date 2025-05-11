@@ -119,14 +119,22 @@ fn match_path(
         let min = match_single_path(cmd_path, role_path);
         verify_executable_conditions(checker, final_path, cmd_path, min).unwrap_or_default()
     } else {
-        all_paths_from_env(env_path,cmd_path).iter().find_map(|cmd_path| {
-            let min = match_single_path(cmd_path, role_path);
-            verify_executable_conditions(checker, final_path, cmd_path, min)
-        }).unwrap_or_default()
+        all_paths_from_env(env_path, cmd_path)
+            .iter()
+            .find_map(|cmd_path| {
+                let min = match_single_path(cmd_path, role_path);
+                verify_executable_conditions(checker, final_path, cmd_path, min)
+            })
+            .unwrap_or_default()
     }
 }
 
-fn verify_executable_conditions(checker: &HashChecker, final_path: &mut Option<PathBuf>, cmd_path: &PathBuf, min: CmdMin) -> Option<CmdMin> {
+fn verify_executable_conditions(
+    checker: &HashChecker,
+    final_path: &mut Option<PathBuf>,
+    cmd_path: &PathBuf,
+    min: CmdMin,
+) -> Option<CmdMin> {
     if min.matching() {
         if checker.read_only.is_some_and(|read_only| read_only) {
             if access(cmd_path, AccessFlags::W_OK).is_ok() {
@@ -222,11 +230,18 @@ pub fn register() {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Read, path::{Path, PathBuf}};
+    use std::{
+        fs::File,
+        io::Read,
+        path::{Path, PathBuf},
+    };
 
     use log::debug;
     use nix::sys::stat::{fchmodat, Mode};
-    use rar_common::{database::score::CmdMin, util::{immutable_effective, toggle_lock_config}};
+    use rar_common::{
+        database::score::CmdMin,
+        util::{immutable_effective, toggle_lock_config},
+    };
     use serde::de::DeserializeSeed;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
@@ -238,7 +253,7 @@ mod tests {
             Defer(Some(f))
         }
     }
-    
+
     impl<F: FnOnce()> Drop for Defer<F> {
         fn drop(&mut self) {
             if let Some(f) = self.0.take() {
@@ -246,7 +261,7 @@ mod tests {
             }
         }
     }
-    
+
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
     }
@@ -254,23 +269,24 @@ mod tests {
     fn set_read_only(path: &Path) -> nix::Result<()> {
         // Set permissions to read-only for owner, group, and others
         fchmodat(
-            None,                // Relative to the current directory
+            None, // Relative to the current directory
             path,
             Mode::S_IRUSR        // Owner read
                 | Mode::S_IRGRP  // Group read
                 | Mode::S_IROTH, // Others read
-            nix::sys::stat::FchmodatFlags::NoFollowSymlink,    // No special flags
+            nix::sys::stat::FchmodatFlags::NoFollowSymlink, // No special flags
         )?;
         Ok(())
     }
-
 
     #[test]
     fn test_dcommand_seed_hashchecker() {
         register();
         let filename = "test.sh";
         let _cleanup = defer(|| {
-            let filename = PathBuf::from(filename).canonicalize().unwrap_or(filename.into());
+            let filename = PathBuf::from(filename)
+                .canonicalize()
+                .unwrap_or(filename.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -279,7 +295,7 @@ mod tests {
         File::create(&filename).unwrap();
         let filename = PathBuf::from(filename).canonicalize().unwrap();
         //call sha256sum on the file
-        
+
         let mut file = File::open(&filename).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
@@ -287,7 +303,11 @@ mod tests {
         let mut sha224hasher = Sha224::new();
         sha224hasher.update(&buffer);
         let sha224 = sha224hasher.finalize();
-        let json = format!(r#"{{"sha224": "{:x}", "command": "{} -l"}}"#, sha224, &filename.display());
+        let json = format!(
+            r#"{{"sha224": "{:x}", "command": "{} -l"}}"#,
+            sha224,
+            &filename.display()
+        );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
         let deserializer = DCommandDeserializer {
@@ -305,8 +325,12 @@ mod tests {
         let mut sha256hasher = Sha256::new();
         sha256hasher.update(&buffer);
         let sha256 = sha256hasher.finalize();
-        
-        let json = format!(r#"{{"sha256": "{:x}", "command": "{} -l"}}"#, sha256, &filename.display());
+
+        let json = format!(
+            r#"{{"sha256": "{:x}", "command": "{} -l"}}"#,
+            sha256,
+            &filename.display()
+        );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
         let deserializer = DCommandDeserializer {
@@ -324,8 +348,12 @@ mod tests {
         let mut sha384hasher = Sha384::new();
         sha384hasher.update(&buffer);
         let sha384 = sha384hasher.finalize();
-        
-        let json = format!(r#"{{"sha384": "{:x}", "command": "{} -l"}}"#, sha384, &filename.display());
+
+        let json = format!(
+            r#"{{"sha384": "{:x}", "command": "{} -l"}}"#,
+            sha384,
+            &filename.display()
+        );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
         let deserializer = DCommandDeserializer {
@@ -343,7 +371,11 @@ mod tests {
         let mut sha512hasher = Sha512::new();
         sha512hasher.update(&buffer);
         let sha512 = sha512hasher.finalize();
-        let json = format!(r#"{{"sha512": "{:x}", "command": "{} -l"}}"#, sha512, &filename.display());
+        let json = format!(
+            r#"{{"sha512": "{:x}", "command": "{} -l"}}"#,
+            sha512,
+            &filename.display()
+        );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
         let deserializer = DCommandDeserializer {
@@ -357,8 +389,6 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
         assert_eq!(cmd_min, CmdMin::Match);
-
-
     }
 
     #[test]
@@ -366,19 +396,23 @@ mod tests {
         register();
         let filename = "test_ro.sh";
         let _cleanup = defer(|| {
-            let filename = PathBuf::from(filename).canonicalize().unwrap_or(filename.into());
+            let filename = PathBuf::from(filename)
+                .canonicalize()
+                .unwrap_or(filename.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
         });
         //create the file
         File::create(&filename).unwrap();
-        
+
         let filename = PathBuf::from(filename).canonicalize().unwrap();
         //call sha256sum on the file
-        
-        
-        let json = format!(r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#, &filename.display());
+
+        let json = format!(
+            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -397,7 +431,10 @@ mod tests {
         assert_eq!(final_path, None);
         assert_eq!(cmd_min, CmdMin::empty());
 
-        let json = format!(r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -416,7 +453,10 @@ mod tests {
         assert_eq!(final_path, None);
         assert_eq!(cmd_min, CmdMin::empty());
 
-        let json = format!(r#"{{"read-only": false, "immutable": true, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": false, "immutable": true, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -435,7 +475,10 @@ mod tests {
         assert_eq!(final_path, None);
         assert_eq!(cmd_min, CmdMin::empty());
 
-        let json = format!(r#"{{"read-only": false, "immutable": false, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": false, "immutable": false, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -453,12 +496,13 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
         assert_eq!(cmd_min, CmdMin::Match);
-
 
         set_read_only(filename.as_path()).unwrap();
-        
 
-        let json = format!(r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -477,7 +521,10 @@ mod tests {
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
         assert_eq!(cmd_min, CmdMin::Match);
 
-        let json = format!(r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -496,9 +543,10 @@ mod tests {
         assert_eq!(final_path, None);
         assert_eq!(cmd_min, CmdMin::empty());
 
-
-
-        let json = format!(r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -523,7 +571,11 @@ mod tests {
             immutable = true;
             immutable_effective(false).unwrap();
         }
-        let json = format!(r#"{{"read-only": true, "immutable": {}, "command": "{}"}}"#, immutable, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": {}, "command": "{}"}}"#,
+            immutable,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -542,7 +594,10 @@ mod tests {
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
         assert_eq!(cmd_min, CmdMin::Match);
 
-        let json = format!(r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#, &filename.display());
+        let json = format!(
+            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+            &filename.display()
+        );
         debug!("json: {}", json);
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
@@ -565,7 +620,5 @@ mod tests {
             assert_eq!(final_path, None);
             assert_eq!(cmd_min, CmdMin::empty());
         }
-        
-
     }
 }

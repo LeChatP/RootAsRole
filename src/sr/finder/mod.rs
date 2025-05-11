@@ -276,13 +276,16 @@ impl BestExecSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rar_common::database::score::{CmdMin, Score};
     use std::path::PathBuf;
-    use rar_common::database::score::{Score, CmdMin};
 
     #[test]
     fn test_update_command_score_better() {
         let mut settings = BestExecSettings {
-            score: Score { cmd_min: CmdMin::RegexArgs, ..Default::default() },
+            score: Score {
+                cmd_min: CmdMin::RegexArgs,
+                ..Default::default()
+            },
             final_path: PathBuf::from("/old/path"),
             ..Default::default()
         };
@@ -297,7 +300,10 @@ mod tests {
     #[test]
     fn test_update_command_score_not_better() {
         let mut settings = BestExecSettings {
-            score: Score { cmd_min: CmdMin::Match, ..Default::default() },
+            score: Score {
+                cmd_min: CmdMin::Match,
+                ..Default::default()
+            },
             final_path: PathBuf::from("/old/path"),
             ..Default::default()
         };

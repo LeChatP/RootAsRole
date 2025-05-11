@@ -437,7 +437,7 @@ mod tests {
         let env_path = ["/usr/bin", "/bin"];
         let cmd_path = PathBuf::from("ls");
         let cmd_args: Vec<String> = vec!["-l".to_string()];
-        let role_command = vec!["/bin/l*".to_string(),"^.*$".to_string()];
+        let role_command = vec!["/bin/l*".to_string(), "^.*$".to_string()];
         let previous_min = CmdMin::Match; // better than regex
         let mut final_path = Some("/usr/bin/ls".into());
         let result = match_command_line(

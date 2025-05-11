@@ -243,7 +243,7 @@ impl Score {
 
     pub fn better_user(&self, other: &Score) -> bool {
         (self.user_matching() && !other.user_matching())
-            || (self.user_matching() && self.user_cmp(other) == Ordering::Less)    
+            || (self.user_matching() && self.user_cmp(other) == Ordering::Less)
     }
 
     pub fn better_fully(&self, other: &Score) -> bool {
@@ -329,7 +329,7 @@ fn dgroups_len(groups: Option<&DGroups<'_>>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::actor::{SGroupType, SGroups, SUserType, DGroupType, DGroups, DUserType};
+    use crate::database::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
     use std::borrow::Cow;
 
     #[test]
@@ -373,7 +373,9 @@ mod tests {
         let none = None;
         assert!(groups_contains_root(Some(&single)));
         assert!(groups_contains_root(Some(&multiple)));
-        assert!(!groups_contains_root(Some(&SGroups::Single(non_root_group))));
+        assert!(!groups_contains_root(Some(&SGroups::Single(
+            non_root_group
+        ))));
         assert!(!groups_contains_root(none));
     }
 
@@ -382,11 +384,14 @@ mod tests {
         let root_group = DGroupType::from(0);
         let non_root_group = DGroupType::from(1);
         let single = DGroups::Single(root_group.clone());
-        let multiple = DGroups::Multiple(Cow::Owned(vec![non_root_group.clone(), root_group.clone()]));
+        let multiple =
+            DGroups::Multiple(Cow::Owned(vec![non_root_group.clone(), root_group.clone()]));
         let none = None;
         assert!(dgroups_contains_root(Some(&single)));
         assert!(dgroups_contains_root(Some(&multiple)));
-        assert!(!dgroups_contains_root(Some(&DGroups::Single(non_root_group))));
+        assert!(!dgroups_contains_root(Some(&DGroups::Single(
+            non_root_group
+        ))));
         assert!(!dgroups_contains_root(none));
     }
 
@@ -404,7 +409,8 @@ mod tests {
     fn test_dgroups_len() {
         let group1 = DGroupType::from(0);
         let single = DGroups::Single(group1);
-        let multiple = DGroups::Multiple(Cow::Owned(vec![DGroupType::from(0), DGroupType::from(1)]));
+        let multiple =
+            DGroups::Multiple(Cow::Owned(vec![DGroupType::from(0), DGroupType::from(1)]));
         assert_eq!(dgroups_len(Some(&single)), 1);
         assert_eq!(dgroups_len(Some(&multiple)), 2);
         assert_eq!(dgroups_len(None), 0);
@@ -642,7 +648,6 @@ mod tests {
         assert!(!score2.better_user(&score1));
         assert!(score1.better_fully(&score2));
         assert!(!score2.better_fully(&score1));
-
     }
 
     #[test]

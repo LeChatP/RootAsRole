@@ -10,8 +10,7 @@ use rar_common::{
         actor::{DActor, DGroupType, DGroups, DUserType},
         options::Level,
         score::{
-            ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetgidMin, SetuidMin,
-            TaskScore,
+            ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetgidMin, SetuidMin, TaskScore,
         },
         structs::{SCapabilities, SetBehavior},
     },
@@ -49,7 +48,7 @@ pub struct DRoleFinder<'a> {
     pub role: Cow<'a, str>,
     pub tasks: Vec<DTaskFinder<'a>>,
     pub options: Option<Opt<'a>>,
-    pub _extra_values: HashMap<String, Value<'a>>,
+    pub _extra_values: HashMap<Cow<'a, str>, Value<'a>>,
 }
 
 #[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -157,7 +156,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                         }
                         Field::Unknown(_) => {
                             debug!("ConfigFinderVisitor: unknown");
-                            let _ = map.next_value::<IgnoredAny>();
+                            //let _ = map.next_value::<IgnoredAny>();
+                            return Err(serde::de::Error::custom("Unknown field"));
                         }
                     }
                 }
@@ -248,7 +248,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
-        enum Field {
+        enum Field<'a> {
             #[serde(alias = "n")]
             Name,
             #[serde(alias = "a", alias = "users")]
@@ -257,8 +257,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             Tasks,
             #[serde(alias = "o")]
             Options,
-            #[serde(untagged)]
-            Unknown(String),
+            #[serde(untagged, borrow)]
+            Unknown(Cow<'a, str>),
         }
 
         struct RoleFinderVisitor<'a, 'b> {
@@ -266,7 +266,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             cred: &'a Cred,
             env_path: &'a [&'a str],
             spath: &'b mut DPathOptions<'a>,
-            human_readable: bool,
+            _human_readable: bool,
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for RoleFinderVisitor<'a, '_> {
@@ -290,9 +290,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                             debug!("RoleFinderVisitor: options");
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Role;
-                            if self.human_readable {
-                                options = Some(opt);
+                            if let Some(path) = opt.path.as_ref() {
+                                self.spath.union(path.clone().into());
                             }
+                            options = Some(opt);
                         }
                         Field::Name => {
                             debug!("RoleFinderVisitor: name");
@@ -328,7 +329,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             }
         }
         const FIELDS: &[&str] = &["name", "tasks", "options"];
-        let human_readable = deserializer.is_human_readable();
+        let _human_readable = deserializer.is_human_readable();
         deserializer.deserialize_struct(
             "Role",
             FIELDS,
@@ -337,7 +338,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                 cred: self.cred,
                 spath: self.spath,
                 env_path: self.env_path,
-                human_readable,
+                _human_readable,
             },
         )
     }
@@ -383,19 +384,10 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
             fn match_groups(groups: &[Group], role_groups: &[&DGroups<'_>]) -> bool {
                 for role_group in role_groups {
                     if match role_group {
-                        DGroups::Single(group) => {
-                            debug!(
-                                "Checking group {}, with {:?}, it must be {}",
-                                group,
-                                groups,
-                                groups.iter().any(|g| group == g)
-                            );
-                            groups.iter().any(|g| group == g)
-                        }
-                        DGroups::Multiple(multiple_actors) => multiple_actors.iter().all(|actor| {
-                            debug!("Checking group {}, with {:?}", actor, groups);
-                            groups.iter().any(|g| actor == g)
-                        }),
+                        DGroups::Single(group) => groups.iter().any(|g| group == g),
+                        DGroups::Multiple(multiple_actors) => multiple_actors
+                            .iter()
+                            .all(|actor| groups.iter().any(|g| actor == g)),
                     } {
                         return true;
                     }
@@ -506,7 +498,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
             Commands,
             #[serde(alias = "o")]
             Options,
-            #[serde(untagged)]
+            #[serde(untagged, borrow)]
             Unknown(Cow<'a, str>),
         }
 
@@ -801,6 +793,35 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 }
                 Ok((Some(DGroups::Single(group)), score, ok))
             }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                debug!("SGroupsChooserVisitor: visit_u64");
+                if v > u32::MAX as u64 {
+                    return Err(serde::de::Error::custom("Group id too large"));
+                }
+                let group: DGroupType<'_> = (v as u32).into();
+                let score = Some(SetgidMin::from(&group));
+                let ok = true;
+                if let Some(y) = &self
+                    .cli
+                    .opt_filter
+                    .as_ref()
+                    .map(|x| x.group.as_ref())
+                    .flatten()
+                {
+                    if y.len() == 1
+                        && y[0]
+                            != group
+                                .fetch_id()
+                                .ok_or(serde::de::Error::custom("Group does not exist"))?
+                    {
+                        return Ok((None, None, false));
+                    }
+                }
+                Ok((Some(DGroups::Single(group)), score, ok))
+            }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
@@ -818,6 +839,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                             ok = true;
                             groups = Some(group.to_owned());
                             score.replace((&group).into());
+                            while seq.next_element::<IgnoredAny>()?.is_some() {}
                             break;
                         }
                     } else {
@@ -873,6 +895,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                                         ok = true;
                                         groups = Some(group.to_owned());
                                         score.replace(group.into());
+                                        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some()
+                                        {
+                                        }
                                         break;
                                     }
                                 }
@@ -969,9 +994,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 Ok((Some(user), score, ok))
             }
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
-                
+            where
+                E: serde::de::Error,
+            {
                 debug!("SetUserVisitor: visit_i64");
                 if v > u32::MAX as u64 {
                     return Err(serde::de::Error::custom("User id too large"));
@@ -1378,7 +1403,7 @@ impl<'a> DConfigFinder<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DLinkedRole<'c, 'a> {
     parent: &'c DConfigFinder<'a>,
     role: &'c DRoleFinder<'a>,
@@ -1512,13 +1537,17 @@ impl<'d, 'l, 't, 'c, 'a> Deref for DLinkedCommand<'d, 'l, 't, 'c, 'a> {
 #[cfg(test)]
 mod tests {
 
+    use core::task;
     use std::fs;
 
     use super::*;
     use capctl::Cap;
-    use nix::unistd::getuid;
+    use cbor4ii::core::utils::SliceReader;
+    use nix::unistd::{getgid, getuid};
     use rar_common::database::{
-        actor::DGroupType, options::SPathOptions, score::{SetgidMin, SetuidMin}, FilterMatcher
+        actor::{DGroupType, SGroupType, SGroups},
+        score::{SetUserMin, SetgidMin, SetuidMin},
+        FilterMatcher,
     };
     use test_log::test;
 
@@ -1548,6 +1577,12 @@ mod tests {
             })
             .filter(|uid| *uid != 0)
             .nth(nth);
+    }
+
+    fn convert_json_to_cbor(json: &str) -> Vec<u8> {
+        let value: Value = serde_json::from_str(json).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &value).unwrap();
+        cbor
     }
 
     #[test]
@@ -1699,6 +1734,50 @@ mod tests {
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(user, None);
+        let json = "\"root\"";
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().user("root").unwrap().build())
+            .build();
+        let deserializer = SetUserDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let (user, score, ok) = result.unwrap();
+        assert!(ok);
+        let user1 = DUserType::from("root");
+        assert_eq!(score, Some(SetuidMin::from(&user1)));
+        assert_eq!(user, Some(user1));
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().user(uid1).unwrap().build())
+            .build();
+        let deserializer = SetUserDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (user, score, ok) = result.unwrap();
+        assert!(!ok);
+        assert_eq!(score, None);
+        assert_eq!(user, None);
+        let json = "0";
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().user(uid1).unwrap().build())
+            .build();
+        let deserializer = SetUserDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (user, score, ok) = result.unwrap();
+        assert!(!ok);
+        assert_eq!(score, None);
+        assert_eq!(user, None);
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().user("root").unwrap().build())
+            .build();
+        let deserializer = SetUserDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (user, score, ok) = result.unwrap();
+        assert!(ok);
+        let user1 = DUserType::from(0);
+        assert_eq!(score, Some(SetuidMin::from(&user1)));
+        assert_eq!(user, Some(user1));
     }
 
     #[test]
@@ -1768,6 +1847,88 @@ mod tests {
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
+        let json = "\"root\"";
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().group("root").unwrap().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let (groups, score, ok) = result.unwrap();
+        assert!(ok);
+        let groups1 = DGroups::Single("root".into());
+        assert_eq!(score, Some((&groups1).into()));
+        assert_eq!(groups, Some(groups1));
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().group(gid1).unwrap().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (groups, score, ok) = result.unwrap();
+        assert!(!ok);
+        assert_eq!(score, None);
+        assert_eq!(groups, None);
+        let json = "0";
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().group(gid1).unwrap().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (groups, score, ok) = result.unwrap();
+        assert!(!ok);
+        assert_eq!(score, None);
+        assert_eq!(groups, None);
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().group("root").unwrap().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (groups, score, ok) = result.unwrap();
+        assert!(ok);
+        let groups1 = DGroups::Single(0.into());
+        assert_eq!(score, Some((&groups1).into()));
+        assert_eq!(groups, Some(groups1));
+        let json = "[[\"root\", 1]]";
+        let cli = Cli::builder()
+            .opt_filter(
+                FilterMatcher::builder()
+                    .group(vec!["root".into(), Into::<SGroupType>::into(1)])
+                    .unwrap()
+                    .build(),
+            )
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let (groups, score, ok) = result.unwrap();
+        assert!(ok);
+        let groups1 = DGroups::from(vec!["root".into(), 1.into()]);
+        assert_eq!(score, Some((&groups1).into()));
+        assert_eq!(groups, Some(groups1));
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let (groups, score, ok) = result.unwrap();
+        assert!(ok);
+        let groups1 = DGroups::from(vec!["root".into(), 1.into()]);
+        assert_eq!(score, Some((&groups1).into()));
+        assert_eq!(groups, Some(groups1));
+        let cli = Cli::builder()
+            .opt_filter(FilterMatcher::builder().group(gid1).unwrap().build())
+            .build();
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok());
+        let (groups, score, ok) = result.unwrap();
+        assert!(!ok);
+        assert_eq!(score, None);
+        assert_eq!(groups, None);
     }
 
     #[test]
@@ -1804,7 +1965,7 @@ mod tests {
 
         let uid = get_non_root_uid(0).unwrap();
         let gid = get_non_root_gid(0).unwrap();
-        let json = format!(r#"{{"setuid":{}, "setgid":[{}]}}"#, uid, gid);
+        let json = format!(r#"{{"setuid":{}, "setgid":[[{}]]}}"#, uid, gid);
         let cli = Cli::builder().build();
         let deserializer = CredFinderDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
@@ -1859,7 +2020,12 @@ mod tests {
     fn test_task_deserializer() {
         let json = r#"{"name": "test", "cred": {"setuid":"0", "setgid":["0", 0], "caps": []}, "commands": ["ls"]}}"#;
         let cli = Cli::builder().build();
-        let deserializer = TaskFinderDeserializer { cli: &cli, i: 0, env_path: &[], spath: &mut DPathOptions::default() };
+        let deserializer = TaskFinderDeserializer {
+            cli: &cli,
+            i: 0,
+            env_path: &[],
+            spath: &mut DPathOptions::default(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let task = result.unwrap().unwrap();
@@ -1876,7 +2042,11 @@ mod tests {
     fn test_task_list_deserializer() {
         let json = r#"[{"name": "test", "cred": {"setuid":"0", "setgid":["0", 0], "caps": []}, "commands": ["ls"]}]"#;
         let cli = Cli::builder().build();
-        let deserializer = TaskListFinderDeserializer { cli: &cli, env_path: &[], spath: &mut DPathOptions::default() };
+        let deserializer = TaskListFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            spath: &mut DPathOptions::default(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let task = &result.unwrap()[0];
@@ -1892,7 +2062,9 @@ mod tests {
     #[test]
     fn test_actors_finder_deserializer() {
         let json = format!(r#"[{{"type": "user", "id": {}}}]"#, getuid().as_raw());
-        let deserializer = ActorsFinderDeserializer { cred: &Cred::builder().build() };
+        let deserializer = ActorsFinderDeserializer {
+            cred: &Cred::builder().build(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let user_min = result.unwrap();
@@ -1901,9 +2073,17 @@ mod tests {
 
     #[test]
     fn test_role_finder_deserializer() {
-        let json = format!(r#"{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}"#, getuid().as_raw());
+        let json = format!(
+            r#"{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}"#,
+            getuid().as_raw()
+        );
         let cli = Cli::builder().cmd_path("ls").build();
-        let deserializer = RoleFinderDeserializer { cli: &cli, env_path: &["/usr/bin"], cred: &Cred::builder().build(), spath: &mut DPathOptions::default() };
+        let deserializer = RoleFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let role = result.unwrap();
@@ -1914,26 +2094,646 @@ mod tests {
 
     #[test]
     fn test_role_list_finder_deserializer() {
-        let json = format!(r#"[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]"#, getuid().as_raw());
+        let json = format!(
+            r#"[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]"#,
+            getuid().as_raw()
+        );
         let cli = Cli::builder().cmd_path("ls").build();
-        let deserializer = RoleListFinderDeserializer { cli: &cli, env_path: &["/usr/bin"], cred: &Cred::builder().build(), spath: &mut DPathOptions::default() };
+        let deserializer = RoleListFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let role = &result.unwrap()[0];
         assert_eq!(role.role, "r_test");
         assert_eq!(role.tasks.len(), 1);
         assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));
+        let json = format!(
+            r#"[{{"name":"r_test","actors":[{{"type": "group", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]"#,
+            getgid().as_raw()
+        );
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = RoleListFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let role = &result.unwrap()[0];
+        assert_eq!(role.role, "r_test");
+        assert_eq!(role.tasks.len(), 1);
+        assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));
+        let json = format!(
+            r#"[{{"name":"r_test","actors":[{{"type": "user", "id": "874510"}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]"#
+        );
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = RoleListFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let result = result.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].user_min, ActorMatchMin::NoMatch);
     }
 
     #[test]
     fn test_config_finder_deserializer() {
-        let json = format!(r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#, getuid().as_raw());
+        let json = format!(
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
+            getuid().as_raw()
+        );
         let cli = Cli::builder().cmd_path("ls").build();
-        let deserializer = ConfigFinderDeserializer { cli: &cli, env_path: &["/usr/bin"], cred: &Cred::builder().build() };
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+        };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let config = result.unwrap();
         assert_eq!(config.roles.len(), 1);
         assert_eq!(config.roles[0].role, "r_test");
+    }
+
+    #[test]
+    fn test_config_finder_implementation() {
+        let json = format!(
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","id":{}}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
+            getuid().as_raw(),
+            getgid().as_raw()
+        );
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let config = result.unwrap();
+        let mut roles = config.roles();
+        let role_a = roles.next().unwrap();
+        assert_eq!(role_a.role().role, "r_test");
+        let mut tasks = role_a.tasks();
+        let task_a = tasks.next().unwrap();
+        assert_eq!(task_a.task().id, IdTask::Name("test".into()));
+        let commands = task_a.commands().unwrap();
+        assert_eq!(commands.add().count(), 1);
+        assert_eq!(
+            *commands.add().next().unwrap().command,
+            DCommand::Simple("/usr/bin/ls".into())
+        );
+        let task_b = tasks.next().unwrap();
+        assert_eq!(task_b.task().id, IdTask::Name("test2".into()));
+        let commands = task_b.commands().unwrap();
+        assert_eq!(commands.add().count(), 2);
+        assert_eq!(
+            *commands.add().next().unwrap().command,
+            DCommand::Simple("/usr/bin/ls".into())
+        );
+        assert_eq!(
+            *commands.add().nth(1).unwrap().command,
+            DCommand::Simple("/usr/bin/cat".into())
+        );
+        assert!(tasks.next().is_none());
+        let role_b = roles.next().unwrap();
+        assert_eq!(role_b.role().role, "r_test2");
+        let mut tasks = role_b.tasks();
+        let task_a = tasks.next().unwrap();
+        assert_eq!(task_a.task().id, IdTask::Name("test3".into()));
+        let commands = task_a.commands().unwrap();
+        assert_eq!(commands.add().count(), 2);
+        assert_eq!(
+            *commands.add().next().unwrap().command,
+            DCommand::Simple("/usr/bin/cat".into())
+        );
+        assert_eq!(
+            *commands.add().nth(1).unwrap().command,
+            DCommand::Simple("/usr/bin/ls".into())
+        );
+        assert_eq!(commands.del().count(), 0);
+        assert!(tasks.next().is_none());
+        assert!(roles.next().is_none());
+        assert!(config.options.is_none());
+        assert!(config.roles[0].options.is_none());
+        assert!(config.roles[0].tasks[0].options.is_none());
+        assert!(config.roles[0].tasks[1].options.is_none());
+        assert!(config.roles[1].options.is_none());
+        assert!(config.roles[1].tasks[0].options.is_none());
+        assert!(config.role("r_test").is_some());
+        assert!(config.role("r_test2").is_some());
+        assert!(config.role("r_test3").is_none());
+        assert_eq!(*config.role("r_test").unwrap().config(), config);
+        assert_eq!(*config.role("r_test2").unwrap().config(), config);
+        assert_eq!(
+            *config
+                .role("r_test")
+                .unwrap()
+                .tasks()
+                .next()
+                .unwrap()
+                .role(),
+            config.role("r_test").unwrap()
+        );
+        assert_eq!(
+            *config
+                .role("r_test2")
+                .unwrap()
+                .tasks()
+                .next()
+                .unwrap()
+                .role(),
+            config.role("r_test2").unwrap()
+        );
+        assert_eq!(
+            config
+                .role("r_test")
+                .unwrap()
+                .tasks()
+                .next()
+                .unwrap()
+                .score(CmdMin::Match, SecurityMin::empty()),
+            Score::builder()
+                .user_min(ActorMatchMin::UserMatch)
+                .setuser_min(SetUserMin {
+                    uid: Some(SetuidMin::from(0)),
+                    gid: Some(SetgidMin::from(SGroups::from(vec![0])))
+                })
+                .caps_min(CapsMin::NoCaps)
+                .security_min(SecurityMin::empty())
+                .cmd_min(CmdMin::Match)
+                .build()
+        );
+    }
+
+    #[test]
+    fn test_config_with_options() {
+        let json = format!(
+            r#"{{
+    "options": {{
+        "timeout": {{
+            "type": "ppid",
+            "duration": "00:05:00"
+        }},
+        "path": {{
+            "default": "delete",
+            "add": [
+                "/usr/bin"
+            ]
+        }},
+        "env": {{
+            "default": "delete",
+            "override_behavior": false,
+            "keep": [
+                "keep1"
+            ],
+            "check": [
+                "check1"
+            ],
+            "delete": [
+                "del1"
+            ],
+            "set": {{
+                "set1": "value1",
+                "set2": "value2"
+            }}
+        }},
+        "root": "user",
+        "bounding": "strict",
+        "wildcard-denied": ";&|"
+    }},
+    "roles": [
+        {{
+            "options": {{
+                "timeout": {{
+                    "type": "ppid",
+                    "duration": "00:06:00"
+                }},
+                "path": {{
+                    "default": "delete",
+                    "add": [
+                        "/usr/bin"
+                    ]
+                }},
+                "env": {{
+                    "default": "delete",
+                    "override_behavior": false,
+                    "keep": [
+                        "keep2"
+                    ],
+                    "check": [
+                        "check2"
+                    ],
+                    "delete": [
+                        "del2"
+                    ],
+                    "set": {{
+                        "set1": "value2",
+                        "set3": "value3"
+                    }}
+                }},
+                "root": "user",
+                "bounding": "strict",
+                "wildcard-denied": ";&|"
+            }},
+            "name": "role1",
+            "actors": [
+                {{
+                    "type": "user",
+                    "id": {}
+                }}
+            ],
+            "tasks": [
+                {{
+                    "options": {{
+                        "timeout": {{
+                            "type": "ppid",
+                            "duration": "00:07:00"
+                        }},
+                        "path": {{
+                            "default": "delete",
+                            "add": [
+                                "/usr/bin"
+                            ]
+                        }},
+                        "env": {{
+                            "default": "delete",
+                            "override_behavior": false,
+                            "keep": [
+                                "keep3"
+                            ],
+                            "check": [
+                                "check3"
+                            ],
+                            "delete": [
+                                "del3"
+                            ],
+                            "set": {{
+                                "set1": "value3",
+                                "set4": "value4"
+                            }}
+                        }},
+                        "root": "user",
+                        "bounding": "strict",
+                        "wildcard-denied": ";&|"
+                    }},
+                    "name": "task1",
+                    "cred": {{
+                        "setuid": 0,
+                        "setgid": 0,
+                        "caps": [
+                            "CAP_SYS_ADMIN",
+                            "CAP_SYS_RESOURCE"
+                        ]
+                    }}
+                }}
+            ]
+        }}
+    ]
+}}"#,
+            getuid().as_raw()
+        );
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let config = result.unwrap();
+        assert_eq!(config.roles.len(), 1);
+        assert_eq!(config.roles[0].role, "role1");
+        assert_eq!(config.roles[0].tasks.len(), 1);
+        assert_eq!(config.roles[0].tasks[0].id, IdTask::Name("task1".into()));
+        assert!(config.options.is_some());
+        assert!(config.roles[0].options.is_some());
+        assert!(config.roles[0].tasks[0].options.is_some());
+    }
+
+    #[test]
+    fn test_config_optimized_with_options() {
+        let json = format!(
+            r#"{{
+    "options": {{
+        "timeout": {{
+            "type": "ppid",
+            "duration": "00:05:00"
+        }},
+        "path": {{
+            "default": "delete",
+            "add": [
+                "/usr/bin"
+            ]
+        }},
+        "env": {{
+            "default": "delete",
+            "override_behavior": false,
+            "keep": [
+                "keep1"
+            ],
+            "check": [
+                "check1"
+            ],
+            "delete": [
+                "del1"
+            ],
+            "set": {{
+                "set1": "value1",
+                "set2": "value2"
+            }}
+        }},
+        "root": "user",
+        "bounding": "strict",
+        "wildcard-denied": ";&|"
+    }},
+    "roles": [
+        {{
+            "options": {{
+                "timeout": {{
+                    "type": "ppid",
+                    "duration": "00:06:00"
+                }},
+                "path": {{
+                    "default": "delete",
+                    "add": [
+                        "/usr/bin"
+                    ]
+                }},
+                "env": {{
+                    "default": "delete",
+                    "override_behavior": false,
+                    "keep": [
+                        "keep2"
+                    ],
+                    "check": [
+                        "check2"
+                    ],
+                    "delete": [
+                        "del2"
+                    ],
+                    "set": {{
+                        "set1": "value2",
+                        "set3": "value3"
+                    }}
+                }},
+                "root": "user",
+                "bounding": "strict",
+                "wildcard-denied": ";&|"
+            }},
+            "name": "role1",
+            "actors": [
+                {{
+                    "type": "group",
+                    "id": {}
+                }}
+            ],
+            "tasks": [
+                {{
+                    "options": {{
+                        "timeout": {{
+                            "type": "ppid",
+                            "duration": "00:07:00"
+                        }},
+                        "path": {{
+                            "default": "delete",
+                            "add": [
+                                "/usr/bin"
+                            ]
+                        }},
+                        "env": {{
+                            "default": "delete",
+                            "override_behavior": false,
+                            "keep": [
+                                "keep3"
+                            ],
+                            "check": [
+                                "check3"
+                            ],
+                            "delete": [
+                                "del3"
+                            ],
+                            "set": {{
+                                "set1": "value3",
+                                "set4": "value4"
+                            }}
+                        }},
+                        "root": "user",
+                        "bounding": "strict",
+                        "wildcard-denied": ";&|"
+                    }},
+                    "name": "task1",
+                    "cred": {{
+                        "setuid": 0,
+                        "setgid": 0,
+                        "caps": [
+                            "CAP_SYS_ADMIN",
+                            "CAP_SYS_RESOURCE"
+                        ]
+                    }},
+                    "commands": ["/usr/bin/ls"]
+                }}
+            ]
+        }}
+    ]
+}}"#,
+            getgid().as_raw()
+        );
+        //convert json to cbor4ii
+        let cbor = convert_json_to_cbor(&json);
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+        };
+        let result: Result<DConfigFinder<'_>, _> = deserializer.deserialize(
+            &mut cbor4ii::serde::Deserializer::new(SliceReader::new(cbor.as_slice())),
+        );
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let config = result.unwrap();
+        assert_eq!(config.roles.len(), 1);
+        assert_eq!(config.roles[0].role, "role1");
+        assert_eq!(config.roles[0].tasks.len(), 1);
+        assert_eq!(config.roles[0].tasks[0].id, IdTask::Name("task1".into()));
+        assert!(config.options.is_some());
+        assert!(config.roles[0].options.is_some());
+        assert!(config.roles[0].tasks[0].options.is_some());
+        assert_eq!(config.roles[0].user_min, ActorMatchMin::GroupMatch(1));
+        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::Match);
+        assert_eq!(
+            config.roles[0].tasks[0].score.setuser_min.uid,
+            Some(SetuidMin::from(&0.into()))
+        );
+        assert_eq!(
+            config.roles[0].tasks[0].score.setuser_min.gid,
+            Some(SetgidMin::from(&vec![0]))
+        );
+        assert_eq!(
+            config.roles[0].tasks[0].score.caps_min,
+            CapsMin::CapsAdmin(2)
+        );
+        assert!(config.roles[0].tasks[0].commands.is_none());
+        assert_eq!(
+            config.roles[0].tasks[0].final_path,
+            Some(PathBuf::from("/usr/bin/ls"))
+        );
+    }
+
+    #[test]
+    fn test_optimized_config() {
+        let uid = getuid().as_raw();
+        let json = format!(
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0"], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
+            uid
+        );
+        //convert json to cbor4ii
+        let cbor = convert_json_to_cbor(&json);
+        let cli = Cli::builder().cmd_path("ls").build();
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &["/usr/bin"],
+            cred: &Cred::builder().build(),
+        };
+        let result: Result<DConfigFinder<'_>, _> = deserializer.deserialize(
+            &mut cbor4ii::serde::Deserializer::new(SliceReader::new(cbor.as_slice())),
+        );
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
+        let config = result.unwrap();
+        assert_eq!(config.roles[0].user_min, ActorMatchMin::UserMatch);
+        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::Match);
+        assert_eq!(
+            config.roles[0].tasks[0].score.setuser_min.uid,
+            Some(SetuidMin::from(&0.into()))
+        );
+        assert_eq!(
+            config.roles[0].tasks[0].score.setuser_min.gid,
+            Some(SetgidMin::from(&vec![0]))
+        );
+        assert_eq!(config.roles[0].tasks[0].score.caps_min, CapsMin::NoCaps);
+        assert!(config.roles[0].tasks[0].commands.is_none());
+        assert_eq!(
+            config.roles[0].tasks[0].final_path,
+            Some(PathBuf::from("/usr/bin/ls"))
+        );
+    }
+
+    #[test]
+    fn test_expecting_error() {
+        let seq = "[1, 2, 3]";
+        let map = "{\"1\": 2, \"3\": 4}";
+        let int = "1";
+        let float = "1.0";
+        let cli = Cli::builder().build();
+        let config_finder = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            cred: &Cred::builder().build(),
+        };
+        let result = config_finder.deserialize(&mut serde_json::Deserializer::from_str(seq));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+
+        let role_list = RoleListFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
+        let result = role_list.deserialize(&mut serde_json::Deserializer::from_str(map));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let task_list = TaskListFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            spath: &mut DPathOptions::default(),
+        };
+        let result = task_list.deserialize(&mut serde_json::Deserializer::from_str(map));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let task = TaskFinderDeserializer {
+            cli: &cli,
+            i: 0,
+            env_path: &[],
+            spath: &mut DPathOptions::default(),
+        };
+        let result = task.deserialize(&mut serde_json::Deserializer::from_str(seq));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        assert!(serde_json::from_str::<DCommandList>(int).is_err());
+        let mut var_name = None;
+        let mut cmd_min = CmdMin::Match;
+        let dcommand = DCommandDeserializer {
+            env_path: &[],
+            cmd_path: &cli.cmd_path,
+            cmd_args: &cli.cmd_args,
+            final_path: &mut var_name,
+            cmd_min: &mut cmd_min,
+        };
+        let result = dcommand.deserialize(&mut serde_json::Deserializer::from_str(seq));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let cred = CredFinderDeserializerReturn { cli: &cli };
+        let result = cred.deserialize(&mut serde_json::Deserializer::from_str(seq));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let setuser = SetUserDeserializerReturn { cli: &cli };
+        let result = setuser.deserialize(&mut serde_json::Deserializer::from_str(float));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let setgroups = SetGroupsDeserializerReturn { cli: &cli };
+        let result = setgroups.deserialize(&mut serde_json::Deserializer::from_str(float));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let actors = ActorsFinderDeserializer {
+            cred: &Cred::builder().build(),
+        };
+        let result = actors.deserialize(&mut serde_json::Deserializer::from_str(int));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        let role = RoleFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
+        let result = role.deserialize(&mut serde_json::Deserializer::from_str(int));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+    }
+
+    // this test is to check if the deserializer can handle unknown types... It might evolve in the future
+    #[test]
+    fn test_unknown_type() {
+        let json = r#"{"unknown": "unknown"}"#;
+        let cli = Cli::builder().build();
+        let deserializer = ConfigFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            cred: &Cred::builder().build(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+
+        let deserializer = RoleFinderDeserializer {
+            cli: &cli,
+            env_path: &[],
+            cred: &Cred::builder().build(),
+            spath: &mut DPathOptions::default(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Expected error, got: {:?}", result);
+
+        let deserializer = TaskFinderDeserializer {
+            cli: &cli,
+            i: 0,
+            env_path: &[],
+            spath: &mut DPathOptions::default(),
+        };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_ok(), "Expected error, got: {:?}", result);
+
+        let deserializer = CredFinderDeserializerReturn { cli: &cli };
+        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
     }
 }
