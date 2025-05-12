@@ -127,7 +127,7 @@ pub struct SettingsFile {
 #[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
 pub struct FullSettingsFile {
     pub storage: Settings,
-    #[serde(skip)]
+    #[serde(default, flatten)]
     pub config: Option<Rc<RefCell<SConfig>>>,
 }
 
@@ -368,7 +368,11 @@ where
             .path
             .as_ref()
             .unwrap_or(&into);
-        binding.config = Some(retrieve_sconfig(&binding.storage.method, data_path)?);
+        if data_path != path.as_ref() {
+            binding.config = Some(retrieve_sconfig(&binding.storage.method, data_path)?);
+        } else {
+            make_weak_config(binding.config.as_ref().unwrap());
+        }
     }
 
     Ok(settingsfile.clone())

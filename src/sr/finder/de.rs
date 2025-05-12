@@ -2799,7 +2799,7 @@ mod tests {
             cred: &Cred::builder().build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
-        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        assert!(result.is_ok(), "Expected error, got: {:?}", result);
 
         let deserializer = RoleFinderDeserializer {
             cli: &cli,

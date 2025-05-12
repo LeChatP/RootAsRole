@@ -63,7 +63,27 @@ mod tests {
     use log::error;
     use test_log::test;
 
-    fn setup(name: &str) {
+    pub struct Defer<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Defer<F> {
+        pub fn new(f: F) -> Self {
+            Defer(Some(f))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+
+    pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
+        Defer::new(f)
+    }
+
+    fn setup(name: &str) -> Defer<impl FnOnce()> {
         let file_path = format!("{}.{}", ROOTASROLE, name);
         let versionned = Versioning::new(
             FullSettingsFile::builder()
@@ -235,13 +255,11 @@ mod tests {
         let jsonstr = serde_json::to_string_pretty(&versionned).unwrap();
         file.write_all(jsonstr.as_bytes()).unwrap();
         file.flush().unwrap();
+        defer(move || {
+            remove_with_privileges(file_path).unwrap();
+        })
     }
 
-    fn teardown(name: &str) {
-        //Remove json test file
-        let path = format!("{}.{}", ROOTASROLE, name);
-        remove_with_privileges(path).unwrap();
-    }
     // we need to test every commands
     // chsr r r1 create
     // chsr r r1 delete
@@ -278,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_all_main() {
-        setup("all_main");
+        let _defer = setup("all_main");
         let path = format!("{}.{}", ROOTASROLE, "all_main");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), vec!["--help"],)
@@ -307,11 +325,10 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| b));
-        teardown("all_main");
     }
     #[test]
     fn test_r_complete_show_actors() {
-        setup("r_complete_show_actors");
+        let _defer = setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete show actors".split(" "),)
@@ -351,11 +368,10 @@ mod tests {
                 })
                 .is_ok_and(|b| b)
         );
-        teardown("r_complete_show_actors");
     }
     #[test]
     fn test_purge_tasks() {
-        setup("purge_tasks");
+        let _defer = setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete purge tasks".split(" "),)
@@ -366,11 +382,10 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| b));
-        teardown("purge_tasks");
     }
     #[test]
     fn test_r_complete_purge_all() {
-        setup("r_complete_purge_all");
+        let _defer = setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete purge all".split(" "),)
@@ -381,11 +396,10 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| b));
-        teardown("r_complete_purge_all");
     }
     #[test]
     fn test_r_complete_grant_u_user1_g_group1_g_group2_group3() {
-        setup("r_complete_grant_u_user1_g_group1_g_group2_group3");
+        let _defer = setup("r_complete_grant_u_user1_g_group1_g_group2_group3");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
@@ -485,11 +499,10 @@ mod tests {
             .borrow()
             .actors
             .contains(&SActor::group(["group2", "group3"]).build()));
-        teardown("r_complete_grant_u_user1_g_group1_g_group2_group3");
     }
     #[test]
     fn test_r_complete_task_t_complete_show_all() {
-        setup("r_complete_task_t_complete_show_all");
+        let _defer = setup("r_complete_task_t_complete_show_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
@@ -539,11 +552,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        teardown("r_complete_task_t_complete_show_all");
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cmd() {
-        setup("r_complete_task_t_complete_purge_cmd");
+        let _defer = setup("r_complete_task_t_complete_purge_cmd");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
@@ -557,11 +569,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        teardown("r_complete_task_t_complete_purge_cmd");
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cred() {
-        setup("r_complete_task_t_complete_purge_cred");
+        let _defer = setup("r_complete_task_t_complete_purge_cred");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
@@ -636,11 +647,10 @@ mod tests {
                 .len(),
             task_count
         );
-        teardown("r_complete_task_t_complete_purge_cred");
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_deny_all() {
-        setup("r_complete_t_t_complete_cmd_setpolicy_deny_all");
+        let _defer = setup("r_complete_t_t_complete_cmd_setpolicy_deny_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
@@ -675,11 +685,10 @@ mod tests {
                 .default_behavior,
             Some(SetBehavior::None)
         );
-        teardown("r_complete_t_t_complete_cmd_setpolicy_deny_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_allow_all() {
-        setup("r_complete_t_t_complete_cmd_setpolicy_allow_all");
+        let _defer = setup("r_complete_t_t_complete_cmd_setpolicy_allow_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
@@ -714,11 +723,10 @@ mod tests {
                 .default_behavior,
             Some(SetBehavior::All)
         );
-        teardown("r_complete_t_t_complete_cmd_setpolicy_allow_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces() {
-        setup("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
+        let _defer = setup("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
@@ -805,11 +813,10 @@ mod tests {
             .commands
             .add
             .contains(&SCommand::Simple("super command with spaces".to_string())));
-        teardown("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {
-        setup("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
+        let _defer = setup("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
@@ -854,12 +861,11 @@ mod tests {
             .commands
             .sub
             .contains(&SCommand::Simple("super command with spaces".to_string())));
-        teardown("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2(
     ) {
-        setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
+        let _defer = setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
@@ -1053,11 +1059,10 @@ mod tests {
             .cred
             .setgid
             .is_none());
-        teardown("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_deny_all() {
-        setup("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
+        let _defer = setup("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
@@ -1095,11 +1100,10 @@ mod tests {
                 .default_behavior,
             SetBehavior::None
         );
-        teardown("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_allow_all() {
-        setup("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
+        let _defer = setup("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
@@ -1137,12 +1141,11 @@ mod tests {
                 .default_behavior,
             SetBehavior::All
         );
-        teardown("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
-        setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+        let _defer = setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "))
@@ -1210,12 +1213,11 @@ mod tests {
             .unwrap()
             .add
             .has(Cap::SYS_BOOT));
-        teardown("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
-        setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+        let _defer = setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
@@ -1422,11 +1424,10 @@ mod tests {
             .unwrap()
             .sub
             .has(Cap::SYS_BOOT));
-        teardown("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
     }
     #[test]
     fn test_options_show_all() {
-        setup("options_show_all");
+        let _defer = setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "options show all".split(" "),)
@@ -1461,11 +1462,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        teardown("options_show_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_options_show_env() {
-        setup("r_complete_t_t_complete_options_show_env");
+        let _defer = setup("r_complete_t_t_complete_options_show_env");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
@@ -1530,11 +1530,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        teardown("r_complete_t_t_complete_options_show_env");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_delete_all() {
-        setup("r_complete_t_t_complete_o_path_setpolicy_delete_all");
+        let _defer = setup("r_complete_t_t_complete_o_path_setpolicy_delete_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
@@ -1574,11 +1573,10 @@ mod tests {
             .unwrap()
             .default_behavior
             .is_delete());
-        teardown("r_complete_t_t_complete_o_path_setpolicy_delete_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_keep_unsafe() {
-        setup("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
+        let _defer = setup("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
@@ -1687,11 +1685,10 @@ mod tests {
             .unwrap()
             .default_behavior
             .is_inherit());
-        teardown("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_whitelist_add() {
-        setup("r_complete_t_t_complete_o_path_whitelist_add");
+        let _defer = setup("r_complete_t_t_complete_o_path_whitelist_add");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
@@ -2135,11 +2132,10 @@ mod tests {
             .as_ref()
             .unwrap_or(&default)
             .contains(&"/bin".to_string()));
-        teardown("r_complete_t_t_complete_o_path_whitelist_add");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_blacklist_purge() {
-        setup("r_complete_t_t_complete_o_path_blacklist_purge");
+        let _defer = setup("r_complete_t_t_complete_o_path_blacklist_purge");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
@@ -2156,11 +2152,10 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| b));
-        teardown("r_complete_t_t_complete_o_path_blacklist_purge");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
-        setup("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
+        let _defer = setup("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
@@ -2278,11 +2273,10 @@ mod tests {
                 .len(),
             2
         );
-        teardown("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_delete_only_myvar_var2() {
-        setup("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
+        let _defer = setup("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
@@ -2400,11 +2394,10 @@ mod tests {
                 .len(),
             2
         );
-        teardown("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
-        setup("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
+        let _defer = setup("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
@@ -2507,11 +2500,10 @@ mod tests {
                 .len(),
             2
         );
-        teardown("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_add_myvar_value_var2_value2() {
-        setup("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
+        let _defer = setup("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
@@ -2779,11 +2771,10 @@ mod tests {
             .unwrap()
             .set
             .is_none());
-        teardown("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
-        setup("r_complete_t_t_complete_o_env_setpolicy_delete_all");
+        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_delete_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
@@ -2825,11 +2816,10 @@ mod tests {
                 .default_behavior,
             EnvBehavior::Delete
         );
-        teardown("r_complete_t_t_complete_o_env_setpolicy_delete_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_keep_all() {
-        setup("r_complete_t_t_complete_o_env_setpolicy_keep_all");
+        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_keep_all");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
@@ -2871,11 +2861,10 @@ mod tests {
                 .default_behavior,
             EnvBehavior::Keep
         );
-        teardown("r_complete_t_t_complete_o_env_setpolicy_keep_all");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_inherit() {
-        setup("r_complete_t_t_complete_o_env_setpolicy_inherit");
+        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_inherit");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
@@ -2917,11 +2906,10 @@ mod tests {
                 .default_behavior,
             EnvBehavior::Inherit
         );
-        teardown("r_complete_t_t_complete_o_env_setpolicy_inherit");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
-        setup("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
+        let _defer = setup("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
@@ -3092,11 +3080,10 @@ mod tests {
                 .len(),
             1
         );
-        teardown("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_purge() {
-        setup("r_complete_t_t_complete_o_env_whitelist_purge");
+        let _defer = setup("r_complete_t_t_complete_o_env_whitelist_purge");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
@@ -3136,11 +3123,10 @@ mod tests {
             .unwrap()
             .keep
             .is_none());
-        teardown("r_complete_t_t_complete_o_env_whitelist_purge");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_add_myvar() {
-        setup("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
+        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
@@ -3218,11 +3204,10 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains(&"MYVAR".to_string().into()));
-        teardown("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_set_myvar() {
-        setup("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
+        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
@@ -3292,11 +3277,10 @@ mod tests {
                 .len(),
             1
         );
-        teardown("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_purge() {
-        setup("r_complete_t_t_complete_o_env_blacklist_purge");
+        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_purge");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
@@ -3336,11 +3320,10 @@ mod tests {
             .unwrap()
             .delete
             .is_none());
-        teardown("r_complete_t_t_complete_o_env_blacklist_purge");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_checklist_add_myvar() {
-        setup("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
+        let _defer = setup("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
@@ -3519,11 +3502,10 @@ mod tests {
             .unwrap()
             .check
             .is_none());
-        teardown("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_root_privileged() {
-        setup("r_complete_t_t_complete_o_root_privileged");
+        let _defer = setup("r_complete_t_t_complete_o_root_privileged");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
@@ -3636,11 +3618,10 @@ mod tests {
                 .unwrap(),
             &SPrivileged::Inherit
         );
-        teardown("r_complete_t_t_complete_o_root_privileged");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
-        setup("r_complete_t_t_complete_o_bounding_strict");
+        let _defer = setup("r_complete_t_t_complete_o_bounding_strict");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
@@ -3681,11 +3662,10 @@ mod tests {
                 .unwrap(),
             &SBounding::Strict
         );
-        teardown("r_complete_t_t_complete_o_bounding_strict");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
-        setup("r_complete_t_t_complete_o_bounding_ignore");
+        let _defer = setup("r_complete_t_t_complete_o_bounding_ignore");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
@@ -3726,11 +3706,10 @@ mod tests {
                 .unwrap(),
             &SBounding::Ignore
         );
-        teardown("r_complete_t_t_complete_o_bounding_ignore");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
-        setup("r_complete_t_t_complete_o_bounding_inherit");
+        let _defer = setup("r_complete_t_t_complete_o_bounding_inherit");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
@@ -3771,11 +3750,10 @@ mod tests {
                 .unwrap(),
             &SBounding::Inherit
         );
-        teardown("r_complete_t_t_complete_o_bounding_inherit");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
-        setup("r_complete_t_t_complete_o_auth_skip");
+        let _defer = setup("r_complete_t_t_complete_o_auth_skip");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
         let settings = get_full_settings(&path).expect("Failed to get settings");
         assert!(main(
@@ -3885,11 +3863,10 @@ mod tests {
                 .unwrap(),
             &SAuthentication::Inherit
         );
-        teardown("r_complete_t_t_complete_o_auth_skip");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_wildcard_denied_set() {
-        setup("r_complete_t_t_complete_o_wildcard_denied_set");
+        let _defer = setup("r_complete_t_t_complete_o_wildcard_denied_set");
         let path = format!(
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
@@ -4081,6 +4058,5 @@ mod tests {
                 debug!("{}", e);
             })
             .is_err());
-        teardown("r_complete_t_t_complete_o_wildcard_denied_set");
     }
 }

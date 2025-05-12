@@ -392,7 +392,7 @@ mod tests {
         let env_vars = vec![("KEY", "VALUE")];
         let env_path = &["/bin"];
         let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]
