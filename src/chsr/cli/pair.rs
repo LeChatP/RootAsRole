@@ -482,7 +482,6 @@ mod test {
 
     fn get_inputs(args: &str) -> Inputs {
         let binding = make_args(args);
-        println!("{}", binding);
         let args = Cli::parse(Rule::cli, &binding);
         let args = match args {
             Ok(v) => v,

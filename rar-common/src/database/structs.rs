@@ -35,7 +35,7 @@ where
     D: Deserializer<'de>,
 {
     let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
-    //println!("sconfig_opt {:?}", opt);
+    //debug!("sconfig_opt {:?}", opt);
     if let Some(opt) = opt {
         opt.as_ref().borrow_mut().level = Level::Global;
         Ok(Some(opt))
@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        println!("START");
+        debug!("START");
         let config = r#"
         {
             "options": {
@@ -756,7 +756,7 @@ mod tests {
             ]
         }
         "#;
-        println!("STEP 1");
+        debug!("STEP 1");
         let config: SConfig = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
@@ -1162,7 +1162,7 @@ mod tests {
             })
             .build();
         let config = serde_json::to_string_pretty(&config).unwrap();
-        println!("{}", config);
+        debug!("{}", config);
     }
 
     #[test]

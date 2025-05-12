@@ -186,7 +186,7 @@ impl BestExecSettings {
                 debug!("default behavior is all");
                 let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
-                println!("{:?}", &cli.cmd_path);
+                debug!("{:?}", &cli.cmd_path);
                 if let Ok(path) = cli.cmd_path.canonicalize() {
                     self.final_path = path;
                 } else {
