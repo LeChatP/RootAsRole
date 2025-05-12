@@ -422,7 +422,11 @@ mod tests {
         assert!(result.unwrap());
         let data = binding.add().nth(1).unwrap();
         let result = best.command_settings(env_path, &cli, &data);
-        assert!(result.is_ok(), "Failed to process complex command : {}", result.unwrap_err());
+        assert!(
+            result.is_ok(),
+            "Failed to process complex command : {}",
+            result.unwrap_err()
+        );
         assert!(!result.unwrap())
     }
 

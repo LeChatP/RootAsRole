@@ -978,7 +978,13 @@ mod tests {
         assert_eq!(env.delete, HashSet::from(["DELETEME".into()]));
         assert_eq!(env.keep, HashSet::from(["KEEPME".into()]));
         assert_eq!(env.check, HashSet::from(["CHECKME".into()]));
-        assert_eq!(env.set, HashMap::from([("VAR1".into(), "VALUE1".into()), ("VAR2".into(), "VALUE2".into())]));
+        assert_eq!(
+            env.set,
+            HashMap::from([
+                ("VAR1".into(), "VALUE1".into()),
+                ("VAR2".into(), "VALUE2".into())
+            ])
+        );
     }
 
     #[test]
@@ -997,8 +1003,10 @@ mod tests {
             .build();
         let rar_opt: rar_common::database::options::Opt = opt.clone().into();
         assert_eq!(rar_opt.level, Level::Default);
-        assert_eq!(rar_opt.path.unwrap().default_behavior, PathBehavior::Inherit);
+        assert_eq!(
+            rar_opt.path.unwrap().default_behavior,
+            PathBehavior::Inherit
+        );
         assert_eq!(rar_opt.env.unwrap().default_behavior, EnvBehavior::Keep);
     }
-
 }
