@@ -432,10 +432,36 @@ mod tests {
 
     use super::*;
 
+    pub struct Defer<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Defer<F> {
+        pub fn new(f: F) -> Self {
+            Defer(Some(f))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+
+    pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
+        Defer::new(f)
+    }
+
     #[test]
     fn test_get_settings_same_file() {
         // Create a test JSON file
-        let value = "test_get_settings_same_file.json";
+        let value = "/tmp/test_get_settings_same_file.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(value).canonicalize().unwrap_or(value.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
         let config = Versioning::new(Rc::new(RefCell::new(
             FullSettingsFile::builder()
                 .storage(
@@ -481,8 +507,24 @@ mod tests {
     #[test]
     fn test_get_settings_different_file() {
         // Create a test JSON file
-        let external_file = "test_get_settings_different_file_external.json";
-        let test_file = "test_get_settings_different_file.json";
+        let external_file = "/tmp/test_get_settings_different_file_external.json";
+        let test_file = "/tmp/test_get_settings_different_file.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(test_file)
+                .canonicalize()
+                .unwrap_or(test_file.into());
+            if std::fs::remove_file(&test_file).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
+        let _cleanup2 = defer(|| {
+            let filename = PathBuf::from(external_file)
+                .canonicalize()
+                .unwrap_or(external_file.into());
+            if std::fs::remove_file(&external_file).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
         let settings_config = Versioning::new(Rc::new(RefCell::new(
             FullSettingsFile::builder()
                 .storage(
@@ -533,7 +575,15 @@ mod tests {
 
     #[test]
     fn test_save_settings_same_file() {
-        let test_file = "test_save_settings_same_file.json";
+        let test_file = "/tmp/test_save_settings_same_file.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(test_file)
+                .canonicalize()
+                .unwrap_or(test_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
         // Create a test JSON file
         let config = Rc::new(RefCell::new(
             FullSettingsFile::builder()
@@ -579,8 +629,24 @@ mod tests {
 
     #[test]
     fn test_save_settings_different_file() {
-        let external_file = "test_save_settings_different_file_external.json";
-        let test_file = "test_save_settings_different_file.json";
+        let external_file = "/tmp/test_save_settings_different_file_external.json";
+        let test_file = "/tmp/test_save_settings_different_file.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(test_file)
+                .canonicalize()
+                .unwrap_or(test_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
+        let _cleanup2 = defer(|| {
+            let filename = PathBuf::from(external_file)
+                .canonicalize()
+                .unwrap_or(external_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
         let sconfig = SConfig::builder()
             .role(
                 SRole::builder("test_role")
@@ -640,8 +706,24 @@ mod tests {
 
     #[test]
     fn test_save_cbor_format() {
-        let external_file = "test_save_cbor_format.bin";
-        let test_file = "test_save_cbor_format.json";
+        let external_file = "/tmp/test_save_cbor_format.bin";
+        let test_file = "/tmp/test_save_cbor_format.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(test_file)
+                .canonicalize()
+                .unwrap_or(test_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
+        let _cleanup2 = defer(|| {
+            let filename = PathBuf::from(external_file)
+                .canonicalize()
+                .unwrap_or(external_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
         let sconfig = SConfig::builder()
             .role(
                 SRole::builder("test_role")

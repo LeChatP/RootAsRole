@@ -897,11 +897,11 @@ mod tests {
 
         let groups = SGroups::from(vec![
             SGroupType::from(0),
-            SGroupType::from(getuid().as_raw()),
+            SGroupType::from(getuid().as_raw() + 1),
         ]);
         let other_groups = SGroups::from(vec![
             SGroupType::from(0),
-            SGroupType::from(getuid().as_raw()),
+            SGroupType::from(getuid().as_raw() + 1),
         ]);
         assert!(groups.fetch_eq(&other_groups));
         let other_groups = SGroups::from(vec![SGroupType::from(0), SGroupType::from("test2")]);

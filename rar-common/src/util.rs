@@ -395,6 +395,26 @@ mod test {
 
     use super::*;
 
+    pub struct Defer<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Defer<F> {
+        pub fn new(f: F) -> Self {
+            Defer(Some(f))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+
+    pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
+        Defer::new(f)
+    }
+
     #[test]
     fn test_remove_outer_quotes() {
         assert_eq!(remove_outer_quotes("'test'"), "test");
@@ -469,7 +489,11 @@ mod test {
 
     #[test]
     fn test_toggle_lock_config() {
-        let path = PathBuf::from("/tmp/test");
+        let path = PathBuf::from("/tmp/rar_test_lock_config.lock");
+        let _defer = defer(|| {
+            // Clean up the test file after the test is done
+            let _ = fs::remove_file(&path);
+        });
         let file = File::create(&path).expect("Failed to create file");
         let res = toggle_lock_config(&path, ImmutableLock::Set);
         let status = fs::read_to_string("/proc/self/status").unwrap();

@@ -76,7 +76,7 @@ fn evaluate_regex_cmd(
 #[cfg(not(feature = "pcre2"))]
 fn evaluate_regex_cmd(
     _role_args: &str,
-    _commandline: String,
+    _commandline: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
     Ok(CmdMin::empty())
 }
