@@ -52,7 +52,6 @@ const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 use std::{
     cell::RefCell,
     error::Error,
-    fs,
     io::BufReader,
     path::{Path, PathBuf},
     rc::Rc,
@@ -353,18 +352,9 @@ where
             debug!("Error reading file: {}", e);
         })
         .unwrap();
-    println!(
-        "aaaa {}",
-        fs::read_to_string(path.as_ref())
-            .inspect_err(|e| {
-                debug!("Error reading file: {}", e);
-            })
-            .unwrap_or_default()
-    );
     read_effective(false).or(dac_override_effective(false))?;
-    println!("{}", serde_json::to_string_pretty(&value)?);
     let settingsfile = rc_refcell!(value.data);
-    println!("settingsfile: {:?}", settingsfile);
+    debug!("settingsfile: {:?}", settingsfile);
     let default_remote = RemoteStorageSettings::default();
     let into = env!("RAR_CFG_DATA_PATH").to_string().into();
     {
@@ -404,7 +394,6 @@ pub fn retrieve_sconfig(
             })
             .unwrap_or_default(),
     };
-    println!("value: {:?}", value);
     make_weak_config(&value.data);
     //read_effective(false).or(dac_override_effective(false))?;
     //assert_eq!(value.version.to_string(), PACKAGE_VERSION, "Version mismatch");

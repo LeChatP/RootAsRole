@@ -443,7 +443,6 @@ mod tests {
     fn test_ssetgidset_seq() {
         let set = SSetgidSet::builder(SetBehavior::None, vec![0, 1]).build();
         let value = to_value(&set).unwrap();
-        println!("setgidset: {}", serde_json::to_string_pretty(&set).unwrap());
         assert!(value.is_array());
         assert_eq!(value.as_array().unwrap().len(), 2);
         assert_eq!(value.as_array().unwrap()[0], json!(0));
