@@ -809,8 +809,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 Ok((Some(DGroups::Single(group)), score, ok))
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 debug!("SGroupsChooserVisitor: visit_str");
                 self.visit_string(v.to_string())
             }
@@ -1046,14 +1047,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 Ok((Some(user), score, ok))
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 debug!("SetUserVisitor: visit_str");
                 self.visit_string(v.to_string())
             }
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 debug!("SetUserVisitor: visit_string");
                 let user = if let Ok(uid) = v.parse::<u32>() {
                     DUserType::from(uid)

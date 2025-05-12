@@ -186,18 +186,19 @@ impl BestExecSettings {
                 debug!("default behavior is all");
                 let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
-                println!("{:?}",&cli.cmd_path);
+                println!("{:?}", &cli.cmd_path);
                 if let Ok(path) = cli.cmd_path.canonicalize() {
                     self.final_path = path;
                 } else {
-                    self.final_path = 
-                        all_paths_from_env(
-                            &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                            &cli.cmd_path,
-                        )
-                        .first()
-                        .ok_or_else::<Box<dyn std::error::Error>, _>(|| "No path found".to_string().into())?
-                        .to_path_buf();
+                    self.final_path = all_paths_from_env(
+                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        &cli.cmd_path,
+                    )
+                    .first()
+                    .ok_or_else::<Box<dyn std::error::Error>, _>(|| {
+                        "No path found".to_string().into()
+                    })?
+                    .to_path_buf();
                 }
                 self.score.cmd_min = CmdMin::FullWildcardPath | CmdMin::RegexArgs;
             } else {
