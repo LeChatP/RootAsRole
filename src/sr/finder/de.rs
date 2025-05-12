@@ -172,8 +172,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                         }
                         Field::Unknown(_) => {
                             debug!("ConfigFinderVisitor: unknown");
-                            //let _ = map.next_value::<IgnoredAny>();
-                            return Err(serde::de::Error::custom("Unknown field"));
+                            let _ = map.next_value::<IgnoredAny>();
                         }
                     }
                 }
@@ -809,6 +808,43 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 }
                 Ok((Some(DGroups::Single(group)), score, ok))
             }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                debug!("SGroupsChooserVisitor: visit_str");
+                self.visit_string(v.to_string())
+            }
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                debug!("SGroupsChooserVisitor: visit_string");
+                let group: DGroupType<'_> = if let Ok(gid) = v.parse::<u32>() {
+                    gid.into()
+                } else {
+                    Cow::<str>::from(v).into()
+                };
+                let score = Some(SetgidMin::from(&group));
+                let ok = true;
+                if let Some(y) = &self
+                    .cli
+                    .opt_filter
+                    .as_ref()
+                    .map(|x| x.group.as_ref())
+                    .flatten()
+                {
+                    if y.len() == 1
+                        && y[0]
+                            != group
+                                .fetch_id()
+                                .ok_or(serde::de::Error::custom("Group does not exist"))?
+                    {
+                        return Ok((None, None, false));
+                    }
+                }
+                Ok((Some(DGroups::Single(group)), score, ok))
+            }
+
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
@@ -991,6 +1027,34 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 E: serde::de::Error,
             {
                 debug!("SetUserVisitor: visit_borrowed_str");
+                let user = if let Ok(uid) = v.parse::<u32>() {
+                    DUserType::from(uid)
+                } else {
+                    DUserType::from(v)
+                };
+                let score = Some(SetuidMin::from(&user));
+                let ok = true;
+                if let Some(y) = &self.cli.opt_filter.as_ref().map(|x| x.user).flatten() {
+                    if *y
+                        != user
+                            .fetch_id()
+                            .ok_or(serde::de::Error::custom("User does not exist"))?
+                    {
+                        return Ok((None, None, false));
+                    }
+                }
+                Ok((Some(user), score, ok))
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                debug!("SetUserVisitor: visit_str");
+                self.visit_string(v.to_string())
+            }
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                debug!("SetUserVisitor: visit_string");
                 let user = if let Ok(uid) = v.parse::<u32>() {
                     DUserType::from(uid)
                 } else {

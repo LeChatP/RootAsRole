@@ -116,10 +116,10 @@ pub struct DEnvOptions<'a> {
     #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
     #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub keep: HashSet<Cow<'a, str>>,
-    #[serde(borrow, skip_serializing_if = "HashSet::is_empty")]
+    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
     #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub check: HashSet<Cow<'a, str>>,
-    #[serde(borrow, skip_serializing_if = "HashSet::is_empty")]
+    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
     #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub delete: HashSet<Cow<'a, str>>,
 }

@@ -18,7 +18,7 @@ use rar_common::{
         options::{SAuthentication, SBounding, SPrivileged, STimeout},
         score::{CmdMin, Score},
     },
-    util::open_with_privileges,
+    util::{all_paths_from_env, open_with_privileges},
     Cred, StorageMethod,
 };
 use serde::de::DeserializeSeed;
@@ -140,12 +140,13 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        debug!("role_settings: {:?}", data.role().role);
         if !self.actors_settings(data)? {
             return Ok(false);
         }
         let mut res = false;
         for task in data.tasks() {
-            res = self.task_settings(cli, &task, opt_stack, env_path)?;
+            res |= self.task_settings(cli, &task, opt_stack, env_path)?;
         }
         Ok(res)
     }
@@ -166,6 +167,7 @@ impl BestExecSettings {
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        debug!("task_settings: {:?}", data.id);
         let temp_opt_stack = BorrowedOptStack::from_task(data);
         let mut found = false;
         let mut f_env_path = None;
@@ -180,12 +182,22 @@ impl BestExecSettings {
                     return Ok(false);
                 }
             }
-            for command in commands.add() {
-                found = self.command_settings(
+            if commands.default_behavior.is_some_and(|b| b.is_all()) {
+                debug!("default behavior is all");
+                let t_env_path = opt_stack.calc_path(env_path);
+                found = true;
+                self.final_path = all_paths_from_env(
                     &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                    cli,
-                    &command,
-                )?;
+                    &cli.cmd_path).first().ok_or_else::<Box<dyn std::error::Error>, _>(|| "No path found".to_string().into())?.to_path_buf();
+                self.score.cmd_min = CmdMin::FullWildcardPath | CmdMin::RegexArgs;
+            } else {
+                for command in commands.add() {
+                    found = self.command_settings(
+                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        cli,
+                        &command,
+                    )?;
+                }
             }
             f_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
@@ -197,6 +209,7 @@ impl BestExecSettings {
             &cli, &data, opt_stack, self, &mut score,
         ))?;
         if found && score.better_fully(&self.score) {
+            debug!("found better task settings");
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
             self.env_path = f_env_path

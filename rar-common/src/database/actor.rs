@@ -354,6 +354,12 @@ impl<'a> From<&'a str> for DUserType<'a> {
     }
 }
 
+impl<'a> From<String> for DUserType<'a> {
+    fn from(name: String) -> Self {
+        DUserType(DGenericActorType::Name(name.into()))
+    }
+}
+
 impl<'a> From<&'a str> for DGroupType<'a> {
     fn from(name: &'a str) -> Self {
         DGroupType(name.into())
