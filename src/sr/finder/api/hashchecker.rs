@@ -236,6 +236,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use capctl::{CapSet, CapState};
     use log::debug;
     use nix::sys::stat::{fchmodat, Mode};
     use rar_common::{
@@ -394,7 +395,14 @@ mod tests {
     #[test]
     fn test_read_only_immutable() {
         register();
-        let filename = "test_ro.sh";
+        // remove root privileges
+        let current = CapState::get_current();
+        let mut current = current.unwrap();
+        current.effective = CapSet::empty();
+        current.permitted = CapSet::empty();
+        current.inheritable = CapSet::empty();
+        current.set_current().unwrap();
+        let filename = "/tmp/test_ro.sh";
         let _cleanup = defer(|| {
             let filename = PathBuf::from(filename)
                 .canonicalize()
