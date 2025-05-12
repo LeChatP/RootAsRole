@@ -35,7 +35,7 @@ where
     D: Deserializer<'de>,
 {
     let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
-    println!("sconfig_opt {:?}", opt);
+    //println!("sconfig_opt {:?}", opt);
     if let Some(opt) = opt {
         opt.as_ref().borrow_mut().level = Level::Global;
         Ok(Some(opt))
