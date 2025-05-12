@@ -326,7 +326,7 @@ pub fn cred_set(
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid =
-                    Some(SGroupschooser::Group(setgid.clone()));
+                    Some(SGroupschooser::Groups(setgid.clone()));
             }
             Ok(true)
         }

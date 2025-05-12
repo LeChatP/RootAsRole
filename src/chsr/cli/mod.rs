@@ -224,7 +224,7 @@ mod tests {
                                         .cred(
                                             SCredentials::builder()
                                                 .setuid("user1")
-                                                .setgid(SGroupschooser::Group(SGroups::from([
+                                                .setgid(SGroupschooser::Groups(SGroups::from([
                                                     "setgid1", "setgid2",
                                                 ])))
                                                 .capabilities(

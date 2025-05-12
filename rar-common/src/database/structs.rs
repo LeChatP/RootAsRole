@@ -16,7 +16,7 @@ use std::{
 use crate::rc_refcell;
 
 use super::{
-    actor::{SActor, SGroups, SUserType},
+    actor::{SActor, SGroupType, SGroups, SUserType},
     options::{Level, Opt, OptBuilder},
 };
 
@@ -229,13 +229,14 @@ pub enum SetBehavior {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SGroupschooser {
-    Group(SGroups),
+    Group(SGroupType),
+    Groups(SGroups),
     StructChooser(SSetgidSet),
 }
 
 impl From<SGroups> for SGroupschooser {
     fn from(group: SGroups) -> Self {
-        SGroupschooser::Group(group)
+        SGroupschooser::Groups(group)
     }
 }
 
@@ -824,7 +825,7 @@ mod tests {
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroups::from("setgid1"))
+            SGroupschooser::Group(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -1074,7 +1075,7 @@ mod tests {
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroups::from("setgid1"))
+            SGroupschooser::Group(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -1112,7 +1113,7 @@ mod tests {
                                             .sub(["user3".into()])
                                             .build(),
                                     ))
-                                    .setgid(SGroupschooser::Group(SGroups::from("setgid1")))
+                                    .setgid(SGroupschooser::Group(SGroupType::from("setgid1")))
                                     .capabilities(
                                         SCapabilities::builder(SetBehavior::All)
                                             .add_cap(Cap::NET_BIND_SERVICE)
