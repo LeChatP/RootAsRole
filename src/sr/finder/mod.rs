@@ -275,9 +275,156 @@ impl BestExecSettings {
 
 #[cfg(test)]
 mod tests {
+    use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
-    use rar_common::database::score::{CmdMin, Score};
+    use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
+    use rar_common::database::structs::SetBehavior;
+    use serde_json_borrow::Value;
     use std::path::PathBuf;
+
+    use crate::Cli;
+    use rar_common::Cred;
+
+    // Helper: Dummy implementations for required traits/structs
+    fn dummy_cli() -> Cli {
+        Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .build()
+    }
+
+    fn dummy_cred() -> Cred {
+        Cred::builder().build()
+    }
+
+    fn dummy_dconfigfinder<'a>() -> DConfigFinder<'a> {
+        DConfigFinder::builder()
+            .roles(vec![
+                DRoleFinder::builder()
+                    .user_min(ActorMatchMin::UserMatch)
+                    .role("test")
+                    .tasks(vec![
+                        DTaskFinder::builder()
+                            .id(IdTask::Number(0))
+                            .caps(!CapSet::empty())
+                            .commands(
+                                DCommandList::builder(SetBehavior::None)
+                                    .add(vec![DCommand::simple("/usr/bin/ls -l")])
+                                    .build(),
+                            )
+                            .build(),
+                        DTaskFinder::builder()
+                            .id(IdTask::Number(1))
+                            .caps(CapSet::empty())
+                            .commands(
+                                DCommandList::builder(SetBehavior::None)
+                                    .add(vec![
+                                        DCommand::simple("/usr/bin/ls ^.*$"),
+                                        DCommand::complex(Value::Object(
+                                            [("key".into(), Value::Str("value".into()))]
+                                                .into_iter()
+                                                .collect::<Vec<_>>()
+                                                .into(),
+                                        )),
+                                    ])
+                                    .build(),
+                            )
+                            .build(),
+                    ])
+                    .build(),
+                DRoleFinder::builder()
+                    .user_min(ActorMatchMin::UserMatch)
+                    .role("test2")
+                    .tasks(vec![
+                        DTaskFinder::builder()
+                            .id(IdTask::Number(0))
+                            .caps(!CapSet::empty())
+                            .commands(
+                                DCommandList::builder(SetBehavior::None)
+                                    .add(vec![DCommand::simple("/usr/bin/ls -l")])
+                                    .build(),
+                            )
+                            .build(),
+                        DTaskFinder::builder()
+                            .id(IdTask::Number(1))
+                            .caps(CapSet::empty())
+                            .commands(
+                                DCommandList::builder(SetBehavior::None)
+                                    .add(vec![DCommand::simple("/usr/bin/ls ^.*$")])
+                                    .build(),
+                            )
+                            .build(),
+                    ])
+                    .build(),
+            ])
+            .build()
+    }
+
+    #[test]
+    fn test_retrieve_settings_no_matching_role() {
+        let cli = dummy_cli();
+        let cred = dummy_cred();
+        let data = dummy_dconfigfinder();
+        let env_vars = vec![("KEY", "VALUE")];
+        let env_path = &["/bin"];
+        let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_role_settings_calls_actors_and_tasks() {
+        let mut best = BestExecSettings::default();
+        let cli = dummy_cli();
+        let binding = dummy_dconfigfinder();
+        let data = binding.roles().nth(0).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(None);
+        let env_path = &["/bin"];
+        let result = best.role_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_actors_settings_returns_bool() {
+        let mut best = BestExecSettings::default();
+        let binding = dummy_dconfigfinder();
+        let data = binding.roles().nth(0).unwrap();
+        let result = best.actors_settings(&data);
+        assert!(result.is_ok());
+        assert!(matches!(result, Ok(_)));
+    }
+
+    #[test]
+    fn test_task_settings_sets_fields_on_found() {
+        let mut best = BestExecSettings::default();
+        let cli = dummy_cli();
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let data = binding.tasks().nth(0).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(None);
+        let env_path = &["/bin"];
+        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "pcre2")]
+    #[test]
+    fn test_command_settings_simple_and_complex() {
+        let mut best = BestExecSettings::default();
+        let cli = dummy_cli();
+        let env_path = &["/usr/bin"];
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.tasks().nth(1).unwrap();
+        let binding = binding.commands().unwrap();
+        let data = binding.add().nth(0).unwrap();
+        let result = best.command_settings(env_path, &cli, &data);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        let data = binding.add().nth(1).unwrap();
+        let result = best.command_settings(env_path, &cli, &data);
+        assert!(result.is_ok(), "Failed to process complex command : {}", result.unwrap_err());
+        assert!(!result.unwrap())
+    }
 
     #[test]
     fn test_update_command_score_better() {

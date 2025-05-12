@@ -175,10 +175,13 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Builder)]
 pub struct TaskScore {
+    #[builder(default)]
     pub cmd_min: CmdMin,
+    #[builder(default)]
     pub caps_min: CapsMin,
+    #[builder(default)]
     pub setuser_min: SetUserMin,
 }
 

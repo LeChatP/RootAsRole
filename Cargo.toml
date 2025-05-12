@@ -53,6 +53,7 @@ path = "src/chsr/main.rs"
 [features]
 default = ["finder"]
 finder = ["dep:pcre2", "rar-common/pcre2", "rar-common/finder"]
+pcre2 = ["dep:pcre2", "rar-common/pcre2"]
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }

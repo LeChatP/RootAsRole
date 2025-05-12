@@ -43,9 +43,12 @@ pub(super) fn match_args(
     input_args: &[String],
     role_args: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
+    if role_args == "'^.*$'" {
+        return Ok(CmdMin::FullRegexArgs);
+    }
     let commandline = shell_words::join(input_args);
-    if role_args.starts_with('^') && role_args.ends_with('$') {
-        evaluate_regex_cmd(role_args, commandline).inspect_err(|e| {
+    if role_args.starts_with("\'^") && role_args.ends_with("$\'") {
+        evaluate_regex_cmd(role_args.trim_matches('\''), &commandline).inspect_err(|e| {
             debug!("{:?},No match for args {:?}", e, input_args);
         })
     } else if commandline == role_args {
@@ -57,9 +60,11 @@ pub(super) fn match_args(
 
 #[cfg(feature = "pcre2")]
 fn evaluate_regex_cmd(
-    role_args: String,
-    commandline: String,
+    role_args: &str,
+    commandline: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
+    use pcre2::bytes::RegexBuilder;
+
     let regex = RegexBuilder::new().build(&role_args)?;
     if regex.is_match(commandline.as_bytes())? {
         Ok(CmdMin::RegexArgs)
@@ -247,7 +252,7 @@ mod tests {
     #[test]
     fn test_match_args_full_regex() {
         let input_args = vec!["foo".to_string(), "bar".to_string()];
-        let role_args = "^.*$";
+        let role_args = "'^.*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::FullRegexArgs);
@@ -257,10 +262,24 @@ mod tests {
     #[test]
     fn test_match_args_full_regex_empty_input() {
         let input_args: Vec<String> = vec![];
-        let role_args = "^.*$";
+        let role_args = "'^.*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::FullRegexArgs);
+    }
+
+    #[cfg(feature = "pcre2")]
+    #[test]
+    fn test_match_args_regex_args() {
+        let input_args: Vec<String> = vec!["a".to_string(), "A".to_string()];
+        let role_args = "'^[Aa ]*$'";
+        let result = match_args(&input_args, &role_args);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), CmdMin::RegexArgs);
+        let role_args = "'^[Aa]*$'";
+        let result = match_args(&input_args, &role_args);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), CmdMin::empty());
     }
 
     #[test]

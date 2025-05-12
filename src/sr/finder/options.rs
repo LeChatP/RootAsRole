@@ -29,6 +29,7 @@ use super::de::DLinkedTask;
 //use super::finder::Cred;
 //#[cfg(feature = "finder")]
 //use super::finder::SecurityMin;
+#[cfg(not(tarpaulin_include))]
 fn default<'a>() -> Opt<'a> {
     Opt::builder(Level::Default)
         .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
@@ -231,6 +232,12 @@ impl<'a> DEnvOptions<'a> {
         final_set.insert(
             "SHELL".into(),
             target.user.shell.to_string_lossy().to_string(),
+        );
+        final_set.extend(
+            self.set
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<HashMap<String, String>>(),
         );
         Ok(final_set)
     }
@@ -833,4 +840,165 @@ mod tests {
         assert!(!is_regex("^[a-zA-Z0-9_]+$"));
         assert!(!is_regex("[a-z"));
     }
+
+    #[test]
+    fn test_test_pattern() {
+        #[cfg(feature = "pcre2")]
+        assert!(test_pattern("^[a-zA-Z0-9_]+$", "test"));
+        #[cfg(not(feature = "pcre2"))]
+        assert!(!test_pattern("^[a-zA-Z0-9_]+$", "test"));
+        assert!(!test_pattern("[a-z", "test"));
+    }
+
+    #[test]
+    fn test_check_env() {
+        assert!(check_env("TZ", "America/New_York"));
+        assert!(!check_env("TZ", "/America/New_York"));
+        assert!(!check_env("TZ", "America/New_York/.."));
+        assert!(!check_env("VAR_NAME", "VAR%NAME"));
+        assert!(check_env("VAR_NAME", "VAR_NAME"));
+    }
+
+    #[test]
+    fn test_env_matches() {
+        let set: HashSet<String> = ["VAR1", "VAR2"].iter().map(|s| s.to_string()).collect();
+        assert!(env_matches(&set, &"VAR1".to_string()));
+        assert!(!env_matches(&set, &"VAR3".to_string()));
+    }
+
+    #[test]
+    fn test_calc_path() {
+        let path_options = DPathOptions::builder(PathBehavior::Inherit)
+            .add(vec!["/usr/local/bin", "/usr/bin"])
+            .sub(vec!["/usr/bin"])
+            .build();
+        let path_var = ["/bin", "/usr/bin"];
+        let result = path_options.calc_path(&path_var);
+        assert_eq!(result, vec!["/usr/local/bin"]);
+    }
+
+    #[test]
+    fn test_calc_env() {
+        let env_options = DEnvOptions::builder(EnvBehavior::Delete)
+            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
+            .keep(vec!["VAR3"])
+            .unwrap()
+            .delete(vec!["VAR4"])
+            .unwrap()
+            .check(vec!["VAR5"])
+            .unwrap()
+            .build();
+        let env_vars = vec![("VAR1", "AAAA"), ("VAR3", "VALUE3")];
+        let env_path = vec!["/usr/local/bin", "/usr/bin"];
+        let target = Cred::builder().build();
+        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        assert!(
+            result.is_ok(),
+            "Failed to calculate final env {}",
+            result.unwrap_err()
+        );
+        let final_env = result.unwrap();
+        assert_eq!(final_env.get("PATH").unwrap(), "/usr/local/bin:/usr/bin");
+        assert_eq!(*final_env.get("LOGNAME").unwrap(), target.user.name);
+        assert_eq!(*final_env.get("USER").unwrap(), target.user.name);
+        assert_eq!(
+            *final_env.get("HOME").unwrap(),
+            target.user.dir.to_string_lossy()
+        );
+        assert_eq!(final_env.get("TERM").unwrap(), "unknown");
+        assert_eq!(
+            *final_env.get("SHELL").unwrap(),
+            target.user.shell.to_string_lossy()
+        );
+        assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
+        assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
+    }
+
+    #[test]
+    fn test_is_default() {
+        let default = Opt::default();
+        assert!(is_default(&default));
+        let non_default = Opt::builder(Level::Default).build();
+        assert!(!is_default(&non_default));
+    }
+
+    #[test]
+    fn test_convert_string_to_duration() {
+        let duration = convert_string_to_duration(&"01:30:00".to_string());
+        assert!(duration.is_ok());
+        assert_eq!(
+            duration.unwrap(),
+            Some(Duration::hours(1) + Duration::minutes(30))
+        );
+        let invalid_duration = convert_string_to_duration(&"invalid".to_string());
+        assert!(invalid_duration.is_err());
+    }
+
+    #[test]
+    fn test_borrowed_opt_stack() {
+        let config = Some(
+            Opt::builder(Level::Global)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Delete)
+                        .check(["CHECKME"])
+                        .unwrap()
+                        .set([("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
+                        .build(),
+                )
+                .build(),
+        );
+        let role = Some(
+            Opt::builder(Level::Role)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Inherit)
+                        .delete(["DELETEME"])
+                        .unwrap()
+                        .build(),
+                )
+                .build(),
+        );
+        let task = Some(
+            Opt::builder(Level::Task)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Inherit)
+                        .keep(["KEEPME"])
+                        .unwrap()
+                        .build(),
+                )
+                .build(),
+        );
+        let mut stack = BorrowedOptStack::new(config);
+        stack.set_role(role);
+        stack.set_task(task);
+        assert_eq!(
+            stack.calc_path(&["/test"]),
+            env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>()
+        );
+        let env = stack.calc_temp_env(&None, &None);
+        assert_eq!(env.delete, HashSet::from(["DELETEME".into()]));
+        assert_eq!(env.keep, HashSet::from(["KEEPME".into()]));
+        assert_eq!(env.check, HashSet::from(["CHECKME".into()]));
+        assert_eq!(env.set, HashMap::from([("VAR1".into(), "VALUE1".into()), ("VAR2".into(), "VALUE2".into())]));
+    }
+
+    #[test]
+    fn test_opt_into_opt() {
+        let opt = Opt::builder(Level::Default)
+            .path(
+                DPathOptions::builder(PathBehavior::Inherit)
+                    .add(["/usr/local/bin"])
+                    .build(),
+            )
+            .env(
+                DEnvOptions::builder(EnvBehavior::Keep)
+                    .set([("VAR1", "VALUE1")])
+                    .build(),
+            )
+            .build();
+        let rar_opt: rar_common::database::options::Opt = opt.clone().into();
+        assert_eq!(rar_opt.level, Level::Default);
+        assert_eq!(rar_opt.path.unwrap().default_behavior, PathBehavior::Inherit);
+        assert_eq!(rar_opt.env.unwrap().default_behavior, EnvBehavior::Keep);
+    }
+
 }

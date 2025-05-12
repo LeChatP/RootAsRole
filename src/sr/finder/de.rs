@@ -35,19 +35,25 @@ use crate::{
 
 use super::options::Opt;
 
+#[cfg_attr(test, derive(Builder))]
 #[derive(PartialEq, Eq, Debug, Default)]
 pub struct DConfigFinder<'a> {
     pub options: Option<Opt<'a>>,
     pub roles: Vec<DRoleFinder<'a>>,
 }
 
+#[cfg_attr(test, derive(Builder))]
 #[derive(Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
 pub struct DRoleFinder<'a> {
+    #[cfg_attr(test, builder(default))]
     pub user_min: ActorMatchMin,
+    #[cfg_attr(test, builder(into))]
     pub role: Cow<'a, str>,
+    #[cfg_attr(test, builder(default))]
     pub tasks: Vec<DTaskFinder<'a>>,
     pub options: Option<Opt<'a>>,
+    #[cfg_attr(test, builder(default))]
     pub _extra_values: HashMap<Cow<'a, str>, Value<'a>>,
 }
 
@@ -88,6 +94,16 @@ pub struct DTaskFinder<'a> {
 pub enum DCommand<'a> {
     Simple(#[serde(borrow)] Cow<'a, str>),
     Complex(Value<'a>),
+}
+
+#[cfg(test)]
+impl<'a> DCommand<'a> {
+    pub fn simple(cmd: &'a str) -> Self {
+        DCommand::Simple(Cow::Borrowed(cmd))
+    }
+    pub fn complex(cmd: Value<'a>) -> Self {
+        DCommand::Complex(cmd)
+    }
 }
 
 pub struct ConfigFinderDeserializer<'a> {
@@ -1101,10 +1117,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
 }
 
 /// This struct keeps the list of commands because options may be written after
+#[cfg_attr(test, derive(Builder))]
 #[derive(PartialEq, Eq, Debug)]
 pub struct DCommandList<'a> {
+    #[cfg_attr(test, builder(start_fn, into))]
     pub default_behavior: Option<SetBehavior>,
+    #[cfg_attr(test, builder(default, into))]
     pub add: Cow<'a, [DCommand<'a>]>,
+    #[cfg_attr(test, builder(default, into))]
     pub del: Cow<'a, [DCommand<'a>]>,
 }
 
@@ -1537,7 +1557,6 @@ impl<'d, 'l, 't, 'c, 'a> Deref for DLinkedCommand<'d, 'l, 't, 'c, 'a> {
 #[cfg(test)]
 mod tests {
 
-    use core::task;
     use std::fs;
 
     use super::*;
@@ -2167,8 +2186,9 @@ mod tests {
     #[test]
     fn test_config_finder_implementation() {
         let json = format!(
-            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","id":{}}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","names":[{}, {}]}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
             getuid().as_raw(),
+            getgid().as_raw(),
             getgid().as_raw()
         );
         let cli = Cli::builder().cmd_path("ls").build();
