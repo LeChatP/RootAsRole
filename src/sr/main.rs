@@ -371,73 +371,6 @@ mod tests {
 
     use super::*;
 
-    /**
-    #[test]
-    fn test_from_json_execution_settings() {
-        let mut args = Cli {
-            opt_filter: None,
-            prompt: PAM_PROMPT.to_string(),
-            info: false,
-            help: false,
-            stdin: false,
-            command: vec!["ls".to_string(), "-l".to_string()],
-        };
-        let user = Cred {
-            user: User::from_uid(0.into()).unwrap().unwrap(),
-            groups: vec![],
-            tty: None,
-            ppid: Pid::parent(),
-        };
-        let config = rc_refcell!(SConfig::default());
-        let role = rc_refcell!(SRole::default());
-        let task = rc_refcell!(STask::default());
-        task.as_ref().borrow_mut().name = IdTask::Name("task1".to_owned());
-        task.as_ref().borrow_mut().commands = SCommands::default();
-        task.as_ref()
-            .borrow_mut()
-            .commands
-            .add
-            .push(SCommand::Simple("ls -l".to_owned()));
-        role.as_ref().borrow_mut().name = "role1".to_owned();
-        role.as_ref()
-            .borrow_mut()
-            .actors
-            .push(SActor::user(0).build());
-        role.as_ref().borrow_mut().tasks.push(task);
-        let task = rc_refcell!(STask::default());
-        task.as_ref().borrow_mut().name = IdTask::Name("task2".to_owned());
-        task.as_ref().borrow_mut().commands = SCommands::default();
-        task.as_ref()
-            .borrow_mut()
-            .commands
-            .add
-            .push(SCommand::Simple("ls .*".to_owned()));
-        role.as_ref().borrow_mut().tasks.push(task);
-        let task = rc_refcell!(STask::default());
-        task.as_ref().borrow_mut().name = IdTask::Name("task3".to_owned());
-        role.as_ref().borrow_mut().tasks.push(task);
-        config.as_ref().borrow_mut().roles.push(role);
-        make_weak_config(&config);
-        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.score.fully_matching());
-        args.opt_filter = Some(FilterMatcher::default());
-        args.opt_filter.as_mut().unwrap().role = Some("role1".to_owned());
-        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.score.fully_matching());
-        args.opt_filter.as_mut().unwrap().task = Some("task1".to_owned());
-        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.score.fully_matching());
-        args.opt_filter.as_mut().unwrap().task = Some("task2".to_owned());
-        let taskmatch = from_json_execution_settings(&args, &config, &user).unwrap();
-        assert!(taskmatch.score.fully_matching());
-        args.opt_filter.as_mut().unwrap().task = Some("task3".to_owned());
-        let taskmatch = from_json_execution_settings(&args, &config, &user);
-        assert!(taskmatch.is_err());
-        args.opt_filter.as_mut().unwrap().role = None;
-        let taskmatch = from_json_execution_settings(&args, &config, &user);
-        assert!(taskmatch.is_err());
-    }*/
-
     #[test]
     fn test_getopt() {
         let args = getopt(vec![
@@ -506,7 +439,10 @@ mod tests {
     #[test]
     fn test_set_capabilities() {
         let mut capset = CapState::get_current().unwrap();
-        if capset.permitted.has(Cap::SETPCAP) {
+        if capset.permitted.has(Cap::SETPCAP)
+            && capset.permitted.has(Cap::SETUID)
+            && capset.permitted.has(Cap::SETGID)
+        {
             capset.effective.add(Cap::SETPCAP);
             capset.set_current().unwrap();
             let mut execcfg = BestExecSettings::default();
