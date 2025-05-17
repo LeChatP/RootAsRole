@@ -345,9 +345,9 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         if execcfg.bounding.is_strict() {
             capctl::bounding::clear().expect("Failed to clear bounding cap");
         }
+        capctl::ambient::clear().expect("Failed to clear ambient cap");
         let capstate = CapState::empty();
         capstate.set_current().expect("Failed to set current cap");
-        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     }
 }
 
@@ -364,8 +364,10 @@ fn setuid_setgid(execcfg: &BestExecSettings) {
 
 #[cfg(test)]
 mod tests {
+    use capctl::{Cap, CapSet};
     use libc::getgid;
     use nix::unistd::{getuid, Pid};
+    use rar_common::database::options::SBounding;
 
     use super::*;
 
@@ -439,10 +441,12 @@ mod tests {
     #[test]
     fn test_getopt() {
         let args = getopt(vec![
-            "chsr", "-r", "role1", "-t", "task1", "-p", "prompt", "-i", "-h", "ls", "-l",
+            "sr", "-u", "root", "-g", "root,root", "-r", "role1", "-t", "task1", "-p", "prompt", "-E", "-i", "-h", "ls", "-l",
         ])
         .unwrap();
         let opt_filter = args.opt_filter.as_ref().unwrap();
+        assert_eq!(opt_filter.user, Some(0));
+        assert_eq!(opt_filter.group, Some(vec![0,0]));
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
         assert_eq!(args.prompt.unwrap(), "prompt");
@@ -461,5 +465,71 @@ mod tests {
         assert!(!user.groups.is_empty());
         assert_eq!(user.groups[0].gid.as_raw(), gid);
         assert_eq!(user.ppid, Pid::parent());
+    }
+
+    #[test]
+    fn test_setuid_setgid() {
+        let mut capset = CapState::get_current().unwrap();
+        if capset.permitted.has(Cap::SETUID) && capset.permitted.has(Cap::SETGID) {
+            println!("setuid and setgid are available");
+            capset.effective.add(Cap::SETUID);
+            capset.effective.add(Cap::SETGID);
+            capset.set_current().unwrap();
+            let mut execcfg = BestExecSettings::default();
+            execcfg.setuid = Some(1000);
+            execcfg.setgroups = Some(vec![1000]);
+            setuid_setgid(&execcfg);
+            assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
+            if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {
+                assert_eq!(unsafe { getgid() }, *gid);
+            }
+            capset.effective.clear();
+            capset.set_current().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_set_capabilities() {
+        let mut capset = CapState::get_current().unwrap();
+        if capset.permitted.has(Cap::SETPCAP) {
+            capset.effective.add(Cap::SETPCAP);
+            capset.set_current().unwrap();
+            let mut execcfg = BestExecSettings::default();
+            let mut capset = CapSet::empty();
+            capset.add(Cap::SETUID);
+            capset.add(Cap::SETGID);
+            capset.add(Cap::SETPCAP);
+            execcfg.caps = Some(capset);
+            set_capabilities(&execcfg);
+            let capset = CapState::get_current().unwrap();
+            assert!(capset.permitted.has(Cap::SETUID));
+            assert!(capset.permitted.has(Cap::SETGID));
+            assert!(capset.permitted.has(Cap::SETPCAP));
+            assert!(capset.inheritable.has(Cap::SETUID));
+            assert!(capset.inheritable.has(Cap::SETGID));
+            assert!(capset.inheritable.has(Cap::SETPCAP));
+            assert!(capctl::bounding::probe().has(Cap::SETUID));
+            assert!(capctl::bounding::probe().has(Cap::SETGID));
+            assert!(capctl::bounding::probe().has(Cap::SETPCAP));
+            assert!(capctl::ambient::probe().unwrap().has(Cap::SETUID));
+            assert!(capctl::ambient::probe().unwrap().has(Cap::SETGID));
+            assert!(capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
+            execcfg.caps = None;
+            execcfg.bounding = SBounding::Strict;
+            set_capabilities(&execcfg);
+            let capset = CapState::get_current().unwrap();
+            assert!(!capset.permitted.has(Cap::SETUID));
+            assert!(!capset.permitted.has(Cap::SETGID));
+            assert!(!capset.permitted.has(Cap::SETPCAP));
+            assert!(!capset.inheritable.has(Cap::SETUID));
+            assert!(!capset.inheritable.has(Cap::SETGID));
+            assert!(!capset.inheritable.has(Cap::SETPCAP));
+            assert!(!capctl::bounding::probe().has(Cap::SETUID));
+            assert!(!capctl::bounding::probe().has(Cap::SETGID));
+            assert!(!capctl::bounding::probe().has(Cap::SETPCAP));
+            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETUID));
+            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETGID));
+            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
+        }
     }
 }

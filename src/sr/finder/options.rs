@@ -888,7 +888,12 @@ mod tests {
             .check(vec!["VAR5"])
             .unwrap()
             .build();
-        let env_vars = vec![("VAR1", "AAAA"), ("VAR3", "VALUE3")];
+        let env_vars = vec![
+            ("VAR1", "AAAA"),
+            ("VAR3", "VALUE3"),
+            ("VAR4", "VALUE4"),
+            ("VAR5", "VALUE5"),
+        ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target);
@@ -912,6 +917,71 @@ mod tests {
         );
         assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
         assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
+        assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
+        assert!(final_env.get("VAR4").is_none());
+        assert!(final_env.get("VAR5").unwrap() == "VALUE5");
+
+        let env_options = DEnvOptions::builder(EnvBehavior::Keep)
+            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
+            .keep(vec!["VAR3"])
+            .unwrap()
+            .delete(vec!["VAR4"])
+            .unwrap()
+            .check(vec!["VAR5"])
+            .unwrap()
+            .build();
+        let env_vars = vec![
+            ("VAR1", "AAAA"),
+            ("VAR3", "VALUE3"),
+            ("VAR4", "VALUE4"),
+            ("VAR5", "VALUE5"),
+        ];
+        let env_path = vec!["/usr/local/bin", "/usr/bin"];
+        let target = Cred::builder().build();
+        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        assert!(
+            result.is_ok(),
+            "Failed to calculate final env {}",
+            result.unwrap_err()
+        );
+        let final_env = result.unwrap();
+        assert_eq!(final_env.get("PATH").unwrap(), "/usr/local/bin:/usr/bin");
+        assert_eq!(*final_env.get("LOGNAME").unwrap(), target.user.name);
+        assert_eq!(*final_env.get("USER").unwrap(), target.user.name);
+        assert_eq!(
+            *final_env.get("HOME").unwrap(),
+            target.user.dir.to_string_lossy()
+        );
+        assert_eq!(final_env.get("TERM").unwrap(), "unknown");
+        assert_eq!(
+            *final_env.get("SHELL").unwrap(),
+            target.user.shell.to_string_lossy()
+        );
+        assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
+        assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
+        assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
+        assert!(final_env.get("VAR4").is_none());
+        assert!(final_env.get("VAR5").unwrap() == "VALUE5");
+
+        let env_options = DEnvOptions::builder(EnvBehavior::Inherit)
+            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
+            .keep(vec!["VAR3"])
+            .unwrap()
+            .delete(vec!["VAR4"])
+            .unwrap()
+            .check(vec!["VAR5"])
+            .unwrap()
+            .build();
+        let env_vars = vec![
+            ("VAR1", "AAAA"),
+            ("VAR3", "VALUE3"),
+            ("VAR4", "VALUE4"),
+            ("VAR5", "VALUE5"),
+        ];
+        let env_path = vec!["/usr/local/bin", "/usr/bin"];
+        let target = Cred::builder().build();
+        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        assert!(result.is_err());
     }
 
     #[test]
