@@ -441,12 +441,27 @@ mod tests {
     #[test]
     fn test_getopt() {
         let args = getopt(vec![
-            "sr", "-u", "root", "-g", "root,root", "-r", "role1", "-t", "task1", "-p", "prompt", "-E", "-i", "-h", "ls", "-l",
+            "sr",
+            "-u",
+            "root",
+            "-g",
+            "root,root",
+            "-r",
+            "role1",
+            "-t",
+            "task1",
+            "-p",
+            "prompt",
+            "-E",
+            "-i",
+            "-h",
+            "ls",
+            "-l",
         ])
         .unwrap();
         let opt_filter = args.opt_filter.as_ref().unwrap();
         assert_eq!(opt_filter.user, Some(0));
-        assert_eq!(opt_filter.group, Some(vec![0,0]));
+        assert_eq!(opt_filter.group, Some(vec![0, 0]));
         assert_eq!(opt_filter.role.as_deref(), Some("role1"));
         assert_eq!(opt_filter.task.as_deref(), Some("task1"));
         assert_eq!(args.prompt.unwrap(), "prompt");
