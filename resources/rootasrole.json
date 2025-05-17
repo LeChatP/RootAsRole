@@ -1,5 +1,5 @@
 {
-    "version": "3.0.5",
+    "version": "3.1.0",
     "storage": {
         "method": "json",
         "settings": {
@@ -61,6 +61,7 @@
             ],
             "set": {}
         },
+        "authentication": "perform",
         "root": "user",
         "bounding": "strict",
         "wildcard-denied": ";&|"

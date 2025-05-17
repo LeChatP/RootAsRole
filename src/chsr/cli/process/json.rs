@@ -27,7 +27,6 @@ pub fn list_json(
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
     let config = rconfig.as_ref().borrow();
-    debug!("list_json {:?}", config);
     if let Some(role_id) = role_id {
         if let Some(role) = rconfig.role(&role_id) {
             list_task(task_id, &role, options, options_type, task_type, role_type)
@@ -51,6 +50,7 @@ fn list_task(
     if let Some(task_id) = task_id {
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
+                debug!("task {:?}", task);
                 let rcopt = OptStack::from_task(task.clone()).to_opt();
                 let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {
@@ -326,7 +326,7 @@ pub fn cred_set(
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid =
-                    Some(SGroupschooser::Group(setgid.clone()));
+                    Some(SGroupschooser::Groups(setgid.clone()));
             }
             Ok(true)
         }
@@ -1003,21 +1003,26 @@ pub fn env_setlist_add(
             Some(SetListType::Set) => match action {
                 InputAction::Add => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set.extend(options_env_values.as_ref().unwrap().clone());
+                    env.set
+                        .get_or_insert_default()
+                        .extend(options_env_values.as_ref().unwrap().clone());
                 }
                 InputAction::Del => {
                     debug!("options_env_values: {:?}", options_env_values);
                     options_key_env.as_ref().unwrap().into_iter().for_each(|k| {
-                        env.set.remove(&k.to_string());
+                        if let Some(env) = &mut env.set {
+                            env.remove(&k.to_string());
+                        }
                     });
                 }
                 InputAction::Purge => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set = HashMap::new();
+                    env.set = None;
                 }
                 InputAction::Set => {
                     debug!("options_env_values: {:?}", options_env_values);
-                    env.set = options_env_values.as_ref().unwrap().clone();
+                    env.set
+                        .replace(options_env_values.as_ref().unwrap().clone());
                 }
                 _ => unreachable!("Unknown action {:?}", action),
             },

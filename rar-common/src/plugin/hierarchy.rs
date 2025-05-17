@@ -29,7 +29,7 @@ fn find_in_parents(
     matcher: &mut TaskMatch,
 ) -> PluginResultAction {
     //precondition matcher user matches
-    if !matcher.user_matching() {
+    if !matcher.score.user_matching() {
         return PluginResultAction::Ignore;
     }
     let mut result = PluginResultAction::Ignore;
@@ -43,8 +43,8 @@ fn find_in_parents(
                     match role.as_ref().borrow().tasks.matches(user, filter, command) {
                         Ok(matches) => {
                             debug!("Parent role {} matched", parent);
-                            if !matcher.command_matching()
-                                || (matches.command_matching()
+                            if !matcher.score.command_matching()
+                                || (matches.score.command_matching()
                                     && matches.score.cmd_cmp(&matcher.score) == Ordering::Less)
                             {
                                 debug!("Parent role {} is better", parent);

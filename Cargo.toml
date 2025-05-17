@@ -4,7 +4,7 @@ members = ["xtask", "rar-common"]
 [package]
 name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.0.6"
+version = "3.1.0"
 rust-version = "1.76.0"
 authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
 edition = "2021"
@@ -25,8 +25,16 @@ maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/
 [profile.release]
 strip = "symbols"
 lto = true
-opt-level = "s"
+opt-level = 3
 codegen-units = 1
+
+[profile.profiling]
+strip = "none"
+lto = false
+opt-level = 1
+inherits = "release"
+debug = true
+
 
 #[features]
 #cursive_lib = [ "cursive" ]
@@ -45,6 +53,7 @@ path = "src/chsr/main.rs"
 [features]
 default = ["finder"]
 finder = ["dep:pcre2", "rar-common/pcre2", "rar-common/finder"]
+pcre2 = ["dep:pcre2", "rar-common/pcre2"]
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }
@@ -65,7 +74,7 @@ capctl = "0.2"
 pcre2 = { version = "0.2", optional = true }
 serde = { version = "1.0", features=["rc", "derive"] }
 serde_json = "1.0"
-ciborium = "0.2"
+cbor4ii = { version = "1.0.0", features = ["serde", "serde1", "use_std"] }
 glob = "0.3"
 pam-client2 = "0.5"
 bitflags = { version = "2.6" }
@@ -80,6 +89,8 @@ pest = "2.7"
 pest_derive = "2.7"
 const_format = "0.2"
 hex = "0.4"
+bon = "3.5.1"
+serde_json_borrow = "0.7.1"
 
 [dev-dependencies]
 log = "0.4"

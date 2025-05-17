@@ -10,8 +10,8 @@ use pcre2::bytes::RegexBuilder;
 
 use crate::timeout;
 use rar_common::{
-    database::{finder::Cred, options::OptStack},
-    Storage,
+    database::options::{SAuthentication, STimeout},
+    Cred,
 };
 
 use self::rpassword::Terminal;
@@ -120,19 +120,16 @@ impl ConversationHandler for SrConversationHandler {
 }
 
 pub(super) fn check_auth(
-    optstack: &OptStack,
-    config: &Storage,
+    authentication: &SAuthentication,
+    timeout: &STimeout,
     user: &Cred,
     prompt: &str,
 ) -> Result<(), Box<dyn Error>> {
-    if optstack.get_authentication().1.is_skip() {
+    if authentication.is_skip() {
         warn!("Skipping authentication, this is a security risk!");
         return Ok(());
     }
-    let timeout = optstack.get_timeout().1;
-    let is_valid = match config {
-        Storage::SConfig(_) => timeout::is_valid(user, user, &timeout),
-    };
+    let is_valid = timeout::is_valid(user, user, &timeout);
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let conv = SrConversationHandler::new(prompt);
@@ -141,10 +138,6 @@ pub(super) fn check_auth(
         context.authenticate(Flag::SILENT)?;
         context.acct_mgmt(Flag::SILENT)?;
     }
-    match config {
-        Storage::SConfig(_) => {
-            timeout::update_cookie(user, user, &timeout)?;
-        },
-    }
+    timeout::update_cookie(user, user, &timeout)?;
     Ok(())
 }

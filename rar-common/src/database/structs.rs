@@ -1,13 +1,9 @@
 use bon::{bon, builder, Builder};
 use capctl::{Cap, CapSet};
 use derivative::Derivative;
-use serde::{
-    de::{self, MapAccess, SeqAccess, Visitor},
-    ser::SerializeMap,
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs};
+use strum::{Display, EnumIs, EnumString, FromRepr};
 
 use std::{
     cell::RefCell,
@@ -17,24 +13,20 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::rc_refcell;
+
 use super::{
-    actor::{SActor, SGroups, SUserType},
-    is_default,
+    actor::{SActor, SGroupType, SGroups, SUserType},
     options::{Level, Opt, OptBuilder},
 };
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct SConfig {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sconfig_opt"
-    )]
+    #[serde(default, deserialize_with = "sconfig_opt", alias = "o")]
     pub options: Option<Rc<RefCell<Opt>>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "r")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
-    #[serde(default)]
-    #[serde(flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     pub _extra_fields: Map<String, Value>,
 }
 
@@ -42,15 +34,20 @@ fn sconfig_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::E
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Global;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Global;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Derivative)]
+#[derive(Deserialize, Debug, Derivative)]
 #[serde(rename_all = "kebab-case")]
 #[derivative(PartialEq, Eq)]
 pub struct SRole {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actors: Vec<SActor>,
@@ -73,12 +70,16 @@ fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Err
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Role;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Role;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),
@@ -94,18 +95,28 @@ impl std::fmt::Display for IdTask {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Derivative)]
+pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
+    cmds.default_behavior
+        .as_ref()
+        .is_none_or(|b| *b == Default::default())
+        && cmds.add.is_empty()
+        && cmds.sub.is_empty()
+        && cmds._extra_fields.is_empty()
+}
+
+#[derive(Deserialize, Debug, Derivative)]
 #[derivative(PartialEq, Eq)]
 pub struct STask {
-    #[serde(default, skip_serializing_if = "IdTask::is_number")]
+    #[serde(alias = "n", default, skip_serializing_if = "IdTask::is_number")]
     pub name: IdTask,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "p", skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(alias = "i", default, skip_serializing_if = "is_default")]
     pub cred: SCredentials,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(alias = "c", default, skip_serializing_if = "cmds_is_default")]
     pub commands: SCommands,
     #[serde(
+        alias = "o",
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "stask_opt"
@@ -122,25 +133,26 @@ fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Err
 where
     D: Deserializer<'de>,
 {
-    let mut opt = Opt::deserialize(deserializer)?;
-    opt.level = Level::Task;
-    Ok(Some(Rc::new(RefCell::new(opt))))
+    let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
+    if let Some(opt) = opt {
+        opt.as_ref().borrow_mut().level = Level::Task;
+        Ok(Some(opt))
+    } else {
+        Ok(None)
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "u", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserChooser>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "g", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupschooser>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "c", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[builder(into)]
-    pub additional_auth: Option<String>, // TODO: to extract as plugin
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
     pub _extra_fields: Map<String, Value>,
@@ -177,40 +189,53 @@ impl From<u32> for SUserChooser {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 
 pub struct SSetuidSet {
-    #[builder(start_fn, into)]
-    pub fallback: SUserType,
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
-    #[builder(start_fn)]
+    #[serde(
+        alias = "d",
+        rename = "default",
+        default,
+        skip_serializing_if = "is_default"
+    )]
+    #[builder(default)]
     pub default: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[builder(into)]
+    #[serde(alias = "f", skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<SUserType>,
+    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SUserType>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        alias = "del",
+        alias = "s",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Display, Debug, EnumIs, Clone)]
-#[serde(rename_all = "lowercase")]
+#[derive(PartialEq, Eq, Display, Debug, EnumIs, Clone, Copy, FromRepr, EnumString)]
+#[strum(serialize_all = "lowercase")]
 #[derive(Default)]
+#[repr(u8)]
 pub enum SetBehavior {
-    All,
     #[default]
     None,
+    All,
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SGroupschooser {
-    Group(SGroups),
+    Group(SGroupType),
+    Groups(SGroups),
     StructChooser(SSetgidSet),
 }
 
 impl From<SGroups> for SGroupschooser {
     fn from(group: SGroups) -> Self {
-        SGroupschooser::Group(group)
+        SGroupschooser::Groups(group)
     }
 }
 
@@ -232,17 +257,23 @@ impl From<u32> for SGroupschooser {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
-    #[builder(start_fn, into)]
-    pub fallback: SGroups,
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(
+        rename = "default",
+        alias = "d",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(start_fn)]
     pub default: SetBehavior,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(alias = "f")]
+    #[builder(start_fn, into)]
+    pub fallback: SGroups,
+    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "s", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
 }
@@ -255,8 +286,6 @@ pub struct SCapabilities {
     pub add: CapSet,
     #[builder(field)]
     pub sub: CapSet,
-    #[builder(default, with = <_>::from_iter)]
-    pub _extra_fields: Map<String, Value>,
 }
 
 impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
@@ -278,117 +307,6 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
     }
 }
 
-impl Serialize for SCapabilities {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if self.default_behavior.is_none() && self.sub.is_empty() && self._extra_fields.is_empty() {
-            super::serialize_capset(&self.add, serializer)
-        } else {
-            let mut map = serializer.serialize_map(Some(3))?;
-            if self.default_behavior.is_none() {
-                map.serialize_entry("default", &self.default_behavior)?;
-            }
-            if !self.add.is_empty() {
-                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("add", &v)?;
-            }
-            if !self.sub.is_empty() {
-                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                map.serialize_entry("del", &v)?;
-            }
-            for (key, value) in &self._extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
-    }
-}
-impl<'de> Deserialize<'de> for SCapabilities {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct SCapabilitiesVisitor;
-
-        impl<'de> Visitor<'de> for SCapabilitiesVisitor {
-            type Value = SCapabilities;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an array of strings or a map with SCapabilities fields")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut add = CapSet::default();
-                while let Some(cap) = seq.next_element::<String>()? {
-                    add.add(cap.parse().map_err(de::Error::custom)?);
-                }
-
-                Ok(SCapabilities {
-                    default_behavior: SetBehavior::None,
-                    add,
-                    sub: CapSet::default(),
-                    _extra_fields: Map::new(),
-                })
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut default_behavior = SetBehavior::None;
-                let mut add = CapSet::default();
-                let mut sub = CapSet::default();
-                let mut _extra_fields = Map::new();
-
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "default" => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
-                        }
-                        "add" => {
-                            let values: Vec<String> =
-                                map.next_value().expect("add entry must be a list");
-                            for value in values {
-                                add.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
-                        }
-                        "sub" | "del" => {
-                            let values: Vec<String> =
-                                map.next_value().expect("sub entry must be a list");
-                            for value in values {
-                                sub.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
-                        }
-                        other => {
-                            _extra_fields.insert(other.to_string(), map.next_value()?);
-                        }
-                    }
-                }
-
-                Ok(SCapabilities {
-                    default_behavior,
-                    add,
-                    sub,
-                    _extra_fields,
-                })
-            }
-        }
-
-        deserializer.deserialize_any(SCapabilitiesVisitor)
-    }
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
 pub enum SCommand {
@@ -396,15 +314,11 @@ pub enum SCommand {
     Complex(Value),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct SCommands {
-    #[serde(rename = "default")]
     pub default_behavior: Option<SetBehavior>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<SCommand>,
-    #[serde(default, alias = "del", skip_serializing_if = "Vec::is_empty")]
     pub sub: Vec<SCommand>,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub _extra_fields: Map<String, Value>,
 }
 
@@ -455,7 +369,6 @@ impl Default for SCredentials {
             setuid: None,
             setgid: None,
             capabilities: Some(SCapabilities::default()),
-            additional_auth: None,
             _extra_fields: Map::default(),
         }
     }
@@ -478,14 +391,13 @@ impl Default for SCapabilities {
             default_behavior: SetBehavior::default(),
             add: CapSet::empty(),
             sub: CapSet::empty(),
-            _extra_fields: Map::default(),
         }
     }
 }
 
 impl Default for SSetuidSet {
     fn default() -> Self {
-        SSetuidSet::builder(0, SetBehavior::None).build()
+        SSetuidSet::builder().build()
     }
 }
 
@@ -546,7 +458,7 @@ impl SConfig {
     #[builder]
     pub fn new(
         #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Global)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Global))))]
         options: Option<Rc<RefCell<Opt>>>,
         _extra_fields: Option<Map<String, Value>>,
     ) -> Rc<RefCell<Self>> {
@@ -644,7 +556,7 @@ impl SRole {
         #[builder(start_fn, into)] name: String,
         #[builder(field)] tasks: Vec<Rc<RefCell<STask>>>,
         #[builder(field)] actors: Vec<SActor>,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Role)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Role))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Rc<RefCell<Self>> {
@@ -679,7 +591,7 @@ impl STask {
         purpose: Option<String>,
         #[builder(default)] cred: SCredentials,
         #[builder(default)] commands: SCommands,
-        #[builder(with = |f : fn(OptBuilder) -> Rc<RefCell<Opt>> | f(Opt::builder(Level::Task)))]
+        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Task))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
         _role: Option<Weak<RefCell<SRole>>>,
@@ -745,14 +657,15 @@ impl SCapabilities {
     }
 }
 
+/* Confusing
 impl PartialEq<str> for SUserChooser {
     fn eq(&self, other: &str) -> bool {
         match self {
             SUserChooser::Actor(actor) => actor == &SUserType::from(other),
-            SUserChooser::ChooserStruct(chooser) => chooser.fallback == *other,
+            SUserChooser::ChooserStruct(chooser) => chooser.fallback.as_ref().is_some_and(|f| *f == *other),
         }
     }
-}
+}*/
 
 #[cfg(test)]
 mod tests {
@@ -776,7 +689,6 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        println!("START");
         let config = r#"
         {
             "options": {
@@ -842,7 +754,6 @@ mod tests {
             ]
         }
         "#;
-        println!("STEP 1");
         let config: SConfig = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
@@ -900,18 +811,18 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
         let cred = &as_borrow!(&role[0]).cred;
-        let setuidstruct = SSetuidSet {
-            fallback: "user1".into(),
-            default: SetBehavior::All,
-            add: ["user2".into()].into(),
-            sub: ["user3".into()].into(),
-        };
+        let setuidstruct = SSetuidSet::builder()
+            .fallback("user1")
+            .default(SetBehavior::All)
+            .add(["user2".into()])
+            .sub(["user3".into()])
+            .build();
         assert!(
             matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroups::from("setgid1"))
+            SGroupschooser::Group(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -977,8 +888,7 @@ mod tests {
                                 "capabilities": {
                                     "default": "all",
                                     "add": ["cap_dac_override"],
-                                    "sub": ["cap_dac_override"],
-                                    "unknown": "unknown"
+                                    "sub": ["cap_dac_override"]
                                 },
                                 "unknown": "unknown"
                             },
@@ -1002,8 +912,6 @@ mod tests {
 
         let binding = config.options.unwrap();
         let options = binding.as_ref().borrow();
-        let path = options.path.as_ref().unwrap();
-        assert_eq!(path._extra_fields.get("unknown").unwrap(), "unknown");
         let env = &options.env.as_ref().unwrap();
         assert_eq!(env._extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(options._extra_fields.get("unknown").unwrap(), "unknown");
@@ -1042,11 +950,6 @@ mod tests {
         let role = config.roles[0].as_ref().borrow();
         let cred = &role[0].as_ref().borrow().cred;
         assert_eq!(cred._extra_fields.get("unknown").unwrap(), "unknown");
-        let capabilities = cred.capabilities.as_ref().unwrap();
-        assert_eq!(
-            capabilities._extra_fields.get("unknown").unwrap(),
-            "unknown"
-        );
         let commands = &as_borrow!(role[0]).commands;
         assert_eq!(commands._extra_fields.get("unknown").unwrap(), "unknown");
     }
@@ -1169,7 +1072,7 @@ mod tests {
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroups::from("setgid1"))
+            SGroupschooser::Group(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -1200,12 +1103,14 @@ mod tests {
                             .cred(
                                 SCredentials::builder()
                                     .setuid(SUserChooser::ChooserStruct(
-                                        SSetuidSet::builder("user1", SetBehavior::All)
+                                        SSetuidSet::builder()
+                                            .fallback("user1")
+                                            .default(SetBehavior::All)
                                             .add(["user2".into()])
                                             .sub(["user3".into()])
                                             .build(),
                                     ))
-                                    .setgid(SGroupschooser::Group(SGroups::from("setgid1")))
+                                    .setgid(SGroupschooser::Group(SGroupType::from("setgid1")))
                                     .capabilities(
                                         SCapabilities::builder(SetBehavior::All)
                                             .add_cap(Cap::NET_BIND_SERVICE)
@@ -1253,8 +1158,7 @@ mod tests {
                 .build()
             })
             .build();
-        let config = serde_json::to_string_pretty(&config).unwrap();
-        println!("{}", config);
+        serde_json::to_string_pretty(&config).unwrap();
     }
 
     #[test]

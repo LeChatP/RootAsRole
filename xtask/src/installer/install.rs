@@ -16,7 +16,7 @@ use crate::installer::Profile;
 use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};
 use anyhow::{anyhow, Context};
 
-use super::{CHSR_DEST, SR_DEST, RAR_BIN_PATH};
+use super::{CHSR_DEST, RAR_BIN_PATH, SR_DEST};
 use crate::util::cap_clear;
 
 fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
@@ -29,7 +29,10 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     info!("Current working directory: {}", cwd);
     info!(
         "Copying files {}/target/{}/sr to {} and {}",
-        cwd, profile, sr_dest.to_str().unwrap(), chsr_dest.to_str().unwrap()
+        cwd,
+        profile,
+        sr_dest.to_str().unwrap(),
+        chsr_dest.to_str().unwrap()
     );
     let s_sr = format!("{}/target/{}/sr", cwd, profile);
     let sr = Path::new(&s_sr);

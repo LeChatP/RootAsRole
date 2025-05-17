@@ -1,5 +1,5 @@
 cli  = { SOI ~ args ~ EOI }
-args = { help | list | role | options_operations }
+args = { help | convert_op | list | role | options_operations }
 
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
@@ -13,10 +13,22 @@ whitelist = { "whitelist" | "wl" }
 blacklist = { "blacklist" | "bl" }
 checklist = { "checklist" | "cl" }
 setlist   = { "setlist" | "sl" }
+convert   = { "convert" | "c" }
 
 all       = { "all" }
 
 name = @{ (!WHITESPACE ~ ANY)+ }
+
+
+// ========================
+// convert
+// ========================
+convert_op = { convert ~ convert_reconfigure? ~ convert_args }
+convert_args = { from? ~ to }
+from = { "--from" ~ convert_type ~ path }
+to   = { convert_type ~ path }
+convert_type = _{ "json" | "cbor" }
+convert_reconfigure = { "--reconfigure" | "-r" }
 
 
 // ========================

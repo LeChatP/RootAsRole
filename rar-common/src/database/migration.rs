@@ -5,7 +5,6 @@ use semver::Version;
 
 use crate::PACKAGE_VERSION;
 
-
 type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), Box<dyn Error>>;
 
 pub struct Migration<T> {
@@ -38,6 +37,7 @@ impl<T> Migration<T> {
         to: &Version,
     ) -> Result<ChangeResult, Box<dyn Error>> {
         debug!("Checking migration from {} to {} :", self.from(), self.to());
+        #[cfg(not(tarpaulin_include))]
         debug!(
             "
 \tself.from() == *from -> {}\tself.from() == *to -> {}

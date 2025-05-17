@@ -53,7 +53,7 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     Ok(())
 }
 
-fn main() {    
+fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -77,6 +77,4 @@ fn main() {
     if let Err(err) = set_readme_version(&package_version, "README.md") {
         eprintln!("cargo:warning={}", err);
     }
-
-
 }
