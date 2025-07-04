@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::{env, result::Result};
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+use std::{env, result::Result};
 
 use bon::{bon, builder, Builder};
 use chrono::Duration;
@@ -516,9 +516,8 @@ impl ConstParseError {
     }
 }
 
-
 impl PathBehavior {
-    pub const fn try_parse(input:&str) -> std::result::Result<PathBehavior, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<PathBehavior, ConstParseError> {
         match input {
             _ if eq_str(input, "delete") => Ok(PathBehavior::Delete),
             _ if eq_str(input, "keep_safe") => Ok(PathBehavior::KeepSafe),
@@ -530,7 +529,7 @@ impl PathBehavior {
 }
 
 impl EnvBehavior {
-    pub const fn try_parse(input:&str) -> std::result::Result<EnvBehavior, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<EnvBehavior, ConstParseError> {
         match input {
             _ if eq_str(input, "delete") => Ok(EnvBehavior::Delete),
             _ if eq_str(input, "keep") => Ok(EnvBehavior::Keep),
@@ -541,7 +540,7 @@ impl EnvBehavior {
 }
 
 impl SPrivileged {
-    pub const fn try_parse(input:&str) -> std::result::Result<SPrivileged, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<SPrivileged, ConstParseError> {
         match input {
             _ if eq_str(input, "user") => Ok(SPrivileged::User),
             _ if eq_str(input, "inherit") => Ok(SPrivileged::Inherit),
@@ -552,7 +551,7 @@ impl SPrivileged {
 }
 
 impl TimestampType {
-    pub const fn try_parse(input:&str) -> std::result::Result<TimestampType, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<TimestampType, ConstParseError> {
         match input {
             _ if eq_str(input, "ppid") => Ok(TimestampType::PPID),
             _ if eq_str(input, "tty") => Ok(TimestampType::TTY),
@@ -563,7 +562,7 @@ impl TimestampType {
 }
 
 impl SBounding {
-    pub const fn try_parse(input:&str) -> std::result::Result<SBounding, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<SBounding, ConstParseError> {
         match input {
             _ if eq_str(input, "strict") => Ok(SBounding::Strict),
             _ if eq_str(input, "inherit") => Ok(SBounding::Inherit),
@@ -574,7 +573,7 @@ impl SBounding {
 }
 
 impl SAuthentication {
-    pub const fn try_parse(input:&str) -> std::result::Result<SAuthentication, ConstParseError> {
+    pub const fn try_parse(input: &str) -> std::result::Result<SAuthentication, ConstParseError> {
         match input {
             _ if eq_str(input, "perform") => Ok(SAuthentication::Perform),
             _ if eq_str(input, "inherit") => Ok(SAuthentication::Inherit),
