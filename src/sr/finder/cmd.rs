@@ -119,6 +119,7 @@ fn match_command_line(
     result
 }
 
+#[inline(always)]
 pub fn evaluate_command_match(
     env_path: &[&str],
     cmd_path: &PathBuf,

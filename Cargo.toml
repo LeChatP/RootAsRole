@@ -91,6 +91,7 @@ const_format = "0.2"
 hex = "0.4"
 bon = "3.5.1"
 serde_json_borrow = "0.7.1"
+konst = "0.3.16"
 
 [dev-dependencies]
 log = "0.4"

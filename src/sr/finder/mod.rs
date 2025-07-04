@@ -124,7 +124,7 @@ impl BestExecSettings {
             return Err("No matching role found".into());
         }
         result.env = opt_stack
-            .calc_temp_env(&opt_stack.calc_override_behavior(), &cli.opt_filter)
+            .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
             .calc_final_env(env_vars, env_path, cred)?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();

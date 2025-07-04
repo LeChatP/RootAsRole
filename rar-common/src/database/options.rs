@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::env;
+use std::{env, result::Result};
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 use bon::{bon, builder, Builder};
 use chrono::Duration;
 
+use konst::eq_str;
 use linked_hash_set::LinkedHashSet;
 
 #[cfg(feature = "pcre2")]
@@ -494,6 +495,93 @@ fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
 #[cfg(not(feature = "pcre2"))]
 fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
     true
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ConstParseError(pub &'static str);
+use std::fmt::{self, Display};
+
+impl Display for ConstParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "Failed to parse the const {} defined in .cargo/config.toml",
+            self.0
+        ))
+    }
+}
+
+impl ConstParseError {
+    const fn panic(&self) -> ! {
+        panic!("failed to parse a const")
+    }
+}
+
+
+impl PathBehavior {
+    pub const fn try_parse(input:&str) -> std::result::Result<PathBehavior, ConstParseError> {
+        match input {
+            _ if eq_str(input, "delete") => Ok(PathBehavior::Delete),
+            _ if eq_str(input, "keep_safe") => Ok(PathBehavior::KeepSafe),
+            _ if eq_str(input, "keep_unsafe") => Ok(PathBehavior::KeepUnsafe),
+            _ if eq_str(input, "inherit") => Ok(PathBehavior::Inherit),
+            _ => ConstParseError("PathBehavior").panic(),
+        }
+    }
+}
+
+impl EnvBehavior {
+    pub const fn try_parse(input:&str) -> std::result::Result<EnvBehavior, ConstParseError> {
+        match input {
+            _ if eq_str(input, "delete") => Ok(EnvBehavior::Delete),
+            _ if eq_str(input, "keep") => Ok(EnvBehavior::Keep),
+            _ if eq_str(input, "inherit") => Ok(EnvBehavior::Inherit),
+            _ => ConstParseError("EnvBehavior").panic(),
+        }
+    }
+}
+
+impl SPrivileged {
+    pub const fn try_parse(input:&str) -> std::result::Result<SPrivileged, ConstParseError> {
+        match input {
+            _ if eq_str(input, "user") => Ok(SPrivileged::User),
+            _ if eq_str(input, "inherit") => Ok(SPrivileged::Inherit),
+            _ if eq_str(input, "privileged") => Ok(SPrivileged::Privileged),
+            _ => ConstParseError("SPrivileged").panic(),
+        }
+    }
+}
+
+impl TimestampType {
+    pub const fn try_parse(input:&str) -> std::result::Result<TimestampType, ConstParseError> {
+        match input {
+            _ if eq_str(input, "ppid") => Ok(TimestampType::PPID),
+            _ if eq_str(input, "tty") => Ok(TimestampType::TTY),
+            _ if eq_str(input, "uid") => Ok(TimestampType::UID),
+            _ => ConstParseError("TimestampType").panic(),
+        }
+    }
+}
+
+impl SBounding {
+    pub const fn try_parse(input:&str) -> std::result::Result<SBounding, ConstParseError> {
+        match input {
+            _ if eq_str(input, "strict") => Ok(SBounding::Strict),
+            _ if eq_str(input, "inherit") => Ok(SBounding::Inherit),
+            _ if eq_str(input, "ignore") => Ok(SBounding::Ignore),
+            _ => ConstParseError("SBounding").panic(),
+        }
+    }
+}
+
+impl SAuthentication {
+    pub const fn try_parse(input:&str) -> std::result::Result<SAuthentication, ConstParseError> {
+        match input {
+            _ if eq_str(input, "perform") => Ok(SAuthentication::Perform),
+            _ if eq_str(input, "inherit") => Ok(SAuthentication::Inherit),
+            _ if eq_str(input, "skip") => Ok(SAuthentication::Skip),
+            _ => ConstParseError("SAuthentication").panic(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
