@@ -269,7 +269,7 @@ The following example shows a RootAsRole config using separation of duties plugi
 
 ```json
 {
-  "version": "3.0.0-alpha.4",
+  "version": "3.1.0",
   "roles": [
     {
       "ssd": ["user"],
@@ -317,7 +317,7 @@ Hashchecker plugin verifies the integrity of the binary before executing it. The
 
 ```json
 {
-  "version": "3.0.0-alpha.4",
+  "version": "3.1.0",
   "roles": [
     {
       "name": "admin",
