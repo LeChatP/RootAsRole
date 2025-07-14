@@ -22,15 +22,15 @@ The following example shows a RootAsRole config without plugins when almost ever
 
 ```json
 {
-  "version": "3.0.0-alpha.4", // Version of the configuration file
+  "version": "3.1.0", // Version of the configuration file
   "storage": { // Storage settings, Roles storage location
     "method": "json", // Storage method
     "settings": { // Storage settings
       "immutable": false, // Program return error if the file is not immutable, default is true
-      "path": "target/rootasrole.json" // Path to the storage file
+      "path": "/etc/security/rootasrole.json" // Path to the storage file
     }
   },
-  "options": {
+  "options": { // Global options
     "path": { // Path options
       "default": "delete", // Default policy for path, delete, keep-safe, keep-unsafe, inherit
       "add": [ // Paths to add to the whitelist
@@ -75,12 +75,12 @@ The following example shows a RootAsRole config without plugins when almost ever
           "type": "user" // Type of actor: user, group
         },
         {
-          "groups": 0, // ID of the group or a list of ID for AND condition
+          "name": "root", // ID of the group or a list of ID for AND condition
           "type": "group" 
         },
         {
           "type": "group",
-          "groups": [ // List of groups, this is an AND condition between groups
+          "names": [ // List of groups, this is an AND condition between groups
             "groupA",
             "groupB"
           ]
@@ -124,24 +124,24 @@ The following example shows a RootAsRole config without plugins when almost ever
           "commands": {
             "default": "all", // Default policy for commands, allow-all, deny-all
             "add": [ // Commands to add to the whitelist
-              "ls",
-              "echo"
+              "/bin/ls -al", // specify the full path to the command and its arguments
+              "/bin/echo"
             ],
             "sub": [ // Commands to add to the blacklist
-              "cat",
-              "grep"
+              "/bin/cat",
+              "/bin/grep"
             ]
           },
           "options": { // Task-level options
             "path": {
               "default": "delete", // When default is not inherit, all upper level options are ignored
               "add": [
-                "path1",
-                "path2"
+                "/usr/bin",
+                "/usr/sbin"
               ],
               "sub": [
-                "path3",
-                "path4"
+                "/usr/bin/somepath",
+                "/usr/sbin/somepath"
               ]
             },
             "env": {
@@ -157,7 +157,11 @@ The following example shows a RootAsRole config without plugins when almost ever
               "delete": [
                 "env5",
                 "env6"
-              ]
+              ],
+              "set": {
+                "env7": "value7", // Set environment variable env7 to value7
+                "env8": "value8" // Set environment variable env8 to value8
+              }
             },
             "root": "privileged",
             "bounding": "ignore",
@@ -217,7 +221,7 @@ The following example shows a RootAsRole config using role hierarchy plugin.
 
 ```json
 {
-  "version": "3.0.0-alpha.4",
+  "version": "3.1.0",
   "roles": [
     {
       "parents": ["user"],
@@ -664,4 +668,4 @@ The `check` list is a list of environment variables that will be checked for uns
 
 ## What are dbus and file credentials fields?
 
-the `dbus` and `file` fields are used for gensr tool from RootAsRole-utils repository. They are enforced to the DBus and file permissions. The `dbus` field is used to allow DBus methods. The `file` field is used to allow file permissions. The gensr tool will generate the DBus and file permissions in according to the `setuid` credentials. So gensr tool requires the `setuid` field to be set.
+the `dbus` and `file` fields are used for gensr tool from RootAsRole-gensr repository. They are enforced to the DBus and file permissions. The `dbus` field is used to allow DBus methods. The `file` field is used to allow file permissions. The gensr tool will generate the DBus and file permissions in according to the `setuid` credentials. So gensr tool requires the `setuid` field to be set.

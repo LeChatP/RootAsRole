@@ -29,13 +29,15 @@
   * File relocation ability.
   * Multi-layered and inheritable execution environment configuration.
   * Interoperable and evolvable by using [JSON](https://www.json.org/) as the main configuration file format.
+  * Interchangeable file format with [JSON5](https://www.json.org/) and [CBOR](https://cbor.io/) for performance and human readability.
+  * Setuid managed by set of users or (set-of-)groups (all-and-deny, or nothing-then-grant), Thanks to @[hocineait7](https://github.com/hocineait7).
 * Command matching based on commonly-used open-source libraries:
-  * [glob](https://docs.rs/glob/latest/glob/) for binary path
+  * [glob](https://docs.rs/glob/latest/glob/) for binary pathv
   * [PCRE2](https://www.pcre.org/) for command arguments
 
 If you need help to configure a RootAsRole policy, you can use our **[capable tool](https://github.com/LeChatP/RootAsRole-capable)**. This tool identifies the rights required by specific commands, making it easier to define a precise policy.
 
-For administrators who already use **Ansible playbooks** for their tasks and wish to implement **RootAsRole**, our tool [gensr](https://github.com/LeChatP/RootAsRole-utils) can generate an initial draft of a **RootAsRole policy**. The `gensr` tool works by running your Ansible playbook alongside the [capable tool](https://github.com/LeChatP/RootAsRole-capable), creating a draft policy based on the observed required rights. This process helps administrators to harden their Ansible tasks. It helps to verify eventual third-party supply-chain attacks.
+For administrators who already use **Ansible playbooks** for their tasks and wish to implement RootAsRole, our tool [gensr](https://github.com/LeChatP/RootAsRole-utils) can generate an initial draft of a RootAsRole policy. The `gensr` tool works by running your Ansible playbook alongside the [capable tool](https://github.com/LeChatP/RootAsRole-capable), creating a draft policy based on the observed required rights. This process helps administrators to harden their Ansible tasks. It helps to verify eventual **third-party supply-chain attacks**.
 
 **Note:** The `gensr` tool is still in development and may not work with all playbooks. If you wish to contribute to this project, feel free to make issues and pull requests.
 
@@ -105,6 +107,9 @@ Execute privileged commands with a role-based access control system
 <u><b>Options</b></u>:
   <b>-r, --role</b> &lt;ROLE&gt;  Role to select
   <b>-t, --task</b> &lt;TASK&gt;  Task to select (--role required)
+  <b>-u, --user</b> &lt;USER&gt;  User to execute the command as
+  <b>-g, --group</b> &lt;GROUP<,GROUP...>&gt; Group(s) to execute the command as
+  <b>-E, --preserve-env</b>          Keep environment variables from the current process
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
   <b>-i, --info</b>         Display rights of executor
   <b>-h, --help</b>         Print help (see more with '--help')
@@ -116,7 +121,22 @@ If you're accustomed to utilizing the sudo tool and find it difficult to break t
 alias sudo="sr"
 ```
 
-However you won't find out exact same options as sudo, you can use the `--role` option to specify the role you want to use instead.
+## Performance outperforms `sudo` (and `sudo-rs`) command
+
+[![Performance comparison](https://github.com/LeChatP/RaR-perf/raw/main/result_25-07-04_15.44.png)](https://github.com/LeChatP/RaR-perf)
+
+Since RootAsRole 3.1.0, the project introduced CBOR file format, consequently the performance of the `sr` command has been significantly improved. The new version now outperforms the `sudo` command by a raw 77% (with 1 rule each side), and more you add rules, more the performance gap increases. The slope between the `sudo` and `sr` commands is 40% better, meaning that the more rules you add, the more the `sr` command will outperform the `sudo` command. You can reproduce this performance test by following the [RaR-perf](https://github.com/LeChatP/RaR-perf) repository guideline.
+
+The performance of `sudo-rs` are actually even-or-worse than `sudo` command for the few tests I was able to do. However, the sudo-rs project is crashing when you try to add more than 100 rules. [I created an issue on their repository, but it's tagged as won't fix](https://github.com/trifectatechfoundation/sudo-rs/issues/1192).
+
+But that is not all, as we wish to introduce RDBMS (Relational Database Management System) support in the future (with Limbo SQLite and regular DBMS solutions), the performance will be even better.
+
+
+### Why Performance Matters
+
+When it comes to managing infrastructure with tools like Ansible, executing privileged commands will become a common task, so you multiply the number of commands executed by the number of rules. With the `sudo` command, it didn't matters as long you had only one rule everywhere, but now with RootAsRole, you can have a lot of rules as long you configure it with `gensr` --- generating a first version of a very-specific policy --- thus increasing the number of rules inside the policy, so the performance of the `sr` command now matters.
+
+With RootAsRole, you add more access control rules, enforcing a better POLP, without sacrificing performance.
 
 
 ## Why do you need this tool ?

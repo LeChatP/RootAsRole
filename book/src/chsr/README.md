@@ -104,4 +104,11 @@ chsr options timeout [operation]
     del [items,...]                        Remove items from the list.
     set [items,...]                        Set items in the list.
     purge                                  Remove all items from the list.
+
+<u><b>Convert policy format :</b></u>
+chsr convert (-r) (--from [from_type] [from_file]) [to_type] [to_file]
+Supported types: json, cbor  
+  <b>-r, --reconfigure</b>   Reconfigure /etc/security/rootasrole.json file to specify the new location.  
+  <b>--from</b> [from_type] [from_file]   Specify the type and file to convert from.
+  <b>Warning</b>: the new location should be under a protected directory. 
 </pre>

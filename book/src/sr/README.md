@@ -14,6 +14,7 @@
   <b>-r, --role</b> &lt;ROLE&gt;  Role to select
   <b>-t, --task</b> &lt;TASK&gt;  Task to select (--role required)
   <b>-u, --user</b> &lt;USER&gt;  Specify the user to execute the command as
+  <b>-g, --group</b> &lt;GROUP(,GROUP...)&gt;  Specify the group to execute the command as
   <b>-E, --preserve-env</b>  Preserve environment variables if allowed by a matching task
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
   <b>-i, --info</b>         Display rights of executor

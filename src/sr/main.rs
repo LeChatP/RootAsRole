@@ -53,7 +53,7 @@ const USAGE: &str = formatcp!(
   {BOLD}-t, --task <TASK>{RST}
           Task option allows you to select a specific task to use in the selected role. Note: You must specify a role to designate a task
 
-  {BOLD}-E, --preserve-env <TASK>{RST}
+  {BOLD}-E, --preserve-env{RST}
           Preserve environment variables if allowed by a matching task
 
   {BOLD}-p, --prompt <PROMPT>{RST}
@@ -63,7 +63,7 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-u, --user <USER>{RST}
           Specify the user to execute the command as
-  {BOLD} -g --group <GROUP>{RST}
+  {BOLD}-g --group <GROUP>(,<GROUP>...){RST}
           Specify the group to execute the command as
 
   {BOLD}-i, --info{RST}
