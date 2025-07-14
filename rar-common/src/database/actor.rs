@@ -638,7 +638,7 @@ pub enum SActor {
     },
     #[serde(rename = "group")]
     Group {
-        #[serde(alias = "names", skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "names", alias = "name", skip_serializing_if = "Option::is_none")]
         groups: Option<SGroups>,
         #[serde(default, flatten)]
         _extra_fields: Map<String, Value>,
@@ -659,7 +659,7 @@ pub enum DActor<'a> {
     #[serde(rename = "group")]
     #[strum(to_string = "Group {groups}")]
     Group {
-        #[serde(borrow, alias = "names", alias = "id")]
+        #[serde(borrow, alias = "names", alias = "name", alias = "id")]
         groups: DGroups<'a>,
     },
     #[serde(untagged)]
