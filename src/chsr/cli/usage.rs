@@ -134,6 +134,17 @@ const RAR_USAGE_LISTING: &str = formatcp!(
     RST = RST
 );
 
+const RAR_CONVERT: &str = formatcp!(
+    "{UNDERLINE}{BOLD}Convert policy format :{RST}
+chsr convert (-r) (--from [from_type] [from_file]) [to_type] [to_file]
+Supported types: json, cbor
+    {BOLD}-r, --reconfigure{RST} Reconfigure /etc/security/rootasrole.json file to specify the new location.
+{BOLD}Warning{RST}: the new location should be under a protected directory.
+    {BOLD}--from{RST} [from_type] [from_file] Specify the type and file to convert from.",
+    UNDERLINE = UNDERLINE,
+    BOLD = BOLD,
+    RST = RST);
+
 pub fn help() -> Result<bool, Box<dyn Error>> {
     debug!("chsr help");
     println!("{}", LONG_ABOUT);
@@ -176,6 +187,12 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::set => "set",
         Rule::setpolicy => "setpolicy",
         Rule::opt_env_listing => "whitelist, blacklist, checklist",
+        Rule::convert => "convert",
+        Rule::convert_type => "json or cbor",
+        Rule::convert_args => "--from, -r, --reconfigure or file_type",
+        Rule::convert_reconfigure => "-r or --reconfigure",
+        Rule::to => "[to_type] [to_file]",
+        Rule::from => "[from_type] [from_file]",
         _ => {
             println!("{:?}", rule);
             "unknown rule"
@@ -199,6 +216,7 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
         RAR_USAGE_TASK,
         RAR_USAGE_CMD,
         RAR_USAGE_CRED,
+        RAR_CONVERT,
     ]);
     let e = e.clone().renamed_rules(|rule| {
         match rule {
@@ -242,6 +260,9 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
             }
             Rule::opt_env_listing => {
                 usage = usage_concat(&[RAR_USAGE_OPTIONS_ENV, RAR_USAGE_LISTING]);
+            }
+            Rule::convert => {
+                usage = usage_concat(&[RAR_CONVERT]);
             }
             _ => {}
         };

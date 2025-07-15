@@ -3,7 +3,7 @@ use std::error::Error;
 use log::debug;
 use semver::Version;
 
-use crate::version::PACKAGE_VERSION;
+use crate::PACKAGE_VERSION;
 
 type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), Box<dyn Error>>;
 
@@ -37,6 +37,7 @@ impl<T> Migration<T> {
         to: &Version,
     ) -> Result<ChangeResult, Box<dyn Error>> {
         debug!("Checking migration from {} to {} :", self.from(), self.to());
+        #[cfg(not(tarpaulin_include))]
         debug!(
             "
 \tself.from() == *from -> {}\tself.from() == *to -> {}

@@ -23,6 +23,7 @@
 # Reference Guide
 
 - [Configure RootAsRole](chsr/file-config.md)
+- [File Config Conversion](chsr/convert.md)
 - [Continuous Integration](continuous-integration.md)
 - [How to contribute](dev/CONTRIBUTE.md)
 - [FAQ](faq.md)

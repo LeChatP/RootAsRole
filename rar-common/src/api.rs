@@ -10,6 +10,7 @@ use strum::EnumIs;
 
 #[cfg(feature = "finder")]
 use crate::database::finder::{ActorMatchMin, Cred, ExecSettings, TaskMatch};
+#[cfg(feature = "finder")]
 use crate::database::FilterMatcher;
 
 use crate::database::{

@@ -1,5 +1,4 @@
 use std::{
-    env,
     error::Error,
     fs::File,
     io,
@@ -9,14 +8,14 @@ use std::{
 
 use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
+
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use serde::Serialize;
 use strum::EnumIs;
 
 #[cfg(feature = "finder")]
-use crate::api::PluginManager;
-use crate::database::structs::SCommand;
+use crate::database::score::CmdMin;
 
 pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
@@ -186,73 +185,71 @@ fn remove_outer_quotes(input: &str) -> String {
     }
 }
 
-pub fn parse_conf_command(command: &SCommand) -> Result<Vec<String>, Box<dyn Error>> {
-    match command {
-        SCommand::Simple(command) => parse_simple_command(command),
-        SCommand::Complex(command) => parse_complex_command(command),
-    }
-}
-
-fn parse_simple_command(command: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    shell_words::split(command).map_err(Into::into)
-}
-
-fn parse_complex_command(command: &serde_json::Value) -> Result<Vec<String>, Box<dyn Error>> {
-    if let Some(array) = command.as_array() {
-        let result: Result<Vec<String>, _> = array
-            .iter()
-            .map(|item| {
-                item.as_str()
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| "Invalid command".into())
-            })
-            .collect();
-        result
-    } else {
-        parse_complex_command_with_finder(command)
-    }
+pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec<PathBuf> {
+    env_path
+        .iter()
+        .filter_map(|dir| {
+            let full_path = Path::new(dir).join(&exe_name);
+            debug!("Checking path: {:?}", full_path);
+            full_path.is_file().then_some(full_path)
+        })
+        .collect()
 }
 
 #[cfg(feature = "finder")]
-fn parse_complex_command_with_finder(
-    command: &serde_json::Value,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    let res = PluginManager::notify_complex_command_parser(command);
-    debug!("Parsed command {:?}", res);
-    res
+pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
+    use glob::Pattern;
+    if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
+        // the files could not be the same
+        return CmdMin::empty();
+    }
+    let mut match_status = CmdMin::empty();
+    debug!("Matching path {:?} with {:?}", cmd_path, role_path);
+    if cmd_path == Path::new(role_path) {
+        match_status |= CmdMin::Match;
+    } else if let Ok(pattern) = Pattern::new(role_path) {
+        if pattern.matches_path(&cmd_path) {
+            match_status |= CmdMin::WildcardPath;
+        }
+    }
+    if match_status.is_empty() {
+        debug!(
+            "No match for path ``{:?}`` for evaluated path : ``{:?}``",
+            cmd_path, role_path
+        );
+    }
+    match_status
 }
 
-#[cfg(not(feature = "finder"))]
-fn parse_complex_command_with_finder(
-    _command: &serde_json::Value,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    Err("Invalid command".into())
+/*
+pub fn all_paths_from_env<P: AsRef<Path>>(exe_name: P) -> impl Iterator<Item = PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| {
+            env::split_paths(&path).collect::<Vec<_>>()
+        })
+        .filter_map(move |dir| {
+            let full_path = dir.join(&exe_name);
+            debug!("Checking path: {:?}", full_path);
+            if full_path.is_file() {
+                Some(full_path)
+            } else {
+                None
+            }
+        })
 }
 
-pub fn find_from_envpath<P: AsRef<Path>>(exe_name: P) -> Option<PathBuf> {
-    env::var_os("PATH").and_then(|paths| {
-        env::split_paths(&paths)
-            .filter_map(|dir| {
-                let full_path = dir.join(&exe_name);
-                if full_path.is_file() {
-                    Some(full_path)
-                } else {
-                    None
-                }
-            })
-            .next()
-    })
-}
-
-pub fn final_path(path: &str) -> PathBuf {
-    if let Some(env_path) = find_from_envpath(path) {
-        env_path
-    } else if let Ok(canon_path) = std::fs::canonicalize(path) {
+pub fn first_path<P>(path: P) -> PathBuf
+where
+    P: AsRef<Path>, {
+    if let Some(path) = all_paths_from_env(&path).next() {
+        path
+    }else if let Ok(canon_path) = std::fs::canonicalize(&path) {
         canon_path
     } else {
-        PathBuf::from(path)
+        path.as_ref().to_path_buf()
     }
-}
+}*/
 
 #[cfg(debug_assertions)]
 pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
@@ -265,9 +262,8 @@ pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
 
 #[cfg(not(debug_assertions))]
 pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
-    use env_logger::Env;
     use log::LevelFilter;
-    use syslog::{BasicLogger, Facility, Formatter3164};
+    use syslog::Facility;
     syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
     Ok(())
 }
@@ -322,6 +318,15 @@ where
 {
     let file = create_with_privileges(path)?;
     serde_json::to_writer_pretty(file, &settings)?;
+    Ok(())
+}
+
+pub fn write_cbor_config<T: Serialize, S>(settings: &T, path: S) -> Result<(), Box<dyn Error>>
+where
+    S: std::convert::AsRef<Path> + Clone,
+{
+    let file = create_with_privileges(path)?;
+    cbor4ii::serde::to_writer(file, &settings)?;
     Ok(())
 }
 
@@ -389,6 +394,26 @@ mod test {
     use std::fs;
 
     use super::*;
+
+    pub struct Defer<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Defer<F> {
+        pub fn new(f: F) -> Self {
+            Defer(Some(f))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+
+    pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
+        Defer::new(f)
+    }
 
     #[test]
     fn test_remove_outer_quotes() {
@@ -464,7 +489,11 @@ mod test {
 
     #[test]
     fn test_toggle_lock_config() {
-        let path = PathBuf::from("/tmp/test");
+        let path = PathBuf::from("/tmp/rar_test_lock_config.lock");
+        let _defer = defer(|| {
+            // Clean up the test file after the test is done
+            let _ = fs::remove_file(&path);
+        });
         let file = File::create(&path).expect("Failed to create file");
         let res = toggle_lock_config(&path, ImmutableLock::Set);
         let status = fs::read_to_string("/proc/self/status").unwrap();

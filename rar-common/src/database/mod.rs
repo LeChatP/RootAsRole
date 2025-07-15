@@ -1,30 +1,24 @@
-use std::path::Path;
-use std::{cell::RefCell, error::Error, rc::Rc};
-
-use crate::save_settings;
-use crate::util::{toggle_lock_config, ImmutableLock};
-use crate::version::PACKAGE_VERSION;
+use std::error::Error;
 
 use actor::{SGroups, SUserType};
 use bon::{builder, Builder};
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
-use log::debug;
 use options::EnvBehavior;
-use serde::{de, Deserialize, Serialize};
+use serde::{de::Deserialize, de::Deserializer, Serialize};
 
-use self::{migration::Migration, options::EnvKey, structs::SConfig, versionning::Versioning};
+use self::options::EnvKey;
 
-use crate::util::warn_if_mutable;
-use crate::SettingsFile;
-use crate::{open_with_privileges, write_json_config};
-use crate::{util::immutable_effective, RemoteStorageSettings, ROOTASROLE};
+#[cfg(feature = "finder")]
+pub mod score;
 
 pub mod actor;
-#[cfg(feature = "finder")]
-pub mod finder;
+//#[cfg(feature = "finder")]
+//pub mod finder;
+pub mod de;
 pub mod migration;
 pub mod options;
+pub mod ser;
 pub mod structs;
 pub mod versionning;
 
@@ -34,125 +28,10 @@ pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
     pub env_behavior: Option<EnvBehavior>,
-    #[builder(into)]
-    pub user: Option<SUserType>,
-    pub group: Option<SGroups>,
-}
-
-pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
-    for role in &config.as_ref().borrow().roles {
-        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(config));
-        for task in &role.as_ref().borrow().tasks {
-            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(role));
-        }
-    }
-}
-
-pub fn read_json_config<P: AsRef<Path>>(
-    settings: Rc<RefCell<SettingsFile>>,
-    settings_path: P,
-) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
-    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let binding = settings.as_ref().borrow();
-    let path = binding
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref();
-    if path.is_none() || path.is_some_and(|p| p == settings_path.as_ref()) {
-        make_weak_config(&settings.as_ref().borrow().config);
-        return Ok(settings.as_ref().borrow().config.clone());
-    } else {
-        let file = open_with_privileges(path.unwrap())?;
-        warn_if_mutable(
-            &file,
-            settings
-                .as_ref()
-                .borrow()
-                .storage
-                .settings
-                .as_ref()
-                .unwrap_or(&default_remote)
-                .immutable
-                .unwrap_or(true),
-        )?;
-        let versionned_config: Versioning<Rc<RefCell<SConfig>>> = serde_json::from_reader(file)?;
-        let config = versionned_config.data;
-        if let Ok(true) = Migration::migrate(
-            &versionned_config.version,
-            &mut *config.as_ref().borrow_mut(),
-            versionning::JSON_MIGRATIONS,
-        ) {
-            save_json(settings.clone(), config.clone())?;
-        } else {
-            debug!("No migrations needed");
-        }
-        make_weak_config(&config);
-        Ok(config)
-    }
-}
-
-pub fn save_json(
-    settings: Rc<RefCell<SettingsFile>>,
-    config: Rc<RefCell<SConfig>>,
-) -> Result<(), Box<dyn Error>> {
-    let default_remote: RemoteStorageSettings = RemoteStorageSettings::default();
-    let into = ROOTASROLE.into();
-    let binding = settings.as_ref().borrow();
-    let path = binding
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(&into);
-    if path == &into {
-        // if /etc/security/rootasrole.json then you need to consider the settings to save in addition to the config
-        return save_settings(settings.clone());
-    }
-
-    debug!("Writing config file");
-    let versionned: Versioning<Rc<RefCell<SConfig>>> = Versioning {
-        version: PACKAGE_VERSION.to_owned().parse()?,
-        data: config,
-    };
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable on for config file");
-            toggle_lock_config(path, ImmutableLock::Unset)?;
-        }
-    }
-    write_sconfig(&settings.as_ref().borrow(), versionned)?;
-    if let Some(settings) = &settings.as_ref().borrow().storage.settings {
-        if settings.immutable.unwrap_or(true) {
-            debug!("Toggling immutable off for config file");
-            toggle_lock_config(path, ImmutableLock::Set)?;
-        }
-    }
-    debug!("Resetting immutable privilege");
-    immutable_effective(false)?;
-    Ok(())
-}
-
-fn write_sconfig(
-    settings: &SettingsFile,
-    config: Versioning<Rc<RefCell<SConfig>>>,
-) -> Result<(), Box<dyn Error>> {
-    let default_remote = RemoteStorageSettings::default();
-    let binding = ROOTASROLE.into();
-    let path = settings
-        .storage
-        .settings
-        .as_ref()
-        .unwrap_or(&default_remote)
-        .path
-        .as_ref()
-        .unwrap_or(&binding);
-    write_json_config(&config, path)?;
-    Ok(())
+    #[builder(with = |s: impl Into<SUserType>| -> Result<_,String> { s.into().fetch_id().ok_or("This user does not exist".into()) })]
+    pub user: Option<u32>,
+    #[builder(with = |s: impl Into<SGroups>| -> Result<_,String> { s.into().try_into() })]
+    pub group: Option<Vec<u32>>,
 }
 
 // deserialize the linked hash set
@@ -160,7 +39,7 @@ fn lhs_deserialize_envkey<'de, D>(
     deserializer: D,
 ) -> Result<Option<LinkedHashSet<EnvKey>>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     if let Ok(v) = Vec::<EnvKey>::deserialize(deserializer) {
         Ok(Some(v.into_iter().collect()))
@@ -188,7 +67,7 @@ where
 // deserialize the linked hash set
 fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<LinkedHashSet<String>>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     if let Ok(v) = Vec::<String>::deserialize(deserializer) {
         Ok(Some(v.into_iter().collect()))
@@ -214,7 +93,7 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
-fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -230,23 +109,30 @@ where
     }
 }
 
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
 where
-    D: de::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
+    match convert_string_to_duration(&s) {
+        Ok(d) => Ok(d),
+        Err(e) => Err(serde::de::Error::custom(e)),
+    }
+}
+
+fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())
     {
-        let hours: i64 = hours.parse().map_err(de::Error::custom)?;
-        let minutes: i64 = minutes.parse().map_err(de::Error::custom)?;
-        let seconds: i64 = seconds.parse().map_err(de::Error::custom)?;
+        let hours: i64 = hours.parse()?;
+        let minutes: i64 = minutes.parse()?;
+        let seconds: i64 = seconds.parse()?;
         return Ok(Some(
             Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds),
         ));
     }
-    Err(de::Error::custom("Invalid duration format"))
+    Err("Invalid duration format".into())
 }
 
 fn serialize_capset<S>(value: &capctl::CapSet, serializer: S) -> Result<S::Ok, S::Error>
@@ -261,16 +147,14 @@ where
 mod tests {
     use super::*;
 
-    struct LinkedHashSetTester<T>(LinkedHashSet<T>);
+    struct LinkedHashSetTester<T>(pub Option<LinkedHashSet<T>>);
 
     impl<'de> Deserialize<'de> for LinkedHashSetTester<EnvKey> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(
-                lhs_deserialize_envkey(deserializer).map(|v| v.unwrap())?,
-            ))
+            Ok(Self(lhs_deserialize_envkey(deserializer)?))
         }
     }
 
@@ -279,7 +163,7 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            lhs_serialize_envkey(&Some(self.0.clone()), serializer)
+            lhs_serialize_envkey(&self.0, serializer)
         }
     }
 
@@ -288,7 +172,7 @@ mod tests {
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(lhs_deserialize(deserializer).map(|v| v.unwrap())?))
+            Ok(Self(lhs_deserialize(deserializer)?))
         }
     }
 
@@ -297,20 +181,18 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            lhs_serialize(&Some(self.0.clone()), serializer)
+            lhs_serialize(&self.0, serializer)
         }
     }
 
-    struct DurationTester(Duration);
+    struct DurationTester(Option<Duration>);
 
     impl<'de> Deserialize<'de> for DurationTester {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
-            Ok(Self(
-                deserialize_duration(deserializer).map(|v| v.unwrap())?,
-            ))
+            Ok(Self(deserialize_duration(deserializer)?))
         }
     }
 
@@ -319,7 +201,7 @@ mod tests {
         where
             S: serde::Serializer,
         {
-            serialize_duration(&Some(self.0.clone()), serializer)
+            serialize_duration(&self.0, serializer)
         }
     }
 
@@ -328,21 +210,11 @@ mod tests {
         let json = r#"["key1", "key2", "key3"]"#;
         let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
-        let set = deserialized.unwrap();
-        assert_eq!(set.0.len(), 3);
-        assert!(set.0.contains(&EnvKey::from("key1")));
-        assert!(set.0.contains(&EnvKey::from("key2")));
-        assert!(set.0.contains(&EnvKey::from("key3")));
-    }
-
-    #[test]
-    fn test_lhs_serialize_envkey() {
-        let mut set = LinkedHashSetTester(LinkedHashSet::new());
-        set.0.insert(EnvKey::from("key1"));
-        set.0.insert(EnvKey::from("key2"));
-        set.0.insert(EnvKey::from("key3"));
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"["key1","key2","key3"]"#);
+        let set = deserialized.unwrap().0.unwrap();
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(&EnvKey::from("key1")));
+        assert!(set.contains(&EnvKey::from("key2")));
+        assert!(set.contains(&EnvKey::from("key3")));
     }
 
     #[test]
@@ -350,26 +222,26 @@ mod tests {
         let json = r#"["value1", "value2", "value3"]"#;
         let deserialized: Option<LinkedHashSetTester<String>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
-        let set = deserialized.unwrap();
-        assert_eq!(set.0.len(), 3);
-        assert!(set.0.contains("value1"));
-        assert!(set.0.contains("value2"));
-        assert!(set.0.contains("value3"));
+        let set = deserialized.unwrap().0.unwrap();
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("value1"));
+        assert!(set.contains("value2"));
+        assert!(set.contains("value3"));
     }
 
     #[test]
     fn test_lhs_serialize() {
-        let mut set = LinkedHashSetTester(LinkedHashSet::new());
-        set.0.insert("value1".to_string());
-        set.0.insert("value2".to_string());
-        set.0.insert("value3".to_string());
+        let mut set = LinkedHashSetTester(Some(LinkedHashSet::new()));
+        set.0.as_mut().unwrap().insert("value1".to_string());
+        set.0.as_mut().unwrap().insert("value2".to_string());
+        set.0.as_mut().unwrap().insert("value3".to_string());
         let serialized = serde_json::to_string(&Some(set)).unwrap();
         assert_eq!(serialized, r#"["value1","value2","value3"]"#);
     }
 
     #[test]
     fn test_serialize_duration() {
-        let duration = Some(DurationTester(Duration::seconds(3661)));
+        let duration = DurationTester(Some(Duration::seconds(3661)));
         let serialized = serde_json::to_string(&duration).unwrap();
         assert_eq!(serialized, r#""01:01:01""#);
     }
@@ -377,10 +249,10 @@ mod tests {
     #[test]
     fn test_deserialize_duration() {
         let json = r#""01:01:01""#;
-        let deserialized: Option<DurationTester> = serde_json::from_str(json).unwrap();
-        assert!(deserialized.is_some());
-        let duration = deserialized.unwrap();
-        assert_eq!(duration.0.num_seconds(), 3661);
+        let deserialized: DurationTester = serde_json::from_str(json).unwrap();
+        assert!(deserialized.0.is_some());
+        let duration = deserialized.0.unwrap();
+        assert_eq!(duration.num_seconds(), 3661);
     }
 
     #[test]
@@ -389,5 +261,82 @@ mod tests {
         assert!(is_default(&String::new()));
         assert!(!is_default(&1));
         assert!(!is_default(&"non-default".to_string()));
+    }
+    #[test]
+    fn test_lhs_serialize_empty() {
+        let set: LinkedHashSetTester<EnvKey> = LinkedHashSetTester(None);
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"null"#);
+        let set: LinkedHashSetTester<String> = LinkedHashSetTester(None);
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"null"#);
+        let duration = DurationTester(None);
+        let serialized = serde_json::to_string(&duration).unwrap();
+        assert_eq!(serialized, r#"null"#);
+    }
+    #[test]
+    fn test_lhs_deserialize_envkey_null() {
+        let json = r#"null"#;
+        let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
+        assert!(deserialized.is_none());
+    }
+
+    #[test]
+    fn test_lhs_deserialize_empty_object() {
+        let json = r#"{}"#;
+        let deserialized: Result<Option<LinkedHashSetTester<String>>, _> =
+            serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_lhs_serialize_empty_set() {
+        let set = LinkedHashSetTester(Some(LinkedHashSet::<EnvKey>::new()));
+        let serialized = serde_json::to_string(&Some(set)).unwrap();
+        assert_eq!(serialized, r#"[]"#);
+    }
+
+    #[test]
+    fn test_serialize_duration_large() {
+        let duration = Some(DurationTester(Some(Duration::seconds(3600 * 25 + 61))));
+        let serialized = serde_json::to_string(&duration).unwrap();
+        assert_eq!(serialized, r#""25:01:01""#);
+    }
+
+    #[test]
+    fn test_deserialize_duration_leading_zeros() {
+        let json = r#""001:002:003""#;
+        let deserialized: DurationTester = serde_json::from_str(json).unwrap();
+        assert!(deserialized.0.is_some());
+        let duration = deserialized.0.unwrap();
+        assert_eq!(duration.num_seconds(), 3723);
+    }
+
+    #[test]
+    fn test_deserialize_duration_with_spaces() {
+        let json = r#"" 01:01:01 ""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_duration_non_numeric() {
+        let json = r#""aa:bb:cc""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_duration_invalid() {
+        let json = r#""test""#;
+        let deserialized: Result<DurationTester, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
+    }
+
+    #[test]
+    fn test_lhs_deserialize_envkey_mixed_types() {
+        let json = r#"["key1", 123, null]"#;
+        let deserialized: Result<LinkedHashSetTester<EnvKey>, _> = serde_json::from_str(json);
+        assert!(deserialized.is_err());
     }
 }

@@ -1,5 +1,5 @@
 {
-    "version": "3.0.5",
+    "version": "3.1.0",
     "storage": {
         "method": "json",
         "settings": {
@@ -26,6 +26,7 @@
         },
         "env": {
             "default": "delete",
+            "override_behavior": false,
             "keep": [
                 "HOME",
                 "USER",
@@ -57,8 +58,10 @@
                 "PERL5LIB",
                 "PERL5OPT",
                 "PYTHONINSPECT"
-            ]
+            ],
+            "set": {}
         },
+        "authentication": "perform",
         "root": "user",
         "bounding": "strict",
         "wildcard-denied": ";&|"

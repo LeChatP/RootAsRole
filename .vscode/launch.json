@@ -5,59 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-                "name": "(gdb) Test",
-                "type": "cppdbg",
-                "request": "launch",
-                "preLaunchTask": "make build_unit_test",
-                "program": "${workspaceFolder}/bin/unit_test",
-                "args": [],
-                "stopAtEntry": false,
-                "cwd": "${fileDirname}",
-                "environment": [],
-                "externalConsole": false,
-                "MIMode": "gdb",
-                "setupCommands": [
-                    {
-                        "description": "Enable pretty-printing for gdb",
-                        "text": "-enable-pretty-printing",
-                        "ignoreFailures": true
-                    },
-                    {
-                        "description": "Set Disassembly Flavor to Intel",
-                        "text": "-gdb-set disassembly-flavor intel",
-                        "ignoreFailures": true
-                    },
-                    {   "description": "The new process is debugged after a fork. The parent process runs unimpeded.",
-                        "text": "-gdb-set follow-fork-mode child",
-                        "ignoreFailures": true
-                    }
-                ]
-        },
-        {
-            "name": "(gdb) Launch",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
-            "preLaunchTask": "setcap",
-            "program": "/usr/bin/sr",
+            "name": "Launch",
+            "program": "${workspaceFolder}/target/debug/sr",
             "args": ["ls"],
-            "stopAtEntry": false,
-            "cwd": "${fileDirname}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "${workspaceFolder}/.vscode/gdb_root.sh",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                },
-                {
-                    "description":  "Set Disassembly Flavor to Intel",
-                    "text": "-gdb-set disassembly-flavor intel",
-                    "ignoreFailures": true
-                }
-            ],
+            "cwd": "${workspaceFolder}"
         }
+
+        
     ]
 }

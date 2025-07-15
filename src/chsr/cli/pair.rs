@@ -5,14 +5,19 @@ use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use log::{debug, warn};
 use pest::iterators::Pair;
+use strum::VariantNames;
 
 use crate::cli::data::{RoleType, TaskType};
-use rar_common::database::{
-    actor::{SActor, SGroupType},
-    options::{
-        EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged, TimestampType,
+use rar_common::{
+    database::{
+        actor::{SActor, SGroupType},
+        options::{
+            EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
+            TimestampType,
+        },
+        structs::{IdTask, SetBehavior},
     },
-    structs::{IdTask, SetBehavior},
+    StorageMethod,
 };
 
 use super::data::*;
@@ -66,6 +71,40 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::setlist => {
             inputs.setlist_type = Some(SetListType::Set);
+        }
+        Rule::convert => {
+            inputs.action = InputAction::Convert;
+        }
+        Rule::to => {
+            let mut inner = pair.clone().into_inner();
+            let temp_convertion = Default::default();
+            let convertion = inputs.convertion.get_or_insert(temp_convertion);
+            convertion.to_type = inner.next().unwrap().as_str().parse().map_err(|e| {
+                warn!(
+                    "Unknown type {}, types available : {}",
+                    e,
+                    StorageMethod::VARIANTS.join(", ")
+                );
+                e
+            })?;
+            convertion.to = inner.next().unwrap().as_str().into();
+        }
+        Rule::from => {
+            let mut inner = pair.clone().into_inner();
+            let temp_convertion = Default::default();
+            let convertion = inputs.convertion.get_or_insert(temp_convertion);
+            convertion.from_type = Some(inner.next().unwrap().as_str().parse().map_err(|e| {
+                warn!(
+                    "Unknown type {}, types available : {}",
+                    e,
+                    StorageMethod::VARIANTS.join(", ")
+                );
+                e
+            })?);
+            convertion.from = Some(inner.next().unwrap().as_str().into());
+        }
+        Rule::convert_reconfigure => {
+            inputs.convert_reconfigure = true;
         }
         // === setpolicies ===
         Rule::cmd_policy => {
@@ -443,7 +482,6 @@ mod test {
 
     fn get_inputs(args: &str) -> Inputs {
         let binding = make_args(args);
-        println!("{}", binding);
         let args = Cli::parse(Rule::cli, &binding);
         let args = match args {
             Ok(v) => v,
