@@ -127,7 +127,7 @@ alias sudo="sr"
 
 Since RootAsRole 3.1.0, the project introduced CBOR file format, consequently the performance of the `sr` command has been significantly improved. The new version now outperforms the `sudo` command by a raw 77% (with 1 rule each side), and more you add rules, more the performance gap increases. The slope between the `sudo` and `sr` commands is 40% better, meaning that the more rules you add, the more the `sr` command will outperform the `sudo` command. You can reproduce this performance test by following the [RaR-perf](https://github.com/LeChatP/RaR-perf) repository guideline.
 
-The performance of `sudo-rs` are actually even-or-worse than `sudo` command for the few tests I was able to do. However, the sudo-rs project is crashing when you try to add more than 100 rules. [I created an issue on their repository, but it's tagged as won't fix](https://github.com/trifectatechfoundation/sudo-rs/issues/1192).
+The performance of `sudo-rs` are actually even with `sudo` command. However, the sudo-rs project is crashing when you try to add more than 100 rules. [I created an issue on their repository, but it's tagged as won't fix](https://github.com/trifectatechfoundation/sudo-rs/issues/1192).
 
 But that is not all, as we wish to introduce RDBMS (Relational Database Management System) support in the future (with Limbo SQLite and regular DBMS solutions), the performance will be even better.
 
