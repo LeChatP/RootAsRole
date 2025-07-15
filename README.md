@@ -29,7 +29,7 @@
   * File relocation ability.
   * Multi-layered and inheritable execution environment configuration.
   * Interoperable and evolvable by using [JSON](https://www.json.org/) as the main configuration file format.
-  * Interchangeable file format with [JSON5](https://www.json.org/) and [CBOR](https://cbor.io/) for performance and human readability.
+  * Interchangeable file format with [JSON](https://www.json.org/) and [CBOR](https://cbor.io/) for performance and human readability.
   * Setuid managed by set of users or (set-of-)groups (all-and-deny, or nothing-then-grant), Thanks to @[hocineait7](https://github.com/hocineait7).
 * Command matching based on commonly-used open-source libraries:
   * [glob](https://docs.rs/glob/latest/glob/) for binary pathv
