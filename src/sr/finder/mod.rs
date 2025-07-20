@@ -125,7 +125,7 @@ impl BestExecSettings {
         }
         result.env = opt_stack
             .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
-            .calc_final_env(env_vars, env_path, cred)?;
+            .calc_final_env(env_vars, opt_stack.calc_path(env_path), cred)?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
@@ -386,13 +386,36 @@ mod tests {
 
     #[test]
     fn test_retrieve_settings_no_matching_role() {
-        let cli = dummy_cli();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/cat".to_string())
+            .build();
         let cred = dummy_cred();
         let data = dummy_dconfigfinder();
         let env_vars = vec![("KEY", "VALUE")];
         let env_path = &["/bin"];
         let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
+        assert!(!result.is_ok());
+    }
+
+    #[test]
+    fn test_retrieve_settings_with_matching_role() {
+        let cli = dummy_cli();
+        let cred = dummy_cred();
+        let data = dummy_dconfigfinder();
+        let env_vars = vec![("KEY", "VALUE")];
+        let env_path = &["/UNWANTED"];
+        let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
         assert!(result.is_ok());
+        let settings = result.unwrap();
+        assert_eq!(settings.final_path, PathBuf::from("/usr/bin/ls"));
+        assert_eq!(settings.role, "test");
+        assert_eq!(settings.task, Some("0".to_string()));
+        assert!(!settings.setuid.is_some());
+        assert!(!settings.setgroups.is_some());
+        assert!(settings.caps.is_some());
+        assert!(!settings.env.is_empty());
+        assert!(!settings.env_path.is_empty());
+        assert!(settings.env_path.iter().all(|p| p != "/UNWANTED"));
     }
 
     #[test]
