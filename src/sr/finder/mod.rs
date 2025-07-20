@@ -386,9 +386,7 @@ mod tests {
 
     #[test]
     fn test_retrieve_settings_no_matching_role() {
-        let cli = Cli::builder()
-            .cmd_path("/usr/bin/cat".to_string())
-            .build();
+        let cli = Cli::builder().cmd_path("/usr/bin/cat".to_string()).build();
         let cred = dummy_cred();
         let data = dummy_dconfigfinder();
         let env_vars = vec![("KEY", "VALUE")];
