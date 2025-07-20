@@ -289,7 +289,7 @@ impl<'a> DEnvOptions<'a> {
     pub fn calc_final_env(
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-        env_path: &[&str],
+        env_path: impl IntoIterator<Item = impl AsRef<str>>,
         target: &Cred,
     ) -> Result<HashMap<String, String>, Box<dyn Error>> {
         let mut final_set = match self.default_behavior {
@@ -325,11 +325,11 @@ impl<'a> DEnvOptions<'a> {
         }?;
         final_set.insert(
             "PATH".into(),
-            env_path.iter().fold(String::new(), |acc, path| {
+            env_path.into_iter().fold(String::new(), |acc, path| {
                 if acc.is_empty() {
-                    path.to_string()
+                    path.as_ref().to_string()
                 } else {
-                    format!("{}:{}", acc, path)
+                    format!("{}:{}", acc, path.as_ref())
                 }
             }),
         );
