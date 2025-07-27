@@ -16,7 +16,7 @@ use rar_common::{
     database::{
         actor::DGroups,
         options::{SAuthentication, SBounding, SPrivileged, STimeout},
-        score::{CmdMin, Score},
+        score::{CmdMin, CmdOrder, Score},
     },
     util::{all_paths_from_env, open_with_privileges},
     Cred, StorageMethod,
@@ -200,7 +200,10 @@ impl BestExecSettings {
                     })?
                     .to_path_buf();
                 }
-                self.score.cmd_min = CmdMin::FullWildcardPath | CmdMin::RegexArgs;
+                self.score.cmd_min = CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
+                    .build();
             } else {
                 for command in commands.add() {
                     found = self.command_settings(
@@ -479,13 +482,16 @@ mod tests {
     fn test_update_command_score_better() {
         let mut settings = BestExecSettings {
             score: Score {
-                cmd_min: CmdMin::RegexArgs,
+                cmd_min: CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::RegexArgs)
+                    .build(),
                 ..Default::default()
             },
             final_path: PathBuf::from("/old/path"),
             ..Default::default()
         };
-        let new_cmd_min = CmdMin::Match;
+        let new_cmd_min = CmdMin::MATCH;
         let new_path = PathBuf::from("/new/path");
         let updated = settings.update_command_score(new_path.clone(), new_cmd_min.clone());
         assert!(updated);
@@ -497,13 +503,16 @@ mod tests {
     fn test_update_command_score_not_better() {
         let mut settings = BestExecSettings {
             score: Score {
-                cmd_min: CmdMin::Match,
+                cmd_min: CmdMin::MATCH,
                 ..Default::default()
             },
             final_path: PathBuf::from("/old/path"),
             ..Default::default()
         };
-        let worse_cmd_min = CmdMin::RegexArgs;
+        let worse_cmd_min = CmdMin::builder()
+            .matching()
+            .order(CmdOrder::RegexArgs)
+            .build();
         let new_path = PathBuf::from("/new/path");
         let updated = settings.update_command_score(new_path, worse_cmd_min);
         assert!(!updated);

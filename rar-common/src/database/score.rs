@@ -1,7 +1,12 @@
 use std::cmp::Ordering;
 
-use bon::Builder;
+use bon::{builder, Builder};
 use strum::EnumIs;
+
+use crate::util::{
+    HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3,
+    HARDENED_ENUM_VALUE_4,
+};
 
 use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
 
@@ -9,16 +14,26 @@ use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserTyp
 #[repr(u32)]
 // Matching user groups for the role
 pub enum ActorMatchMin {
-    UserMatch,
-    GroupMatch(usize),
+    UserMatch = HARDENED_ENUM_VALUE_0,
+    GroupMatch(usize) = HARDENED_ENUM_VALUE_1,
     #[default]
-    NoMatch,
+    NoMatch = HARDENED_ENUM_VALUE_2,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, EnumIs, Default)]
+#[repr(u32)]
+pub enum HardenedBool {
+    #[default]
+    False = HARDENED_ENUM_VALUE_0,
+    True = HARDENED_ENUM_VALUE_1,
 }
 
 impl ActorMatchMin {
+    #[inline]
     pub fn better(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Less
     }
+    #[inline]
     pub fn matching(&self) -> bool {
         *self != ActorMatchMin::NoMatch
     }
@@ -126,38 +141,65 @@ impl Ord for SetUserMin {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Builder)]
+#[builder(const)]
+pub struct CmdMin {
+    #[builder(default = HardenedBool::False, with = || HardenedBool::True, name = "matching")]
+    pub status: HardenedBool,
+    #[builder(default = CmdOrder::empty())]
+    pub order: CmdOrder,
+}
+
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
-pub struct CmdMin(u32);
+pub struct CmdOrder(u32);
 
 bitflags::bitflags! {
 
-    impl CmdMin: u32 {
-        const Match = 0b00001;
-        const WildcardPath = 0b00010;
-        const RegexArgs = 0b00100;
-        const FullRegexArgs = 0b01000;
-        const FullWildcardPath = 0b10000;
+    impl CmdOrder: u32 {
+        const WildcardPath = 0b0001;
+        const RegexArgs = 0b0010;
+        const FullRegexArgs = 0b0100;
+        const FullWildcardPath = 0b1000;
     }
 }
 
 impl CmdMin {
+    pub const MATCH: CmdMin = CmdMin::builder().matching().build();
+
+    pub const fn empty() -> Self {
+        CmdMin::builder().build()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.status == HardenedBool::False && self.order.is_empty()
+    }
+    #[inline]
     pub fn better(&self, other: &Self) -> bool {
         (self.matching() && !other.matching())
-            || (self.matching() && self.cmp(other) == Ordering::Less)
+            || (self.matching() && self.order.cmp(&other.order) == Ordering::Less)
     }
+    #[inline]
     pub fn matching(&self) -> bool {
-        !self.is_empty()
+        self.status == HardenedBool::True
+    }
+
+    pub fn set_matching(&mut self) {
+        self.status = HardenedBool::True;
+    }
+
+    pub fn union_order(&mut self, order: CmdOrder) {
+        self.order |= order;
     }
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
+#[repr(u32)]
 pub enum CapsMin {
     #[default]
-    Undefined,
-    NoCaps,
-    CapsNoAdmin(usize),
-    CapsAdmin(usize),
-    CapsAll,
+    Undefined = HARDENED_ENUM_VALUE_0,
+    NoCaps = HARDENED_ENUM_VALUE_1,
+    CapsNoAdmin(usize) = HARDENED_ENUM_VALUE_2,
+    CapsAdmin(usize) = HARDENED_ENUM_VALUE_3,
+    CapsAll = HARDENED_ENUM_VALUE_4,
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
@@ -218,37 +260,45 @@ impl Score {
     }
 
     /// Compare the score of tasks results
+    #[inline]
     pub fn cmd_cmp(&self, other: &Score) -> Ordering {
         self.cmd_min
-            .cmp(&other.cmd_min)
+            .order
+            .cmp(&other.cmd_min.order)
             .then(self.caps_min.cmp(&other.caps_min))
             .then(self.setuser_min.cmp(&other.setuser_min))
             .then(self.security_min.cmp(&other.security_min))
     }
 
+    #[inline]
     pub fn user_matching(&self) -> bool {
         self.user_min != ActorMatchMin::NoMatch
     }
 
+    #[inline]
     pub fn command_matching(&self) -> bool {
-        !self.cmd_min.is_empty()
+        self.cmd_min.matching()
     }
 
+    #[inline]
     pub fn fully_matching(&self) -> bool {
         self.user_matching() && self.command_matching()
     }
 
     /// Return true if the score is better than the other
+    #[inline]
     pub fn better_command(&self, other: &Score) -> bool {
         (self.command_matching() && !other.command_matching())
             || (self.command_matching() && self.cmd_cmp(other) == Ordering::Less)
     }
 
+    #[inline]
     pub fn better_user(&self, other: &Score) -> bool {
         (self.user_matching() && !other.user_matching())
             || (self.user_matching() && self.user_cmp(other) == Ordering::Less)
     }
 
+    #[inline]
     pub fn better_fully(&self, other: &Score) -> bool {
         (self.fully_matching() && !other.fully_matching())
             || (self.fully_matching() && self.cmp(other) == Ordering::Less)
@@ -279,20 +329,27 @@ impl Ord for Score {
     }
 }
 
+#[inline]
 fn group_is_root(actortype: &SGroupType) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
+
+#[inline]
 fn dgroup_is_root(actortype: &DGroupType<'_>) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
 
+#[inline]
 fn user_is_root(actortype: &SUserType) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
+
+#[inline]
 fn duser_is_root(actortype: &DUserType<'_>) -> bool {
     (*actortype).fetch_id().map_or(false, |id| id == 0)
 }
 
+#[inline]
 fn groups_contains_root(list: Option<&SGroups>) -> bool {
     if let Some(list) = list {
         match list {
@@ -304,6 +361,7 @@ fn groups_contains_root(list: Option<&SGroups>) -> bool {
     }
 }
 
+#[inline]
 fn dgroups_contains_root(list: Option<&DGroups<'_>>) -> bool {
     if let Some(list) = list {
         match list {
@@ -315,6 +373,7 @@ fn dgroups_contains_root(list: Option<&DGroups<'_>>) -> bool {
     }
 }
 
+#[inline]
 fn groups_len(groups: Option<&SGroups>) -> usize {
     match groups {
         Some(groups) => groups.len(),
@@ -322,6 +381,7 @@ fn groups_len(groups: Option<&SGroups>) -> usize {
     }
 }
 
+#[inline]
 fn dgroups_len(groups: Option<&DGroups<'_>>) -> usize {
     match groups {
         Some(groups) => groups.len(),
@@ -477,8 +537,11 @@ mod tests {
     fn test_score_ordering() {
         let mut score1 = Score::default();
         let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::from_bits_truncate(0b00001);
-        score2.cmd_min = CmdMin::from_bits_truncate(0b00010);
+        score1.cmd_min = CmdMin::builder().matching().build();
+        score2.cmd_min = CmdMin::builder()
+            .matching()
+            .order(CmdOrder::WildcardPath)
+            .build();
         assert!(score1 < score2 || score1 == score2 || score1 > score2);
     }
 
@@ -491,8 +554,8 @@ mod tests {
 
     #[test]
     fn test_cmdmin_better_and_matching() {
-        let a = CmdMin::from_bits_truncate(0b00001);
-        let b = CmdMin::from_bits_truncate(0b00000);
+        let a = CmdMin::builder().matching().build();
+        let b = CmdMin::builder().build();
         assert!(a.matching());
         assert!(!b.matching());
         assert!(!b.better(&a));
@@ -503,8 +566,8 @@ mod tests {
     fn test_score_better_methods() {
         let mut score1 = Score::default();
         let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::from_bits_truncate(0b00001);
-        score2.cmd_min = CmdMin::from_bits_truncate(0b00000);
+        score1.cmd_min = CmdMin::builder().matching().build();
+        score2.cmd_min = CmdMin::builder().build();
         assert!(score1.better_command(&score2));
         assert!(!score2.better_command(&score1));
     }
@@ -590,23 +653,34 @@ mod tests {
     fn test_set_score() {
         let mut score = Score::default();
         let task_score = TaskScore {
-            cmd_min: CmdMin::from_bits_truncate(0b00001),
+            cmd_min: CmdMin::builder().matching().build(),
             caps_min: CapsMin::NoCaps,
             setuser_min: SetUserMin::default(),
         };
         score.set_task_score(&task_score);
-        assert_eq!(score.cmd_min, CmdMin::from_bits_truncate(0b00001));
+        assert_eq!(score.cmd_min, CmdMin::builder().matching().build());
         assert_eq!(score.caps_min, CapsMin::NoCaps);
         assert_eq!(score.setuser_min, SetUserMin::default());
         let role_score = ActorMatchMin::UserMatch;
         score.set_role_score(&role_score);
         assert_eq!(score.user_min, ActorMatchMin::UserMatch);
-        assert_eq!(score.cmd_min, CmdMin::from_bits_truncate(0b00001));
+        assert_eq!(score.cmd_min, CmdMin::builder().matching().build());
         assert_eq!(score.caps_min, CapsMin::NoCaps);
         assert_eq!(score.setuser_min, SetUserMin::default());
         assert_eq!(score.security_min, SecurityMin::empty());
-        score.set_cmd_score(CmdMin::from_bits_truncate(0b00010));
-        assert_eq!(score.cmd_min, CmdMin::from_bits_truncate(0b00010));
+        score.set_cmd_score(
+            CmdMin::builder()
+                .matching()
+                .order(CmdOrder::WildcardPath)
+                .build(),
+        );
+        assert_eq!(
+            score.cmd_min,
+            CmdMin::builder()
+                .matching()
+                .order(CmdOrder::WildcardPath)
+                .build()
+        );
         assert_eq!(score.caps_min, CapsMin::NoCaps);
         assert_eq!(score.setuser_min, SetUserMin::default());
         assert_eq!(score.user_min, ActorMatchMin::UserMatch);
@@ -623,7 +697,7 @@ mod tests {
         assert!(score.user_matching());
         assert!(!score.command_matching());
         assert!(!score.fully_matching());
-        score.cmd_min = CmdMin::from_bits_truncate(0b00001);
+        score.cmd_min = CmdMin::builder().matching().build();
         assert!(score.user_matching());
         assert!(score.command_matching());
         assert!(score.fully_matching());
@@ -637,8 +711,11 @@ mod tests {
     fn test_score_better() {
         let mut score1 = Score::default();
         let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::from_bits_truncate(0b00001);
-        score2.cmd_min = CmdMin::from_bits_truncate(0b00010);
+        score1.cmd_min = CmdMin::builder().matching().build();
+        score2.cmd_min = CmdMin::builder()
+            .matching()
+            .order(CmdOrder::WildcardPath)
+            .build();
         assert!(!score2.better_command(&score1));
         assert!(score1.better_command(&score2));
         assert!(!score1.better_user(&score2));
@@ -657,14 +734,20 @@ mod tests {
     fn test_score_max_min_clamp() {
         let mut score1 = Score::default();
         let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::from_bits_truncate(0b00001);
-        score2.cmd_min = CmdMin::from_bits_truncate(0b00010);
+        score1.cmd_min = CmdMin::builder().matching().build();
+        score2.cmd_min = CmdMin::builder()
+            .matching()
+            .order(CmdOrder::WildcardPath)
+            .build();
         assert_eq!(score1.max(score2), score2);
         assert_eq!(score2.max(score1), score2);
         assert_eq!(score1.min(score2), score1);
         assert_eq!(score2.min(score1), score1);
         let mut score3 = Score::default();
-        score3.cmd_min = CmdMin::from_bits_truncate(0b00011);
+        score3.cmd_min = CmdMin::builder()
+            .matching()
+            .order(CmdOrder::RegexArgs)
+            .build();
         assert_eq!(score1.clamp(score2, score3), score2);
         assert_eq!(score2.clamp(score1, score3), score2);
     }
