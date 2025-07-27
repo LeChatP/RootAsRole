@@ -24,9 +24,9 @@ mod rpassword;
 mod securemem;
 
 #[cfg(not(test))]
-const PAM_SERVICE: &str = "sr";
+const PAM_SERVICE: &str = "dosr";
 #[cfg(test)]
-const PAM_SERVICE: &str = "sr_test";
+const PAM_SERVICE: &str = "dosr_test";
 
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
