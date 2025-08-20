@@ -35,9 +35,9 @@ check() {
 
 package() {
     cd $pkgname-$pkgver
-    install -Dm755 'target/release/dosr' -t "$pkgdir/usr/bin"
+    install -Dm755 'target/release/sr' -t "$pkgdir/usr/bin"
     install -Dm755 'target/release/chsr' -t "$pkgdir/usr/bin"
-    install -Dm644 'resources/arch/arch_sr_pam.conf' -t "$pkgdir/etc/pam.d/dosr"
+    install -Dm644 'resources/arch/arch_sr_pam.conf' -t "$pkgdir/etc/pam.d/sr"
     install -Dm644 'resources/rootasrole.json' -t "$pkgdir/usr/share/rootasrole/default.json"
-    setcap '=p' "$pkgdir/usr/bin/dosr"
+    setcap '=p' "$pkgdir/usr/bin/sr"
 }

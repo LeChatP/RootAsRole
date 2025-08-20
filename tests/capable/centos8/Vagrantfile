@@ -11,7 +11,7 @@ Vagrant.configure("2") do |config|
       ./dependencies.sh -y;
       sudo ./configure.sh -y;
       make install;
-      dosr capable -j cat /etc/shadow;'
+      sr capable -j cat /etc/shadow;'
     SHELL
   end
   

@@ -6,7 +6,7 @@
 RootAsRole - Une alternative pour les commandes sudo/su respectant le principe du moindre privilège et une gestion de la mémoire plus sécurisée.
 
 # SYNOPSIS
-- **dosr** [__OPTIONS__] [__COMMAND__]...
+- **sr** [__OPTIONS__] [__COMMAND__]...
 - **chsr** [__ARGUMENTS__]
     Les arguments suivent une grammaire disponible dans le code source à l'adresse <https://github.com/LeChatP/RootAsRole/tree/main/src/chsr/cli/cli.pest>
 
@@ -15,11 +15,11 @@ RootAsRole - Une alternative pour les commandes sudo/su respectant le principe d
 
 Le modèle de Roles Based Access Control (RBAC) est basé sur des ensembles de permissions assignées à des utilisateurs ou des groupes. Pour RootAsRole, un rôle est un ensemble de tâches administratives assignées à des utilisateurs. Les tâches sont des commandes avec des droits à utiliser. Les droits peuvent être un changement d'utilisateur, un changement de groupe ou/et des Linux capabilities.
 
-La commande **dosr** permet d'exécuter des commandes en utilisant un rôle. Il prends en paramètre obligatoire une commande à exécuter. Il est également possible de spécifier un rôle et une tâche à sélectionner.
+La commande **sr** permet d'exécuter des commandes en utilisant un rôle. Il prends en paramètre obligatoire une commande à exécuter. Il est également possible de spécifier un rôle et une tâche à sélectionner.
 
-Il existe des cas où deux tâches correspondent à la commande d'un utilisateur. Dans ce cas, dosr va sélectionner la tâche la plus précise et la moins privilégiée. La notion de précision est basée sur la précision de la politique RootAsRole comparée à l'occurence de la commande utilisateur. Plus le profil utilisateur et correspond à la politique, plus le niveau de précision est élevé. Il en est de même pour la précision de la commande de l'utilisateur vis-à-vis de sa spécification dans la politique. Pareillement, moins les droits sont élevés pour une tâche, plus la tâche sera prioritaire par rapport à une autre tâche. Le cas de la tâche moins privilégié n'est qu'uniquement si les tâches sont déjà avec le même niveau de précision. Malgré cette sélection intelligente, il reste des cas de confusion, ceux-ci renvoient un message d'erreur.
+Il existe des cas où deux tâches correspondent à la commande d'un utilisateur. Dans ce cas, sr va sélectionner la tâche la plus précise et la moins privilégiée. La notion de précision est basée sur la précision de la politique RootAsRole comparée à l'occurence de la commande utilisateur. Plus le profil utilisateur et correspond à la politique, plus le niveau de précision est élevé. Il en est de même pour la précision de la commande de l'utilisateur vis-à-vis de sa spécification dans la politique. Pareillement, moins les droits sont élevés pour une tâche, plus la tâche sera prioritaire par rapport à une autre tâche. Le cas de la tâche moins privilégié n'est qu'uniquement si les tâches sont déjà avec le même niveau de précision. Malgré cette sélection intelligente, il reste des cas de confusion, ceux-ci renvoient un message d'erreur.
 
-Exemple d'un cas de confusion : Deux rôles sont assignés de la même manière à un utilisateur, parmi ces rôles, deux tâches sont totalement équivalentes mais les variables d'environment sont différents. Dans ce cas, dosr affiche le message d'erreur "Permission denied" et fais un message warning dans les logs.
+Exemple d'un cas de confusion : Deux rôles sont assignés de la même manière à un utilisateur, parmi ces rôles, deux tâches sont totalement équivalentes mais les variables d'environment sont différents. Dans ce cas, sr affiche le message d'erreur "Permission denied" et fais un message warning dans les logs.
 
 Il est possible de changer le prompt de l'utilisateur en utilisant l'option **-p**. Il est également possible de voir les droits de l'exécuteur en utilisant l'option **-i**. Les informations affichées sont très limitées.
 
@@ -27,7 +27,7 @@ La commande **chsr** sert à configurer RootAsRole et sa politique de contrôle 
 
 Il est possible de configurer le mode de stockage de la politique de contrôle d'accès. Par défaut, RootAsRole utilise un fichier JSON. Il est possible de changer le mode de stockage en modifiant manuellement le fichier **/etc/security/rootasrole.json**.
 
-Concernant l'authentification, RootAsRole utilise PAM. Il est possible de configurer le fichier **/etc/pam.d/dosr** pour changer le comportement de l'authentification.
+Concernant l'authentification, RootAsRole utilise PAM. Il est possible de configurer le fichier **/etc/pam.d/sr** pour changer le comportement de l'authentification.
 
 Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par défaut il ajoute des fonctionnalités sous forme de plugins pour implémenter certaines fonctionnalités de RBAC-1. RBAC-0 implémente simplement les rôles, les tâches et les permissions. Les plugins ajoutent la hiérarchie de rôles et séparation des devoirs. Les plugins sont uniquement implémentable directement dans le projet. Il y a également un autre plugin qui permet de tester la somme de contrôle des fichiers exécutés.
 
@@ -50,10 +50,10 @@ Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par 
 
 # EXAMPLES
 
-- **dosr reboot**  
+- **sr reboot**  
   Execute the command reboot. (If the policy is defined and allowed as well)
 
-- **dosr -r dac chmod 644 /etc/foo/bar**
+- **sr -r dac chmod 644 /etc/foo/bar**
   Execute the command chmod 644 /etc/foo/bar with the role dac (If the policy has a role dac and a task that allows chmod command)
 
 # HISTORIQUE

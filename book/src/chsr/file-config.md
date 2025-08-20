@@ -93,9 +93,9 @@ The following example shows a RootAsRole config without plugins when almost ever
           "cred": {
             "setuid": {
               "fallback": "thefallbackuser", // Fallback user if the -u option is not set
-              "default": "none", // The dosr user cannot use -u option in general
-              "add": ["theuser"], // the dosr user can use "-u theuser" option
-              "sub": ["anotheruser"] // the dosr user cannot use "-u anotheruser" option (overrides add, applies only if default is all)
+              "default": "none", // The sr user cannot use -u option in general
+              "add": ["theuser"], // the sr user can use "-u theuser" option
+              "sub": ["anotheruser"] // the sr user cannot use "-u anotheruser" option (overrides add, applies only if default is all)
             }, // User to setuid before executing the command
             "setgid": [ // Groups to setgid before executing the command, The first one is the primary group
               "group1",

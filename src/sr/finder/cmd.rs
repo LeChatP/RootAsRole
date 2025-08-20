@@ -1,6 +1,6 @@
 use log::{debug, warn};
 use rar_common::{
-    database::score::{CmdMin, CmdOrder},
+    database::score::CmdMin,
     util::{all_paths_from_env, match_single_path},
 };
 use std::path::PathBuf;
@@ -13,10 +13,7 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        return CmdMin::builder()
-            .matching()
-            .order(CmdOrder::FullWildcardPath)
-            .build();
+        return CmdMin::FullWildcardPath;
     } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
         if min.better(&previous_min) {
@@ -47,10 +44,7 @@ pub(super) fn match_args(
     role_args: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
     if role_args == "'^.*$'" {
-        return Ok(CmdMin::builder()
-            .matching()
-            .order(CmdOrder::FullRegexArgs)
-            .build());
+        return Ok(CmdMin::FullRegexArgs);
     }
     let commandline = shell_words::join(input_args);
     if role_args.starts_with("\'^") && role_args.ends_with("$\'") {
@@ -58,9 +52,9 @@ pub(super) fn match_args(
             debug!("{:?},No match for args {:?}", e, input_args);
         })
     } else if commandline == role_args {
-        Ok(CmdMin::builder().matching().build())
+        Ok(CmdMin::Match)
     } else {
-        Ok(CmdMin::builder().build())
+        Ok(CmdMin::empty())
     }
 }
 
@@ -73,12 +67,9 @@ fn evaluate_regex_cmd(
 
     let regex = RegexBuilder::new().build(&role_args)?;
     if regex.is_match(commandline.as_bytes())? {
-        Ok(CmdMin::builder()
-            .matching()
-            .order(CmdOrder::RegexArgs)
-            .build())
+        Ok(CmdMin::RegexArgs)
     } else {
-        Ok(CmdMin::builder().build())
+        Ok(CmdMin::empty())
     }
 }
 
@@ -118,7 +109,7 @@ fn match_command_line(
             if args_result.is_empty() {
                 return CmdMin::empty();
             }
-            result.union_order(args_result.order);
+            result |= args_result;
         }
         Err(err) => {
             debug!("Error: {}", err);
@@ -173,13 +164,7 @@ mod tests {
             &previous_min,
             &mut final_path,
         );
-        assert_eq!(
-            result,
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::FullWildcardPath)
-                .build()
-        );
+        assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }
 
@@ -261,7 +246,7 @@ mod tests {
         let role_args = "-l /tmp";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), CmdMin::MATCH);
+        assert_eq!(result.unwrap(), CmdMin::Match);
     }
 
     #[cfg(feature = "pcre2")]
@@ -271,13 +256,7 @@ mod tests {
         let role_args = "'^.*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::FullRegexArgs)
-                .build()
-        );
+        assert_eq!(result.unwrap(), CmdMin::FullRegexArgs);
     }
 
     #[cfg(feature = "pcre2")]
@@ -287,13 +266,7 @@ mod tests {
         let role_args = "'^.*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::FullRegexArgs)
-                .build()
-        );
+        assert_eq!(result.unwrap(), CmdMin::FullRegexArgs);
     }
 
     #[cfg(feature = "pcre2")]
@@ -303,13 +276,7 @@ mod tests {
         let role_args = "'^[Aa ]*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::RegexArgs)
-                .build()
-        );
+        assert_eq!(result.unwrap(), CmdMin::RegexArgs);
         let role_args = "'^[Aa]*$'";
         let result = match_args(&input_args, &role_args);
         assert!(result.is_ok());
@@ -481,13 +448,7 @@ mod tests {
             &previous_min,
             &mut final_path,
         );
-        assert_eq!(
-            result,
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::FullWildcardPath)
-                .build()
-        );
+        assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }
 
@@ -497,7 +458,7 @@ mod tests {
         let cmd_path = PathBuf::from("ls");
         let cmd_args: Vec<String> = vec!["-l".to_string()];
         let role_command = vec!["/bin/l*".to_string(), "^.*$".to_string()];
-        let previous_min = CmdMin::MATCH; // better than regex
+        let previous_min = CmdMin::Match; // better than regex
         let mut final_path = Some("/usr/bin/ls".into());
         let result = match_command_line(
             &env_path,
@@ -567,13 +528,7 @@ mod tests {
             &previous_min,
             &mut final_path,
         );
-        assert_eq!(
-            result,
-            CmdMin::builder()
-                .matching()
-                .order(CmdOrder::FullWildcardPath)
-                .build()
-        );
+        assert_eq!(result, CmdMin::FullWildcardPath);
         assert_eq!(final_path, None);
     }
 }
