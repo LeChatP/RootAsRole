@@ -35,7 +35,7 @@ pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
             .status()
             .expect("failed to clean");
     }
-    build_binary("dosr", options, vec![])?;
+    build_binary("sr", options, vec![])?;
     build_binary("chsr", options, vec!["--no-default-features"])?;
 
     build_manpages()?;
@@ -54,7 +54,7 @@ fn build_manpages() -> Result<(), anyhow::Error> {
             "man",
             "resources/man/en_US.md",
             "-o",
-            "target/man/dosr.8",
+            "target/man/sr.8",
         ])
         .status()?;
     fs::create_dir_all("target/man/fr")?;
@@ -65,12 +65,12 @@ fn build_manpages() -> Result<(), anyhow::Error> {
             "man",
             "resources/man/fr_FR.md",
             "-o",
-            "target/man/fr/dosr.8",
+            "target/man/fr/sr.8",
         ])
         .status()?;
     debug!("Compressing manpages");
     Command::new("gzip")
-        .args(["target/man/dosr.8", "target/man/fr/dosr.8"])
+        .args(["target/man/sr.8", "target/man/fr/sr.8"])
         .status()?;
     debug!("Making symlinks");
     unix::fs::symlink("dosr.8.gz", "target/man/chsr.8.gz").context("Failed to create symlink")?;

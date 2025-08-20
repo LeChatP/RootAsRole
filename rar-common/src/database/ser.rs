@@ -87,7 +87,7 @@ impl Serialize for SetBehavior {
         if serializer.is_human_readable() {
             return serializer.serialize_str(&self.to_string());
         } else {
-            return serializer.serialize_u32(*self as u32);
+            return serializer.serialize_u8(*self as u8);
         }
     }
 }
@@ -114,7 +114,7 @@ impl Serialize for SSetuidSet {
             map.end()
         } else {
             let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("d", &(self.default as u32))?;
+            map.serialize_entry("d", &(self.default as u8))?;
             if let Some(fallback) = &self.fallback {
                 map.serialize_entry("f", fallback)?;
             }
@@ -155,7 +155,7 @@ impl Serialize for SSetgidSet {
             map.end()
         } else {
             let mut map = serializer.serialize_map(None)?;
-            map.serialize_entry("d", &(self.default as u32))?;
+            map.serialize_entry("d", &(self.default as u8))?;
             if !self.fallback.is_empty() {
                 map.serialize_entry("f", &self.fallback)?;
             }
@@ -198,7 +198,7 @@ impl Serialize for SCapabilities {
             } else {
                 let mut map = serializer.serialize_map(Some(3))?;
                 if self.default_behavior.is_all() {
-                    map.serialize_entry("d", &(self.default_behavior as u32))?;
+                    map.serialize_entry("d", &(self.default_behavior as u8))?;
                 }
                 if !self.add.is_empty() {
                     let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
@@ -343,7 +343,7 @@ impl Serialize for SCommands {
         } else {
             let mut map = serializer.serialize_map(Some(3))?;
             if let Some(behavior) = &self.default_behavior {
-                map.serialize_entry("d", &(*behavior as u32))?;
+                map.serialize_entry("d", &(*behavior as u8))?;
             }
             if !self.add.is_empty() {
                 map.serialize_entry("a", &self.add)?;
@@ -424,25 +424,7 @@ mod tests {
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         b.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        // split HARDENED_ENUM_VALUE_0 to an array of bytes
-        // cbor4ii add 0x1A prefix to the value
-        let splitted = [0x1A, 0x05, 0x2A, 0x29, 0x25];
-        println!("splitted: {:?}", splitted);
-        println!("buffer: {:?}", writer.buffer());
-        assert!(writer.buffer() == splitted);
-        // test serialization of SetBehavior::All
-        let b = SetBehavior::All;
-        let bin: Vec<u8> = Vec::new();
-        let mut writer = cbor4ii::core::utils::BufWriter::new(bin);
-        let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
-        b.serialize(&mut serializer).unwrap();
-        assert!(!writer.buffer().is_empty());
-        // split HARDENED_ENUM_VALUE_0 to an array of bytes
-        // cbor4ii add 0x1A prefix to the value
-        let splitted = [0x1A, 0x0A, 0xD5, 0xD6, 0xDA];
-        println!("splitted: {:?}", splitted);
-        println!("buffer: {:?}", writer.buffer());
-        assert!(writer.buffer() == splitted);
+        assert!(writer.buffer() == [0x00]);
     }
 
     #[test]

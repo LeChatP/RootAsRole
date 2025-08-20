@@ -1,11 +1,11 @@
-# What is dosr tool
+# What is sr tool
 
-`dosr` is the abbrevation of "do switch role" is a command line tool like sudo. It allows a permitted user to execute a command as another user and groups. More than sudo it allows to a permitted user to obtain some privileges. The sr command is used to switch to a role.
+`sr` is the abbrevation of "switch role" is a command line tool like sudo. It allows a permitted user to execute a command as another user and groups. More than sudo it allows to a permitted user to obtain some privileges. The sr command is used to switch to a role.
 
 # Usage
 
 <pre>
-<u><b>Usage</b></u>: <b>dosr</b> [OPTIONS] [COMMAND]...
+<u><b>Usage</b></u>: <b>sr</b> [OPTIONS] [COMMAND]...
 
 <u><b>Arguments</b></u>:
   [COMMAND]...  Command to execute

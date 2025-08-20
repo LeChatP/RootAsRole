@@ -17,9 +17,6 @@ use strum::{Display, EnumIs, EnumIter, EnumString, FromRepr};
 use log::debug;
 
 use crate::rc_refcell;
-use crate::util::{
-    HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3,
-};
 
 //#[cfg(feature = "finder")]
 //use super::finder::Cred;
@@ -61,13 +58,13 @@ pub enum OptType {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum PathBehavior {
-    Delete = HARDENED_ENUM_VALUE_0,
-    KeepSafe = HARDENED_ENUM_VALUE_1,
-    KeepUnsafe = HARDENED_ENUM_VALUE_2,
+    Delete,
+    KeepSafe,
+    KeepUnsafe,
     #[default]
-    Inherit = HARDENED_ENUM_VALUE_3,
+    Inherit,
 }
 
 #[derive(
@@ -136,12 +133,12 @@ impl SPathOptions {}
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum EnvBehavior {
-    Delete = HARDENED_ENUM_VALUE_0,
-    Keep = HARDENED_ENUM_VALUE_1,
+    Delete,
+    Keep,
     #[default]
-    Inherit = HARDENED_ENUM_VALUE_2,
+    Inherit,
 }
 
 #[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -213,12 +210,12 @@ pub struct SEnvOptions {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum SBounding {
-    Strict = HARDENED_ENUM_VALUE_0,
+    Strict,
     #[default]
-    Inherit = HARDENED_ENUM_VALUE_1,
-    Ignore = HARDENED_ENUM_VALUE_2,
+    Inherit,
+    Ignore,
 }
 
 #[derive(
@@ -227,12 +224,12 @@ pub enum SBounding {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum SPrivileged {
     #[default]
-    User = HARDENED_ENUM_VALUE_0,
-    Inherit = HARDENED_ENUM_VALUE_1,
-    Privileged = HARDENED_ENUM_VALUE_2,
+    User,
+    Inherit,
+    Privileged,
 }
 
 #[derive(
@@ -241,12 +238,12 @@ pub enum SPrivileged {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum SAuthentication {
     #[default]
-    Perform = HARDENED_ENUM_VALUE_0,
-    Inherit = HARDENED_ENUM_VALUE_1,
-    Skip = HARDENED_ENUM_VALUE_2,
+    Perform,
+    Inherit,
+    Skip,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]

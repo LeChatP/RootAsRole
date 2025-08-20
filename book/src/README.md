@@ -17,13 +17,13 @@
 
 ## Usage
 
-The main command line tool is `dosr`. It allows you to execute a command by simply typing:
+The main command line tool is `sr`. It allows you to execute a command by simply typing:
   
 ```bash
-dosr <command>
+sr <command>
 ```
 
-You can find more information about this command in the [dosr](sr/README.md) section.
+You can find more information about this command in the [sr](sr/README.md) section.
 
 The `chsr` command allows you to configure the roles and capabilities of the system. You can find more information about this command in the [Configure RootAsRole](chsr/README.md) section.
 
@@ -51,7 +51,7 @@ By using a role-based access control model, this project allows us to better man
 You are using your personal computer and you want to install a new package. By default, RootAsRole add one role with 2 tasks : one task for using `chsr` command that grant only the `CAP_LINUX_IMMUTABLE` capability as `root` user (unprivileged), and one task for all commands but without `CAP_LINUX_IMMUTABLE` privilege. As installing a package may require almost all capabilities, you can use the default role to install a package. Indeed, if you wish to install apache2, you'll need `CAP_NET_BIND_SERVICE`, if you install docker you'll need many privileges, virtualbox needs `CAP_SYS_MODULE`, etc. So, you can use the default role to install a package:
 
 ```bash
-dosr apt install <package>
+sr apt install <package>
 ```
 
 ### Scenario 2: Granting users the right to restart their system
@@ -59,17 +59,17 @@ dosr apt install <package>
 You are the system administrator of a company and you want to delegate the right to restart the server to a user. You can use `chsr` to create a role and grant the right to restart the server to users.
 
 ```bash
-dosr chsr role r_users add # Create a new role
-dosr chsr role r_users grant -g users # Grant the role to the group users
-dosr chsr role r_users task t_reboot add # Create a new task
-dosr chsr role r_users task t_reboot cmd whitelist add reboot # Add the reboot command to the task
-dosr chsr role r_users task t_reboot cred caps whitelist add CAP_SYS_BOOT # Add the CAP_SYS_BOOT capability to the task
+sr chsr role r_users add # Create a new role
+sr chsr role r_users grant -g users # Grant the role to the group users
+sr chsr role r_users task t_reboot add # Create a new task
+sr chsr role r_users task t_reboot cmd whitelist add reboot # Add the reboot command to the task
+sr chsr role r_users task t_reboot cred caps whitelist add CAP_SYS_BOOT # Add the CAP_SYS_BOOT capability to the task
 ```
 
 Then users can restart the server with the following command:
 
 ```bash
-dosr reboot
+sr reboot
 ```
 
 ### Scenario 3 : Passing environment variables to a command
@@ -77,17 +77,17 @@ dosr reboot
 You are a developer and you want to pass environment variables to a command. For example with sudo you can use the `-E` option to pass environment variables to a command. With RootAsRole, you'll need to setup a role with a task that allows the command to use environment variables. However, as you keep the default configuration, you'll have two roles that matches ANY commands, and if the first one is more restrictive than the second one, you'll need to specify the role to use. Here is an example:
   
 ```bash
-dosr chsr role env add # Create a new role
-dosr chsr role env task env add # Create a new task
-dosr chsr role env task env cmd setpolicy allow-all # Add all command to the task
-dosr chsr role env task env cred caps setpolicy allow-all # Add all capabilities to the task
-dosr chsr role env task env o env setpolicy keep-all # Keep the environment variables
+sr chsr role env add # Create a new role
+sr chsr role env task env add # Create a new task
+sr chsr role env task env cmd setpolicy allow-all # Add all command to the task
+sr chsr role env task env cred caps setpolicy allow-all # Add all capabilities to the task
+sr chsr role env task env o env setpolicy keep-all # Keep the environment variables
 ```
 
 Then you can use the following command to pass environment variables to a command:
 
 ```bash
-dosr -r env [command]
+sr -r env [command]
 ```
 
 This is because the default role do not keep the environment variables, so if you want to keep environment variables you need to specify the role to use.
@@ -97,26 +97,26 @@ This is because the default role do not keep the environment variables, so if yo
 You are an administrator that want to automatically reboot the system at 04:05 every day with cron for example. You can disable authentication by setting skip-auth in the options. Here is an example:
 
 ```bash
-dosr chsr role auto add # Create a new role
-dosr chsr role grant -u cron # Grant the role to the user cron
-dosr chsr role auto task cron_reboot add # Create a new task
-dosr chsr role auto task cron_reboot cmd whitelist add reboot # Add the reboot command to the task
-dosr chsr role auto task cron_reboot cred caps whitelist add CAP_SYS_BOOT # Add the CAP_SYS_BOOT capability to the task
-dosr chsr role auto task cron_reboot o authentication skip # Skip authentication
+sr chsr role auto add # Create a new role
+sr chsr role grant -u cron # Grant the role to the user cron
+sr chsr role auto task cron_reboot add # Create a new task
+sr chsr role auto task cron_reboot cmd whitelist add reboot # Add the reboot command to the task
+sr chsr role auto task cron_reboot cred caps whitelist add CAP_SYS_BOOT # Add the CAP_SYS_BOOT capability to the task
+sr chsr role auto task cron_reboot o authentication skip # Skip authentication
 ```
 
 Then you can configure the cron to reboot the system with the following command:
 
 ```bash
-dosr crontab -u cron -e
+sr crontab -u cron -e
 ```
 
 and add the following line to reboot the system at 04:05 every day
 
 ```cron
-5 4 * * * dosr -r auto -t cron_reboot reboot
+5 4 * * * sr -r auto -t cron_reboot reboot
 ```
 
-Note: You should consider to set the `-r auto -t cron_reboot` options to the `dosr` command when you automate a task to avoid any security issue or future conflict.
+Note: You should consider to set the `-r auto -t cron_reboot` options to the `sr` command when you automate a task to avoid any security issue or future conflict.
 
 For a more complete example, you can checkout the [Is a Linux system without root user possible ?](knowledge/no-root.md) section.

@@ -1,10 +1,11 @@
-use std::{error::Error, ffi::CStr, ops::Deref};
+use std::{
+    error::Error,
+    ffi::{CStr, CString},
+    ops::Deref,
+};
 
 use log::{debug, error, info, warn};
-use nonstick::{
-    AuthnFlags, ConversationAdapter, ErrorCode, Result as PamResult, Transaction,
-    TransactionBuilder,
-};
+use pam_client2::{Context, ConversationHandler, ErrorCode, Flag};
 use pcre2::bytes::RegexBuilder;
 
 use crate::timeout;
@@ -23,9 +24,9 @@ mod rpassword;
 mod securemem;
 
 #[cfg(not(test))]
-const PAM_SERVICE: &str = "dosr";
+const PAM_SERVICE: &str = "sr";
 #[cfg(test)]
-const PAM_SERVICE: &str = "dosr_test";
+const PAM_SERVICE: &str = "sr_test";
 
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
@@ -52,8 +53,8 @@ impl SrConversationHandler {
             Terminal::open_tty()
         }
     }
-    fn is_pam_password_prompt(&self, prompt: &impl AsRef<str>) -> bool {
-        let pam_prompt = prompt.as_ref();
+    fn is_pam_password_prompt(&self, prompt: &CStr) -> bool {
+        let pam_prompt = prompt.to_string_lossy();
         RegexBuilder::new()
             .build("^Password: ?$")
             .unwrap()
@@ -80,23 +81,21 @@ impl Default for SrConversationHandler {
     }
 }
 
-impl ConversationAdapter for SrConversationHandler {
-    fn prompt(&self, prompt: impl AsRef<std::ffi::OsStr>) -> PamResult<std::ffi::OsString> {
+impl ConversationHandler for SrConversationHandler {
+    fn prompt_echo_on(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
         if self.no_interact {
-            return Err(ErrorCode::ConversationError);
+            return Err(ErrorCode::CONV_ERR);
         }
-        let mut term = self.open().map_err(|_| ErrorCode::ConversationError)?;
-        term.prompt(&prompt.as_ref().to_string_lossy().to_string())
-            .map_err(|_| ErrorCode::ConversationError)?;
-        let read = term.read_cleartext().map_err(|_| ErrorCode::BufferError)?;
-        Ok(std::ffi::OsString::from(
-            String::from_utf8_lossy(read.deref()).to_string(),
-        ))
+        let mut term = self.open().map_err(|_| ErrorCode::CONV_ERR)?;
+        term.prompt(prompt.to_string_lossy().as_ref())
+            .map_err(|_| ErrorCode::CONV_ERR)?;
+        let read = term.read_cleartext().map_err(|_| ErrorCode::BUF_ERR)?;
+        Ok(unsafe { CString::from_vec_unchecked(read.deref().to_vec()) })
     }
 
-    fn masked_prompt(&self, prompt: impl AsRef<std::ffi::OsStr>) -> PamResult<std::ffi::OsString> {
+    fn prompt_echo_off(&mut self, prompt: &CStr) -> Result<CString, ErrorCode> {
         if self.no_interact {
-            return Err(ErrorCode::ConversationError);
+            return Err(ErrorCode::CONV_ERR);
         }
         //if the prompted message is the password prompt, we replace to self.prompt
         let pam_prompt = if self.is_pam_password_prompt(&prompt.as_ref().to_string_lossy()) {
@@ -112,14 +111,14 @@ impl ConversationAdapter for SrConversationHandler {
         Ok(std::ffi::OsString::from(os_str.to_str().unwrap()))
     }
 
-    fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        error!("{}", message.as_ref().to_string_lossy());
-        eprintln!("{}", message.as_ref().to_string_lossy());
+    fn text_info(&mut self, msg: &CStr) {
+        info!("{}", msg.to_string_lossy());
+        println!("{}", msg.to_string_lossy());
     }
 
-    fn info_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        info!("{}", message.as_ref().to_string_lossy());
-        println!("{}", message.as_ref().to_string_lossy());
+    fn error_msg(&mut self, msg: &CStr) {
+        error!("{}", msg.to_string_lossy());
+        eprintln!("{}", msg.to_string_lossy());
     }
 }
 
@@ -137,11 +136,10 @@ pub(super) fn check_auth(
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let conv = SrConversationHandler::new(prompt);
-        let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
-            .username(&user.user.name)
-            .build(conv.into_conversation())?;
-        txn.authenticate(AuthnFlags::SILENT)?;
-        txn.account_management(AuthnFlags::SILENT)?;
+        let mut context = Context::new(PAM_SERVICE, Some(&user.user.name), conv)
+            .expect("Failed to initialize PAM");
+        context.authenticate(Flag::SILENT)?;
+        context.acct_mgmt(Flag::SILENT)?;
     }
     timeout::update_cookie(user, user, &timeout)?;
     Ok(())

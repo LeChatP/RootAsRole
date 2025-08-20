@@ -74,10 +74,6 @@ fn main() {
         eprintln!("cargo:warning={}", err);
     }
 
-    if let Err(err) = set_cargo_version(&package_version, "Cargo.toml") {
-        eprintln!("cargo:warning={}", err);
-    }
-
     if let Err(err) = set_readme_version(&package_version, "README.md") {
         eprintln!("cargo:warning={}", err);
     }
