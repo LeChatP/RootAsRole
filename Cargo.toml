@@ -76,8 +76,7 @@ serde = { version = "1.0", features=["rc", "derive"] }
 serde_json = "1.0"
 cbor4ii = { version = "1.0.0", features = ["serde", "serde1", "use_std"] }
 glob = "0.3"
-pam-client2 = "0.5"
-bitflags = { version = "2.6" }
+bitflags = { version = "2.9" }
 shell-words = "1.1"
 linked_hash_set = { version = "0.1" }
 derivative = "2.2"
@@ -89,9 +88,11 @@ pest = "2.7"
 pest_derive = "2.7"
 const_format = "0.2"
 hex = "0.4"
-bon = "3.5.1"
-serde_json_borrow = "0.7.1"
-konst = "0.3.16"
+bon = "3"
+serde_json_borrow = "0.8"
+konst = "0.3"
+nonstick = "0.1.1"
+libpam-sys = "0.2.0"
 
 [dev-dependencies]
 log = "0.4"
