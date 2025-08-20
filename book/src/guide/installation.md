@@ -28,12 +28,12 @@ Install script does the following:
 - Dependency Step :
   - Installing necessary dependencies considering if compiling from source.
 - Build Step :
-  - Building sr and chsr binaries
+  - Building dosr and chsr binaries
 - Install Step : 
-  - Copying sr and chsr binaries to /usr/bin
-  - Setting all capabilities on /usr/bin/sr
-  - Setting owners and permissions on /usr/bin/sr
+  - Copying dosr and chsr binaries to /usr/bin
+  - Setting all capabilities on /usr/bin/dosr
+  - Setting owners and permissions on /usr/bin/dosr
 - Configuration Step :
-  - Deploying /etc/pam.d/sr for PAM configuration
+  - Deploying /etc/pam.d/dosr for PAM configuration
   - Deploying /etc/security/rootasrole.json for configuration
   - Setting immutable on /etc/security/rootasrole.json if filesytem supports it

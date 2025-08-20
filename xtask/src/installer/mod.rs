@@ -19,7 +19,7 @@ use crate::{
     util::{detect_priv_bin, get_os, OsTarget},
 };
 pub const RAR_BIN_PATH: &str = env!("RAR_BIN_PATH");
-pub const SR_DEST: &str = "sr";
+pub const SR_DEST: &str = "dosr";
 pub const CHSR_DEST: &str = "chsr";
 
 #[derive(Debug, Parser, Clone)]

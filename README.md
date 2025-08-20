@@ -14,7 +14,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.1.1) — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
+# RootAsRole (V3.1.2) — A better alternative to `sudo(-rs
 
 RootAsRole is a Linux/Unix privilege delegation tool based on **Role-Based Access Control (RBAC)**. It empowers administrators to assign precise privileges — not full root — to users and commands.
 
@@ -44,7 +44,7 @@ RootAsRole solves this:
 
 ## 📊 Why It’s Better Than Others
 
-| Feature                                  | setcap??          | doas       | sudo                           | sudo-rs                       | sr (RootAsRole)                                          |
+| Feature                                  | setcap??          | doas       | sudo                           | sudo-rs                       | dosr (RootAsRole)                                          |
 |------------------------------------------|-------------------|------------|--------------------------------|--------------------------------|----------------------------------------------|
 | **Change user/groups**                   | N/A               | ✅  | ✅ | ✅ | ✅✅ mandatory or optional                       |
 | **Environment variables**                | N/A               | partial  | ✅ | partial                     | ✅                                    |
@@ -97,7 +97,7 @@ RootAsRole solves this:
 <pre>
 Execute privileged commands with a role-based access control system
 
-<u><b>Usage</b></u>: <b>sr</b> [OPTIONS] [COMMAND]...
+<u><b>Usage</b></u>: <b>dosr</b> [OPTIONS] [COMMAND]...
 
 <u><b>Arguments</b></u>:
   [COMMAND]...  Command to execute
@@ -116,7 +116,8 @@ Execute privileged commands with a role-based access control system
 
 If you're accustomed to utilizing the sudo tool and find it difficult to break that habit, consider creating an alias : 
 ```sh
-alias sudo="sr"
+alias sudo="dosr"
+alias sr="dosr"
 ```
 
 ## 🏎️ Performance
@@ -132,7 +133,7 @@ RootAsRole **3.1.0** introduced **CBOR** support, significantly boosting perform
 
 ### Why Performance Matters
 
-When using **Ansible** (or any automation tool), every task that uses `become: true` will invoke `sr` on the target host.
+When using **Ansible** (or any automation tool), every task that uses `become: true` will invoke `dosr` on the target host.
 With **RootAsRole (RaR)**, each role and task introduces additional access control logic --- this doesn’t slow you down.
 
 💡 **Here’s the reality**: You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.

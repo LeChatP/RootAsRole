@@ -2348,7 +2348,7 @@ mod tests {
                 .tasks()
                 .next()
                 .unwrap()
-                .score(CmdMin::Match, SecurityMin::empty()),
+                .score(CmdMin::MATCH, SecurityMin::empty()),
             Score::builder()
                 .user_min(ActorMatchMin::UserMatch)
                 .setuser_min(SetUserMin {
@@ -2357,7 +2357,7 @@ mod tests {
                 })
                 .caps_min(CapsMin::NoCaps)
                 .security_min(SecurityMin::empty())
-                .cmd_min(CmdMin::Match)
+                .cmd_min(CmdMin::MATCH)
                 .build()
         );
     }
@@ -2656,7 +2656,7 @@ mod tests {
         assert!(config.roles[0].options.is_some());
         assert!(config.roles[0].tasks[0].options.is_some());
         assert_eq!(config.roles[0].user_min, ActorMatchMin::GroupMatch(1));
-        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::Match);
+        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::MATCH);
         assert_eq!(
             config.roles[0].tasks[0].score.setuser_min.uid,
             Some(SetuidMin::from(&0.into()))
@@ -2697,7 +2697,7 @@ mod tests {
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
         let config = result.unwrap();
         assert_eq!(config.roles[0].user_min, ActorMatchMin::UserMatch);
-        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::Match);
+        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::MATCH);
         assert_eq!(
             config.roles[0].tasks[0].score.setuser_min.uid,
             Some(SetuidMin::from(&0.into()))
@@ -2754,7 +2754,7 @@ mod tests {
         assert!(result.is_err(), "Expected error, got: {:?}", result);
         assert!(serde_json::from_str::<DCommandList>(int).is_err());
         let mut var_name = None;
-        let mut cmd_min = CmdMin::Match;
+        let mut cmd_min = CmdMin::MATCH;
         let dcommand = DCommandDeserializer {
             env_path: &[],
             cmd_path: &cli.cmd_path,
