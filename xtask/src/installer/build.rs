@@ -73,8 +73,8 @@ fn build_manpages() -> Result<(), anyhow::Error> {
         .args(["target/man/dosr.8", "target/man/fr/dosr.8"])
         .status()?;
     debug!("Making symlinks");
-    unix::fs::symlink("sr.8.gz", "target/man/chsr.8.gz").context("Failed to create symlink")?;
-    unix::fs::symlink("sr.8.gz", "target/man/fr/chsr.8.gz").context("Failed to create symlink")?;
+    unix::fs::symlink("dosr.8.gz", "target/man/chsr.8.gz").context("Failed to create symlink")?;
+    unix::fs::symlink("dosr.8.gz", "target/man/fr/chsr.8.gz").context("Failed to create symlink")?;
 
     debug!("Manpages built");
     Ok(())

@@ -14,7 +14,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.1.2) — A better alternative to `sudo(-rs
+# RootAsRole (V3.1.3) — A better alternative to `sudo(-rs
 
 RootAsRole is a Linux/Unix privilege delegation tool based on **Role-Based Access Control (RBAC)**. It empowers administrators to assign precise privileges — not full root — to users and commands.
 
