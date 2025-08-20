@@ -6,7 +6,7 @@
 # User Guide
 
 - [Installation](guide/installation.md)
-- [`sr` Command Line Tool](sr/README.md)
+- [`dosr` Command Line Tool](dosr/README.md)
 - [`chsr` Command Line Tool](chsr/README.md)
 - [`capable` Command Line Tool](capable/README.md)
 

@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch",
-            "program": "${workspaceFolder}/target/debug/sr",
+            "program": "${workspaceFolder}/target/debug/dosr",
             "args": ["ls"],
             "cwd": "${workspaceFolder}"
         }

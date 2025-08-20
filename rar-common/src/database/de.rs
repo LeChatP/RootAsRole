@@ -40,13 +40,7 @@ impl<'de> Deserialize<'de> for SetBehavior {
             where
                 E: de::Error,
             {
-                if v > 1 || v < 0 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                SetBehavior::from_repr(v as u8).ok_or(de::Error::custom(format!(
+                SetBehavior::from_repr(v as u32).ok_or(de::Error::custom(format!(
                     "Invalid value for SetBehavior: {}",
                     v
                 )))
@@ -97,7 +91,7 @@ impl<'de> Deserialize<'de> for SetBehavior {
             where
                 E: de::Error,
             {
-                if v > i32::MAX as i64 || v < i32::MIN as i64 {
+                if v > i32::MAX as i64 {
                     return Err(de::Error::custom(format!(
                         "Invalid value for SetBehavior: {}",
                         v
@@ -319,6 +313,8 @@ impl<'de> Deserialize<'de> for SCommands {
 
 #[cfg(test)]
 mod tests {
+    use crate::util::{HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2};
+
     use super::*;
     use capctl::Cap;
     use serde_json::json;
@@ -333,15 +329,21 @@ mod tests {
         let behavior: SetBehavior = serde_json::from_value(json_data).unwrap();
         assert_eq!(behavior, SetBehavior::All);
 
-        let json_data = json!(0);
+        let json_data = json!(HARDENED_ENUM_VALUE_0);
         let behavior: SetBehavior = serde_json::from_value(json_data).unwrap();
-        assert_eq!(behavior, SetBehavior::from_repr(0).unwrap());
+        assert_eq!(
+            behavior,
+            SetBehavior::from_repr(HARDENED_ENUM_VALUE_0).unwrap()
+        );
 
-        let json_data = json!(1);
+        let json_data = json!(HARDENED_ENUM_VALUE_1);
         let behavior: SetBehavior = serde_json::from_value(json_data).unwrap();
-        assert_eq!(behavior, SetBehavior::from_repr(1).unwrap());
+        assert_eq!(
+            behavior,
+            SetBehavior::from_repr(HARDENED_ENUM_VALUE_1).unwrap()
+        );
 
-        let invalid_data = json!(2);
+        let invalid_data = json!(HARDENED_ENUM_VALUE_2);
         assert!(serde_json::from_value::<SetBehavior>(invalid_data).is_err());
     }
 

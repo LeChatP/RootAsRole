@@ -13,7 +13,10 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::rc_refcell;
+use crate::{
+    rc_refcell,
+    util::{HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1},
+};
 
 use super::{
     actor::{SActor, SGroupType, SGroups, SUserType},
@@ -219,11 +222,11 @@ pub struct SSetuidSet {
 #[derive(PartialEq, Eq, Display, Debug, EnumIs, Clone, Copy, FromRepr, EnumString)]
 #[strum(serialize_all = "lowercase")]
 #[derive(Default)]
-#[repr(u8)]
+#[repr(u32)]
 pub enum SetBehavior {
     #[default]
-    None,
-    All,
+    None = HARDENED_ENUM_VALUE_0,
+    All = HARDENED_ENUM_VALUE_1,
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]

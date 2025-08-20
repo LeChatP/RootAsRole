@@ -424,9 +424,9 @@ pub fn get_os(os: Option<OsTarget>) -> Result<OsTarget, anyhow::Error> {
 }
 
 pub fn detect_priv_bin() -> Option<String> {
-    // is /usr/bin/sr exist ?
-    if std::fs::metadata("/usr/bin/sr").is_ok() {
-        Some("/usr/bin/sr".to_string())
+    // is /usr/bin/dosr exist ?
+    if std::fs::metadata("/usr/bin/dosr").is_ok() {
+        Some("/usr/bin/dosr".to_string())
     } else if std::fs::metadata("/usr/bin/sudo").is_ok() {
         Some("/usr/bin/sudo".to_string())
     } else if std::fs::metadata("/usr/bin/doas").is_ok() {

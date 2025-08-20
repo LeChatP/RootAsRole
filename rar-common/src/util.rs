@@ -210,18 +210,20 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     use glob::Pattern;
     if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
         // the files could not be the same
-        return CmdMin::empty();
+        return CmdMin::default();
     }
-    let mut match_status = CmdMin::empty();
+    let mut match_status = CmdMin::default();
     debug!("Matching path {:?} with {:?}", cmd_path, role_path);
     if cmd_path == Path::new(role_path) {
-        match_status |= CmdMin::Match;
+        match_status.set_matching();
     } else if let Ok(pattern) = Pattern::new(role_path) {
         if pattern.matches_path(&cmd_path) {
-            match_status |= CmdMin::WildcardPath;
+            use crate::database::score::CmdOrder;
+
+            match_status.union_order(CmdOrder::WildcardPath);
         }
     }
-    if match_status.is_empty() {
+    if !match_status.matching() {
         debug!(
             "No match for path ``{:?}`` for evaluated path : ``{:?}``",
             cmd_path, role_path
