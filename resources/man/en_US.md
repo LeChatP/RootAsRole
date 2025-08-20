@@ -6,7 +6,7 @@
 RootAsRole - An alternative to sudo/su commands that adheres to the principle of least privilege and provides more secure memory management.
 
 # SYNOPSIS
-- **dosr** [__OPTIONS__] [__COMMAND__]...
+- **sr** [__OPTIONS__] [__COMMAND__]...
 - **chsr** [__ARGUMENTS__]
 
     **chsr**'s arguments follow a grammar available at <https://github.com/LeChatP/RootAsRole/tree/main/src/chsr/cli/cli.pest>
@@ -16,11 +16,11 @@ RootAsRole - An alternative to sudo/su commands that adheres to the principle of
 
 The Role-Based Access Control (RBAC) model is based on sets of permissions assigned to users or groups. In RootAsRole, a role is a set of administrative tasks assigned to users. Tasks are commands with specific rights. Rights can include changing the user, changing the group, or/and using Linux capabilities.
 
-The **dosr** command allows the execution of commands using a role. It requires a command to be executed as a mandatory parameter. It is also possible to specify a role and a task to select.
+The **sr** command allows the execution of commands using a role. It requires a command to be executed as a mandatory parameter. It is also possible to specify a role and a task to select.
 
 There are cases where several tasks correspond to a user's command input. In such cases, sr will select the most precise and least privileged task. The notion of precision is based on how closely the RootAsRole policy matches the user's command. The more the user's profile matches the policy, the higher the level of precision. The same applies to the precision of the user's command compared to its specification in the policy. Similarly, the task with fewer privileges will be prioritized over a task with higher privileges, but only if the tasks are equally precise. Despite this intelligent selection, confusion can still arise, and an error message will be returned.
 
-Example of a confusion case: Two roles are assigned in the same way to a user, and among these roles, two tasks are entirely equivalent, but the configured environment variable are different for these two tasks. In this case, dosr will display the error message "Permission denied" and log a warning that configuration must be fixed. This case should not happen if administrators are using **chsr**, the configuration tool.
+Example of a confusion case: Two roles are assigned in the same way to a user, and among these roles, two tasks are entirely equivalent, but the configured environment variable are different for these two tasks. In this case, sr will display the error message "Permission denied" and log a warning that configuration must be fixed. This case should not happen if administrators are using **chsr**, the configuration tool.
 
 It is possible to change the user's prompt using the **-p** option. It is also possible to view the executor's rights using the **-i** option. The displayed information is very limited for the user. Otherwise, administrator can use **chsr** to obtain the complete policy.
 
@@ -28,7 +28,7 @@ The **chsr** command is used to configure RootAsRole and its access control poli
 
 The storage mode of the access control policy can be configured. By default, RootAsRole uses a JSON file. It is possible to change the storage mode by manually modifying the **/etc/security/rootasrole.json** file.
 
-Regarding authentication, RootAsRole uses Pluggable Authentication Module (PAM). The **/etc/pam.d/dosr** file can be configured to change authentication behavior.
+Regarding authentication, RootAsRole uses Pluggable Authentication Module (PAM). The **/etc/pam.d/sr** file can be configured to change authentication behavior.
 
 The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By default, it adds features in the form of plugins to implement certain RBAC-1 functionalities. RBAC-0 simply implements roles, tasks, and permissions. Plugins add role hierarchy and separation of duties. Plugins can only be implemented directly in the project. Another plugin allows testing the checksum of executed files.
 
@@ -60,10 +60,10 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
 
 # EXAMPLES
 
-**dosr reboot**  
+**sr reboot**  
   Execute the reboot command (if the policy allows it).
 
-**dosr -r dac chmod 644 /etc/foo/bar**  
+**sr -r dac chmod 644 /etc/foo/bar**  
   Execute the command chmod 644 /etc/foo/bar with the role dac (if the policy has a dac role and a task that allows the chmod command).
 
 # HISTORY

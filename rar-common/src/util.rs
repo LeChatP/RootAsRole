@@ -22,16 +22,6 @@ pub const BOLD: &str = "\x1B[1m";
 pub const UNDERLINE: &str = "\x1B[4m";
 pub const RED: &str = "\x1B[31m";
 
-// Hardened enum values used for critical enums to mitigate attacks like Rowhammer.
-// See for example https://arxiv.org/pdf/2309.02545.pdf
-// The values are copied from https://github.com/sudo-project/sudo/commit/7873f8334c8d31031f8cfa83bd97ac6029309e4f#diff-b8ac7ab4c3c4a75aed0bb5f7c5fd38b9ea6c81b7557f775e46c6f8aa115e02cd
-pub const HARDENED_ENUM_VALUE_0: u32 = 0x052a2925; // 0101001010100010100100100101
-pub const HARDENED_ENUM_VALUE_1: u32 = 0x0ad5d6da; // 1010110101011101011011011010
-pub const HARDENED_ENUM_VALUE_2: u32 = 0x69d61fc8; // 1101001110101100001111111001000
-pub const HARDENED_ENUM_VALUE_3: u32 = 0x1629e037; // 0010110001010011110000000110111
-pub const HARDENED_ENUM_VALUE_4: u32 = 0x1fc8d3ac; // 11111110010001101001110101100
-
-
 #[macro_export]
 macro_rules! upweak {
     ($e:expr) => {
@@ -211,20 +201,18 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     use glob::Pattern;
     if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
         // the files could not be the same
-        return CmdMin::default();
+        return CmdMin::empty();
     }
-    let mut match_status = CmdMin::default();
+    let mut match_status = CmdMin::empty();
     debug!("Matching path {:?} with {:?}", cmd_path, role_path);
     if cmd_path == Path::new(role_path) {
-        match_status.set_matching();
+        match_status |= CmdMin::Match;
     } else if let Ok(pattern) = Pattern::new(role_path) {
         if pattern.matches_path(&cmd_path) {
-            use crate::database::score::CmdOrder;
-
-            match_status.union_order(CmdOrder::WildcardPath);
+            match_status |= CmdMin::WildcardPath;
         }
     }
-    if !match_status.matching() {
+    if match_status.is_empty() {
         debug!(
             "No match for path ``{:?}`` for evaluated path : ``{:?}``",
             cmd_path, role_path

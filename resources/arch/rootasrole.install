@@ -21,7 +21,7 @@ post_install() {
         ext2|ext3|ext4|xfs|btrfs|ocfs2|jfs|reiserfs)
             if ! grep -q '"immutable": true' "$TARGET_PATH"; then
                 sed -i 's/"immutable": false/"immutable": true/' "$TARGET_PATH"
-                log "The file $TARGET_PATH is now immutable, and dosr will check that immutable is enforced before executing."
+                log "The file $TARGET_PATH is now immutable, and sr will check that immutable is enforced before executing."
             fi
             # Attempt to set the immutable flag
             if ! chattr +i "$TARGET_PATH"; then
@@ -31,7 +31,7 @@ post_install() {
             fi
             ;;
         *)
-            log "The file system $FS_TYPE does not support the immutable flag. Avoid checking the immutable flag during dosr execution."
+            log "The file system $FS_TYPE does not support the immutable flag. Avoid checking the immutable flag during sr execution."
             sed -i "s/\"immutable\": true/\"immutable\": false/g" "$TARGET_PATH"
             sed -i "s;\"CAP_LINUX_IMMUTABLE\";;g" "$TARGET_PATH"
             return 1

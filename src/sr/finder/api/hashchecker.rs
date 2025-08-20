@@ -5,7 +5,7 @@ use libc::FS_IOC_GETFLAGS;
 use log::{debug, warn};
 use nix::unistd::{access, AccessFlags};
 use rar_common::{
-    database::score::{CmdMin, CmdOrder},
+    database::score::CmdMin,
     util::{all_paths_from_env, match_single_path, open_with_privileges},
 };
 use serde_json::to_value;
@@ -114,10 +114,7 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        return CmdMin::builder()
-            .matching()
-            .order(CmdOrder::FullWildcardPath)
-            .build();
+        return CmdMin::FullWildcardPath;
     } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
         verify_executable_conditions(checker, final_path, cmd_path, min).unwrap_or_default()
@@ -191,12 +188,12 @@ fn match_command_line(
     final_path: &mut Option<PathBuf>,
 ) {
     let mut result = match_path(checker, env_path, cmd_path, &role_command[0], final_path);
-    if !result.matching() || role_command.len() == 1 {
+    if result.is_empty() || role_command.len() == 1 {
         *cmd_min = result;
         return;
     }
     match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
-        Ok(args_result) => result = args_result,
+        Ok(args_result) => result |= args_result,
         Err(err) => {
             debug!("Error: {}", err);
             return;
@@ -324,7 +321,7 @@ mod tests {
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         let mut sha256hasher = Sha256::new();
         sha256hasher.update(&buffer);
@@ -347,7 +344,7 @@ mod tests {
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         let mut sha384hasher = Sha384::new();
         sha384hasher.update(&buffer);
@@ -370,7 +367,7 @@ mod tests {
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         let mut sha512hasher = Sha512::new();
         sha512hasher.update(&buffer);
@@ -392,7 +389,7 @@ mod tests {
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
     }
 
     #[test]
@@ -506,7 +503,7 @@ mod tests {
         }
         assert!(result.is_ok());
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         set_read_only(filename.as_path()).unwrap();
 
@@ -530,7 +527,7 @@ mod tests {
         }
         assert!(result.is_ok());
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         let json = format!(
             r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
@@ -603,7 +600,7 @@ mod tests {
         }
         assert!(result.is_ok());
         assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        assert_eq!(cmd_min, CmdMin::Match);
 
         let json = format!(
             r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
@@ -626,7 +623,7 @@ mod tests {
         assert!(result.is_ok());
         if immutable {
             assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-            assert_eq!(cmd_min, CmdMin::MATCH);
+            assert_eq!(cmd_min, CmdMin::Match);
         } else {
             assert_eq!(final_path, None);
             assert_eq!(cmd_min, CmdMin::empty());

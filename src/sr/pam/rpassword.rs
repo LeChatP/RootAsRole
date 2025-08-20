@@ -136,8 +136,8 @@ impl Terminal<'_> {
     }
 
     /// Display information
-    pub fn prompt(&mut self, text: & impl AsRef<str>) -> io::Result<()> {
-        write_unbuffered(&mut self.sink(), text.as_ref())
+    pub fn prompt(&mut self, text: &str) -> io::Result<()> {
+        write_unbuffered(&mut self.sink(), text)
     }
 
     // boilerplate reduction functions
