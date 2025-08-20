@@ -17,7 +17,7 @@ use crate::util::{
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
-pub const PAM_CONFIG_PATH: &str = "/etc/pam.d/sr";
+pub const PAM_CONFIG_PATH: &str = "/etc/pam.d/dosr";
 
 fn is_running_in_container() -> bool {
     // Check for environment files that might indicate a container

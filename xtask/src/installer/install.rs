@@ -28,13 +28,13 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
         .context("unable to get current dir as string")?;
     info!("Current working directory: {}", cwd);
     info!(
-        "Copying files {}/target/{}/sr to {} and {}",
+        "Copying files {}/target/{}/dosr to {} and {}",
         cwd,
         profile,
         sr_dest.to_str().unwrap(),
         chsr_dest.to_str().unwrap()
     );
-    let s_sr = format!("{}/target/{}/sr", cwd, profile);
+    let s_sr = format!("{}/target/{}/dosr", cwd, profile);
     let sr = Path::new(&s_sr);
     let s_chsr = format!("{}/target/{}/chsr", cwd, profile);
     let chsr = Path::new(&s_chsr);
@@ -48,7 +48,7 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
     fs::copy(sr, format!("{}.tmp", s_sr))?;
     debug!("Copying chsr to chsr.tmp");
     fs::copy(chsr, format!("{}.tmp", s_chsr))?;
-    debug!("Renaming sr to /usr/bin/sr");
+    debug!("Renaming sr to /usr/bin/dosr");
     fs::rename(sr, sr_dest)?;
     debug!("Renaming chsr to /usr/bin/chsr");
     fs::rename(chsr, chsr_dest)?;
@@ -238,7 +238,7 @@ pub fn install(
         //raise dac_override to copy files
         cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
 
-        // cp target/{release}/sr,chsr,capable /usr/bin
+        // cp target/{release}/dosr,chsr,capable /usr/bin
         copy_executables(&profile).context("Failed to copy sr and chsr files")?;
 
         copy_docs().context("Failed to copy documentation files")?;
@@ -262,7 +262,7 @@ pub fn install(
     cap_effective(&mut state, Cap::SETFCAP).context("Failed to raise SETFCAP")?;
 
     // set file capabilities for sr only
-    setfcap().context("Failed to set file capabilities on /usr/bin/sr")?;
+    setfcap().context("Failed to set file capabilities on /usr/bin/dosr")?;
 
     // drop all capabilities
     cap_clear(&mut state).context("Failed to drop effective capabilities")?;

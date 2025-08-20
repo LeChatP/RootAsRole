@@ -27,16 +27,16 @@ jobs:
         account required                    pam_permit.so
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
-        session required                    pam_permit.so" | tee /etc/pam.d/sr'
+        session required                    pam_permit.so" | tee /etc/pam.d/dosr'
     - name: Install RootAsRole
       run: cargo xtask install -bip sudo
     - name: print config
-      run: sr cat /etc/security/rootasrole.json
+      run: dosr cat /etc/security/rootasrole.json
     - name: getenv
       run: env
-    - name: Run Sr
+    - name: Run dosr
       env:
         RUST_LOG: debug
-      run: /usr/bin/sr -h
-    - name: Run Chsr with sr
-      run: sr /usr/bin/chsr -h
+      run: /usr/bin/dosr -h
+    - name: Run Chsr with dosr
+      run: dosr /usr/bin/chsr -h

@@ -14,7 +14,7 @@
             "args": [
                 "/usr/bin/setcap",
                 "=p",
-                "${cwd}/bin/sr"
+                "${cwd}/bin/dosr"
             ],
             "options": {
                 "cwd": "${cwd}"

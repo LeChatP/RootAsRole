@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use strum::EnumIs;
 
+use crate::util::{HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1};
+
 #[derive(Serialize, Debug, EnumIs, Clone, PartialEq, Eq, strum::Display)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SGenericActorType {
@@ -149,9 +151,10 @@ impl Display for DUserType<'_> {
 
 #[derive(Serialize, PartialEq, Eq, Debug, Clone, EnumIs)]
 #[serde(untagged)]
+#[repr(u32)]
 pub enum SGroups {
-    Single(SGroupType),
-    Multiple(Vec<SGroupType>),
+    Single(SGroupType) = HARDENED_ENUM_VALUE_0,
+    Multiple(Vec<SGroupType>) = HARDENED_ENUM_VALUE_1,
 }
 
 impl Display for SGroups {
