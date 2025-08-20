@@ -109,8 +109,7 @@ impl ConversationAdapter for SrConversationHandler {
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_password().map_err(|_| ErrorCode::BufferError)?;
         let os_str = CStr::from_bytes_until_nul(&read.deref()).unwrap();
-        Ok(std::ffi::OsString::from(os_str.to_str().unwrap()
-        ))
+        Ok(std::ffi::OsString::from(os_str.to_str().unwrap()))
     }
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
