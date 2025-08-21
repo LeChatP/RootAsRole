@@ -6,10 +6,10 @@ name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
 version = "3.1.3"
 rust-version = "1.76.0"
-authors = ["Eddie Billoir <eddie.billoir@irit.fr>"]
+authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2021"
 default-run = "dosr"
-description = "An alternative to sudo that uses Linux capabilities and Role based access control."
+description = "A better alternative to sudo(-rs)/su"
 license = "LGPL-3.0-or-later"
 repository = "https://github.com/LeChatP/RootAsRole"
 homepage = "https://lechatp.github.io/RootAsRole/"
