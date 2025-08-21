@@ -5,6 +5,9 @@ edition = "2021"
 description = "This core crate for the RootAsRole project."
 license = "LGPL-3.0-or-later"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
+repository = "https://github.com/LeChatP/RootAsRole"
+homepage = "https://lechatp.github.io/RootAsRole/"
+keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
 
 [dependencies]
 libc = "0.2"
