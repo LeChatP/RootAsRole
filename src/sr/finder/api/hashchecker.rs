@@ -6,7 +6,7 @@ use log::{debug, warn};
 use nix::unistd::{access, AccessFlags};
 use rar_common::{
     database::score::{CmdMin, CmdOrder},
-    util::{all_paths_from_env, match_single_path, open_with_privileges},
+    util::{all_paths_from_env, match_single_path, read_with_privileges},
 };
 use serde_json::to_value;
 use sha2::Digest;
@@ -146,7 +146,7 @@ fn verify_executable_conditions(
             }
             warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
         }
-        let open = open_with_privileges(cmd_path);
+        let open = read_with_privileges(cmd_path);
         if open.is_err() {
             return None;
         }
@@ -234,22 +234,20 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
     use std::{
-        fs::File,
-        io::Read,
-        path::{Path, PathBuf},
+        fs::File, io::{self, Read}, os::fd::AsRawFd, path::{Path, PathBuf}
     };
 
-    use capctl::{CapSet, CapState};
+    use capctl::{Cap, CapSet, CapState};
+    use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
     use log::debug;
     use nix::sys::stat::{fchmodat, Mode};
     use rar_common::{
-        database::score::CmdMin,
-        util::{immutable_effective, toggle_lock_config},
+        database::score::CmdMin, util::{has_privileges, immutable_required_privileges},
     };
     use serde::de::DeserializeSeed;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
-    use crate::finder::{api::hashchecker::register, de::DCommandDeserializer};
+    use crate::finder::{api::hashchecker::{register, FS_IMMUTABLE_FL}, de::DCommandDeserializer};
     pub struct Defer<F: FnOnce()>(Option<F>);
 
     impl<F: FnOnce()> Defer<F> {
@@ -577,10 +575,9 @@ mod tests {
         assert_eq!(cmd_min, CmdMin::empty());
 
         let mut immutable = false;
-        if immutable_effective(true).is_ok() {
-            toggle_lock_config(&filename, rar_common::util::ImmutableLock::Unset).unwrap();
+        if has_privileges(&[Cap::LINUX_IMMUTABLE]).is_ok_and(|b| b) {
+            toggle_immutable_config(&filename, false).unwrap();
             immutable = true;
-            immutable_effective(false).unwrap();
         }
         let json = format!(
             r#"{{"read-only": true, "immutable": {}, "command": "{}"}}"#,
@@ -631,5 +628,24 @@ mod tests {
             assert_eq!(final_path, None);
             assert_eq!(cmd_min, CmdMin::empty());
         }
+    }
+
+    fn toggle_immutable_config(path : &impl AsRef<Path>, lock: bool) -> io::Result<()> {
+        let file = File::open(path)?;
+        let mut val = 0;
+        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if lock {
+            val |= FS_IMMUTABLE_FL;
+        } else {
+            val &= !(FS_IMMUTABLE_FL);
+        }
+        immutable_required_privileges(&file, || {
+            if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        })
     }
 }

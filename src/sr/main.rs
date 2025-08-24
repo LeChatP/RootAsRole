@@ -3,11 +3,11 @@ pub mod pam;
 mod timeout;
 
 use bon::Builder;
-use capctl::CapState;
+use capctl::{Cap, CapState};
 use const_format::formatcp;
 use finder::BestExecSettings;
 use nix::{sys::stat, unistd::isatty};
-use rar_common::util::escape_parser_string;
+use rar_common::util::{initialize_capabilities, escape_parser_string, with_privileges};
 use rar_common::{
     database::{
         actor::{SGroupType, SGroups, SUserType},
@@ -23,7 +23,7 @@ use pty_process::blocking::{Command, Pty};
 use std::{error::Error, io::stdout, os::fd::AsRawFd, path::PathBuf};
 
 use rar_common::util::{
-    activates_no_new_privs, drop_effective, setgid_effective, setpcap_effective, setuid_effective,
+    activates_no_new_privs, drop_effective,
     subsribe, BOLD, RST, UNDERLINE,
 };
 
@@ -211,6 +211,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     use finder::find_best_exec_settings;
 
     subsribe("sr")?;
+    debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
     let args = std::env::args();
     if args.len() < 2 {
@@ -235,6 +236,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>()
             .as_slice(),
     )?;
+
+    debug!("Best exec settings: {:?}", execcfg);
 
     check_auth(
         &execcfg.auth,
@@ -325,13 +328,14 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         if bounding & caps != caps {
             panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
         }
-        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+        initialize_capabilities(&[Cap::SETPCAP]).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
         let mut capstate = CapState::empty();
         if execcfg.bounding.is_strict() {
             for cap in (!caps).iter() {
                 capctl::bounding::drop(cap).expect("Failed to set bounding cap");
             }
         }
+        capstate.effective.clear();
         capstate.permitted = caps;
         capstate.inheritable = caps;
         debug!("caps : {:?}", caps);
@@ -339,34 +343,32 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
         }
-        setpcap_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     } else {
-        setpcap_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
-        if execcfg.bounding.is_strict() {
-            capctl::bounding::clear().expect("Failed to clear bounding cap");
-        }
-        capctl::ambient::clear().expect("Failed to clear ambient cap");
-        let capstate = CapState::empty();
-        capstate.set_current().expect("Failed to set current cap");
+        with_privileges(&[Cap::SETPCAP], || {
+            if execcfg.bounding.is_strict() {
+                capctl::bounding::clear().expect("Failed to clear bounding cap");
+            }
+            capctl::ambient::clear().expect("Failed to clear ambient cap");
+            let capstate = CapState::empty();
+            capstate.set_current().expect("Failed to set current cap");
+            Ok(())
+        }).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
     }
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) {
     let gid = execcfg.setgroups.as_ref().and_then(|g| g.first().cloned());
-
-    setgid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
-    setuid_effective(true).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
-    capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref())
-        .expect("Failed to set ids");
-    setgid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setgid")));
-    setuid_effective(false).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid")));
+    with_privileges(&[Cap::SETUID, Cap::SETGID], || {
+        capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref())?;
+        Ok(())
+    }).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid/setgid")));
 }
 
 #[cfg(test)]
 mod tests {
     use capctl::{Cap, CapSet};
     use libc::getgid;
-    use nix::unistd::{getuid, Pid};
+    use nix::unistd::{getgroups, getuid, Group, Pid};
     use rar_common::database::options::SBounding;
 
     use super::*;
@@ -410,8 +412,9 @@ mod tests {
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
+        let groups = getgroups().unwrap().iter().map(|g| Group::from_gid(*g).unwrap().unwrap()).collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
-        assert_eq!(user.groups[0].gid.as_raw(), gid);
+        assert_eq!(user.groups, groups);
         assert_eq!(user.ppid, Pid::parent());
     }
 

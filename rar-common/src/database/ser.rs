@@ -307,10 +307,16 @@ impl Serialize for SCommands {
     {
         if self.sub.is_empty() && self._extra_fields.is_empty() {
             if self.add.is_empty() {
-                return serializer.serialize_bool(
-                    self.default_behavior
+                return serializer.serialize_str(
+                    if self
+                        .default_behavior
                         .as_ref()
-                        .is_some_and(|b| *b == SetBehavior::All),
+                        .is_some_and(|b| *b == SetBehavior::All)
+                    {
+                        "all"
+                    } else {
+                        "none"
+                    },
                 );
             } else if !self.add.is_empty()
                 && self
@@ -535,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scommands_bool() {
+    fn test_scommands_all_none() {
         let cmds = SCommands {
             default_behavior: Some(SetBehavior::All),
             add: vec![],
@@ -543,7 +549,17 @@ mod tests {
             _extra_fields: Default::default(),
         };
         let value = to_value(&cmds).unwrap();
-        assert!(value.is_boolean());
+        assert!(value.is_string());
+        assert_eq!(value, json!("all"));
+        let cmds = SCommands {
+            default_behavior: Some(SetBehavior::None),
+            add: vec![],
+            sub: vec![],
+            _extra_fields: Default::default(),
+        };
+        let value = to_value(&cmds).unwrap();
+        assert!(value.is_string());
+        assert_eq!(value, json!("none"));
     }
 
     #[test]

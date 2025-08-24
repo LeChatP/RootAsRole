@@ -10,8 +10,8 @@ We consider that we still use the default configuration of RootAsRole. Then, let
 
 ```bash
 dosr chsr r r_root t install_apache2 add
-dosr chsr r r_root t install_apache2 cmd whitelist add apt install apache2
-dosr chsr r r_root t install_apache2 cmd whitelist add "apt upgrade( -y)? apache2"
+dosr chsr r r_root t install_apache2 cmd whitelist add /usr/sbin/apt install apache2
+dosr chsr r r_root t install_apache2 cmd whitelist add "/usr/sbin/apt ^upgrade( -y)? apache2$"
 dosr chsr r r_root t install_apache2 cred set --caps CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_NET_BIND_SERVICE,CAP_SETUID --setuid apache2 --setgid apache2
 ```
 
@@ -19,8 +19,8 @@ Then, let's add a task to start apache2 with the apache2 user:
 
 ```bash
 dosr chsr r r_root t start_apache2 add
-dosr chsr r r_root t start_apache2 cmd whitelist add "systemctl ((re)?start|stop) apache2"
-dosr chsr r r_root t start_apache2 cmd whitelist add "service apache2 ((re)?start|stop)"
+dosr chsr r r_root t start_apache2 cmd whitelist add "/usr/sbin/systemctl ^((re)?start|stop) apache2$"
+dosr chsr r r_root t start_apache2 cmd whitelist add "/usr/bin/service ^apache2 ((re)?start|stop)$"
 dosr chsr r r_root t install_apache2 cred set --caps CAP_NET_BIND_SERVICE,CAP_SETUID --setuid apache2 --setgid apache2
 ```
 

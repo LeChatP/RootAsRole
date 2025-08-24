@@ -150,10 +150,10 @@ where
 pub struct SCredentials {
     #[serde(alias = "u", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
-    pub setuid: Option<SUserChooser>,
+    pub setuid: Option<SUserEither>,
     #[serde(alias = "g", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
-    pub setgid: Option<SGroupschooser>,
+    pub setgid: Option<SGroupsEither>,
     #[serde(default, alias = "c", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
@@ -163,32 +163,32 @@ pub struct SCredentials {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum SUserChooser {
-    Actor(SUserType),
-    ChooserStruct(SSetuidSet),
+pub enum SUserEither {
+    MandatoryUser(SUserType),
+    UserSelector(SSetuidSet),
 }
 
-impl From<SUserType> for SUserChooser {
+impl From<SUserType> for SUserEither {
     fn from(actor: SUserType) -> Self {
-        SUserChooser::Actor(actor)
+        SUserEither::MandatoryUser(actor)
     }
 }
 
-impl From<SSetuidSet> for SUserChooser {
+impl From<SSetuidSet> for SUserEither {
     fn from(set: SSetuidSet) -> Self {
-        SUserChooser::ChooserStruct(set)
+        SUserEither::UserSelector(set)
     }
 }
 
-impl From<&str> for SUserChooser {
+impl From<&str> for SUserEither {
     fn from(name: &str) -> Self {
-        SUserChooser::Actor(name.into())
+        SUserEither::MandatoryUser(name.into())
     }
 }
 
-impl From<u32> for SUserChooser {
+impl From<u32> for SUserEither {
     fn from(id: u32) -> Self {
-        SUserChooser::Actor(id.into())
+        SUserEither::MandatoryUser(id.into())
     }
 }
 
@@ -230,33 +230,33 @@ pub enum SetBehavior {
 }
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum SGroupschooser {
-    Group(SGroupType),
-    Groups(SGroups),
-    StructChooser(SSetgidSet),
+pub enum SGroupsEither {
+    MandatoryGroup(SGroupType),
+    MandatoryGroups(SGroups),
+    GroupSelector(SSetgidSet),
 }
 
-impl From<SGroups> for SGroupschooser {
+impl From<SGroups> for SGroupsEither {
     fn from(group: SGroups) -> Self {
-        SGroupschooser::Groups(group)
+        SGroupsEither::MandatoryGroups(group)
     }
 }
 
-impl From<SSetgidSet> for SGroupschooser {
+impl From<SSetgidSet> for SGroupsEither {
     fn from(set: SSetgidSet) -> Self {
-        SGroupschooser::StructChooser(set)
+        SGroupsEither::GroupSelector(set)
     }
 }
 
-impl From<&str> for SGroupschooser {
+impl From<&str> for SGroupsEither {
     fn from(name: &str) -> Self {
-        SGroupschooser::Group(name.into())
+        SGroupsEither::MandatoryGroup(name.into())
     }
 }
 
-impl From<u32> for SGroupschooser {
+impl From<u32> for SGroupsEither {
     fn from(id: u32) -> Self {
-        SGroupschooser::Group(id.into())
+        SGroupsEither::MandatoryGroup(id.into())
     }
 }
 
@@ -821,11 +821,11 @@ mod tests {
             .sub(["user3".into()])
             .build();
         assert!(
-            matches!(cred.setuid.as_ref().unwrap(), SUserChooser::ChooserStruct(set) if set == &setuidstruct)
+            matches!(cred.setuid.as_ref().unwrap(), SUserEither::UserSelector(set) if set == &setuidstruct)
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroupType::from("setgid1"))
+            SGroupsEither::MandatoryGroup(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -1071,11 +1071,11 @@ mod tests {
         let cred = &as_borrow!(&role[0]).cred;
         assert_eq!(
             cred.setuid.as_ref().unwrap(),
-            &SUserChooser::from(SUserType::from("setuid1"))
+            &SUserEither::from(SUserType::from("setuid1"))
         );
         assert_eq!(
             *cred.setgid.as_ref().unwrap(),
-            SGroupschooser::Group(SGroupType::from("setgid1"))
+            SGroupsEither::MandatoryGroup(SGroupType::from("setgid1"))
         );
 
         let capabilities = cred.capabilities.as_ref().unwrap();
@@ -1105,7 +1105,7 @@ mod tests {
                             .purpose("purpose1".into())
                             .cred(
                                 SCredentials::builder()
-                                    .setuid(SUserChooser::ChooserStruct(
+                                    .setuid(SUserEither::UserSelector(
                                         SSetuidSet::builder()
                                             .fallback("user1")
                                             .default(SetBehavior::All)
@@ -1113,7 +1113,7 @@ mod tests {
                                             .sub(["user3".into()])
                                             .build(),
                                     ))
-                                    .setgid(SGroupschooser::Group(SGroupType::from("setgid1")))
+                                    .setgid(SGroupsEither::MandatoryGroup(SGroupType::from("setgid1")))
                                     .capabilities(
                                         SCapabilities::builder(SetBehavior::All)
                                             .add_cap(Cap::NET_BIND_SERVICE)

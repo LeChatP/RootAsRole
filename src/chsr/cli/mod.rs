@@ -2,21 +2,31 @@ pub(crate) mod data;
 pub(crate) mod pair;
 pub(crate) mod process;
 pub(crate) mod usage;
+#[cfg(feature = "editor")]
+pub(crate) mod editor;
 
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
 
+use bon::builder;
 use data::{Cli, Inputs, Rule};
 
+use landlock::RulesetStatus;
 use log::debug;
 use pair::recurse_pair;
 use pest::Parser;
 use process::process_input;
-use rar_common::FullSettingsFile;
+use rar_common::FullSettings;
 use usage::print_usage;
 
-use crate::util::escape_parser_string_vec;
+use crate::{cli::editor::edit_config, util::escape_parser_string_vec};
 
-pub fn main<I, S>(storage: Rc<RefCell<FullSettingsFile>>, args: I) -> Result<bool, Box<dyn Error>>
+#[builder]
+pub fn main<I, S>(
+    #[builder(start_fn)] storage: Rc<RefCell<FullSettings>>,
+    #[builder(start_fn)] args: I,
+    #[builder(default = RulesetStatus::NotEnforced)] ruleset: RulesetStatus,
+    folder: Option<&PathBuf>,
+) -> Result<bool, Box<dyn Error>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -34,6 +44,12 @@ where
         recurse_pair(pair, &mut inputs)?;
     }
     debug!("Inputs : {:?}", inputs);
+    if inputs.editor {
+        if ruleset == RulesetStatus::NotEnforced {
+            return Err("Editor mode requires landlock to be enforced.".into());
+        }
+        return edit_config(folder.unwrap(), storage.clone());
+    }
     process_input(&storage, inputs)
 }
 
@@ -50,9 +66,9 @@ mod tests {
             structs::{SCredentials, *},
             versionning::Versioning,
         },
-        get_full_settings,
+        read_full_settings,
         util::remove_with_privileges,
-        FullSettingsFile, RemoteStorageSettings, Settings, StorageMethod,
+        FullSettings, RemoteStorageSettings, SettingsContent, StorageMethod,
     };
 
     use crate::ROOTASROLE;
@@ -86,9 +102,9 @@ mod tests {
     fn setup(name: &str) -> Defer<impl FnOnce()> {
         let file_path = format!("{}.{}", ROOTASROLE, name);
         let versionned = Versioning::new(
-            FullSettingsFile::builder()
+            FullSettings::builder()
                 .storage(
-                    Settings::builder()
+                    SettingsContent::builder()
                         .method(StorageMethod::JSON)
                         .settings(
                             RemoteStorageSettings::builder()
@@ -224,7 +240,7 @@ mod tests {
                                         .cred(
                                             SCredentials::builder()
                                                 .setuid("user1")
-                                                .setgid(SGroupschooser::Groups(SGroups::from([
+                                                .setgid(SGroupsEither::MandatoryGroups(SGroups::from([
                                                     "setgid1", "setgid2",
                                                 ])))
                                                 .capabilities(
@@ -298,8 +314,9 @@ mod tests {
     fn test_all_main() {
         let _defer = setup("all_main");
         let path = format!("{}.{}", ROOTASROLE, "all_main");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), vec!["--help"],)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -307,8 +324,9 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r r1 create".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -316,8 +334,9 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete delete".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -330,8 +349,9 @@ mod tests {
     fn test_r_complete_show_actors() {
         let _defer = setup("r_complete_show_actors");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete show actors".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -339,8 +359,9 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete show tasks".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -348,8 +369,9 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete show all".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -357,9 +379,10 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(
             main(settings.clone(), "r complete purge actors".split(" "),)
+                .call()
                 .inspect_err(|e| {
                     error!("{}", e);
                 })
@@ -373,8 +396,9 @@ mod tests {
     fn test_purge_tasks() {
         let _defer = setup("purge_tasks");
         let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete purge tasks".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -387,8 +411,9 @@ mod tests {
     fn test_r_complete_purge_all() {
         let _defer = setup("r_complete_purge_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete purge all".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -404,11 +429,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete grant -u user1 -g group1 -g group2&group3".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -456,6 +482,7 @@ mod tests {
             settings.clone(),
             "r complete revoke -u user1 -g group1 -g group2&group3".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -504,11 +531,12 @@ mod tests {
     fn test_r_complete_task_t_complete_show_all() {
         let _defer = setup("r_complete_task_t_complete_show_all");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete show all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -516,11 +544,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete show cmd".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -528,11 +557,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete show cred".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -540,11 +570,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete purge all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -557,11 +588,12 @@ mod tests {
     fn test_r_complete_task_t_complete_purge_cmd() {
         let _defer = setup("r_complete_task_t_complete_purge_cmd");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete purge cmd".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -574,11 +606,12 @@ mod tests {
     fn test_r_complete_task_t_complete_purge_cred() {
         let _defer = setup("r_complete_task_t_complete_purge_cred");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete task t_complete purge cred".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -588,7 +621,7 @@ mod tests {
         .is_ok_and(|b| b));
         debug!("=====");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         let task_count = settings
             .as_ref()
             .borrow()
@@ -602,6 +635,7 @@ mod tests {
             .tasks
             .len();
         assert!(main(settings.clone(), "r complete t t1 add".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -625,6 +659,7 @@ mod tests {
             task_count + 1
         );
         assert!(main(settings.clone(), "r complete t t1 del".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -655,11 +690,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete cmd setpolicy deny-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -693,11 +729,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete cmd setpolicy allow-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -731,11 +768,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete cmd whitelist add super command with spaces".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -763,6 +801,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete cmd blacklist add super command with spaces".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -790,6 +829,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete cmd whitelist del super command with spaces".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -821,7 +861,7 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             vec![
@@ -838,6 +878,7 @@ mod tests {
                 "spaces"
             ]
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -867,9 +908,9 @@ mod tests {
     ) {
         let _defer = setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
-        )
+        ).call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1001,6 +1042,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete cred unset --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1067,11 +1109,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete cred caps setpolicy deny-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1108,11 +1151,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete cred caps setpolicy allow-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1147,8 +1191,8 @@ mod tests {
     ) {
         let _defer = setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "))
+        let settings = read_full_settings(&path).expect("Failed to get settings");
+        assert!(main(settings.clone(), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" ")).call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1219,9 +1263,10 @@ mod tests {
     ) {
         let _defer = setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
         let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1291,6 +1336,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete cred caps whitelist del cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1360,6 +1406,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete cred caps blacklist del cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1429,8 +1476,9 @@ mod tests {
     fn test_options_show_all() {
         let _defer = setup("options_show_all");
         let path = format!("{}.{}", ROOTASROLE, "options_show_all");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "options show all".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })
@@ -1438,10 +1486,11 @@ mod tests {
                 debug!("{}", e);
             })
             .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
 
         assert!(
             main(settings.clone(), "r complete options show path".split(" "),)
+                .call()
                 .inspect_err(|e| {
                     error!("{}", e);
                 })
@@ -1450,11 +1499,12 @@ mod tests {
                 })
                 .is_ok_and(|b| !b)
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete options show bounding".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1470,11 +1520,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_options_show_env"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show env".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1482,11 +1533,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show root".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1494,11 +1546,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show bounding".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1506,11 +1559,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show wildcard-denied".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1518,11 +1572,12 @@ mod tests {
             debug!("{}", e);
         })
         .is_ok_and(|b| !b));
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path set /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1538,11 +1593,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path setpolicy delete-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1581,11 +1637,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path setpolicy keep-unsafe".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1620,6 +1677,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path setpolicy keep-safe".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1655,6 +1713,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path setpolicy inherit".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1693,11 +1752,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path whitelist add /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1760,6 +1820,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path whitelist del /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1822,6 +1883,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path whitelist purge".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1859,6 +1921,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path whitelist set /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1949,6 +2012,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path blacklist set /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1961,6 +2025,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path blacklist add /tmp".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -1997,6 +2062,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o path blacklist del /usr/bin:/bin".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2140,11 +2206,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o path blacklist purge".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2160,11 +2227,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env keep-only MYVAR,VAR2".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2281,11 +2349,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env delete-only MYVAR,VAR2".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2402,11 +2471,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#.split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2508,11 +2578,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             r#"r complete t t_complete o env setlist set VAR3=value3"#.split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2524,6 +2595,7 @@ mod tests {
             settings.clone(),
             r#"r complete t t_complete o env setlist add MYVAR=value,VAR2="value2""#.split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2650,6 +2722,7 @@ mod tests {
             settings.clone(),
             r#"r complete t t_complete o env setlist del MYVAR,VAR2"#.split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2741,6 +2814,7 @@ mod tests {
             settings.clone(),
             r#"r complete t t_complete o env setlist purge"#.split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2779,11 +2853,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env setpolicy delete-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2824,11 +2899,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env setpolicy keep-all".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2869,11 +2945,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env setpolicy inherit".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2914,11 +2991,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env whitelist add MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -2983,6 +3061,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env whitelist del MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3020,6 +3099,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env whitelist set MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3088,11 +3168,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env whitelist purge".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3131,11 +3212,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env blacklist add MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3172,6 +3254,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env blacklist del MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3212,11 +3295,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env blacklist set MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3285,11 +3369,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env blacklist purge".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3328,11 +3413,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o env checklist add MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3370,6 +3456,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env checklist del MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3407,6 +3494,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env checklist set MYVAR".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3472,6 +3560,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o env checklist purge".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3510,11 +3599,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o root privileged".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3551,6 +3641,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o root user".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3587,6 +3678,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o root inherit".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3626,11 +3718,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o bounding strict".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3670,11 +3763,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o bounding ignore".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3714,11 +3808,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o bounding inherit".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3755,11 +3850,12 @@ mod tests {
     fn test_r_complete_t_t_complete_o_auth_skip() {
         let _defer = setup("r_complete_t_t_complete_o_auth_skip");
         let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o auth skip".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3796,6 +3892,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o auth perform".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3832,6 +3929,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o auth inherit".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3871,11 +3969,12 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o wildcard-denied set *".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3912,6 +4011,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o wildcard-denied add ~".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3948,6 +4048,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o wildcard-denied del *".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -3984,12 +4085,13 @@ mod tests {
             "{}.{}",
             ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
         );
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(
             settings.clone(),
             "r complete t t_complete o timeout set --type uid --duration 15:05:10 --max-usage 7"
                 .split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -4013,6 +4115,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o timeout unset --type --max-usage".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -4034,6 +4137,7 @@ mod tests {
             settings.clone(),
             "r complete t t_complete o timeout unset --type --duration --max-usage".split(" "),
         )
+        .call()
         .inspect_err(|e| {
             error!("{}", e);
         })
@@ -4049,8 +4153,9 @@ mod tests {
             let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
             assert!(bindingopt.timeout.as_ref().is_none());
         }
-        let settings = get_full_settings(&path).expect("Failed to get settings");
+        let settings = read_full_settings(&path).expect("Failed to get settings");
         assert!(main(settings.clone(), "r complete tosk".split(" "),)
+            .call()
             .inspect_err(|e| {
                 error!("{}", e);
             })

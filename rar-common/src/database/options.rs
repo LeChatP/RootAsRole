@@ -21,10 +21,6 @@ use crate::util::{
     HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3,
 };
 
-//#[cfg(feature = "finder")]
-//use super::finder::Cred;
-//#[cfg(feature = "finder")]
-//use super::finder::SecurityMin;
 use super::{
     convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher,
 };
@@ -313,7 +309,12 @@ impl Opt {
                 )
                 .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
                 .unwrap()
-                .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
+                .check(env!("RAR_ENV_CHECK_LIST").split(',').filter(|s| {
+                    #[cfg(feature = "pcre2")]
+                    return is_valid_env_name(&s) || is_regex(&s);
+                    #[cfg(not(feature = "pcre2"))]
+                    is_valid_env_name(&s)
+                }).collect::<Vec<&str>>())
                 .unwrap()
                 .delete(
                     env!("RAR_ENV_DELETE_LIST")
@@ -1271,7 +1272,10 @@ mod tests {
         assert!(!is_valid_env_name("TEST_.*"));
         assert!(!is_valid_env_name("123"));
         assert!(!is_valid_env_name(""));
+        #[cfg(feature = "pcre2")]
         assert!(is_regex("TEST_.*"));
+        #[cfg(not(feature = "pcre2"))]
+        assert!(!is_regex("TEST_.*"));
     }
 
     #[test]

@@ -79,8 +79,6 @@ fn copy_docs() -> Result<(), anyhow::Error> {
         if file.is_dir() {
             continue;
         }
-        // file = "{code}/{file}"
-        //and copy the files to "/usr/share/man/{code}/man8/{file}"
 
         let file_name = &file
             .file_name()

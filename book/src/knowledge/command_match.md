@@ -1,5 +1,14 @@
 # RootAsRole Command matching
 
+A command in a RootAsRole policy is splitted in two parts : the command path and the command arguments. 
+
+The command path is the absolute path of the executable to run. It can be exact (like `/usr/bin/ls`), or wildcarded (like `/usr/bin/*` or even `**` for every files, obviously dangerous).
+The command arguments can be either :
+* a regular expression that must start with `^` and end with `$` to match the whole arguments string (like `^-l( -a)?$` to match `-l` or `-l -a` but not `-a -l`),
+* a simple space-separated list of arguments, that is matching exactly
+
+Note that we differentiate between a command with `^.*$` and one with `^reg.*ex$` : the first one is a full regex command, while the second one is a regex command with fixed arguments. The first one is less precise than the second one. This enter to the conflict resolution algorithm explained in the next section.
+
 ## Role Conflict resolution
 
 As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm @@abedinDetectionResolutionAnomalies2006 to decide which role should be chosen :

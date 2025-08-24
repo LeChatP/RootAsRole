@@ -1,5 +1,5 @@
 cli  = { SOI ~ args ~ EOI }
-args = { help | convert_op | list | role | options_operations }
+args = { help | convert_op | list | role | editor | options_operations }
 
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
@@ -14,6 +14,7 @@ blacklist = { "blacklist" | "bl" }
 checklist = { "checklist" | "cl" }
 setlist   = { "setlist" | "sl" }
 convert   = { "convert" | "c" }
+editor    = { "editor" | "e" }
 
 all       = { "all" }
 

@@ -67,6 +67,7 @@ pub enum TimeoutOpt {
 #[derive(Debug)]
 pub struct Inputs {
     pub action: InputAction,
+    pub editor: bool,
     pub setlist_type: Option<SetListType>,
     pub timeout_arg: Option<[bool; 3]>,
     pub timeout_type: Option<TimestampType>,
@@ -110,6 +111,7 @@ impl Default for Inputs {
     fn default() -> Self {
         Inputs {
             action: InputAction::None,
+            editor: false,
             setlist_type: None,
             timeout_arg: None,
             timeout_type: None,

@@ -1,6 +1,5 @@
-use std::{fs, os::unix, process::Command};
+use std::{fs, process::Command};
 
-use anyhow::Context;
 use log::debug;
 
 use crate::{installer::Toolchain, util::change_dir_to_git_root};
@@ -35,8 +34,8 @@ pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
             .status()
             .expect("failed to clean");
     }
-    build_binary("dosr", options, vec![])?;
-    build_binary("chsr", options, vec!["--no-default-features"])?;
+    build_binary("dosr", options, vec!["--features","finder"])?;
+    build_binary("chsr", options, vec!["--features","editor"])?;
 
     build_manpages()?;
 
@@ -72,11 +71,6 @@ fn build_manpages() -> Result<(), anyhow::Error> {
     Command::new("gzip")
         .args(["target/man/dosr.8", "target/man/fr/dosr.8"])
         .status()?;
-    debug!("Making symlinks");
-    unix::fs::symlink("dosr.8.gz", "target/man/chsr.8.gz").context("Failed to create symlink")?;
-    unix::fs::symlink("dosr.8.gz", "target/man/fr/chsr.8.gz")
-        .context("Failed to create symlink")?;
-
     debug!("Manpages built");
     Ok(())
 }

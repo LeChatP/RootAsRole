@@ -450,6 +450,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 inputs.task_type = Some(TaskType::All);
             }
         }
+        Rule::editor => {
+            debug!("Editor mode enabled");
+            inputs.editor = true;
+        }
         _ => {
             debug!("Unmatched rule: {:?}", pair.as_rule());
         }

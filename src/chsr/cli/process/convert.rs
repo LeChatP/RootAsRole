@@ -8,12 +8,12 @@ use std::{
 };
 
 use log::{debug, error};
-use rar_common::{retrieve_sconfig, FullSettingsFile, StorageMethod};
+use rar_common::{retrieve_sconfig, FullSettings, StorageMethod};
 
 use crate::{cli::data::Convertion, ROOTASROLE};
 
 pub fn convert(
-    settings: &Rc<RefCell<FullSettingsFile>>,
+    settings: &Rc<RefCell<FullSettings>>,
     convertion: Convertion,
     convert_reconfigure: bool,
 ) -> Result<bool, Box<dyn Error>> {

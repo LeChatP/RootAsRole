@@ -1,4 +1,7 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf};
+/// Lossy deserializer for an optimized user access search
+use std::{
+    borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf, str::FromStr,
+};
 
 use bon::Builder;
 use capctl::CapSet;
@@ -233,7 +236,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
                     spath: self.spath,
                     env_path: self.env_path,
                 })? {
-                    roles.push(role);
+                    if let Some(role) = role {
+                        debug!("adding role {:?}", role);
+                        roles.push(role);
+                    }
                 }
                 Ok(roles)
             }
@@ -255,7 +261,7 @@ struct RoleFinderDeserializer<'a, 'b> {
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
-    type Value = DRoleFinder<'a>;
+    type Value = Option<DRoleFinder<'a>>;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -285,7 +291,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for RoleFinderVisitor<'a, '_> {
-            type Value = DRoleFinder<'a>;
+            type Value = Option<DRoleFinder<'a>>;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a role")
             }
@@ -312,7 +318,18 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                         }
                         Field::Name => {
                             debug!("RoleFinderVisitor: name");
-                            role = Some(map.next_value()?);
+                            let role_name = map.next_value()?;
+                            if self
+                                .cli
+                                .opt_filter
+                                .as_ref()
+                                .and_then(|x| x.role.as_ref())
+                                .is_some_and(|r| r != &role_name)
+                            {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
+                            }
+                            role = Some(role_name);
                         }
                         Field::Actors => {
                             debug!("RoleFinderVisitor: actors");
@@ -334,13 +351,13 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                         }
                     }
                 }
-                Ok(DRoleFinder {
+                Ok(Some(DRoleFinder {
                     user_min,
                     role: role.unwrap_or_default(),
                     tasks,
                     options,
                     _extra_values: extra_values,
-                })
+                }))
             }
         }
         const FIELDS: &[&str] = &["name", "tasks", "options"];
@@ -556,11 +573,34 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             if let Some(path) = opt.path.as_ref() {
                                 self.spath.union(path.clone().into());
                             }
+                            // skip the task if env_override is required and not allowed
+                            if self.cli.opt_filter.as_ref().is_some_and(|o| { // we have a filter
+                                o.env_behavior.as_ref().is_some_and(|_| { // the filter overrides env behavior
+                                    opt.env.as_ref().is_some_and(|e| { // the task specifies env options
+                                        e.override_behavior.is_some_and(|b| !b) // the task specifies override behavior and deny it
+                                    })
+                                })
+                                // in any other case, we cannot know if this task is valid or not (as we don't know the inherited env override value)
+                            }) {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
+                            }
                             options = Some(opt);
                         }
                         Field::Name => {
                             debug!("TaskFinderVisitor: name");
-                            id = map.next_value()?;
+                            let task_name = map.next_value()?;
+                            if self
+                                .cli
+                                .opt_filter
+                                .as_ref()
+                                .and_then(|x| x.task.as_ref())
+                                .is_some_and(|t| IdTask::Name(t.into()) != task_name)
+                            {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
+                            }
+                            id = task_name;
                         }
                         Field::Cred => {
                             debug!("TaskFinderVisitor: cred");
@@ -1263,20 +1303,28 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
                     del: Cow::Borrowed(&[]),
                 });
             }
-
-            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                return Ok(DCommandList {
-                    default_behavior: Some(if v {
-                        SetBehavior::All
-                    } else {
-                        SetBehavior::None
-                    }),
+                self.visit_str(&v)
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let set = SetBehavior::from_str(v).map_err(serde::de::Error::custom)?;
+                Ok(DCommandList {
+                    default_behavior: Some(set),
                     add: Cow::Borrowed(&[]),
                     del: Cow::Borrowed(&[]),
-                });
+                })
+            }
+            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(v)
             }
         }
         deserializer.deserialize_any(DCommandListVisitor::default())
@@ -1319,7 +1367,7 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
     type Value = bool;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("CommandList structure")
+        formatter.write_str("CommandList Deserializer structure")
     }
 
     fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -1393,6 +1441,25 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
         }
         Ok(result)
     }
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_str(&v)
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        let set = SetBehavior::from_str(v).map_err(serde::de::Error::custom)?;
+        Ok(set.is_all())
+    }
+    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_str(v)
+    }
 }
 
 pub(super) struct DCommandDeserializer<'a> {
@@ -1438,6 +1505,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
                     self.cmd_min,
                     &mut final_path,
                 );
+                debug!("DCommandVisitor: command result {:?}", cmd_min);
                 if cmd_min.better(&self.cmd_min) {
                     debug!("DCommandVisitor: better command found");
                     result = true;
@@ -1697,13 +1765,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dcommandlist_deserialize_bool() {
-        let json = "true";
+    fn test_dcommandlist_deserialize_all_or_none() {
+        let json = "\"all\"";
         let list: DCommandList = serde_json::from_str(json).unwrap();
         assert_eq!(list.default_behavior, Some(SetBehavior::All));
         assert_eq!(list.add.len(), 0);
         assert_eq!(list.del.len(), 0);
-        let json = "false";
+        let json = "\"none\"";
         let list: DCommandList = serde_json::from_str(json).unwrap();
         assert_eq!(list.default_behavior, Some(SetBehavior::None));
         assert_eq!(list.add.len(), 0);
@@ -2172,7 +2240,7 @@ mod tests {
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
-        let role = result.unwrap();
+        let role = result.unwrap().unwrap();
         assert_eq!(role.role, "r_test");
         assert_eq!(role.tasks.len(), 1);
         assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));

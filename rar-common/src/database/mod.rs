@@ -13,8 +13,6 @@ use self::options::EnvKey;
 pub mod score;
 
 pub mod actor;
-//#[cfg(feature = "finder")]
-//pub mod finder;
 pub mod de;
 pub mod migration;
 pub mod options;

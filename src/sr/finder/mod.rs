@@ -18,7 +18,7 @@ use rar_common::{
         options::{SAuthentication, SBounding, SPrivileged, STimeout},
         score::{CmdMin, CmdOrder, Score},
     },
-    util::{all_paths_from_env, open_with_privileges},
+    util::{all_paths_from_env, read_with_privileges},
     Cred, StorageMethod,
 };
 use serde::de::DeserializeSeed;
@@ -72,7 +72,7 @@ where
                 .unwrap_or_default()
                 .path
                 .ok_or("Settings file variable not found")?;
-            let file = open_with_privileges(&file_path)?;
+            let file = read_with_privileges(&file_path)?;
             let reader = BufReader::new(file); // Use BufReader for efficient streaming
             let mut io_reader = cbor4ii::core::utils::IoReader::new(reader); // Use IoReader for streaming
             Ok(BestExecSettings::retrieve_settings(
@@ -91,7 +91,7 @@ where
                 .unwrap_or_default()
                 .path
                 .ok_or("Settings file variable not found")?;
-            let file = open_with_privileges(&file_path)?;
+            let file = read_with_privileges(&file_path)?;
             let reader = BufReader::new(file);
             let io_reader = serde_json::de::IoRead::new(reader);
             Ok(BestExecSettings::retrieve_settings(
@@ -206,11 +206,14 @@ impl BestExecSettings {
                     .build();
             } else {
                 for command in commands.add() {
-                    found = self.command_settings(
+                    if self.command_settings(
                         &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                         cli,
                         &command,
-                    )?;
+                    )? {
+                        found = true;
+                        break;
+                    }
                 }
             }
             f_env_path = Some(t_env_path);
@@ -240,6 +243,7 @@ impl BestExecSettings {
             self.caps = data.caps.clone();
             opt_stack.set_role(data.role().role().options.clone());
             opt_stack.set_task(data.task().options.clone());
+            debug!("resulting settings: {:?}", self);
         }
 
         Ok(found)
@@ -290,11 +294,17 @@ impl BestExecSettings {
     }
 
     fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
+        debug!(
+            "update_command_score: current score {:?}, new score {:?}",
+            self.score.cmd_min, res
+        );
         if res.better(&self.score.cmd_min) {
+            debug!("better");
             self.score.cmd_min = res;
             self.final_path = final_path;
             true
         } else {
+            debug!("not better");
             false
         }
     }

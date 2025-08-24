@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use rar_common::{
     database::options::{STimeout, TimestampType},
     util::{
-        create_dir_all_with_privileges, create_with_privileges, open_with_privileges,
+        create_dir_all_with_privileges, create_with_privileges, read_with_privileges,
         remove_with_privileges,
     },
     Cred,
@@ -94,7 +94,7 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
     let retry_interval = time::Duration::from_secs(1);
     let pid_contents: pid_t;
     if lockfile_path.exists() {
-        if let Ok(mut lockfile) = open_with_privileges(lockfile_path) {
+        if let Ok(mut lockfile) = read_with_privileges(lockfile_path) {
             let mut be: [u8; 4] = [u8::MAX; 4];
             if lockfile.read_exact(&mut be).is_err() {
                 debug!(
@@ -172,7 +172,7 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
     }
     wait_for_lockfile(&lockpath)?;
     write_lockfile(&lockpath);
-    let mut file = open_with_privileges(&path)?;
+    let mut file = read_with_privileges(&path)?;
     let reader = BufReader::new(&mut file);
     let res = cbor4ii::serde::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
     Ok(res)

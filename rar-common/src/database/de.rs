@@ -1,4 +1,5 @@
 use core::fmt;
+use std::str::FromStr;
 
 use serde::Deserialize;
 
@@ -248,6 +249,18 @@ impl<'de> Deserialize<'de> for SCommands {
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("a string or a number")
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+                where
+                    E: de::Error, {
+                let set = SetBehavior::from_str(&v).map_err(de::Error::custom)?;
+                Ok(SCommands {
+                    default_behavior: Some(set),
+                    add: Vec::new(),
+                    sub: Vec::new(),
+                    _extra_fields: Map::new(),
+                })
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>

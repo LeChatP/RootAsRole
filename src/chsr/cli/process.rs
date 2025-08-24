@@ -12,7 +12,7 @@ use rar_common::{
         options::{Opt, OptType},
         structs::{IdTask, RoleGetter},
     },
-    FullSettingsFile,
+    FullSettings,
 };
 
 use super::{
@@ -21,7 +21,7 @@ use super::{
 };
 
 pub fn process_input(
-    storage: &Rc<RefCell<FullSettingsFile>>,
+    storage: &Rc<RefCell<FullSettings>>,
     inputs: Inputs,
 ) -> Result<bool, Box<dyn Error>> {
     let binding = storage.as_ref().borrow();

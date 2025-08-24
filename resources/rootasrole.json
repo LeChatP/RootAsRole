@@ -1,5 +1,5 @@
 {
-    "version": "3.1.0",
+    "version": "3.2.0",
     "storage": {
         "method": "json",
         "settings": {
@@ -51,7 +51,7 @@
                 "TERM",
                 "TZ"
             ],
-            "delete" : [
+            "delete": [
                 "PS4",
                 "SHELLOPTS",
                 "PERLLIB",
@@ -88,15 +88,18 @@
                             "fallback": "root",
                             "default": "all"
                         },
-                        "setgid": "root",
+                        "setgid": {
+                            "fallback": "root",
+                            "default": "all"
+                        },
                         "capabilities": {
                             "default": "all",
-                            "sub": ["CAP_LINUX_IMMUTABLE"]
+                            "sub": [
+                                "CAP_LINUX_IMMUTABLE"
+                            ]
                         }
                     },
-                    "commands": {
-                        "default": "all"
-                    },
+                    "commands": "all",
                     "options": {
                         "env": {
                             "override_behavior": true
@@ -109,14 +112,13 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
-                    },
-                    "commands": {
-                        "default": "none",
-                        "add": [
-                            "/usr/bin/chsr .*"
+                        "capabilities": [
+                            "CAP_LINUX_IMMUTABLE"
                         ]
-                    }
+                    },
+                    "commands": [
+                        "/usr/bin/chsr ^.*$"
+                    ]
                 }
             ]
         }

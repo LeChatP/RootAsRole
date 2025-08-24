@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::{debug, info, warn};
 use rar_common::{
     database::score::{CmdMin, CmdOrder},
     util::{all_paths_from_env, match_single_path},
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 fn match_path(
     env_path: &[&str],
-    cmd_path: &PathBuf,
+    user_path: &PathBuf,
     role_path: &String,
     previous_min: &CmdMin,
     final_path: &mut Option<PathBuf>,
@@ -17,14 +17,17 @@ fn match_path(
             .matching()
             .order(CmdOrder::FullWildcardPath)
             .build();
-    } else if cmd_path.is_absolute() {
-        let min = match_single_path(cmd_path, role_path);
+    } else if user_path.is_absolute() {
+        debug!("match_path: user absolute path");
+        let min = match_single_path(user_path, role_path);
         if min.better(&previous_min) {
-            *final_path = Some(cmd_path.clone());
+            info!("match_path: found better match {:?}", min);
+            *final_path = Some(user_path.clone());
         }
         return min;
     } else {
-        all_paths_from_env(env_path, cmd_path)
+        debug!("match_path: user relative path");
+        all_paths_from_env(env_path, user_path)
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
@@ -93,27 +96,31 @@ fn evaluate_regex_cmd(
 /// Check if input command line is matching with role command line and return the score
 fn match_command_line(
     env_path: &[&str],
-    cmd_path: &PathBuf,
-    cmd_args: &[String],
+    user_path: &PathBuf,
+    user_args: &[String],
     role_command: &[String],
     previous_min: &CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
+    debug!(
+        "match_command_line: env_path={:?}, user_path={:?}, user_args={:?}, role_command={:?}, previous_min={:?}, final_path={:?}",
+        env_path, user_path, user_args, role_command, previous_min, final_path
+    );
     if role_command.is_empty() {
         return CmdMin::empty();
     }
     let mut result = match_path(
         env_path,
-        &cmd_path,
+        &user_path,
         &role_command[0],
         previous_min,
         final_path,
     );
     if result.is_empty() || role_command.len() == 1 {
-        debug!("result : {:?}", result);
+        debug!("preresult : {:?}", result);
         return result;
     }
-    match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
+    match match_args(user_args, &shell_words::join(&role_command[1..])) {
         Ok(args_result) => {
             if args_result.is_empty() {
                 return CmdMin::empty();
@@ -125,6 +132,7 @@ fn match_command_line(
             return CmdMin::empty();
         }
     }
+    debug!("result : {:?}", result);
     result
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "rootasrole-core"
-version = "3.1.4"
+version = "3.2.0"
 edition = "2021"
 description = "This core crate for the RootAsRole project."
 license = "LGPL-3.0-or-later"
@@ -44,8 +44,10 @@ serde = { version = "1.0", features=["rc", "derive"] }
 serde_json = "1.0"
 
 [features]
+default = ["pcre2", "glob"]
 pcre2 = ["dep:pcre2"]
-finder = ["dep:glob"]
+glob = ["dep:glob"]
+finder = ["pcre2", "glob"]
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }

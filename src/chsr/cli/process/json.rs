@@ -11,7 +11,7 @@ use rar_common::database::{
         STimeout,
     },
     structs::{
-        IdTask, RoleGetter, SCapabilities, SCommand, SGroupschooser, SRole, STask, SUserChooser,
+        IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
     },
 };
 
@@ -322,11 +322,11 @@ pub fn cred_set(
                 task.as_ref().borrow_mut().cred.capabilities = Some(SCapabilities::from(caps));
             }
             if let Some(setuid) = cred_setuid {
-                task.as_ref().borrow_mut().cred.setuid = Some(SUserChooser::Actor(setuid));
+                task.as_ref().borrow_mut().cred.setuid = Some(SUserEither::MandatoryUser(setuid));
             }
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid =
-                    Some(SGroupschooser::Groups(setgid.clone()));
+                    Some(SGroupsEither::MandatoryGroups(setgid.clone()));
             }
             Ok(true)
         }

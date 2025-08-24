@@ -1,7 +1,7 @@
 use std::{
     error::Error,
-    fs::File,
-    io,
+    fs::{File, OpenOptions},
+    io::{self, Write},
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
 };
@@ -11,8 +11,8 @@ use capctl::{Cap, CapSet, ParseCapError};
 
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
+use nix::{fcntl::{Flock, FlockArg}};
 use serde::Serialize;
-use strum::EnumIs;
 
 #[cfg(feature = "finder")]
 use crate::database::score::CmdMin;
@@ -61,65 +61,65 @@ macro_rules! rc_refcell {
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
-#[derive(Debug, EnumIs)]
-pub enum ImmutableLock {
-    Set,
-    Unset,
-}
-
-fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), capctl::Error> {
-    //get file owner
-    let metadata = file.metadata().unwrap();
+pub fn immutable_required_privileges<F, R>(file: &File, f: F) -> Result<R, std::io::Error>
+where
+    F: FnOnce() -> Result<R, std::io::Error>,
+{
+    let metadata = file.metadata()?;
     let uid = metadata.uid();
     let gid = metadata.gid();
-    immutable_effective(effective)?;
-    // check if the current user is the owner
-    if nix::unistd::Uid::effective() != nix::unistd::Uid::from_raw(uid)
-        && nix::unistd::Gid::effective() != nix::unistd::Gid::from_raw(gid)
+    let effective_uid = nix::unistd::Uid::effective();
+    let effective_gid = nix::unistd::Gid::effective();
+
+    let caps = if effective_uid != nix::unistd::Uid::from_raw(uid)
+        && effective_gid != nix::unistd::Gid::from_raw(gid)
     {
-        read_or_dac_override(effective)?;
-        fowner_effective(effective)?;
-    }
-    Ok(())
-}
-
-fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
-    match effective {
-        false => {
-            read_effective(false).and(dac_override_effective(false))?;
-        }
-        true => {
-            read_effective(true).or(dac_override_effective(true))?;
-        }
-    }
-    Ok(())
-}
-
-/// Set or unset the immutable flag on a file
-/// # Arguments
-/// * `file` - The file to set the immutable flag on
-/// * `lock` - Whether to set or unset the immutable flag
-pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
-    let file = open_with_privileges(file)?;
-    let mut val = 0;
-    let fd = file.as_raw_fd();
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if lock.is_unset() {
-        val &= !(FS_IMMUTABLE_FL);
+        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
     } else {
-        val |= FS_IMMUTABLE_FL;
-    }
-    debug!("Setting immutable privilege");
+        vec![Cap::LINUX_IMMUTABLE]
+    };
+    with_privileges(&caps, f)
+}
 
-    immutable_required_privileges(&file, true)?;
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error());
+
+pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
+    let mut val = 0;
+    if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
     }
-    debug!("Resetting immutable privilege");
-    immutable_required_privileges(&file, false)?;
-    Ok(())
+    Ok(FS_IMMUTABLE_FL != 0) 
+}
+
+/// Perform a writing operation on a writable opened file descriptor with the immutable flag set
+/// The function will temporarily remove the immutable flag, perform the operation and set it back
+pub fn with_mutable_config<F, R>(file: &mut File, f: F) -> Result<R, std::io::Error>
+where
+    F: FnOnce(&mut File) -> io::Result<R>,
+{
+    let mut val = 0;
+    if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if val & FS_IMMUTABLE_FL != 0 {
+        val &= !(FS_IMMUTABLE_FL);
+        immutable_required_privileges(file, || {
+            if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        })?;
+    } else {
+        warn!("Config file was not immutable.");
+    }
+    let res = f(file);
+    val |= FS_IMMUTABLE_FL;
+    immutable_required_privileges(file, || {
+        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    })?;
+    res.map_err(|e| e.into())
 }
 
 pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Error>> {
@@ -176,6 +176,17 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
+pub fn definitive_drop(needed: &[Cap]) -> Result<(), capctl::Error> {
+    let capset = !CapSet::from_iter(needed.iter().cloned());
+    capctl::ambient::clear()?;
+    let mut current = CapState::get_current()?;
+    current.permitted -= capset;
+    current.inheritable.clear();
+    current.effective.clear();
+    current.set_current()?;
+    Ok(())
+}
+
 pub fn escape_parser_string<S>(s: S) -> String
 where
     S: AsRef<str>,
@@ -207,7 +218,6 @@ pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec
 
 #[cfg(feature = "finder")]
 pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
-    use glob::Pattern;
     if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
         // the files could not be the same
         return CmdMin::default();
@@ -216,11 +226,17 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     debug!("Matching path {:?} with {:?}", cmd_path, role_path);
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
-    } else if let Ok(pattern) = Pattern::new(role_path) {
-        if pattern.matches_path(&cmd_path) {
-            use crate::database::score::CmdOrder;
+    } else {
+        #[cfg(feature = "glob")]
+        {
+            use glob::Pattern;
+            if let Ok(pattern) = Pattern::new(role_path) {
+                if pattern.matches_path(&cmd_path) {
+                    use crate::database::score::CmdOrder;
 
-            match_status.union_order(CmdOrder::WildcardPath);
+                    match_status.union_order(CmdOrder::WildcardPath);
+                }
+            }
         }
     }
     if !match_status.matching() {
@@ -231,36 +247,6 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     }
     match_status
 }
-
-/*
-pub fn all_paths_from_env<P: AsRef<Path>>(exe_name: P) -> impl Iterator<Item = PathBuf> {
-    env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| {
-            env::split_paths(&path).collect::<Vec<_>>()
-        })
-        .filter_map(move |dir| {
-            let full_path = dir.join(&exe_name);
-            debug!("Checking path: {:?}", full_path);
-            if full_path.is_file() {
-                Some(full_path)
-            } else {
-                None
-            }
-        })
-}
-
-pub fn first_path<P>(path: P) -> PathBuf
-where
-    P: AsRef<Path>, {
-    if let Some(path) = all_paths_from_env(&path).next() {
-        path
-    }else if let Ok(canon_path) = std::fs::canonicalize(&path) {
-        canon_path
-    } else {
-        path.as_ref().to_path_buf()
-    }
-}*/
 
 #[cfg(debug_assertions)]
 pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
@@ -280,129 +266,129 @@ pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn drop_effective() -> Result<(), capctl::Error> {
-    let mut current = CapState::get_current()?;
+    stated_drop_effective(CapState::get_current()?)
+}
+
+pub fn stated_drop_effective(mut current: CapState) -> Result<(), capctl::Error> {
     current.effective.clear();
     current.set_current()
 }
 
-pub fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
+pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     let mut current = CapState::get_current()?;
-    current.effective.set_state(cap, enable);
-    current.set_current()
+    current.effective.add_all(cap.iter().cloned());
+    current.set_current()?;
+    return Ok(current);
 }
 
-pub fn setpcap_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETPCAP, enable)
+pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> Result<R, std::io::Error>
+where
+    F: FnOnce() -> Result<R, std::io::Error>,
+{
+    let state = initialize_capabilities(cap)?;
+    let res = f();
+    stated_drop_effective(state)?;
+    res
 }
 
-pub fn setuid_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETUID, enable)
-}
-
-pub fn setgid_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::SETGID, enable)
-}
-
-pub fn fowner_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::FOWNER, enable)
-}
-
-pub fn read_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::DAC_READ_SEARCH, enable)
-}
-
-pub fn dac_override_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::DAC_OVERRIDE, enable)
-}
-
-pub fn immutable_effective(enable: bool) -> Result<(), capctl::Error> {
-    cap_effective(Cap::LINUX_IMMUTABLE, enable)
+pub fn has_privileges(cap: &[Cap]) -> Result<bool, capctl::Error> {
+    let current = CapState::get_current()?;
+    Ok(cap.iter().all(|c| current.permitted.has(*c)))
 }
 
 pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }
 
-pub fn write_json_config<T: Serialize, S>(settings: &T, path: S) -> Result<(), Box<dyn Error>>
-where
-    S: std::convert::AsRef<Path> + Clone,
-{
-    let file = create_with_privileges(path)?;
+pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+    
     serde_json::to_writer_pretty(file, &settings)?;
     Ok(())
 }
 
-pub fn write_cbor_config<T: Serialize, S>(settings: &T, path: S) -> Result<(), Box<dyn Error>>
-where
-    S: std::convert::AsRef<Path> + Clone,
-{
-    let file = create_with_privileges(path)?;
-    cbor4ii::serde::to_writer(file, &settings)?;
-    Ok(())
+pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+    cbor4ii::serde::to_writer(file, &settings).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to write cbor config: {}", e),
+        )
+    })
 }
 
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
     std::fs::File::create(&p).or_else(|e| {
-        debug!(
-            "Error creating file without privilege, trying with privileges: {}",
-            e
-        );
-        dac_override_effective(true)?;
-        let res = std::fs::File::create(p).inspect_err(|e| {
-            debug!(
-                "Error creating file without privilege, trying with privileges: {}",
-                e
-            );
-        });
-        dac_override_effective(false)?;
-        res
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            return Err(e);
+        }
+        with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::File::create(p))
     })
 }
 
-pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
+pub fn open_lock_with_privileges<P: AsRef<Path>>(
+    p: P,
+    options: OpenOptions,
+    lock: FlockArg,
+) -> Result<Flock<File>, std::io::Error> {
+    options
+        .open(&p)
+        .or_else(|e| {
+            if e.kind() != std::io::ErrorKind::PermissionDenied {
+                return Err(e);
+            }
+            debug!("Permission denied while opening file, retrying with privileges",);
+            with_privileges(&[Cap::DAC_READ_SEARCH], || options.open(&p)).or_else(|e| {
+                if e.kind() != std::io::ErrorKind::PermissionDenied {
+                    return Err(e);
+                }
+                with_privileges(&[Cap::DAC_OVERRIDE], || options.open(&p))
+            })
+        })
+        .and_then(|file| {
+            Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?)
+        })
+}
+
+pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
     std::fs::File::open(&p).or_else(|e| {
-        debug!(
-            "Error creating file without privilege, trying with privileges: {}",
-            e
-        );
-        read_effective(true).or(dac_override_effective(true))?;
-        let res = std::fs::File::open(p);
-        read_effective(false)?;
-        dac_override_effective(false)?;
-        res
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            return Err(e);
+        }
+        debug!("Permission denied while opening file, retrying with privileges",);
+        with_privileges(&[Cap::DAC_READ_SEARCH], || std::fs::File::open(&p)).or_else(|e| {
+            if e.kind() != std::io::ErrorKind::PermissionDenied {
+                return Err(e);
+            }
+            with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::File::open(&p))
+        })
     })
 }
 
 pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
     std::fs::remove_file(&p).or_else(|e| {
-        debug!(
-            "Error creating file without privilege, trying with privileges: {}",
-            e
-        );
-        dac_override_effective(true)?;
-        let res = std::fs::remove_file(p);
-        dac_override_effective(false)?;
-        res
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            return Err(e);
+        }
+        debug!("Permission denied while removing file, retrying with privileges",);
+        with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::remove_file(&p))
     })
 }
 
 pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
     std::fs::create_dir_all(&p).or_else(|e| {
-        debug!(
-            "Error creating file without privilege, trying with privileges: {}",
-            e
-        );
-        dac_override_effective(true)?;
-        let res = std::fs::create_dir_all(p);
-        read_effective(false)?;
-        dac_override_effective(false)?;
-        res
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            return Err(e);
+        }
+        debug!("Permission denied while creating directory, retrying with privileges",);
+        with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::create_dir_all(p))
     })
 }
 
 #[cfg(test)]
 mod test {
-    use std::fs;
+    use std::{
+        fs,
+        io::{ErrorKind, Write},
+    };
 
     use super::*;
 
@@ -499,46 +485,39 @@ mod test {
     }
 
     #[test]
-    fn test_toggle_lock_config() {
+    fn test_with_mutable_config() {
+        let current = CapState::get_current().expect("Failed to get current capabilities");
+        if current.permitted.has(Cap::LINUX_IMMUTABLE) == false {
+            eprintln!("Skipping test, requires CAP_LINUX_IMMUTABLE");
+            return;
+        }
         let path = PathBuf::from("/tmp/rar_test_lock_config.lock");
         let _defer = defer(|| {
             // Clean up the test file after the test is done
             let _ = fs::remove_file(&path);
         });
-        let file = File::create(&path).expect("Failed to create file");
-        let res = toggle_lock_config(&path, ImmutableLock::Set);
-        let status = fs::read_to_string("/proc/self/status").unwrap();
-        let capeff = status
-            .lines()
-            .find(|line| line.starts_with("CapEff:"))
-            .expect("Failed to find CapEff line");
-        let effhex = capeff
-            .split(':')
-            .last()
-            .expect("Failed to get effective capabilities")
-            .trim();
-        let eff = u64::from_str_radix(effhex, 16).expect("Failed to parse effective capabilities");
-        if eff & ((1 << Cap::LINUX_IMMUTABLE as u8) as u64) != 0 {
-            assert!(res.is_ok());
-        } else {
-            assert!(res.is_err());
-            // stop test
-            return;
-        }
-        let mut val = 0;
-        let fd = file.as_raw_fd();
-        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-            panic!("Failed to get flags");
-        }
-        assert_eq!(val & FS_IMMUTABLE_FL, FS_IMMUTABLE_FL);
-        //test to write on file
-        let file = File::create(&path);
-        assert!(file.is_err());
-        let res = toggle_lock_config(&path, ImmutableLock::Unset);
-        assert!(res.is_ok());
-        let file = File::create(&path);
-        assert!(file.is_ok());
-        let res = fs::remove_file(&path);
-        assert!(res.is_ok());
+        let mut file = File::create(&path).expect("Failed to create file");
+        assert!(with_privileges(&[Cap::LINUX_IMMUTABLE], || {
+            let mut val = 0;
+            assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0);
+            val &= !(FS_IMMUTABLE_FL);
+            immutable_required_privileges(&file, || {
+                if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            })
+        })
+        .and_then(|_| {
+            assert_eq!(
+                File::create(&path).unwrap_err().kind(),
+                ErrorKind::PermissionDenied
+            );
+            with_mutable_config(&mut file, |file| {
+                file.write(b"Test content")?;
+                Ok(())
+            })
+        })
+        .is_ok());
     }
 }
