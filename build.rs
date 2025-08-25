@@ -42,7 +42,10 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     for line in lines {
         if line.starts_with("# RootAsRole (V") {
             let mut s = line.split("(V").next().unwrap().to_string();
-            let end = line.split(')').skip(1).fold(String::new(), |acc, x| acc + ")" + x);
+            let end = line
+                .split(')')
+                .skip(1)
+                .fold(String::new(), |acc, x| acc + ")" + x);
             s.push_str(&format!("(V{}{}", package_version, end));
             writeln!(readme, "{}", s)?;
         } else {

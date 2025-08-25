@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::error::Error;
 use std::{borrow::Cow, collections::HashMap};
 
 use bon::{bon, builder, Builder};
@@ -21,8 +20,9 @@ use pcre2::bytes::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use log::debug;
+use log::{debug, error};
 
+use crate::error::{SrError, SrResult};
 use crate::Cred;
 
 use super::de::DLinkedTask;
@@ -291,9 +291,12 @@ impl<'a> DEnvOptions<'a> {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
         target: &Cred,
-    ) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
-            EnvBehavior::Inherit => Err("Internal Error with environment behavior".to_string()),
+            EnvBehavior::Inherit => {
+                error!("Internal Error with environment behavior");
+                Err(SrError::ConfigurationError)
+            }
             EnvBehavior::Delete => Ok(env_vars
                 .into_iter()
                 .filter_map(|(key, value)| {

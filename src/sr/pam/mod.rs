@@ -1,4 +1,4 @@
-use std::{error::Error, ffi::CStr, ops::Deref};
+use std::{ffi::CStr, ops::Deref};
 
 use log::{debug, error, info, warn};
 use nonstick::{
@@ -7,7 +7,10 @@ use nonstick::{
 };
 use pcre2::bytes::RegexBuilder;
 
-use crate::timeout;
+use crate::{
+    error::{SrError, SrResult},
+    timeout,
+};
 use rar_common::{
     database::options::{SAuthentication, STimeout},
     Cred,
@@ -128,7 +131,7 @@ pub(super) fn check_auth(
     timeout: &STimeout,
     user: &Cred,
     prompt: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> SrResult<()> {
     if authentication.is_skip() {
         warn!("Skipping authentication, this is a security risk!");
         return Ok(());
@@ -139,10 +142,23 @@ pub(super) fn check_auth(
         let conv = SrConversationHandler::new(prompt);
         let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
             .username(&user.user.name)
-            .build(conv.into_conversation())?;
-        txn.authenticate(AuthnFlags::SILENT)?;
-        txn.account_management(AuthnFlags::SILENT)?;
+            .build(conv.into_conversation())
+            .map_err(|e| {
+                error!("Failed to create PAM transaction: {}", e);
+                SrError::SystemError
+            })?;
+        txn.authenticate(AuthnFlags::SILENT).map_err(|e| {
+            error!("Authentication failed: {}", e);
+            SrError::AuthenticationFailed
+        })?;
+        txn.account_management(AuthnFlags::SILENT).map_err(|e| {
+            error!("Account management failed: {}", e);
+            SrError::AuthenticationFailed
+        })?;
     }
-    timeout::update_cookie(user, user, &timeout)?;
+    timeout::update_cookie(user, user, &timeout).map_err(|e| {
+        error!("Failed to update timeout cookie: {}", e);
+        SrError::SystemError
+    })?;
     Ok(())
 }

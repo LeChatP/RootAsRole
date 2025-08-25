@@ -1,13 +1,15 @@
 use std::{
     collections::HashSet,
-    error::Error,
     hash::{DefaultHasher, Hash, Hasher},
 };
 
-use log::error;
-use serde_json_borrow::Value;
+use log::debug;
+use serde_json::Value;
 
-use crate::finder::de::DLinkedRole;
+use crate::{
+    error::{SrError, SrResult},
+    finder::de::DLinkedRole,
+};
 
 use super::{Api, ApiEvent};
 
@@ -17,13 +19,10 @@ fn calculate_hash<T: Hash>(value: &T) -> u64 {
     hasher.finish()
 }
 
-fn check_ssd_recursive(
-    role: &DLinkedRole,
-    visited: &mut HashSet<u64>,
-) -> Result<bool, Box<dyn Error>> {
+fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResult<bool> {
     if let Some(Value::Array(ssd)) = role.role()._extra_values.get("ssd") {
         for ssd in ssd.iter() {
-            if let Value::Str(ssd) = ssd {
+            if let Value::String(ssd) = ssd {
                 if visited.contains(&calculate_hash(ssd)) {
                     continue; // Avoid infinite recursion
                 }
@@ -38,7 +37,7 @@ fn check_ssd_recursive(
                 }
             }
         }
-    } else if let Some(Value::Str(ssd)) = role.role()._extra_values.get("ssd") {
+    } else if let Some(Value::String(ssd)) = role.role()._extra_values.get("ssd") {
         if visited.contains(&calculate_hash(ssd)) {
             return Ok(false); // Avoid infinite recursion
         }
@@ -51,14 +50,14 @@ fn check_ssd_recursive(
                 return Ok(true);
             }
         }
-    } else if let Some(_) = role.role()._extra_values.get("ssd") {
-        error!("Invalid SSD value");
-        return Err("Invalid SSD value".into());
+    } else if let Some(e) = role.role()._extra_values.get("ssd") {
+        debug!("Invalid SSD value: {:?}", e);
+        return Err(SrError::ConfigurationError);
     }
     Ok(false)
 }
 
-fn check_ssd(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
+fn check_ssd(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::ActorMatching(role, _settings, matching) = event {
         if role.role().user_min.matching() {
             let mut visited: HashSet<u64> = HashSet::new();

@@ -1113,7 +1113,9 @@ mod tests {
                                             .sub(["user3".into()])
                                             .build(),
                                     ))
-                                    .setgid(SGroupsEither::MandatoryGroup(SGroupType::from("setgid1")))
+                                    .setgid(SGroupsEither::MandatoryGroup(SGroupType::from(
+                                        "setgid1",
+                                    )))
                                     .capabilities(
                                         SCapabilities::builder(SetBehavior::All)
                                             .add_cap(Cap::NET_BIND_SERVICE)

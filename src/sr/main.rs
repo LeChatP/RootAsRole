@@ -1,3 +1,4 @@
+mod error;
 mod finder;
 pub mod pam;
 mod timeout;
@@ -7,7 +8,7 @@ use capctl::{Cap, CapState};
 use const_format::formatcp;
 use finder::BestExecSettings;
 use nix::{sys::stat, unistd::isatty};
-use rar_common::util::{initialize_capabilities, escape_parser_string, with_privileges};
+use rar_common::util::{escape_parser_string, initialize_capabilities, with_privileges};
 use rar_common::{
     database::{
         actor::{SGroupType, SGroups, SUserType},
@@ -20,12 +21,12 @@ use rar_common::{
 use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-use std::{error::Error, io::stdout, os::fd::AsRawFd, path::PathBuf};
+use std::{io::stdout, os::fd::AsRawFd, path::PathBuf};
 
-use rar_common::util::{
-    activates_no_new_privs, drop_effective,
-    subsribe, BOLD, RST, UNDERLINE,
-};
+use rar_common::util::{activates_no_new_privs, drop_effective, subsribe, BOLD, RST, UNDERLINE};
+
+use crate::error::SrError;
+use crate::error::SrResult;
 
 #[cfg(not(test))]
 const ROOTASROLE: &str = env!("RAR_CFG_PATH");
@@ -121,7 +122,7 @@ fn cap_effective_error(caplist: &str) -> String {
     )
 }
 
-fn getopt<S, I>(s: I) -> Result<Cli, Box<dyn Error>>
+fn getopt<S, I>(s: I) -> SrResult<Cli>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -180,7 +181,8 @@ where
             }
             _ => {
                 if arg.as_ref().starts_with('-') {
-                    return Err(format!("Unknown option: {}", arg.as_ref()).into());
+                    error!("Unknown option: {}", arg.as_ref());
+                    return Err(SrError::InvalidAgruments);
                 } else {
                     args.cmd_path = arg.as_ref().into();
                     break;
@@ -193,8 +195,16 @@ where
             .maybe_role(role)
             .maybe_task(task)
             .maybe_env_behavior(env)
-            .maybe_user(user)?
-            .maybe_group(group)?
+            .maybe_user(user)
+            .map_err(|e| {
+                error!("Error parsing user: {}", e);
+                SrError::InvalidAgruments
+            })?
+            .maybe_group(group)
+            .map_err(|e| {
+                error!("Error parsing group: {}", e);
+                SrError::InvalidAgruments
+            })?
             .build(),
     );
     for arg in iter {
@@ -204,7 +214,7 @@ where
 }
 
 #[cfg(not(tarpaulin_include))]
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> SrResult<()> {
     use std::env;
 
     use crate::{pam::check_auth, ROOTASROLE};
@@ -277,9 +287,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     debug!("setuid : {:?}", execcfg.setuid);
 
-    setuid_setgid(&execcfg);
+    setuid_setgid(&execcfg)?;
 
-    set_capabilities(&execcfg);
+    set_capabilities(&execcfg)?;
 
     let pty = Pty::new().expect("Failed to create pty");
 
@@ -320,15 +330,17 @@ fn make_cred() -> Cred {
         .build();
 }
 
-fn set_capabilities(execcfg: &BestExecSettings) {
+fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
     //set capabilities
     if let Some(caps) = execcfg.caps {
         // case where capabilities are more than bounding set
         let bounding = capctl::bounding::probe();
         if bounding & caps != caps {
-            panic!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+            error!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+            return Err(SrError::InsufficientPrivileges);
         }
-        initialize_capabilities(&[Cap::SETPCAP]).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+        initialize_capabilities(&[Cap::SETPCAP])
+            .inspect_err(|_| error!("{}", cap_effective_error("setpcap")))?;
         let mut capstate = CapState::empty();
         if execcfg.bounding.is_strict() {
             for cap in (!caps).iter() {
@@ -343,6 +355,7 @@ fn set_capabilities(execcfg: &BestExecSettings) {
         for cap in caps.iter() {
             capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
         }
+        Ok(())
     } else {
         with_privileges(&[Cap::SETPCAP], || {
             if execcfg.bounding.is_strict() {
@@ -352,16 +365,25 @@ fn set_capabilities(execcfg: &BestExecSettings) {
             let capstate = CapState::empty();
             capstate.set_current().expect("Failed to set current cap");
             Ok(())
-        }).unwrap_or_else(|_| panic!("{}", cap_effective_error("setpcap")));
+        })
+        .or_else(|_| {
+            error!("{}", cap_effective_error("setpcap"));
+            Err(SrError::InsufficientPrivileges)
+        })?;
+        Ok(())
     }
 }
 
-fn setuid_setgid(execcfg: &BestExecSettings) {
+fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
     let gid = execcfg.setgroups.as_ref().and_then(|g| g.first().cloned());
     with_privileges(&[Cap::SETUID, Cap::SETGID], || {
         capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref())?;
         Ok(())
-    }).unwrap_or_else(|_| panic!("{}", cap_effective_error("setuid/setgid")));
+    })
+    .map_err(|e| {
+        error!("{}", cap_effective_error("setuid/setgid"));
+        e.into()
+    })
 }
 
 #[cfg(test)]
@@ -412,7 +434,11 @@ mod tests {
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
-        let groups = getgroups().unwrap().iter().map(|g| Group::from_gid(*g).unwrap().unwrap()).collect::<Vec<_>>();
+        let groups = getgroups()
+            .unwrap()
+            .iter()
+            .map(|g| Group::from_gid(*g).unwrap().unwrap())
+            .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
         assert_eq!(user.groups, groups);
         assert_eq!(user.ppid, Pid::parent());
@@ -429,7 +455,7 @@ mod tests {
             let mut execcfg = BestExecSettings::default();
             execcfg.setuid = Some(1000);
             execcfg.setgroups = Some(vec![1000]);
-            setuid_setgid(&execcfg);
+            setuid_setgid(&execcfg).unwrap();
             assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
             if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {
                 assert_eq!(unsafe { getgid() }, *gid);
@@ -454,7 +480,7 @@ mod tests {
             capset.add(Cap::SETGID);
             capset.add(Cap::SETPCAP);
             execcfg.caps = Some(capset);
-            set_capabilities(&execcfg);
+            set_capabilities(&execcfg).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(capset.permitted.has(Cap::SETUID));
             assert!(capset.permitted.has(Cap::SETGID));
@@ -470,7 +496,7 @@ mod tests {
             assert!(capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
             execcfg.caps = None;
             execcfg.bounding = SBounding::Strict;
-            set_capabilities(&execcfg);
+            set_capabilities(&execcfg).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(!capset.permitted.has(Cap::SETUID));
             assert!(!capset.permitted.has(Cap::SETGID));

@@ -229,8 +229,8 @@ impl Serialize for FullSettings {
             map.serialize_entry("storage", &self.storage)?;
             // Flatten config fields into the main object
             if let Some(config) = &self.config {
-                let config_value = serde_json::to_value(&*config.borrow())
-                    .map_err(serde::ser::Error::custom)?;
+                let config_value =
+                    serde_json::to_value(&*config.borrow()).map_err(serde::ser::Error::custom)?;
                 if let serde_json::Value::Object(obj) = config_value {
                     for (key, value) in obj {
                         map.serialize_entry(&key, &value)?;
@@ -243,8 +243,8 @@ impl Serialize for FullSettings {
             map.serialize_entry("s", &self.storage)?;
             // For non-human readable (CBOR), still flatten but use short keys if needed
             if let Some(config) = &self.config {
-                let config_value = serde_json::to_value(&*config.borrow())
-                    .map_err(serde::ser::Error::custom)?;
+                let config_value =
+                    serde_json::to_value(&*config.borrow()).map_err(serde::ser::Error::custom)?;
                 if let serde_json::Value::Object(obj) = config_value {
                     for (key, value) in obj {
                         map.serialize_entry(&key, &value)?;
@@ -276,7 +276,7 @@ impl<'de> Deserialize<'de> for FullSettings {
             {
                 let mut storage = None;
                 let mut config_fields = std::collections::HashMap::new();
-                
+
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "storage" | "s" => {
@@ -291,24 +291,21 @@ impl<'de> Deserialize<'de> for FullSettings {
                         }
                     }
                 }
-                
+
                 let storage = storage.ok_or_else(|| serde::de::Error::missing_field("storage"))?;
-                
+
                 // If we have config fields, deserialize them into SConfig
                 let config = if !config_fields.is_empty() {
                     let config_value = serde_json::Value::Object(
-                        config_fields.into_iter()
-                            .map(|(k, v)| (k, v))
-                            .collect()
+                        config_fields.into_iter().map(|(k, v)| (k, v)).collect(),
                     );
                     Some(Rc::new(RefCell::new(
-                        SConfig::deserialize(config_value)
-                            .map_err(serde::de::Error::custom)?
+                        SConfig::deserialize(config_value).map_err(serde::de::Error::custom)?,
                     )))
                 } else {
                     None
                 };
-                
+
                 Ok(FullSettings { storage, config })
             }
         }
@@ -340,7 +337,7 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
 /// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
 /// it allows to save the settings file later
 impl LockedSettingsFile {
-    pub fn open<S>(path: S, options: std::fs::OpenOptions, write : bool) -> Result<Self, Box<dyn Error>>
+    pub fn open<S>(path: S, options: std::fs::OpenOptions, write: bool) -> std::io::Result<Self>
     where
         S: AsRef<Path>,
     {
@@ -356,9 +353,8 @@ impl LockedSettingsFile {
 
                     return Ok(LockedSettingsFile {
                         path: path.as_ref().to_path_buf(),
-                        data: load_full_settings(&path, &file.deref()).unwrap_or(
-                            Rc::new(RefCell::new(FullSettings::default())),
-                        ),
+                        data: load_full_settings(&path, &file.deref())
+                            .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
                         fd: file,
                     });
                 })?);
@@ -370,9 +366,8 @@ impl LockedSettingsFile {
 
         Ok(LockedSettingsFile {
             path: path.as_ref().to_path_buf(),
-            data: load_full_settings(&path, &file.deref()).unwrap_or(
-                            Rc::new(RefCell::new(FullSettings::default())),
-                        ),
+            data: load_full_settings(&path, &file.deref())
+                .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
             fd: file,
         })
     }
@@ -550,10 +545,9 @@ fn load_full_settings<S: AsRef<Path>>(
     path: &S,
     file: &File,
 ) -> Result<Rc<RefCell<FullSettings>>, Box<dyn Error>> {
-    let value: Versioning<FullSettings> = serde_json::from_reader(file)
-        .inspect_err(|e| {
-            debug!("Error reading file: {}", e);
-        })?;
+    let value: Versioning<FullSettings> = serde_json::from_reader(file).inspect_err(|e| {
+        debug!("Error reading file: {}", e);
+    })?;
     let settingsfile = rc_refcell!(value.data);
     debug!("settingsfile: {:?}", settingsfile);
     let default_remote = RemoteStorageSettings::default();
@@ -601,9 +595,7 @@ pub fn retrieve_sconfig(
     Ok(value.data)
 }
 
-pub fn migrate_settings(
-    settings: &mut FullSettings,
-) -> Result<(), Box<dyn Error>> {
+pub fn migrate_settings(settings: &mut FullSettings) -> Result<(), Box<dyn Error>> {
     Migration::migrate(
         &Version::parse(PACKAGE_VERSION).unwrap(),
         settings,

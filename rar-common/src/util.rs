@@ -1,7 +1,6 @@
 use std::{
-    error::Error,
     fs::{File, OpenOptions},
-    io::{self, Write},
+    io::{self, ErrorKind, Write},
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
 };
@@ -11,7 +10,7 @@ use capctl::{Cap, CapSet, ParseCapError};
 
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
-use nix::{fcntl::{Flock, FlockArg}};
+use nix::fcntl::{Flock, FlockArg};
 use serde::Serialize;
 
 #[cfg(feature = "finder")]
@@ -61,9 +60,9 @@ macro_rules! rc_refcell {
 
 const FS_IMMUTABLE_FL: u32 = 0x00000010;
 
-pub fn immutable_required_privileges<F, R>(file: &File, f: F) -> Result<R, std::io::Error>
+pub fn immutable_required_privileges<F, R>(file: &File, f: F) -> std::io::Result<R>
 where
-    F: FnOnce() -> Result<R, std::io::Error>,
+    F: FnOnce() -> std::io::Result<R>,
 {
     let metadata = file.metadata()?;
     let uid = metadata.uid();
@@ -81,18 +80,17 @@ where
     with_privileges(&caps, f)
 }
 
-
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
     let mut val = 0;
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    Ok(FS_IMMUTABLE_FL != 0) 
+    Ok(FS_IMMUTABLE_FL != 0)
 }
 
 /// Perform a writing operation on a writable opened file descriptor with the immutable flag set
 /// The function will temporarily remove the immutable flag, perform the operation and set it back
-pub fn with_mutable_config<F, R>(file: &mut File, f: F) -> Result<R, std::io::Error>
+pub fn with_mutable_config<F, R>(file: &mut File, f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut File) -> io::Result<R>,
 {
@@ -122,7 +120,7 @@ where
     res.map_err(|e| e.into())
 }
 
-pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Error>> {
+pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     let mut val = 0;
     let fd = file.as_raw_fd();
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
@@ -130,9 +128,10 @@ pub fn warn_if_mutable(file: &File, return_err: bool) -> Result<(), Box<dyn Erro
     }
     if val & FS_IMMUTABLE_FL == 0 {
         if return_err {
-            return Err(
-                "Config file is not immutable, ask your administrator to solve this issue".into(),
-            );
+            return Err(std::io::Error::new(
+                ErrorKind::ReadOnlyFilesystem,
+                "Config file is not immutable, ask your administrator to solve this issue",
+            ));
         }
         warn!("Config file is not immutable, think about setting the immutable flag.");
     }
@@ -249,7 +248,7 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
 }
 
 #[cfg(debug_assertions)]
-pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
+pub fn subsribe(_: &str) -> io::Result<()> {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .format_module_path(true)
@@ -258,7 +257,7 @@ pub fn subsribe(_: &str) -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(not(debug_assertions))]
-pub fn subsribe(tool: &str) -> Result<(), Box<dyn Error>> {
+pub fn subsribe(tool: &str) -> io::Result<()> {
     use log::LevelFilter;
     use syslog::Facility;
     syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
@@ -281,9 +280,9 @@ pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     return Ok(current);
 }
 
-pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> Result<R, std::io::Error>
+pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> std::io::Result<R>
 where
-    F: FnOnce() -> Result<R, std::io::Error>,
+    F: FnOnce() -> std::io::Result<R>,
 {
     let state = initialize_capabilities(cap)?;
     let res = f();
@@ -301,7 +300,6 @@ pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
 }
 
 pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
-    
     serde_json::to_writer_pretty(file, &settings)?;
     Ok(())
 }
@@ -315,7 +313,7 @@ pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> s
     })
 }
 
-pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
+pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     std::fs::File::create(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
@@ -328,7 +326,7 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
     p: P,
     options: OpenOptions,
     lock: FlockArg,
-) -> Result<Flock<File>, std::io::Error> {
+) -> std::io::Result<Flock<File>> {
     options
         .open(&p)
         .or_else(|e| {
@@ -343,12 +341,10 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
                 with_privileges(&[Cap::DAC_OVERRIDE], || options.open(&p))
             })
         })
-        .and_then(|file| {
-            Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?)
-        })
+        .and_then(|file| Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?))
 }
 
-pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
+pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     std::fs::File::open(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
@@ -363,7 +359,7 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error
     })
 }
 
-pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
+pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::remove_file(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
@@ -373,7 +369,7 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error
     })
 }
 
-pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> Result<(), std::io::Error> {
+pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::create_dir_all(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);

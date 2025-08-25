@@ -1,11 +1,11 @@
-use std::{cell::UnsafeCell, collections::HashMap, error::Error, path::PathBuf};
+use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
 
 use once_cell::sync::Lazy;
 use rar_common::database::score::{CmdMin, Score};
-use serde_json_borrow::Value;
+use serde_json::Value;
 use strum::Display;
 
-use crate::Cli;
+use crate::{error::SrResult, Cli};
 
 use super::{
     de::{DConfigFinder, DLinkedRole, DLinkedTask},
@@ -22,8 +22,7 @@ thread_local! {
 }
 
 pub struct Api {
-    callbacks:
-        HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> Result<(), Box<dyn Error>> + Send>>>,
+    callbacks: HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> SrResult<()>>>>,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, Display)]
@@ -61,7 +60,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
     ),
     // NewComplexCommand (Value, env_path, cmd_path, cmd_args, cmd_min, final_path),
     ProcessComplexCommand(
-        &'f Value<'a>,
+        &'f Value,
         &'g [&'g str],
         &'h PathBuf,
         &'i [String],
@@ -93,9 +92,9 @@ impl Api {
             callbacks: HashMap::new(),
         }
     }
-    pub fn notify(mut event: ApiEvent) -> Result<(), Box<dyn Error>> {
+    pub fn notify(mut event: ApiEvent) -> SrResult<()> {
         let key = event.get_key();
-        API.with(|api| -> Result<(), Box<dyn Error>> {
+        API.with(|api| -> SrResult<()> {
             let api = unsafe { &mut *api.get() };
             if let Some(callbacks) = api.callbacks.get(&key) {
                 for callback in callbacks.iter() {
@@ -108,7 +107,7 @@ impl Api {
     }
     pub fn register<F>(event: EventKey, function: F)
     where
-        F: Fn(&mut ApiEvent) -> Result<(), Box<dyn Error>> + Send + 'static,
+        F: Fn(&mut ApiEvent) -> SrResult<()> + Send + 'static,
     {
         API.with(|api| unsafe {
             let api = &mut *api.get();

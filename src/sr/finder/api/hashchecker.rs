@@ -1,4 +1,4 @@
-use std::{error::Error, fs::File, io::Read, os::fd::AsRawFd, path::PathBuf};
+use std::{fs::File, io::Read, os::fd::AsRawFd, path::PathBuf};
 
 use ::serde::{Deserialize, Serialize};
 use libc::FS_IOC_GETFLAGS;
@@ -11,7 +11,7 @@ use rar_common::{
 use serde_json::to_value;
 use sha2::Digest;
 
-use crate::finder::cmd::match_args;
+use crate::{error::SrResult, finder::cmd::match_args};
 
 use super::{Api, ApiEvent, EventKey};
 
@@ -46,7 +46,7 @@ struct HashChecker {
     command: String,
 }
 
-fn new_complex_command(event: &mut ApiEvent) -> Result<(), Box<dyn Error>> {
+fn new_complex_command(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::ProcessComplexCommand(
         value,
         env_path,
@@ -234,7 +234,10 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
     use std::{
-        fs::File, io::{self, Read}, os::fd::AsRawFd, path::{Path, PathBuf}
+        fs::File,
+        io::{self, Read},
+        os::fd::AsRawFd,
+        path::{Path, PathBuf},
     };
 
     use capctl::{Cap, CapSet, CapState};
@@ -242,12 +245,16 @@ mod tests {
     use log::debug;
     use nix::sys::stat::{fchmodat, Mode};
     use rar_common::{
-        database::score::CmdMin, util::{has_privileges, immutable_required_privileges},
+        database::score::CmdMin,
+        util::{has_privileges, immutable_required_privileges},
     };
     use serde::de::DeserializeSeed;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
-    use crate::finder::{api::hashchecker::{register, FS_IMMUTABLE_FL}, de::DCommandDeserializer};
+    use crate::finder::{
+        api::hashchecker::{register, FS_IMMUTABLE_FL},
+        de::DCommandDeserializer,
+    };
     pub struct Defer<F: FnOnce()>(Option<F>);
 
     impl<F: FnOnce()> Defer<F> {
@@ -630,7 +637,7 @@ mod tests {
         }
     }
 
-    fn toggle_immutable_config(path : &impl AsRef<Path>, lock: bool) -> io::Result<()> {
+    fn toggle_immutable_config(path: &impl AsRef<Path>, lock: bool) -> io::Result<()> {
         let file = File::open(path)?;
         let mut val = 0;
         if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {

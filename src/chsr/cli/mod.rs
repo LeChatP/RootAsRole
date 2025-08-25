@@ -1,9 +1,9 @@
 pub(crate) mod data;
+#[cfg(feature = "editor")]
+pub(crate) mod editor;
 pub(crate) mod pair;
 pub(crate) mod process;
 pub(crate) mod usage;
-#[cfg(feature = "editor")]
-pub(crate) mod editor;
 
 use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
 
@@ -240,9 +240,9 @@ mod tests {
                                         .cred(
                                             SCredentials::builder()
                                                 .setuid("user1")
-                                                .setgid(SGroupsEither::MandatoryGroups(SGroups::from([
-                                                    "setgid1", "setgid2",
-                                                ])))
+                                                .setgid(SGroupsEither::MandatoryGroups(
+                                                    SGroups::from(["setgid1", "setgid2"]),
+                                                ))
                                                 .capabilities(
                                                     SCapabilities::builder(SetBehavior::All)
                                                         .add_cap(Cap::LINUX_IMMUTABLE)

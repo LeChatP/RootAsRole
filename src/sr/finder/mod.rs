@@ -23,7 +23,10 @@ use rar_common::{
 };
 use serde::de::DeserializeSeed;
 
-use crate::Cli;
+use crate::{
+    error::{SrError, SrResult},
+    Cli,
+};
 
 mod api;
 mod cmd;
@@ -53,12 +56,15 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     path: &'a P,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     env_path: &[&str],
-) -> Result<BestExecSettings, Box<dyn std::error::Error>>
+) -> SrResult<BestExecSettings>
 where
     P: AsRef<Path>,
 {
     register_plugins();
-    let settings_file = rar_common::get_settings(path)?;
+    let settings_file = rar_common::get_settings(path).map_err(|e| {
+        debug!("Policy unreachable: {}", e);
+        SrError::ConfigurationError
+    })?;
     let config_finder_deserializer = ConfigFinderDeserializer {
         cli,
         cred,
@@ -71,7 +77,7 @@ where
                 .settings
                 .unwrap_or_default()
                 .path
-                .ok_or("Settings file variable not found")?;
+                .ok_or(SrError::ConfigurationError)?;
             let file = read_with_privileges(&file_path)?;
             let reader = BufReader::new(file); // Use BufReader for efficient streaming
             let mut io_reader = cbor4ii::core::utils::IoReader::new(reader); // Use IoReader for streaming
@@ -79,7 +85,11 @@ where
                 cli,
                 cred,
                 &config_finder_deserializer
-                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))?,
+                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
+                    .map_err(|e| {
+                        debug!("Error deserializing CBOR: {}", e);
+                        SrError::ConfigurationError
+                    })?,
                 env_vars,
                 &env_path,
             )?)
@@ -90,7 +100,7 @@ where
                 .settings
                 .unwrap_or_default()
                 .path
-                .ok_or("Settings file variable not found")?;
+                .ok_or(SrError::ConfigurationError)?;
             let file = read_with_privileges(&file_path)?;
             let reader = BufReader::new(file);
             let io_reader = serde_json::de::IoRead::new(reader);
@@ -98,7 +108,11 @@ where
                 cli,
                 cred,
                 &config_finder_deserializer
-                    .deserialize(&mut serde_json::Deserializer::new(io_reader))?,
+                    .deserialize(&mut serde_json::Deserializer::new(io_reader))
+                    .map_err(|e| {
+                        debug!("Error deserializing JSON: {}", e);
+                        SrError::ConfigurationError
+                    })?,
                 env_vars,
                 &env_path,
             )?)
@@ -113,7 +127,7 @@ impl BestExecSettings {
         data: &'a DConfigFinder<'a>,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: &[&str],
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> SrResult<Self> {
         let mut result = Self::default();
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.clone());
@@ -121,7 +135,7 @@ impl BestExecSettings {
             matching |= result.role_settings(cli, &role, &mut opt_stack, env_path)?;
         }
         if !matching {
-            return Err("No matching role found".into());
+            return Err(SrError::PermissionDenied);
         }
         result.env = opt_stack
             .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
@@ -139,7 +153,7 @@ impl BestExecSettings {
         data: &DLinkedRole<'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> SrResult<bool> {
         debug!("role_settings: {:?}", data.role().role);
         if !self.actors_settings(data)? {
             return Ok(false);
@@ -151,10 +165,7 @@ impl BestExecSettings {
         Ok(res)
     }
 
-    pub fn actors_settings<'c, 'a>(
-        &mut self,
-        data: &DLinkedRole<'c, 'a>,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    pub fn actors_settings<'c, 'a>(&mut self, data: &DLinkedRole<'c, 'a>) -> SrResult<bool> {
         let mut res = !data.role().user_min.is_no_match();
         Api::notify(ApiEvent::ActorMatching(data, self, &mut res))?;
         Ok(res)
@@ -166,7 +177,7 @@ impl BestExecSettings {
         data: &DLinkedTask<'t, 'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> SrResult<bool> {
         debug!("task_settings: {:?}", data.id);
         let temp_opt_stack = BorrowedOptStack::from_task(data);
         let mut found = false;
@@ -195,9 +206,7 @@ impl BestExecSettings {
                         &cli.cmd_path,
                     )
                     .first()
-                    .ok_or_else::<Box<dyn std::error::Error>, _>(|| {
-                        "No path found".to_string().into()
-                    })?
+                    .ok_or(SrError::ExecutionFailed)?
                     .to_path_buf();
                 }
                 self.score.cmd_min = CmdMin::builder()
@@ -254,7 +263,7 @@ impl BestExecSettings {
         env_path: &[&str],
         cli: &'d Cli,
         data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> SrResult<bool> {
         debug!("env_path: {:?}", env_path);
         Ok(match &**data {
             de::DCommand::Simple(role_cmd) => {
@@ -316,7 +325,7 @@ mod tests {
     use super::*;
     use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
     use rar_common::database::structs::SetBehavior;
-    use serde_json_borrow::Value;
+    use serde_json::Value;
     use std::path::PathBuf;
 
     use crate::Cli;
@@ -358,10 +367,9 @@ mod tests {
                                     .add(vec![
                                         DCommand::simple("/usr/bin/ls ^.*$"),
                                         DCommand::complex(Value::Object(
-                                            [("key".into(), Value::Str("value".into()))]
+                                            [("key".to_string(), Value::String("value".into()))]
                                                 .into_iter()
-                                                .collect::<Vec<_>>()
-                                                .into(),
+                                                .collect::<serde_json::Map<String, Value>>(),
                                         )),
                                     ])
                                     .build(),

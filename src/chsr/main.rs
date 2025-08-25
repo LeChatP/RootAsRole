@@ -16,33 +16,37 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env::temp_dir, fs::OpenOptions};
 
-    use capctl::Cap;
+    use crate::cli::editor::defer;
     use ::landlock::{RestrictionStatus, RulesetStatus};
+    use capctl::Cap;
     use log::{error, warn};
     use rar_common::{util::definitive_drop, LockedSettingsFile};
-    use crate::cli::editor::defer;
 
     use crate::security::{full_program_lock, seccomp_lock};
 
     subsribe("chsr")?;
     // Drop privileges we don't need
-    definitive_drop(&[Cap::DAC_OVERRIDE,Cap::DAC_READ_SEARCH,Cap::FOWNER,Cap::CHOWN,Cap::LINUX_IMMUTABLE])?;
+    definitive_drop(&[
+        Cap::DAC_OVERRIDE,
+        Cap::DAC_READ_SEARCH,
+        Cap::FOWNER,
+        Cap::CHOWN,
+        Cap::LINUX_IMMUTABLE,
+    ])?;
 
-    let folder = nix::unistd::mkdtemp(&temp_dir().join("chsr_XXXXXX")).expect("Failed to create temporary folder");
+    let folder = nix::unistd::mkdtemp(&temp_dir().join("chsr_XXXXXX"))
+        .expect("Failed to create temporary folder");
     let _cleanup = defer(|| {
         let _ = std::fs::remove_dir_all(&folder);
     });
 
     // Apply Landlock restrictions
     let ruleset_status = match full_program_lock(&folder) {
-        Ok(RestrictionStatus {
-            ruleset,
-            ..
-        }) => ruleset,
+        Ok(RestrictionStatus { ruleset, .. }) => ruleset,
         Err(e) => {
             warn!("Failed to apply landlock policy: {:#}", e);
             RulesetStatus::NotEnforced
-        },
+        }
     };
 
     // Then apply seccomp restrictions

@@ -82,7 +82,7 @@ fn warn_anomalies(full_settings: &Versioning<FullSettings>) {
                     );
                 }
                 warn_cred(role.clone(), task.clone(), &task.as_ref().borrow().cred);
-                warn_cmds(role.clone(), task.clone(),&task.as_ref().borrow().commands);
+                warn_cmds(role.clone(), task.clone(), &task.as_ref().borrow().commands);
                 if let Some(opt) = &task.as_ref().borrow().options {
                     for key in opt.as_ref().borrow()._extra_fields.keys() {
                         warn!("Warning: Unknown options field at {:?} level in role '{}' task '{:?}' : '{}'", opt.as_ref().borrow().level, role.as_ref().borrow().name, task.as_ref().borrow().name, key);
@@ -104,10 +104,12 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
             key
         );
     });
-    if cmds.add.is_empty() && !cmds
+    if cmds.add.is_empty()
+        && !cmds
             .default_behavior
             .as_ref()
-            .is_some_and(|b| *b == rar_common::database::structs::SetBehavior::All) {
+            .is_some_and(|b| *b == rar_common::database::structs::SetBehavior::All)
+    {
         warn!(
             "Warning: No commands can be performed in role '{}' task '{:?}'",
             role.as_ref().borrow().name,
@@ -124,7 +126,7 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
                         task.as_ref().borrow().name
                     );
                 }
-            },
+            }
             rar_common::database::structs::SCommand::Complex(value) => {
                 if value.as_object().is_none() {
                     warn!(
@@ -134,7 +136,7 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
                         value
                     );
                 }
-            },
+            }
         }
     }
     for cmd in &cmds.sub {
@@ -147,7 +149,7 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
                         task.as_ref().borrow().name
                     );
                 }
-            },
+            }
             rar_common::database::structs::SCommand::Complex(value) => {
                 if value.as_object().is_none() {
                     warn!(
@@ -157,10 +159,9 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
                         value
                     );
                 }
-            },
+            }
         }
     }
-
 }
 
 fn warn_cred(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cred: &SCredentials) {
@@ -183,7 +184,7 @@ fn warn_cred(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cred: &SCredent
                         suser_type
                     );
                 }
-            },
+            }
             rar_common::database::structs::SUserEither::UserSelector(ssetuid_set) => {
                 if let Some(default) = &ssetuid_set.fallback {
                     if default.fetch_user().is_none() {
@@ -215,7 +216,7 @@ fn warn_cred(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cred: &SCredent
                         );
                     }
                 }
-            },
+            }
         }
     }
     if let Some(sgroups_either) = &cred.setgid {

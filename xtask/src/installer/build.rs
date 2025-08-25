@@ -34,8 +34,8 @@ pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
             .status()
             .expect("failed to clean");
     }
-    build_binary("dosr", options, vec!["--features","finder"])?;
-    build_binary("chsr", options, vec!["--features","editor"])?;
+    build_binary("dosr", options, vec!["--features", "finder"])?;
+    build_binary("chsr", options, vec!["--features", "editor"])?;
 
     build_manpages()?;
 

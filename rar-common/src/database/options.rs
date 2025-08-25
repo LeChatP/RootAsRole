@@ -309,12 +309,17 @@ impl Opt {
                 )
                 .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
                 .unwrap()
-                .check(env!("RAR_ENV_CHECK_LIST").split(',').filter(|s| {
-                    #[cfg(feature = "pcre2")]
-                    return is_valid_env_name(&s) || is_regex(&s);
-                    #[cfg(not(feature = "pcre2"))]
-                    is_valid_env_name(&s)
-                }).collect::<Vec<&str>>())
+                .check(
+                    env!("RAR_ENV_CHECK_LIST")
+                        .split(',')
+                        .filter(|s| {
+                            #[cfg(feature = "pcre2")]
+                            return is_valid_env_name(&s) || is_regex(&s);
+                            #[cfg(not(feature = "pcre2"))]
+                            is_valid_env_name(&s)
+                        })
+                        .collect::<Vec<&str>>(),
+                )
                 .unwrap()
                 .delete(
                     env!("RAR_ENV_DELETE_LIST")

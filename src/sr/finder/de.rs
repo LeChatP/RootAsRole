@@ -24,7 +24,7 @@ use serde::{
     de::{DeserializeSeed, IgnoredAny, Visitor},
     Deserialize,
 };
-use serde_json_borrow::Value;
+use serde_json::Value;
 use strum::EnumIs;
 
 use crate::{
@@ -57,7 +57,7 @@ pub struct DRoleFinder<'a> {
     pub tasks: Vec<DTaskFinder<'a>>,
     pub options: Option<Opt<'a>>,
     #[cfg_attr(test, builder(default))]
-    pub _extra_values: HashMap<Cow<'a, str>, Value<'a>>,
+    pub _extra_values: HashMap<Cow<'a, str>, Value>,
 }
 
 #[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -89,14 +89,14 @@ pub struct DTaskFinder<'a> {
     pub options: Option<Opt<'a>>,
     pub final_path: Option<PathBuf>,
     #[builder(default)]
-    pub _extra_values: HashMap<Cow<'a, str>, Value<'a>>,
+    pub _extra_values: HashMap<Cow<'a, str>, Value>,
 }
 
 #[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
 pub enum DCommand<'a> {
     Simple(#[serde(borrow)] Cow<'a, str>),
-    Complex(Value<'a>),
+    Complex(Value),
 }
 
 #[cfg(test)]
@@ -104,7 +104,7 @@ impl<'a> DCommand<'a> {
     pub fn simple(cmd: &'a str) -> Self {
         DCommand::Simple(Cow::Borrowed(cmd))
     }
-    pub fn complex(cmd: Value<'a>) -> Self {
+    pub fn complex(cmd: Value) -> Self {
         DCommand::Complex(cmd)
     }
 }
@@ -574,9 +574,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                                 self.spath.union(path.clone().into());
                             }
                             // skip the task if env_override is required and not allowed
-                            if self.cli.opt_filter.as_ref().is_some_and(|o| { // we have a filter
-                                o.env_behavior.as_ref().is_some_and(|_| { // the filter overrides env behavior
-                                    opt.env.as_ref().is_some_and(|e| { // the task specifies env options
+                            if self.cli.opt_filter.as_ref().is_some_and(|o| {
+                                // we have a filter
+                                o.env_behavior.as_ref().is_some_and(|_| {
+                                    // the filter overrides env behavior
+                                    opt.env.as_ref().is_some_and(|e| {
+                                        // the task specifies env options
                                         e.override_behavior.is_some_and(|b| !b) // the task specifies override behavior and deny it
                                     })
                                 })
@@ -1524,7 +1527,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
                     map_value.push((key, value));
                 }
                 Api::notify(ApiEvent::ProcessComplexCommand(
-                    &Value::Object(map_value.into()),
+                    &Value::Object(
+                        map_value
+                            .into_iter()
+                            .map(|(k, v)| (k.to_string(), v))
+                            .collect(),
+                    ),
                     self.env_path,
                     self.cmd_path,
                     self.cmd_args,

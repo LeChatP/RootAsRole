@@ -41,13 +41,11 @@ pub(crate) fn full_program_lock(
             PathFd::new("/usr/share/terminfo")?,
             AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
         ))?
-
         // Allow vim runtime files
         .add_rule(PathBeneath::new(
             PathFd::new("/usr/share/vim")?,
             AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
         ))?
-
         // Allow /etc/vimrc
         .add_rule(PathBeneath::new(
             PathFd::new("/etc/vimrc")?,
@@ -139,8 +137,7 @@ pub fn seccomp_lock() -> Result<(), Box<dyn std::error::Error>> {
         "listxattr",
         "ftruncate",
         "truncate",
-        "waitid"
-
+        "waitid",
     ];
     for &name in &syscalls {
         ctx.add_rule(ScmpAction::Allow, ScmpSyscall::from_name(name)?)?;
