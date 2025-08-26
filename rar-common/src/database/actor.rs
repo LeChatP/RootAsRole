@@ -243,6 +243,30 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
                 }
             }
 
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                } else {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                        Cow::Owned(v.to_string()),
+                    ))));
+                }
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                } else {
+                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                        v.into(),
+                    ))));
+                }
+            }
+
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
@@ -298,6 +322,30 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
                 } else {
                     return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
                         v.to_string(),
+                    ))));
+                }
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                } else {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                        v.into(),
+                    ))));
+                }
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error, {
+                if let Ok(group) = v.parse() {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                } else {
+                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                        v,
                     ))));
                 }
             }

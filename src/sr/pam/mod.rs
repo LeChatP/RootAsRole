@@ -48,7 +48,7 @@ impl SrConversationHandler {
             no_interact: false,
         }
     }
-    fn open(&self) -> std::io::Result<Terminal> {
+    fn open(&self) -> std::io::Result<Terminal<'_>> {
         if self.use_stdin {
             Terminal::open_stdie()
         } else {
