@@ -85,7 +85,7 @@ pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    Ok(FS_IMMUTABLE_FL != 0)
+    Ok(val & FS_IMMUTABLE_FL != 0)
 }
 
 /// Perform a writing operation on a writable opened file descriptor with the immutable flag set
@@ -276,7 +276,9 @@ pub fn stated_drop_effective(mut current: CapState) -> Result<(), capctl::Error>
 pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     let mut current = CapState::get_current()?;
     current.effective.add_all(cap.iter().cloned());
-    current.set_current()?;
+    current
+        .set_current()
+        .inspect_err(|e| debug!("initialize_capabilities error: {}", e))?;
     return Ok(current);
 }
 
@@ -488,15 +490,37 @@ mod test {
             return;
         }
         let path = PathBuf::from("/tmp/rar_test_lock_config.lock");
-        let _defer = defer(|| {
-            // Clean up the test file after the test is done
-            let _ = fs::remove_file(&path);
-        });
         let mut file = File::create(&path).expect("Failed to create file");
+        let _defer = defer(|| {
+            if let Err(_) = fs::remove_file(&path) {
+                // remove the immutable flag if set
+                with_privileges(&[Cap::LINUX_IMMUTABLE], || {
+                let file = File::open(&path).expect("Failed to open file");
+                let mut val = 0;
+                if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
+                    eprintln!("Failed to get flags");
+                    return Err(std::io::Error::last_os_error());
+                }
+                if val & FS_IMMUTABLE_FL != 0 {
+                    val &= !(FS_IMMUTABLE_FL);
+                    immutable_required_privileges(&file, || {
+                        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) }
+                            < 0
+                        {
+                            eprintln!("Failed to remove immutable flag");
+                        }
+                        Ok(())
+                    })
+                    .ok();
+                }
+                fs::remove_file(&path)
+            }).unwrap();
+            }
+        });
         assert!(with_privileges(&[Cap::LINUX_IMMUTABLE], || {
             let mut val = 0;
-            assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0);
-            val &= !(FS_IMMUTABLE_FL);
+            assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } == 0);
+            val |= FS_IMMUTABLE_FL;
             immutable_required_privileges(&file, || {
                 if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
                     return Err(std::io::Error::last_os_error());
