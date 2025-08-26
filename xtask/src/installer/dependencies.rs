@@ -35,9 +35,9 @@ fn update_package_manager(os: &OsTarget, priv_bin: &Option<String>) -> Result<()
 
 fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g", "libpcre2-8-0"],
-        OsTarget::RedHat => &["pcre2"],
-        OsTarget::ArchLinux | OsTarget::Fedora => &["pam", "pcre2"],
+        OsTarget::Debian | OsTarget::Ubuntu => &["libpam0g", "libpcre2-8-0", "libseccomp-dev"],
+        OsTarget::RedHat => &["pcre2", "libseccomp"],
+        OsTarget::ArchLinux | OsTarget::Fedora => &["pam", "pcre2", "libseccomp"],
     }
 }
 
