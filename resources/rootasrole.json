@@ -63,8 +63,7 @@
         },
         "authentication": "perform",
         "root": "user",
-        "bounding": "strict",
-        "wildcard-denied": ";&|"
+        "bounding": "strict"
     },
     "roles": [
         {

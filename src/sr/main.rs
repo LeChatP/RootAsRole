@@ -332,46 +332,30 @@ fn make_cred() -> Cred {
 
 fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
     //set capabilities
-    if let Some(caps) = execcfg.caps {
-        // case where capabilities are more than bounding set
-        let bounding = capctl::bounding::probe();
-        if bounding & caps != caps {
-            error!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
-            return Err(SrError::InsufficientPrivileges);
-        }
-        initialize_capabilities(&[Cap::SETPCAP])
-            .inspect_err(|_| error!("{}", cap_effective_error("setpcap")))?;
-        let mut capstate = CapState::empty();
-        if execcfg.bounding.is_strict() {
-            for cap in (!caps).iter() {
-                capctl::bounding::drop(cap).expect("Failed to set bounding cap");
-            }
-        }
-        capstate.effective.clear();
-        capstate.permitted = caps;
-        capstate.inheritable = caps;
-        debug!("caps : {:?}", caps);
-        capstate.set_current().expect("Failed to set current cap");
-        for cap in caps.iter() {
-            capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
-        }
-        Ok(())
-    } else {
-        with_privileges(&[Cap::SETPCAP], || {
-            if execcfg.bounding.is_strict() {
-                capctl::bounding::clear().expect("Failed to clear bounding cap");
-            }
-            capctl::ambient::clear().expect("Failed to clear ambient cap");
-            let capstate = CapState::empty();
-            capstate.set_current().expect("Failed to set current cap");
-            Ok(())
-        })
-        .or_else(|_| {
-            error!("{}", cap_effective_error("setpcap"));
-            Err(SrError::InsufficientPrivileges)
-        })?;
-        Ok(())
+    let caps = execcfg.caps.unwrap_or_default();
+    // case where capabilities are more than bounding set
+    let bounding = capctl::bounding::probe();
+    if bounding & caps != caps {
+        error!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+        return Err(SrError::InsufficientPrivileges);
     }
+    initialize_capabilities(&[Cap::SETPCAP])
+        .inspect_err(|_| error!("{}", cap_effective_error("setpcap")))?;
+    let mut capstate = CapState::empty();
+    if execcfg.bounding.is_strict() {
+        for cap in (!caps).iter() {
+            capctl::bounding::drop(cap).expect("Failed to set bounding cap");
+        }
+    }
+    capstate.effective.clear();
+    capstate.permitted = caps;
+    capstate.inheritable = caps;
+    debug!("caps : {:?}", caps);
+    capstate.set_current().expect("Failed to set current cap");
+    for cap in caps.iter() {
+        capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
+    }
+    Ok(())
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {

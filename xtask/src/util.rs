@@ -245,8 +245,6 @@ pub struct Opt {
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wildcard_denied: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
@@ -440,51 +438,4 @@ pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
     state.effective.clear();
     state.set_current()?;
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use std::{fs, path::PathBuf};
-
-    use super::*;
-
-    #[test]
-    fn test_toggle_lock_config() {
-        let path = PathBuf::from("/tmp/test");
-        let file = File::create(&path).expect("Failed to create file");
-        let res = toggle_lock_config(&path, ImmutableLock::Set);
-        let status = fs::read_to_string("/proc/self/status").unwrap();
-        let capeff = status
-            .lines()
-            .find(|line| line.starts_with("CapEff:"))
-            .expect("Failed to find CapEff line");
-        let effhex = capeff
-            .split(':')
-            .last()
-            .expect("Failed to get effective capabilities")
-            .trim();
-        let eff = u64::from_str_radix(effhex, 16).expect("Failed to parse effective capabilities");
-        if eff & ((1 << Cap::LINUX_IMMUTABLE as u8) as u64) != 0 {
-            assert!(res.is_ok());
-        } else {
-            assert!(res.is_err());
-            // stop test
-            return;
-        }
-        let mut val = 0;
-        let fd = file.as_raw_fd();
-        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-            panic!("Failed to get flags");
-        }
-        assert_eq!(val & FS_IMMUTABLE_FL, FS_IMMUTABLE_FL);
-        //test to write on file
-        let file = File::create(&path);
-        assert!(file.is_err());
-        let res = toggle_lock_config(&path, ImmutableLock::Unset);
-        assert!(res.is_ok());
-        let file = File::create(&path);
-        assert!(file.is_ok());
-        let res = fs::remove_file(&path);
-        assert!(res.is_ok());
-    }
 }

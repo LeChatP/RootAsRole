@@ -69,7 +69,6 @@ chsr role [role_name] task [task_name] options [option] [operation]
   <b>env</b>                           Manage environment variable settings (set, whitelist, blacklist, checklist).
   <b>root</b> [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (privileged, user, inherit)
   <b>bounding</b> [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (strict, ignore, inherit)
-  <b>wildcard-denied</b>               Manage chars that are denied in binary path.
   <b>timeout</b>                       Manage timeout settings (set, unset).
 
 

@@ -1,5 +1,28 @@
 [alias]
 xtask = "run --package xtask --release --bin xtask --"
+test-root = [
+    "test",
+    "--workspace",
+    "--all-features",
+    "--all-targets",
+    "--config",
+    "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\"",
+    "--"
+]
+
+coverage = [
+    "--config",
+    "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\"",
+    "tarpaulin",
+    "--workspace",
+    "--all-features",
+    "--timeout",
+    "120",
+    "--exclude-files",
+    "build.rs", "xtask/src/*",
+    "-e",
+    "xtask",
+]
 
 [env]
 RAR_CFG_TYPE = "json"
@@ -23,4 +46,3 @@ RAR_ENV_OVERRIDE_BEHAVIOR = "false"
 RAR_AUTHENTICATION = "perform"
 RAR_USER_CONSIDERED = "user"
 RAR_BOUNDING = "strict"
-RAR_WILDCARD_DENIED = "&|"

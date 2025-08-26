@@ -47,7 +47,6 @@ pub enum OptType {
     Env,
     Root,
     Bounding,
-    Wildcard,
     Timeout,
 }
 
@@ -260,8 +259,6 @@ pub struct Opt {
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub wildcard_denied: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
@@ -278,7 +275,6 @@ impl Opt {
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
-        #[builder(into)] wildcard_denied: Option<String>,
         timeout: Option<STimeout>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Self {
@@ -289,7 +285,6 @@ impl Opt {
             root,
             bounding,
             authentication,
-            wildcard_denied,
             timeout,
             _extra_fields,
         }
@@ -344,7 +339,6 @@ impl Opt {
                     )
                     .build(),
             )
-            .wildcard_denied(env!("RAR_WILDCARD_DENIED"))
             .build()
     }
 }
@@ -357,7 +351,6 @@ impl Default for Opt {
             root: Some(SPrivileged::default()),
             bounding: Some(SBounding::default()),
             authentication: None,
-            wildcard_denied: None,
             timeout: None,
             _extra_fields: Map::default(),
             level: Level::Default,
@@ -897,15 +890,6 @@ impl OptStack {
                 })
                 .map(|(_, authentication)| authentication),
             )
-            .maybe_wildcard_denied(
-                self.find_in_options(|opt| {
-                    opt.wildcard_denied
-                        .borrow()
-                        .as_ref()
-                        .map(|wildcard| (opt.level, wildcard.clone()))
-                })
-                .map(|(_, wildcard)| wildcard),
-            )
             .maybe_timeout(
                 self.find_in_options(|opt| opt.timeout.clone().map(|timeout| (opt.level, timeout)))
                     .map(|(_, timeout)| timeout),
@@ -1061,7 +1045,6 @@ mod tests {
                                         .duration(Duration::minutes(3))
                                         .build(),
                                 )
-                                .wildcard_denied("c")
                                 .build()
                             })
                             .build(),
@@ -1087,7 +1070,6 @@ mod tests {
                                 .duration(Duration::minutes(2))
                                 .build(),
                         )
-                        .wildcard_denied("b")
                         .build()
                     })
                     .build(),
@@ -1113,7 +1095,6 @@ mod tests {
                         .duration(Duration::minutes(1))
                         .build(),
                 )
-                .wildcard_denied("a")
                 .build()
             })
             .build();
@@ -1178,7 +1159,6 @@ mod tests {
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        assert_eq!(global_options.wildcard_denied.as_ref().unwrap(), "a");
         let opt = OptStack::from_role(config.clone().role("test").unwrap()).to_opt();
         let role_options = opt.as_ref().borrow();
         assert_eq!(
@@ -1222,7 +1202,6 @@ mod tests {
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::PPID
         );
-        assert_eq!(role_options.wildcard_denied.as_ref().unwrap(), "b");
         let opt = OptStack::from_task(config.task("test", 1).unwrap()).to_opt();
         let task_options = opt.as_ref().borrow();
         assert_eq!(
@@ -1269,7 +1248,6 @@ mod tests {
             task_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        assert_eq!(task_options.wildcard_denied.as_ref().unwrap(), "c");
     }
 
     #[test]

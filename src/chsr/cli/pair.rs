@@ -372,8 +372,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 inputs.options_type = Some(OptType::Root);
             } else if pair.as_str() == "bounding" {
                 inputs.options_type = Some(OptType::Bounding);
-            } else if pair.as_str() == "wildcard-denied" {
-                inputs.options_type = Some(OptType::Wildcard);
             } else if pair.as_str() == "timeout" {
                 inputs.options_type = Some(OptType::Timeout);
             } else {
@@ -439,9 +437,6 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else {
                 unreachable!("Unknown authentication type: {}", pair.as_str());
             }
-        }
-        Rule::wildcard_value => {
-            inputs.options_wildcard = Some(pair.as_str().to_string());
         }
         Rule::all => {
             if inputs.role_id.is_some() && inputs.task_id.is_none() {

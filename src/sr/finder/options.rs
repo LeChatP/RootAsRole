@@ -132,8 +132,6 @@ const AUTHENTICATION: SAuthentication = result::unwrap_or!(
     SAuthentication::Perform
 );
 
-//const WILDCARD_DENIED: &str = env!("RAR_WILDCARD_DENIED");
-
 const PRIVILEGED: SPrivileged = result::unwrap_or!(
     SPrivileged::try_parse(env!("RAR_USER_CONSIDERED")),
     SPrivileged::User
@@ -187,7 +185,6 @@ const PRIVILEGED: SPrivileged = result::unwrap_or!(
         )
         .build(),
 )
-.wildcard_denied(env!("RAR_WILDCARD_DENIED"))
 .build() */
 //}
 
@@ -249,8 +246,6 @@ pub struct Opt<'a> {
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
-    #[serde(borrow, skip_serializing_if = "Option::is_none")]
-    pub wildcard_denied: Option<Cow<'a, str>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
@@ -267,7 +262,6 @@ impl<'a> Opt<'a> {
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
-        #[builder(into)] wildcard_denied: Option<Cow<'a, str>>,
         timeout: Option<STimeout>,
         #[builder(default)] _extra_fields: Value,
     ) -> Self {
@@ -278,7 +272,6 @@ impl<'a> Opt<'a> {
             root,
             bounding,
             authentication,
-            wildcard_denied,
             timeout,
             _extra_fields,
         }
@@ -416,7 +409,6 @@ impl Into<rar_common::database::options::Opt> for Opt<'_> {
             .maybe_root(self.root)
             .maybe_bounding(self.bounding)
             .maybe_authentication(self.authentication)
-            .maybe_wildcard_denied(self.wildcard_denied)
             .maybe_timeout(self.timeout)
             .build()
     }

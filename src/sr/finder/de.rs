@@ -2471,8 +2471,7 @@ mod tests {
             }}
         }},
         "root": "user",
-        "bounding": "strict",
-        "wildcard-denied": ";&|"
+        "bounding": "strict"
     }},
     "roles": [
         {{
@@ -2505,8 +2504,7 @@ mod tests {
                     }}
                 }},
                 "root": "user",
-                "bounding": "strict",
-                "wildcard-denied": ";&|"
+                "bounding": "strict"
             }},
             "name": "role1",
             "actors": [
@@ -2546,8 +2544,7 @@ mod tests {
                             }}
                         }},
                         "root": "user",
-                        "bounding": "strict",
-                        "wildcard-denied": ";&|"
+                        "bounding": "strict"
                     }},
                     "name": "task1",
                     "cred": {{
@@ -2616,8 +2613,7 @@ mod tests {
             }}
         }},
         "root": "user",
-        "bounding": "strict",
-        "wildcard-denied": ";&|"
+        "bounding": "strict"
     }},
     "roles": [
         {{
@@ -2650,8 +2646,7 @@ mod tests {
                     }}
                 }},
                 "root": "user",
-                "bounding": "strict",
-                "wildcard-denied": ";&|"
+                "bounding": "strict"
             }},
             "name": "role1",
             "actors": [
@@ -2691,8 +2686,7 @@ mod tests {
                             }}
                         }},
                         "root": "user",
-                        "bounding": "strict",
-                        "wildcard-denied": ";&|"
+                        "bounding": "strict"
                     }},
                     "name": "task1",
                     "cred": {{

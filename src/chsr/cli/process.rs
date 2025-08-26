@@ -214,16 +214,6 @@ pub fn process_input(
             options_auth: Some(options_auth),
             ..
         } => set_authentication(rconfig, role_id, task_id, options_auth),
-
-        Inputs {
-            // chsr o wildcard-denied set ";&*$"
-            action,
-            role_id,
-            task_id,
-            options: true,
-            options_wildcard: Some(options_wildcard),
-            ..
-        } => json_wildcard(rconfig, role_id, task_id, action, options_wildcard),
         Inputs {
             // chsr o path whitelist set a:b:c
             action: InputAction::Set,

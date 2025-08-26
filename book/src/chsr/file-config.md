@@ -59,7 +59,6 @@ The following example shows a RootAsRole config without plugins when almost ever
     },
     "root": "privileged", // Default policy for root: privileged, user, inherit
     "bounding": "ignore", // Default policy for bounding: strict, ignore, inherit
-    "wildcard-denied": "*", // Characters denied in any binary path
     "timeout": {
       "type": "ppid", // Type of timeout: tty, ppid, uid
       "duration": "15:30:30", // Duration of the timeout in HH:MM:SS format
@@ -165,7 +164,6 @@ The following example shows a RootAsRole config without plugins when almost ever
             },
             "root": "privileged",
             "bounding": "ignore",
-            "wildcard-denied": "*",
             "timeout": {
               "type": "ppid",
               "duration": "15:30:30",
@@ -203,7 +201,6 @@ The following example shows a RootAsRole config without plugins when almost ever
         },
         "root": "privileged",
         "bounding": "ignore",
-        "wildcard-denied": "*",
         "timeout": {
           "type": "ppid",
           "duration": "15:30:30",

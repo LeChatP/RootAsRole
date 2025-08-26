@@ -161,7 +161,6 @@ fn set_options(content: &mut String) -> io::Result<()> {
         }),
         root: Some(env!("RAR_USER_CONSIDERED").parse().unwrap()),
         bounding: Some(env!("RAR_BOUNDING").parse().unwrap()),
-        wildcard_denied: Some(env!("RAR_WILDCARD_DENIED").to_string()),
         authentication: Some(env!("RAR_AUTHENTICATION").parse().unwrap()),
         _extra_fields: Value::Null,
     });

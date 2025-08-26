@@ -51,6 +51,12 @@ name = "chsr"
 path = "src/chsr/main.rs"
 required-features = ["editor"]
 
+# Integration tests that require root privileges
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"
+required-features = ["finder"]
+
 [features]
 finder = ["pcre2", "rar-common/finder"]
 pcre2 = ["dep:pcre2", "rar-common/pcre2"]

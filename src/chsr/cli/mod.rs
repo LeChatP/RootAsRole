@@ -149,7 +149,6 @@ mod tests {
                             )
                             .root(SPrivileged::Privileged)
                             .bounding(SBounding::Ignore)
-                            .wildcard_denied("*")
                             .build()
                         })
                         .role(
@@ -187,7 +186,6 @@ mod tests {
                                     )
                                     .root(SPrivileged::Privileged)
                                     .bounding(SBounding::Ignore)
-                                    .wildcard_denied("*")
                                     .build()
                                 })
                                 .actor(SActor::user(0).build())
@@ -228,7 +226,6 @@ mod tests {
                                             )
                                             .root(SPrivileged::Privileged)
                                             .bounding(SBounding::Ignore)
-                                            .wildcard_denied("*")
                                             .build()
                                         })
                                         .commands(
@@ -294,7 +291,7 @@ mod tests {
     // chsr r r1 t t1 cred (unset|set) --caps capA,capB,capC --setuid user1 --setgid group1,group2
     // chsr r r1 t t1 cred caps setpolicy (deny-all|allow-all)
     // chsr r r1 t t1 cred caps (whitelist|blacklist) (add|del) capA capB capC
-    // chsr (r r1) (t t1) options show (all|path|env|root|bounding|wildcard-denied)
+    // chsr (r r1) (t t1) options show (all|path|env|root|bounding)
     // chsr o path set /usr/bin:/bin this regroups setpolicy delete and whitelist set
     // chsr o path setpolicy (delete-all|keep-all|inherit)
     // chsr o path (whitelist|blacklist) (add|del|set|purge) /usr/bin:/bin
@@ -305,7 +302,6 @@ mod tests {
 
     // chsr o root (privileged|user|inherit)
     // chsr o bounding (strict|ignore|inherit)
-    // chsr o wildcard-denied (set|add|del) *
 
     // chsr o timeout set --type tty --duration 5:00 --max_usage 1
     // chsr o t unset --type --duration --max_usage
@@ -1550,19 +1546,6 @@ mod tests {
         assert!(main(
             settings.clone(),
             "r complete t t_complete options show bounding".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete options show wildcard-denied".split(" "),
         )
         .call()
         .inspect_err(|e| {
@@ -3961,207 +3944,5 @@ mod tests {
                 .unwrap(),
             &SAuthentication::Inherit
         );
-    }
-    #[test]
-    fn test_r_complete_t_t_complete_o_wildcard_denied_set() {
-        let _defer = setup("r_complete_t_t_complete_o_wildcard_denied_set");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o wildcard-denied set *".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .wildcard_denied
-                .as_ref()
-                .unwrap(),
-            "*"
-        );
-        debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o wildcard-denied add ~".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .wildcard_denied
-                .as_ref()
-                .unwrap(),
-            "*~"
-        );
-        debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o wildcard-denied del *".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .wildcard_denied
-                .as_ref()
-                .unwrap(),
-            "~"
-        );
-        debug!("=====");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_wildcard_denied_set"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o timeout set --type uid --duration 15:05:10 --max-usage 7"
-                .split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        {
-            let bindingsettings = settings.as_ref().borrow();
-            let bindingconfig = bindingsettings.config.as_ref().unwrap().as_ref().borrow();
-            let bindingrole = bindingconfig[0].as_ref().borrow();
-            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
-            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
-            let timeout = bindingopt.timeout.as_ref().unwrap();
-            assert_eq!(timeout.duration, Some(chrono::Duration::seconds(54310)));
-            assert_eq!(timeout.max_usage, Some(7));
-            assert_eq!(timeout.type_field, Some(TimestampType::UID));
-        }
-        debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o timeout unset --type --max-usage".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        {
-            let bindingsettings = settings.as_ref().borrow();
-            let bindingconfig = bindingsettings.config.as_ref().unwrap().as_ref().borrow();
-            let bindingrole = bindingconfig[0].as_ref().borrow();
-            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
-            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
-            let timeout = bindingopt.timeout.as_ref().unwrap();
-            assert_eq!(timeout.max_usage, None);
-            assert_eq!(timeout.type_field, None);
-        }
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o timeout unset --type --duration --max-usage".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        {
-            let bindingsettings = settings.as_ref().borrow();
-            let bindingconfig = bindingsettings.config.as_ref().unwrap().as_ref().borrow();
-            let bindingrole = bindingconfig[0].as_ref().borrow();
-            let bindingtask = bindingrole.tasks[0].as_ref().borrow();
-            let bindingopt = bindingtask.options.as_ref().unwrap().as_ref().borrow();
-            assert!(bindingopt.timeout.as_ref().is_none());
-        }
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete tosk".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_err());
     }
 }

@@ -87,7 +87,6 @@ chsr role [role_name] task [task_name] options [option] [operation]
   {BOLD}env{RST}                           Manage environment variable settings (set, whitelist, blacklist, checklist).
   {BOLD}root{RST} [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (privileged, user, inherit)
   {BOLD}bounding{RST} [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (strict, ignore, inherit)
-  {BOLD}wildcard-denied{RST}               Manage chars that are denied in binary path.
   {BOLD}timeout{RST}                       Manage timeout settings (set, unset).
 ",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
 
@@ -182,7 +181,6 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::opt_env => "env",
         Rule::opt_root => "root",
         Rule::opt_bounding => "bounding",
-        Rule::opt_wildcard => "wildcard",
         Rule::help => "--help",
         Rule::set => "set",
         Rule::setpolicy => "setpolicy",
@@ -241,10 +239,7 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
             | Rule::opt_root
             | Rule::opt_root_args
             | Rule::opt_bounding
-            | Rule::opt_bounding_args
-            | Rule::opt_wildcard
-            | Rule::opt_wildcard_args
-            | Rule::wildcard_value => {
+            | Rule::opt_bounding_args => {
                 usage = usage_concat(&[
                     RAR_USAGE_OPTIONS_GENERAL,
                     RAR_USAGE_OPTIONS_PATH,

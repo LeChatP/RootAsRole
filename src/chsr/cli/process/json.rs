@@ -67,12 +67,6 @@ fn list_task(
                         OptType::Bounding => {
                             println!("{}", serde_json::to_string_pretty(&opt.bounding).unwrap());
                         }
-                        OptType::Wildcard => {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.wildcard_denied).unwrap()
-                            );
-                        }
                         OptType::Timeout => {
                             println!("{}", serde_json::to_string_pretty(&opt.timeout).unwrap());
                         }
@@ -467,51 +461,6 @@ pub fn cred_setpolicy(
         .as_mut()
         .unwrap()
         .default_behavior = cred_policy;
-    Ok(true)
-}
-
-pub fn json_wildcard(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
-    role_id: Option<String>,
-    task_id: Option<IdTask>,
-    action: InputAction,
-    options_wildcard: String,
-) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o wildcard add|del");
-    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        match action {
-            InputAction::Set => {
-                opt.as_ref().borrow_mut().wildcard_denied = Some(options_wildcard.clone());
-            }
-            InputAction::Add => {
-                let mut default_wildcard = opt
-                    .as_ref()
-                    .borrow()
-                    .wildcard_denied
-                    .clone()
-                    .unwrap_or_default();
-                default_wildcard.push_str(&options_wildcard);
-                opt.as_ref().borrow_mut().wildcard_denied = Some(default_wildcard);
-            }
-            InputAction::Del => {
-                if opt.as_ref().borrow().wildcard_denied.is_none() {
-                    println!("No wildcard denied configured");
-                    return Ok(());
-                }
-                if let Some(w) = opt.as_ref().borrow_mut().wildcard_denied.as_mut() {
-                    w.retain(|c| !options_wildcard.contains(c));
-                }
-                return Ok(());
-            }
-            InputAction::Purge => {
-                opt.as_ref().borrow_mut().wildcard_denied = None;
-                return Ok(());
-            }
-            _ => unreachable!("Unknown action {:?}", action),
-        }
-
-        Ok(())
-    })?;
     Ok(true)
 }
 

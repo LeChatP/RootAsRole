@@ -709,7 +709,6 @@ mod tests {
                 "root": "privileged",
                 "bounding": "ignore",
                 "authentication": "skip",
-                "wildcard-denied": "wildcards",
                 "timeout": {
                     "type": "ppid",
                     "duration": "00:05:00"
@@ -786,7 +785,6 @@ mod tests {
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
-        assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
 
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.type_field, Some(TimestampType::PPID));
@@ -859,7 +857,6 @@ mod tests {
                 },
                 "allow-root": false,
                 "allow-bounding": false,
-                "wildcard-denied": "wildcards",
                 "timeout": {
                     "type": "ppid",
                     "duration": "00:05:00",
@@ -975,7 +972,6 @@ mod tests {
                 "root": "privileged",
                 "bounding": "ignore",
                 "authentication": "skip",
-                "wildcard-denied": "wildcards",
                 "timeout": {
                     "type": "ppid",
                     "duration": "00:05:00"
@@ -1042,7 +1038,6 @@ mod tests {
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
-        assert_eq!(options.wildcard_denied.as_ref().unwrap(), "wildcards");
 
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.type_field, Some(TimestampType::PPID));
@@ -1153,7 +1148,6 @@ mod tests {
                 .root(SPrivileged::Privileged)
                 .bounding(SBounding::Ignore)
                 .authentication(SAuthentication::Skip)
-                .wildcard_denied("wildcards")
                 .timeout(
                     STimeout::builder()
                         .type_field(TimestampType::PPID)
