@@ -44,7 +44,7 @@ fn required_dependencies(os: &OsTarget) -> &'static [&'static str] {
 fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
-            &["libpam0g-dev", "libpcre2-dev", "libclang-dev", "pandoc"]
+            &["libpam0g-dev", "libpcre2-dev", "libclang-dev", "pandoc", "libseccomp-dev"]
         }
         OsTarget::RedHat => &[
             "pcre2-devel",
@@ -52,9 +52,10 @@ fn development_dependencies(os: &OsTarget) -> &'static [&'static str] {
             "openssl-devel",
             "pam-devel",
             "pandoc",
+            "libseccomp"
         ],
-        OsTarget::Fedora => &["clang-devel", "openssl-devel", "pam-devel", "pandoc"],
-        OsTarget::ArchLinux => &["clang", "pkg-config", "pandoc"],
+        OsTarget::Fedora => &["clang-devel", "openssl-devel", "pam-devel", "pandoc", "libseccomp"],
+        OsTarget::ArchLinux => &["clang", "pkg-config", "pandoc", "libseccomp"],
     }
 }
 
