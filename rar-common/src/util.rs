@@ -260,7 +260,12 @@ pub fn subsribe(_: &str) -> io::Result<()> {
 pub fn subsribe(tool: &str) -> io::Result<()> {
     use log::LevelFilter;
     use syslog::Facility;
-    syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool))?;
+    syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool)).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to connect to syslog: {}", e),
+        )
+    })?;
     Ok(())
 }
 
@@ -347,6 +352,7 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
 }
 
 pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
+    debug!("Opening file {:?}", p.as_ref());
     std::fs::File::open(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);

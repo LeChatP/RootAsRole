@@ -1,0 +1,68 @@
+{
+    "version": "3.2.0",
+    "options": {
+        "env": {
+            "default": "delete",
+            "override_behavior": false,
+            "keep": [
+                "KEEP"
+            ],
+            "check": [
+                "TZ"
+            ],
+            "delete": [
+                "DELETE"
+            ]
+        }
+    },
+    "roles": [
+        {
+            "name": "env",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "allowed",
+                    "purpose": "Commands that allow environment override",
+                    "commands": [
+                        "/usr/bin/env ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "override_behavior": true,
+                            "set": {
+                                "TASK": "allowed"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "denied", 
+                    "purpose": "Commands that deny environment override",
+                    "commands": [
+                        "/usr/bin/env ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "override_behavior": false,
+                            "set": {
+                                "TASK": "denied"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "env"
+                    }
+                }
+            }
+        }
+    ]
+}

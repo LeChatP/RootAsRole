@@ -1,0 +1,75 @@
+{
+    "version": "3.2.0",
+    "roles": [
+        {
+            "name": "A",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "A_A",
+                    "purpose": "Commands with specific user and group restrictions",
+                    "cred": {
+                        "setuid": {
+                            "default": "none",
+                            "fallback": "nobody",
+                            "add": ["daemon", "nobody"]
+                        },
+                        "setgid": {
+                            "default": "none",
+                            "fallback": ["daemon"],
+                            "add": [["daemon", "nobody"],["nobody"]]
+                        }
+                    },
+                    "commands": [
+                        "/usr/bin/id"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "A_A"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "A_B",
+                    "purpose": "Commands with specific user and group restrictions",
+                    "cred": {
+                        "setuid": {
+                            "default": "none",
+                            "fallback": "nobody",
+                            "add": ["root", "nobody"]
+                        },
+                        "setgid": {
+                            "default": "none",
+                            "fallback": ["root"],
+                            "add": [["root", "nobody"],["nobody"]]
+                        }
+                    },
+                    "commands": [
+                        "/usr/bin/id"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "A_B"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "A"
+                    }
+                }
+            }
+        }
+    ]
+}

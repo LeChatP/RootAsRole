@@ -28,8 +28,12 @@ jobs:
     - name: Install Dependencies
       run: cargo xtask dependencies -dip sudo
     
-    - name: run tests with coverage
-      run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --exclude-files build.rs xtask/src/* -e xtask --out Xml
+    - name: build integration coverage
+      run: sudo -E cargo +nightly coverage --out Xml
+      env:
+        RAR_AUTHENTICATION: skip
+        RAR_CFG_PATH: target/rootasrole.json
+        SKIP_BUILD: true
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3
@@ -38,14 +42,3 @@ jobs:
       with:
         file: cobertura.xml
         flags: unittests
-
-    - name: run tests with coverage as Admin
-      run: sudo -E /usr/local/cargo/bin/cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --exclude-files build.rs xtask/src/* -e xtask --out Xml
-
-    - name: Upload coverage reports to Codecov as Admin
-      uses: codecov/codecov-action@v3
-      env: 
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      with:
-        file: cobertura.xml
-        flags: admin-unittests

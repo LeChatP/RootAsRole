@@ -51,7 +51,6 @@ name = "chsr"
 path = "src/chsr/main.rs"
 required-features = ["editor"]
 
-# Integration tests that require root privileges
 [[test]]
 name = "integration_tests"
 path = "tests/integration_tests.rs"

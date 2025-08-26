@@ -1,0 +1,144 @@
+{
+    "version": "3.2.0",
+    "roles": [
+        {
+            "name": "A",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "A_A",
+                    "cred": {
+                        "setuid": "root",
+                        "setgid": "root",
+                        "capabilities": [
+                            "CAP_NET_ADMIN"
+                        ]
+                    },
+                    "commands": [
+                        "/usr/bin/env ^.*$",
+                        "cat /proc/self/status",
+                        "/usr/bin/id ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "A_A"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "A_B",
+                    "cred": {
+                        "setuid": {
+                            "default": "all",
+                            "fallback": "root"
+                        },
+                        "setgid": {
+                            "default": "all",
+                            "fallback": ["root"]
+                        },
+                        "capabilities": [
+                            "CAP_DAC_OVERRIDE"
+                        ]
+                    },
+                    "commands": [
+                        "/usr/bin/env ^.*$",
+                        "cat /proc/self/status",
+                        "/usr/bin/id ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "A_B"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "A"
+                    }
+                }
+            }
+        },
+        {
+            "name": "B",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "B",
+                    "cred": {
+                        "capabilities": [
+                            "CAP_NET_RAW"
+                        ]
+                    },
+                    "commands": [
+                        "/usr/bin/env ^.*$",
+                        "cat /proc/self/status",
+                        "/usr/bin/id ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "B_A"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "B"
+                    }
+                }
+            }
+        },
+        {
+            "name": "C",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "nobody"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "C",
+                    "commands": [
+                        "/usr/bin/env ^.*$",
+                        "cat /proc/self/status",
+                        "/usr/bin/id ^.*$"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "C"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "C"
+                    }
+                }
+            }
+        }
+    ]
+}

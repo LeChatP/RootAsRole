@@ -41,7 +41,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 //and each role has a set of rights to execute commands.";
 
 const USAGE: &str = formatcp!(
-    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}sr{RST} [OPTIONS] [COMMAND]...
+    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [COMMAND]...
 
 {UNDERLINE}{BOLD}Arguments:{RST}
   [COMMAND]...
@@ -59,16 +59,19 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
-          
           [default: "Password: "]
 
   {BOLD}-u, --user <USER>{RST}
           Specify the user to execute the command as
+
   {BOLD}-g --group <GROUP>(,<GROUP>...){RST}
           Specify the group to execute the command as
 
   {BOLD}-i, --info{RST}
           Display rights of executor
+
+  {BOLD}-v, --version{RST}
+          Print dosr version
 
   {BOLD}-h, --help{RST}
           Print help (see a summary with '-h')"#,
@@ -179,6 +182,10 @@ where
             "-h" | "--help" => {
                 args.help = true;
             }
+            "-v" | "--version" => {
+                println!("dosr: version {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             _ => {
                 if arg.as_ref().starts_with('-') {
                     error!("Unknown option: {}", arg.as_ref());
@@ -214,13 +221,51 @@ where
 }
 
 #[cfg(not(tarpaulin_include))]
-fn main() -> SrResult<()> {
+fn main() {
+    if let Err(e) = subsribe("sr") {
+        eprintln!("sr: Failed to initialize logging: {}", e);
+        std::process::exit(1);
+    }
+    if let Err(e) = main_inner() {
+        eprintln!("sr: {}", e);
+
+        use nix::unistd::{Uid, User};
+        if let SrError::InsufficientPrivileges = e {
+            error!("Insufficient privileges to run sr. {}", CAPABILITIES_ERROR);
+        } else if let SrError::AuthenticationFailed = e {
+            error!(
+                "Authentication failed for user '{}', when trying running '''{}'''",
+                User::from_uid(Uid::current())
+                    .and_then(|u| u
+                        .and_then(|u| Some(u.name))
+                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .unwrap_or(Uid::current().to_string()),
+                std::env::args().skip(1).collect::<Vec<_>>().join(" ")
+            );
+            eprintln!("This incident is reported.");
+        } else {
+            error!(
+                "User '{}' got a '{}' when trying running '''{}'''",
+                User::from_uid(Uid::current())
+                    .and_then(|u| u
+                        .and_then(|u| Some(u.name))
+                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .unwrap_or(Uid::current().to_string()),
+                e,
+                std::env::args().skip(1).collect::<Vec<_>>().join(" ")
+            );
+        }
+        std::process::exit(1);
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+fn main_inner() -> SrResult<()> {
     use std::env;
 
     use crate::{pam::check_auth, ROOTASROLE};
     use finder::find_best_exec_settings;
 
-    subsribe("sr")?;
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
     let args = std::env::args();

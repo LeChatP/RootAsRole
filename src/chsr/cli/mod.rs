@@ -1,8 +1,11 @@
 pub(crate) mod data;
+#[cfg(not(tarpaulin_include))]
 #[cfg(feature = "editor")]
 pub(crate) mod editor;
 pub(crate) mod pair;
 pub(crate) mod process;
+//TODO: UI miri tests
+#[cfg(not(tarpaulin_include))]
 pub(crate) mod usage;
 
 use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};

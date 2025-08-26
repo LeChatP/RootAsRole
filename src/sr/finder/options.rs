@@ -7,6 +7,7 @@ use chrono::Duration;
 use konst::primitive::parse_i64;
 use konst::{iter, option, result, slice, string, unwrap_ctx};
 use libc::PATH_MAX;
+use nix::unistd::User;
 use rar_common::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged,
     STimeout, TimestampType,
@@ -283,7 +284,9 @@ impl<'a> DEnvOptions<'a> {
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
-        target: &Cred,
+        current_user: &Cred,
+        target: Option<User>,
+        command: String,
     ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
             EnvBehavior::Inherit => {
@@ -329,16 +332,21 @@ impl<'a> DEnvOptions<'a> {
                 }
             }),
         );
-        final_set.insert("LOGNAME".into(), target.user.name.clone());
-        final_set.insert("USER".into(), target.user.name.clone());
-        final_set.insert("HOME".into(), target.user.dir.to_string_lossy().to_string());
+        let target_user = target.unwrap_or_else(|| current_user.user.clone());
+        final_set.insert("LOGNAME".into(), target_user.name.clone());
+        final_set.insert("USER".into(), target_user.name.clone());
+        final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
+        final_set.insert(
+            "SHELL".into(),
+            target_user.shell.to_string_lossy().to_string(),
+        );
+        final_set.insert("RAR_UID".into(), current_user.user.uid.to_string());
+        final_set.insert("RAR_GID".into(), current_user.user.gid.to_string());
+        final_set.insert("RAR_USER".into(), current_user.user.name.clone());
+        final_set.insert("RAR_COMMAND".into(), command);
         final_set
             .entry("TERM".into())
             .or_insert_with(|| "unknown".into());
-        final_set.insert(
-            "SHELL".into(),
-            target.user.shell.to_string_lossy().to_string(),
-        );
         final_set.extend(
             self.set
                 .iter()
@@ -1065,7 +1073,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1073,8 +1081,7 @@ mod tests {
         );
         let final_env = result.unwrap();
         assert_eq!(final_env.get("PATH").unwrap(), "/usr/local/bin:/usr/bin");
-        assert_eq!(*final_env.get("LOGNAME").unwrap(), target.user.name);
-        assert_eq!(*final_env.get("USER").unwrap(), target.user.name);
+        assert_eq!(*final_env.get("RAR_USER").unwrap(), target.user.name);
         assert_eq!(
             *final_env.get("HOME").unwrap(),
             target.user.dir.to_string_lossy()
@@ -1107,7 +1114,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1149,7 +1156,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target);
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(result.is_err());
     }
 

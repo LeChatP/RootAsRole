@@ -10,12 +10,22 @@ test-root = [
     "--"
 ]
 
-coverage = [
+integration-test = [
+    "test",
+    "--test", "integration_tests",
+    "--features", "finder",
     "--config",
     "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\"",
+    "--",
+    "--nocapture",
+    "--test-threads=1"
+]
+
+coverage = [
     "tarpaulin",
     "--workspace",
     "--all-features",
+    "--all-targets",
     "--timeout",
     "120",
     "--exclude-files",

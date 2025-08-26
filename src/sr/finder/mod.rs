@@ -11,6 +11,7 @@ use api::{register_plugins, Api, ApiEvent};
 use capctl::CapSet;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
+use nix::unistd::User;
 use options::BorrowedOptStack;
 use rar_common::{
     database::{
@@ -139,7 +140,15 @@ impl BestExecSettings {
         }
         result.env = opt_stack
             .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
-            .calc_final_env(env_vars, opt_stack.calc_path(env_path), cred)?;
+            .calc_final_env(
+                env_vars,
+                opt_stack.calc_path(env_path),
+                cred,
+                result
+                    .setuid
+                    .and_then(|x| User::from_uid(x.into()).expect("Target user do not exist")),
+                format!("{}{}",cli.cmd_path.display(), if cli.cmd_args.is_empty() { "".into() } else { format!(" {}", cli.cmd_args.join(" ")) } )
+            )?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
