@@ -27,17 +27,20 @@ fn match_path(
         return min;
     } else {
         debug!("match_path: user relative path");
+        let mut curmin = CmdMin::empty();
         all_paths_from_env(env_path, user_path)
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
-                if min.better(&previous_min) {
+                if min.better(&previous_min) && min.better(&curmin) {
                     *final_path = Some(cmd_path.clone());
+                    curmin = min;
                     Some(min)
                 } else {
                     None
                 }
             })
+            .inspect(|m| debug!("match_path: found better match {:?} with {}", m, final_path.as_ref().unwrap().display()))
             .unwrap_or_default()
     }
 }

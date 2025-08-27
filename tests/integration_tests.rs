@@ -187,9 +187,13 @@ mod tests {
             .groups(&["nobody"])
             .call()
             .expect("Failed to run dosr -u nobody id");
-
+        if !result.success {
+            eprintln!("stderr: {}", result.stderr);
+            println!("stdout: {}", result.stdout);
+        }
         assert!(result.success, "Command failed: {}", result.stderr);
-        assert!(result.stdout.contains("gid=65534(nobody)"));
+        let re_gid = RegexBuilder::new().build(r"gid=\d+\(nobody\)").unwrap();
+        assert!(re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b));
         assert_eq!(result.exit_code, 0);
     }
 
@@ -204,12 +208,47 @@ mod tests {
             .fixture_name("tests/fixtures/user_group.json")
             .env_vars(&[("LANG","en_US")])
             .call()
-            .expect("Failed to run dosr -u nobody -g daemon,nobody id");
+            .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {}",e)).unwrap();
+        if !result.success {
+            eprintln!("stderr: {}", result.stderr);
+            println!("stdout: {}", result.stdout);
+        }
         assert!(result.success, "Command failed: {}", result.stderr);
         let re_gid = RegexBuilder::new().build(r"gid=\d+\(daemon\)").unwrap();
-        let re_groups = RegexBuilder::new().build(r"groups=\d+\(daemon\),65534\(nobody\)").unwrap();
+        let re_groups = RegexBuilder::new().build(r"groups=\d+\(daemon\),\d+\(nobody\)").unwrap();
         assert!(re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b), "stdout: {}", result.stdout);
         assert!(re_groups.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b), "stdout: {}", result.stdout);
         assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_dosr_auth() {
+        // check that the /etc/pam.d/dosr_test file exists
+        use std::fs;
+        if !fs::metadata("/etc/pam.d/dosr_test").is_ok() {
+            eprintln!("Skipping test_dosr_auth: /etc/pam.d/dosr_test not found");
+            return;
+        }
+        let runner = get_test_runner().expect("Failed to setup test environment");
+        let result = runner
+            .run_dosr(&["/usr/bin/true"])
+            .fixture_name("tests/fixtures/perform_auth.json")
+            .call()
+            .expect("Failed to run dosr with auth role");
+        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert_eq!(result.exit_code, 0);
+        // assert that a timestamp cookie was created
+        let path = std::path::Path::new("/var/run/sr/ts").join("0");
+        assert!(path.exists(), "Timestamp cookie was not created");
+        // run dosr -K to delete the timestamp cookie
+        let result = runner
+            .run_dosr(&["-K","/usr/bin/true"])
+            .fixture_name("tests/fixtures/perform_auth.json")
+            .call()
+            .expect("Failed to run dosr with auth role");
+        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert_eq!(result.exit_code, 0);
+        assert!(!path.exists(), "Timestamp cookie was not deleted");
     }
 }

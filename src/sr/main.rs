@@ -108,6 +108,10 @@ struct Cli {
     #[builder(default, with = || true)]
     /// Use stdin for password prompt
     stdin: bool,
+
+    #[builder(default, with = || false)]
+    /// Delete timestamp cookie after successful authentication
+    del_ts: bool,
 }
 
 impl Default for Cli {
@@ -168,6 +172,9 @@ where
             }
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
+            }
+            "-K" | "--remove-timestamp" => {
+                args.del_ts = true;
             }
             "-p" | "--prompt" => {
                 args.prompt = Some(
@@ -280,6 +287,12 @@ fn main_inner() -> SrResult<()> {
         return Ok(());
     }
     let user = make_cred();
+    if args.del_ts {
+        timeout::clear_cookies(&user).map_err(|e| {
+            error!("Failed to clear timestamp cookies: {}", e);
+            SrError::InsufficientPrivileges
+        })?;
+    }
     let execcfg = find_best_exec_settings(
         &args,
         &user,

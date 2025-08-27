@@ -25,6 +25,19 @@ jobs:
     - name: Install sudo
       run: apt install sudo -y
 
+    - name: Configure PAM
+      run: |
+        sudo bash -c 'echo "#%PAM-1.0
+        auth    [success=1 default=ignore]  pam_permit.so
+        auth    requisite                   pam_permit.so
+        auth    required                    pam_permit.so
+        account [success=1 default=ignore]  pam_permit.so
+        account requisite                   pam_permit.so
+        account required                    pam_permit.so
+        session [success=1 default=ignore]  pam_permit.so
+        session requisite                   pam_permit.so
+        session required                    pam_permit.so" | tee /etc/pam.d/dosr'
+
     - name: Install Dependencies
       run: cargo xtask dependencies -dip sudo
     

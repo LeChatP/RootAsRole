@@ -25,11 +25,7 @@ mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod securemem;
 
-#[cfg(not(test))]
 const PAM_SERVICE: &str = "dosr";
-#[cfg(test)]
-const PAM_SERVICE: &str = "dosr_test";
-
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
 struct SrConversationHandler {

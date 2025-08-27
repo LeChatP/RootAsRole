@@ -1,0 +1,39 @@
+{
+    "version": "3.2.0",
+    "options": {
+        "authentication": "perform"
+    },
+    "roles": [
+        {
+            "name": "r_auth",
+            "actors": [
+                {
+                    "type": "user",
+                    "name": "root"
+                }
+            ],
+            "tasks": [
+                {
+                    "name": "t_auth",
+                    "commands": [
+                        "/usr/bin/true"
+                    ],
+                    "options": {
+                        "env": {
+                            "set": {
+                                "TASK": "t_auth"
+                            }
+                        }
+                    }
+                }
+            ],
+            "options": {
+                "env": {
+                    "set": {
+                        "ROLE": "r_auth"
+                    }
+                }
+            }
+        }
+    ]
+}

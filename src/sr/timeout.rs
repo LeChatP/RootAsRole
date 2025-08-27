@@ -282,6 +282,14 @@ pub(crate) fn update_cookie(
     Ok(())
 }
 
+pub(crate) fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
+    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
+    if path.exists() {
+        remove_with_privileges(&path)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use nix::unistd::{Pid, User};
@@ -307,6 +315,7 @@ mod test {
             tty: None,
             ppid: Pid::parent(),
         };
+        clear_cookies(&cred).unwrap();
         let constraint = STimeout {
             type_field: Some(TimestampType::TTY),
             duration: Some(chrono::Duration::seconds(10)),

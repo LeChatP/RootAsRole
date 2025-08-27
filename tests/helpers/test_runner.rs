@@ -3,6 +3,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::io::Result as IoResult;
 
 use bon::bon;
+use log::warn;
 
 use crate::helpers::config_manager::ConfigManager;
 
@@ -58,25 +59,26 @@ impl TestRunner {
             for &user in user_list {
                 let user_check = Command::new("id")
                     .arg(user)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
                     .status();
                 match user_check {
-                    Ok(_) => {}
-                    Err(e) => {
+                    Ok(e) => {
                         //check if error is due to user not existing
-                        if e.kind() != std::io::ErrorKind::NotFound {
-                            eprintln!("Warning: Failed to check user '{}': {}", user, e);
-                            continue;
+                        if !e.success() {
+                            // User does not exist, attempt to create
+                            let create_status = Command::new("useradd")
+                                .args(&["-m", user])
+                                .status();
+                            if let Err(e) = create_status {
+                                println!("Warning: Failed to create user '{}': {}", user, e);
+                            }
+                            println!("Created user '{}' for testing purposes", user);
+                            added_users.push(user.to_string());
                         }
-                        // User does not exist, attempt to create
-                        let create_status = Command::new("sudo")
-                            .args(&["useradd", "-m", user])
-                            .status();
-                        if let Err(e) = create_status {
-                            eprintln!("Warning: Failed to create user '{}': {}", user, e);
-                        }
-                        added_users.push(user.to_string());
+                        println!("User '{}' exists", user);
+                        
+                    }
+                    Err(e) => {
+                        println!("Warning: Failed to check user '{}': {}", user, e);
                     }
                 }
             }
@@ -86,25 +88,23 @@ impl TestRunner {
             for &group in group_list {
                 let group_check = Command::new("getent")
                     .args(&["group", group])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
                     .status();
                 match group_check {
-                    Ok(_) => {}
+                    Ok(e) => {
+                        if !e.success() {
+                            // Group does not exist, attempt to create
+                            let create_status = Command::new("groupadd")
+                                .args(&[group])
+                                .status();
+                            if let Err(e) = create_status {
+                                println!("Warning: Failed to create group '{}': {}", group, e);
+                            }
+                            added_groups.push(group.to_string());
+                            println!("Created group '{}' for testing purposes", group);
+                        }
+                    }
                     Err(e) => {
-                        //check if error is due to group not existing
-                        if e.kind() != std::io::ErrorKind::NotFound {
-                            eprintln!("Warning: Failed to check group '{}': {}", group, e);
-                            continue;
-                        }
-                        // Group does not exist, attempt to create
-                        let create_status = Command::new("sudo")
-                            .args(&["groupadd", group])
-                            .status();
-                        if let Err(e) = create_status {
-                            eprintln!("Warning: Failed to create group '{}': {}", group, e);
-                        }
-                        added_groups.push(group.to_string());
+                        println!("Warning: Failed to check group '{}': {}", group, e);
                     }
                 }
             }
@@ -117,17 +117,19 @@ impl TestRunner {
             .stderr(Stdio::piped());
 
         let output = command.output()?;
+        println!("Output : {}", String::from_utf8(output.stdout.clone()).unwrap());
+        println!("Error  : {}", String::from_utf8(output.stderr.clone()).unwrap());
 
         // Clean up any users or groups we added
         for user in added_users {
-            let _ = Command::new("sudo")
-                .args(&["userdel", "-r", &user])
-                .status();
+            let _ = Command::new("userdel")
+                .args(&["-r", &user])
+                .status()?;
         }
         for group in added_groups {
-            let _ = Command::new("sudo")
-                .args(&["groupdel", &group])
-                .status();
+            let _ = Command::new("groupdel")
+                .args(&[&group])
+                .status()?;
         }
         
         Ok(CommandResult {
