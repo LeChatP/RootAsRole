@@ -166,6 +166,7 @@ mod tests {
         let result = runner
             .run_dosr(&["-u", "nobody", "id"])
             .fixture_name("tests/fixtures/user_group.json")
+            .users(&["nobody"])
             .call()
             .expect("Failed to run dosr -u nobody id");
 
@@ -182,6 +183,8 @@ mod tests {
         let result = runner
             .run_dosr(&["-g", "nobody", "id"])
             .fixture_name("tests/fixtures/user_group.json")
+            .users(&["nobody"])
+            .groups(&["nobody"])
             .call()
             .expect("Failed to run dosr -u nobody id");
 
@@ -196,6 +199,8 @@ mod tests {
         let runner = get_test_runner().inspect_err(|e| eprintln!("Failed to setup test environment: {}",e)).unwrap();
         let result = runner
             .run_dosr(&["-u", "nobody", "-g", "daemon,nobody", "id"])
+            .users(&["nobody"])
+            .groups(&["nobody","daemon"])
             .fixture_name("tests/fixtures/user_group.json")
             .env_vars(&[("LANG","en_US")])
             .call()

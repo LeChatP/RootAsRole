@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::io::Result as IoResult;
 
 use bon::bon;
@@ -42,11 +42,71 @@ impl TestRunner {
         args: &[&str], 
         fixture_name: Option<&str>,
         env_vars: Option<&[(&str, &str)]>,
+        users: Option<&[&str]>,
+        groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
         // If a fixture is specified, update the configuration
         if let Some(fixture) = fixture_name {
             if let Err(e) = self.config_manager.load_fixture(&fixture.into()) {
                 eprintln!("Warning: Failed to load fixture '{}': {}", fixture, e);
+            }
+        }
+        let mut added_users = Vec::new();
+        let mut added_groups = Vec::new();
+        if let Some(user_list) = users {
+            // Check if users exist and create them if necessary
+            for &user in user_list {
+                let user_check = Command::new("id")
+                    .arg(user)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                match user_check {
+                    Ok(_) => {}
+                    Err(e) => {
+                        //check if error is due to user not existing
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("Warning: Failed to check user '{}': {}", user, e);
+                            continue;
+                        }
+                        // User does not exist, attempt to create
+                        let create_status = Command::new("sudo")
+                            .args(&["useradd", "-m", user])
+                            .status();
+                        if let Err(e) = create_status {
+                            eprintln!("Warning: Failed to create user '{}': {}", user, e);
+                        }
+                        added_users.push(user.to_string());
+                    }
+                }
+            }
+        }
+        if let Some(group_list) = groups {
+            // Check if groups exist and create them if necessary
+            for &group in group_list {
+                let group_check = Command::new("getent")
+                    .args(&["group", group])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                match group_check {
+                    Ok(_) => {}
+                    Err(e) => {
+                        //check if error is due to group not existing
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("Warning: Failed to check group '{}': {}", group, e);
+                            continue;
+                        }
+                        // Group does not exist, attempt to create
+                        let create_status = Command::new("sudo")
+                            .args(&["groupadd", group])
+                            .status();
+                        if let Err(e) = create_status {
+                            eprintln!("Warning: Failed to create group '{}': {}", group, e);
+                        }
+                        added_groups.push(group.to_string());
+                    }
+                }
             }
         }
         let mut command = Command::new(&self.binary_path);
@@ -57,6 +117,18 @@ impl TestRunner {
             .stderr(Stdio::piped());
 
         let output = command.output()?;
+
+        // Clean up any users or groups we added
+        for user in added_users {
+            let _ = Command::new("sudo")
+                .args(&["userdel", "-r", &user])
+                .status();
+        }
+        for group in added_groups {
+            let _ = Command::new("sudo")
+                .args(&["groupdel", &group])
+                .status();
+        }
         
         Ok(CommandResult {
             success: output.status.success(),
