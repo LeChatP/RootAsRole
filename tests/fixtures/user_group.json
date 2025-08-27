@@ -21,7 +21,7 @@
                         },
                         "setgid": {
                             "default": "none",
-                            "fallback": ["daemon"],
+                            "fallback": "daemon",
                             "add": [["daemon", "nobody"],["nobody"]]
                         }
                     },
@@ -47,7 +47,7 @@
                         },
                         "setgid": {
                             "default": "none",
-                            "fallback": ["root"],
+                            "fallback": "root",
                             "add": [["root", "nobody"],["nobody"]]
                         }
                     },
