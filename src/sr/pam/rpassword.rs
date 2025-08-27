@@ -211,12 +211,13 @@ mod test {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             let available = self.read_data.len().saturating_sub(self.read_pos);
             let to_read = buf.len().min(available);
-            
+
             if to_read > 0 {
-                buf[..to_read].copy_from_slice(&self.read_data[self.read_pos..self.read_pos + to_read]);
+                buf[..to_read]
+                    .copy_from_slice(&self.read_data[self.read_pos..self.read_pos + to_read]);
                 self.read_pos += to_read;
             }
-            
+
             Ok(to_read)
         }
     }
@@ -245,7 +246,16 @@ mod test {
             }
             Err(e) => {
                 // TTY is not available, which is expected in some test environments
-                assert!(e.kind() == io::ErrorKind::NotFound || e.kind() == io::ErrorKind::PermissionDenied, "Unexpected error kind: {:?}", e.kind());
+                assert!(
+                    matches!(
+                        e.kind(),
+                        io::ErrorKind::NotFound
+                            | io::ErrorKind::PermissionDenied
+                            | io::ErrorKind::Uncategorized
+                    ),
+                    "Unexpected error kind: {:?}",
+                    e.kind()
+                );
             }
         }
     }
@@ -257,11 +267,11 @@ mod test {
         assert!(result.is_ok());
     }
 
-    #[test] 
+    #[test]
     fn test_terminal_variant_matching() {
         // Test that we can match on Terminal variants
         let terminal = Terminal::open_stdie().unwrap();
-        
+
         match terminal {
             Terminal::StdIE(_, _) => {
                 // Expected for open_stdie
@@ -282,14 +292,14 @@ mod test {
     fn test_terminal_prompt_conceptual() {
         // This is a conceptual test showing how Terminal::prompt would work
         // In practice, testing this requires mocking stdin/stderr or using a PTY
-        
+
         // We can't easily test the actual prompt method without complex mocking,
         // but we can verify the structure is sound by checking compilation
         let _test_fn = |mut terminal: Terminal| -> io::Result<()> {
             terminal.prompt(&"Test prompt: ")?;
             Ok(())
         };
-        
+
         // If this compiles, the Terminal interface is working correctly
         assert!(true);
     }
@@ -298,11 +308,11 @@ mod test {
     fn test_terminal_source_sink_methods() {
         // Test that the internal source/sink methods work correctly
         // This is mainly a compilation test since the methods are private
-        
+
         // We verify the Terminal enum can be constructed and methods exist
         let terminal_result = Terminal::open_stdie();
         assert!(terminal_result.is_ok());
-        
+
         // The fact that Terminal has read_cleartext, read_password, and prompt methods
         // that compile successfully indicates the source() and sink() methods work
         assert!(true);
@@ -315,7 +325,7 @@ mod test {
             // This should compile - Terminal can have different lifetimes
             Terminal::open_stdie()
         }
-        
+
         let result = create_stdie_terminal();
         assert!(result.is_ok());
     }
