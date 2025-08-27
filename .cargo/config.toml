@@ -35,8 +35,6 @@ coverage = [
     "xtask",
     "--out", "Html",
     "--out", "Xml",
-    "--",
-    "--test-threads=1"
 ]
 
 [env]

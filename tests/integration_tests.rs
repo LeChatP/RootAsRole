@@ -6,10 +6,12 @@ mod helpers;
 #[cfg(test)]
 mod tests {
     use pcre2::bytes::RegexBuilder;
+    use serial_test::serial;
 
     use crate::helpers::get_test_runner;
 
     #[test]
+    #[serial]
     fn test_dosr_help() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -23,6 +25,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_version() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -38,6 +41,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_role_selection() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -52,6 +56,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_task_selection() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -66,6 +71,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_invalid_role() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -81,6 +87,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_env_override() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -98,6 +105,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_env_override_not_overriden() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -115,6 +123,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_env_override_denied() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -133,6 +142,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_env_override_denied_not_overriden() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -150,6 +160,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_as_user() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -165,6 +176,7 @@ mod tests {
 
 
     #[test]
+    #[serial]
     fn test_dosr_as_group() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
@@ -179,8 +191,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dosr_as_user_and_group() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = get_test_runner().inspect_err(|e| eprintln!("Failed to setup test environment: {}",e)).unwrap();
         let result = runner
             .run_dosr(&["-u", "nobody", "-g", "daemon,nobody", "id"])
             .fixture_name("tests/fixtures/user_group.json")
