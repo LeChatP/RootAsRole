@@ -251,7 +251,7 @@ mod test {
                         e.kind(),
                         io::ErrorKind::NotFound
                             | io::ErrorKind::PermissionDenied
-                            | io::ErrorKind::Uncategorized
+                            | io::ErrorKind::Other
                     ),
                     "Unexpected error kind: {:?}",
                     e.kind()
