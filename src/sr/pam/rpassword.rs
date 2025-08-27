@@ -245,7 +245,7 @@ mod test {
             }
             Err(e) => {
                 // TTY is not available, which is expected in some test environments
-                assert!(e.kind() == io::ErrorKind::NotFound || e.kind() == io::ErrorKind::PermissionDenied);
+                assert!(e.kind() == io::ErrorKind::NotFound || e.kind() == io::ErrorKind::PermissionDenied, "Unexpected error kind: {:?}", e.kind());
             }
         }
     }
