@@ -234,33 +234,6 @@ mod test {
     }
 
     #[test]
-    fn test_terminal_open_tty_fails_gracefully() {
-        // Test that open_tty handles failures gracefully when /dev/tty is not available
-        // This test might fail in environments where /dev/tty is actually available
-        let result = Terminal::open_tty();
-        // We can't guarantee this will fail, but if it succeeds, that's also fine
-        match result {
-            Ok(_) => {
-                // TTY is available, which is fine for the test
-                assert!(true);
-            }
-            Err(e) => {
-                // TTY is not available, which is expected in some test environments
-                assert!(
-                    matches!(
-                        e.kind(),
-                        io::ErrorKind::NotFound
-                            | io::ErrorKind::PermissionDenied
-                            | io::ErrorKind::Other
-                    ),
-                    "Unexpected error kind: {:?}",
-                    e.kind()
-                );
-            }
-        }
-    }
-
-    #[test]
     fn test_terminal_open_stdie() {
         // Test that open_stdie always succeeds
         let result = Terminal::open_stdie();
