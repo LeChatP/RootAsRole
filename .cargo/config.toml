@@ -7,7 +7,8 @@ test-root = [
     "--all-targets",
     "--config",
     "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\"",
-    "--"
+    "--",
+    "--test-threads=1"
 ]
 
 integration-test = [
@@ -32,6 +33,10 @@ coverage = [
     "build.rs", "xtask/src/*",
     "-e",
     "xtask",
+    "--out", "Html",
+    "--out", "Xml",
+    "--",
+    "--test-threads=1"
 ]
 
 [env]

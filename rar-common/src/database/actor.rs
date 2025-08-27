@@ -235,11 +235,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
                 E: serde::de::Error,
             {
                 if let Ok(group) = v.parse() {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
                 } else {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
                         Cow::Borrowed(v),
-                    ))));
+                    ))))
                 }
             }
 
@@ -247,11 +247,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
                 where
                     E: serde::de::Error, {
                 if let Ok(group) = v.parse() {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
                 } else {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
                         Cow::Owned(v.to_string()),
-                    ))));
+                    ))))
                 }
             }
 
@@ -259,11 +259,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
                 where
                     E: serde::de::Error, {
                 if let Ok(group) = v.parse() {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))));
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
                 } else {
-                    return Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
                         v.into(),
-                    ))));
+                    ))))
                 }
             }
 
@@ -318,11 +318,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
                 E: serde::de::Error,
             {
                 if let Ok(group) = v.parse() {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
                         v.to_string(),
-                    ))));
+                    ))))
                 }
             }
 
@@ -330,11 +330,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
                 where
                     E: serde::de::Error, {
                 if let Ok(group) = v.parse() {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
                         v.into(),
-                    ))));
+                    ))))
                 }
             }
 
@@ -342,11 +342,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
                 where
                     E: serde::de::Error, {
                 if let Ok(group) = v.parse() {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))));
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
-                    return Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
                         v,
-                    ))));
+                    ))))
                 }
             }
 
@@ -405,7 +405,7 @@ impl<'a> From<&'a str> for DUserType<'a> {
     }
 }
 
-impl<'a> From<String> for DUserType<'a> {
+impl From<String> for DUserType<'_> {
     fn from(name: String) -> Self {
         DUserType(DGenericActorType::Name(name.into()))
     }
@@ -463,7 +463,7 @@ impl<'a> From<&'a str> for DGenericActorType<'a> {
     }
 }
 
-impl<'a> From<u32> for DGenericActorType<'a> {
+impl From<u32> for DGenericActorType<'_> {
     fn from(name: u32) -> Self {
         DGenericActorType::Id(name)
     }

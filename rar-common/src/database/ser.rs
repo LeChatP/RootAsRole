@@ -85,9 +85,9 @@ impl Serialize for SetBehavior {
         S: serde::Serializer,
     {
         if serializer.is_human_readable() {
-            return serializer.serialize_str(&self.to_string());
+            serializer.serialize_str(&self.to_string())
         } else {
-            return serializer.serialize_u32(*self as u32);
+            serializer.serialize_u32(*self as u32)
         }
     }
 }
@@ -180,36 +180,34 @@ impl Serialize for SCapabilities {
     {
         if self.default_behavior.is_none() && self.sub.is_empty() {
             super::serialize_capset(&self.add, serializer)
-        } else {
-            if serializer.is_human_readable() {
-                let mut map = serializer.serialize_map(Some(3))?;
-                if self.default_behavior.is_all() {
-                    map.serialize_entry("default", &self.default_behavior)?;
-                }
-                if !self.add.is_empty() {
-                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("add", &v)?;
-                }
-                if !self.sub.is_empty() {
-                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("del", &v)?;
-                }
-                map.end()
-            } else {
-                let mut map = serializer.serialize_map(Some(3))?;
-                if self.default_behavior.is_all() {
-                    map.serialize_entry("d", &(self.default_behavior as u32))?;
-                }
-                if !self.add.is_empty() {
-                    let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("a", &v)?;
-                }
-                if !self.sub.is_empty() {
-                    let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
-                    map.serialize_entry("s", &v)?;
-                }
-                map.end()
+        } else if serializer.is_human_readable() {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.default_behavior.is_all() {
+                map.serialize_entry("default", &self.default_behavior)?;
             }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("add", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("del", &v)?;
+            }
+            map.end()
+        } else {
+            let mut map = serializer.serialize_map(Some(3))?;
+            if self.default_behavior.is_all() {
+                map.serialize_entry("d", &(self.default_behavior as u32))?;
+            }
+            if !self.add.is_empty() {
+                let v: Vec<String> = self.add.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("a", &v)?;
+            }
+            if !self.sub.is_empty() {
+                let v: Vec<String> = self.sub.iter().map(|cap| cap.to_string()).collect();
+                map.serialize_entry("s", &v)?;
+            }
+            map.end()
         }
     }
 }
@@ -422,7 +420,7 @@ mod tests {
     #[test]
     fn test_setbehavior_serialize() {
         let b = SetBehavior::All;
-        let value = to_value(&b).unwrap();
+        let value = to_value(b).unwrap();
         assert_eq!(value, json!("all"));
         let b = SetBehavior::None;
         let bin: Vec<u8> = Vec::new();

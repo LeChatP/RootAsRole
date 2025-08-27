@@ -29,7 +29,7 @@ jobs:
       run: cargo xtask dependencies -dip sudo
     
     - name: build integration coverage
-      run: sudo -E /usr/local/cargo/bin/cargo +nightly coverage --out Xml
+      run: sudo -E /usr/local/cargo/bin/cargo +nightly coverage
       env:
         RAR_AUTHENTICATION: skip
         RAR_CFG_PATH: target/rootasrole.json

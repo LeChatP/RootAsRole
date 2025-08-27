@@ -281,7 +281,7 @@ impl<'de> Deserialize<'de> for FullSettings {
                 // If we have config fields, deserialize them into SConfig
                 let config = if !config_fields.is_empty() {
                     let config_value = serde_json::Value::Object(
-                        config_fields.into_iter().map(|(k, v)| (k, v)).collect(),
+                        config_fields.into_iter().collect(),
                     );
                     Some(Rc::new(RefCell::new(
                         SConfig::deserialize(config_value).map_err(serde::de::Error::custom)?,
@@ -328,20 +328,20 @@ impl LockedSettingsFile {
         if write && path.as_ref().exists() {
             let mut file = read_with_privileges(&path)?;
             if is_immutable(&file)? {
-                return Ok(with_mutable_config(&mut file, |_| {
+                return with_mutable_config(&mut file, |_| {
                     let file = open_lock_with_privileges(
                         path.as_ref(),
                         options,
                         nix::fcntl::FlockArg::LockExclusive,
                     )?;
 
-                    return Ok(LockedSettingsFile {
+                    Ok(LockedSettingsFile {
                         path: path.as_ref().to_path_buf(),
-                        data: load_full_settings(&path, &file.deref())
+                        data: load_full_settings(&path, file.deref())
                             .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
                         fd: file,
-                    });
-                })?);
+                    })
+                });
             }
         }
 
@@ -350,7 +350,7 @@ impl LockedSettingsFile {
 
         Ok(LockedSettingsFile {
             path: path.as_ref().to_path_buf(),
-            data: load_full_settings(&path, &file.deref())
+            data: load_full_settings(&path, file.deref())
                 .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
             fd: file,
         })
@@ -419,9 +419,9 @@ impl LockedSettingsFile {
         T: AsRef<Path>,
     {
         {
-            let storage_method = self.data.as_ref().borrow().storage.method.clone();
+            let storage_method = self.data.as_ref().borrow().storage.method;
             let binding = self.data.as_ref().borrow_mut();
-            let config = binding.config.as_ref().take().unwrap();
+            let config = binding.config.as_ref().unwrap();
             let versioned_config: Versioning<Rc<RefCell<SConfig>>> =
                 Versioning::new(config.clone());
             let mut file = open_lock_with_privileges(
@@ -699,7 +699,7 @@ mod tests {
             let filename = PathBuf::from(test_file_path)
                 .canonicalize()
                 .unwrap_or(test_file_path.into());
-            if std::fs::remove_file(&test_file_path).is_err() {
+            if std::fs::remove_file(test_file_path).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
         });
@@ -707,7 +707,7 @@ mod tests {
             let filename = PathBuf::from(external_file_path)
                 .canonicalize()
                 .unwrap_or(external_file_path.into());
-            if std::fs::remove_file(&external_file_path).is_err() {
+            if std::fs::remove_file(external_file_path).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
         });

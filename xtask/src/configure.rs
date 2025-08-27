@@ -100,7 +100,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
             type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
             duration: convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
                 .unwrap(),
-            max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").len() > 0 {
+            max_usage: if !env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
                 Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
             } else {
                 None
@@ -115,7 +115,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
                     .map(|s| s.to_string())
                     .collect(),
             ),
-            sub: if env!("RAR_PATH_REMOVE_LIST").len() > 0 {
+            sub: if !env!("RAR_PATH_REMOVE_LIST").is_empty() {
                 Some(
                     env!("RAR_PATH_REMOVE_LIST")
                         .split(":")
@@ -152,7 +152,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
                     .map(|s| s.to_string())
                     .collect(),
             ),
-            set: if env!("RAR_ENV_SET_LIST").len() > 0 && env!("RAR_ENV_SET_LIST") != "{}" {
+            set: if !env!("RAR_ENV_SET_LIST").is_empty() && !"{}".is_empty() {
                 serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()
             } else {
                 HashMap::new()

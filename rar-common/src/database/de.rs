@@ -24,7 +24,7 @@ impl<'de> Deserialize<'de> for SetBehavior {
     {
         struct SetBehaviorVisitor;
 
-        impl<'de> Visitor<'de> for SetBehaviorVisitor {
+        impl Visitor<'_> for SetBehaviorVisitor {
             type Value = SetBehavior;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {

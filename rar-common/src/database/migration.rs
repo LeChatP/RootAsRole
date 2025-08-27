@@ -199,43 +199,38 @@ mod tests {
                 },
             },
         ];
-        assert_eq!(
-            Migration::migrate(&Version::parse("1.0.0").unwrap(), &mut doc, &migrations).unwrap(),
-            true
+        assert!(
+            Migration::migrate(&Version::parse("1.0.0").unwrap(), &mut doc, &migrations).unwrap()
         );
         assert_eq!(doc, 3);
         doc = 0;
-        assert_eq!(
-            Migration::migrate(&Version::parse("2.0.0").unwrap(), &mut doc, &migrations).unwrap(),
-            true
+        assert!(
+            Migration::migrate(&Version::parse("2.0.0").unwrap(), &mut doc, &migrations).unwrap()
         );
         assert_eq!(doc, 2);
         doc = 0;
-        assert_eq!(
+        assert!(
             Migration::migrate(
                 &Version::parse("3.0.0-alpha.1").unwrap(),
                 &mut doc,
                 &migrations
             )
-            .unwrap(),
-            true
+            .unwrap()
         );
         assert_eq!(doc, 1);
         doc = 0;
-        assert_eq!(
-            Migration::migrate(&Version::parse("4.0.0").unwrap(), &mut doc, &migrations).unwrap(),
-            true
+        assert!(
+            Migration::migrate(&Version::parse("4.0.0").unwrap(), &mut doc, &migrations).unwrap()
         );
         assert_eq!(doc, -1);
         doc = 0;
-        assert_eq!(
-            Migration::migrate(
+        assert!(
+            !Migration::migrate(
                 &Version::parse(PACKAGE_VERSION).unwrap(),
                 &mut doc,
                 &migrations
             )
-            .unwrap(),
-            false
+            .unwrap()
         );
         assert_eq!(doc, 0);
     }

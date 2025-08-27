@@ -309,7 +309,7 @@ impl Opt {
                         .split(',')
                         .filter(|s| {
                             #[cfg(feature = "pcre2")]
-                            return is_valid_env_name(&s) || is_regex(&s);
+                            return is_valid_env_name(s) || is_regex(s);
                             #[cfg(not(feature = "pcre2"))]
                             is_valid_env_name(&s)
                         })
@@ -482,7 +482,7 @@ impl EnvSet for LinkedHashSet<EnvKey> {
 
 impl EnvSet for Option<LinkedHashSet<EnvKey>> {
     fn env_matches(&self, needle: &EnvKey) -> bool {
-        self.as_ref().map_or(false, |set| set.env_matches(needle))
+        self.as_ref().is_some_and(|set| set.env_matches(needle))
     }
 }
 

@@ -31,7 +31,7 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     }
     for error in errors {
         if let Err(e) = error {
-            warn!("{}: {}", e.to_string(), e.source().unwrap().to_string());
+            warn!("{}: {}", e, e.source().unwrap());
         }
     }
     Ok(())

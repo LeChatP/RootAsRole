@@ -83,7 +83,7 @@ where
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
     let mut val = 0;
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(std::io::Error::last_os_error());
     }
     Ok(val & FS_IMMUTABLE_FL != 0)
 }
@@ -96,7 +96,7 @@ where
 {
     let mut val = 0;
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(std::io::Error::last_os_error());
     }
     if val & FS_IMMUTABLE_FL != 0 {
         val &= !(FS_IMMUTABLE_FL);
@@ -117,14 +117,14 @@ where
         }
         Ok(())
     })?;
-    res.map_err(|e| e.into())
+    res
 }
 
 pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     let mut val = 0;
     let fd = file.as_raw_fd();
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(std::io::Error::last_os_error());
     }
     if val & FS_IMMUTABLE_FL == 0 {
         if return_err {
@@ -284,7 +284,7 @@ pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     current
         .set_current()
         .inspect_err(|e| debug!("initialize_capabilities error: {}", e))?;
-    return Ok(current);
+    Ok(current)
 }
 
 pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> std::io::Result<R>
@@ -491,14 +491,14 @@ mod test {
     #[test]
     fn test_with_mutable_config() {
         let current = CapState::get_current().expect("Failed to get current capabilities");
-        if current.permitted.has(Cap::LINUX_IMMUTABLE) == false {
+        if !current.permitted.has(Cap::LINUX_IMMUTABLE) {
             eprintln!("Skipping test, requires CAP_LINUX_IMMUTABLE");
             return;
         }
         let path = PathBuf::from("/tmp/rar_test_lock_config.lock");
         let mut file = File::create(&path).expect("Failed to create file");
         let _defer = defer(|| {
-            if let Err(_) = fs::remove_file(&path) {
+            if fs::remove_file(&path).is_err() {
                 // remove the immutable flag if set
                 with_privileges(&[Cap::LINUX_IMMUTABLE], || {
                 let file = File::open(&path).expect("Failed to open file");
@@ -540,7 +540,7 @@ mod test {
                 ErrorKind::PermissionDenied
             );
             with_mutable_config(&mut file, |file| {
-                file.write(b"Test content")?;
+                file.write_all(b"Test content")?;
                 Ok(())
             })
         })

@@ -336,7 +336,7 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
 
 pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
     let output = Command::new("git")
-        .args(&["rev-parse", "--show-toplevel"])
+        .args(["rev-parse", "--show-toplevel"])
         .output()?;
     let git_root = String::from_utf8(output.stdout)?.trim().to_string();
     debug!("Changing directory to git root: {}", git_root);
