@@ -55,7 +55,7 @@ Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par 
   Supprimer le fichier de timestamp. (Cela oblige de s'authentifier à nouveau avant d'exécuter une commande)
 
 **\-i, --info**  
-  Afficher les droits de l'exécuteur. Cela peut être refusé si la politique ne le permet pas.
+  Afficher le contexte d'exécution d'une commande si autorisé par une tâche correspondante.
 
 **\-h, --help**  
   Afficher l'aide (voir plus avec '--help')

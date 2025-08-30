@@ -56,7 +56,7 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
   Remove timestamp file. (It requires you to authenticate again before executing a command)
 
 **\-i, --info**  
-  Display rights of the executor. It can be denied if the policy does not allow it.
+  Print the execution context of a command if allowed by a matching task.
 
 **\-h, --help**  
   Print help (see more with '--help')  

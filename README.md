@@ -110,7 +110,7 @@ Execute privileged commands with a role-based access control system
   <b>-E, --preserve-env</b>          Keep environment variables from the current process
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
   <b>-K</b>                 Remove timestamp file
-  <b>-i, --info</b>         Display rights of executor if allowed by a matching task
+  <b>-i, --info</b>         Print the execution context of a command if allowed by a matching task
   <b>-h, --help</b>         Print help (see more with '--help')
   <b>-V, --version</b>      Print version
 </pre>
