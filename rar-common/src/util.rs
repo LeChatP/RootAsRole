@@ -501,26 +501,29 @@ mod test {
             if fs::remove_file(&path).is_err() {
                 // remove the immutable flag if set
                 with_privileges(&[Cap::LINUX_IMMUTABLE], || {
-                let file = File::open(&path).expect("Failed to open file");
-                let mut val = 0;
-                if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
-                    eprintln!("Failed to get flags");
-                    return Err(std::io::Error::last_os_error());
-                }
-                if val & FS_IMMUTABLE_FL != 0 {
-                    val &= !(FS_IMMUTABLE_FL);
-                    immutable_required_privileges(&file, || {
-                        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) }
-                            < 0
-                        {
-                            eprintln!("Failed to remove immutable flag");
-                        }
-                        Ok(())
-                    })
-                    .ok();
-                }
-                fs::remove_file(&path)
-            }).unwrap();
+                    let file = File::open(&path).expect("Failed to open file");
+                    let mut val = 0;
+                    if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0
+                    {
+                        eprintln!("Failed to get flags");
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if val & FS_IMMUTABLE_FL != 0 {
+                        val &= !(FS_IMMUTABLE_FL);
+                        immutable_required_privileges(&file, || {
+                            if unsafe {
+                                nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val)
+                            } < 0
+                            {
+                                eprintln!("Failed to remove immutable flag");
+                            }
+                            Ok(())
+                        })
+                        .ok();
+                    }
+                    fs::remove_file(&path)
+                })
+                .unwrap();
             }
         });
         assert!(with_privileges(&[Cap::LINUX_IMMUTABLE], || {

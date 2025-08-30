@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
 use std::io::Result as IoResult;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 use bon::bon;
-use log::warn;
 
 use crate::helpers::config_manager::ConfigManager;
 
@@ -25,11 +24,12 @@ pub struct TestRunner {
 #[bon]
 impl TestRunner {
     /// Creates a new TestRunner instance and compiles the dosr binary
-    pub fn new(binary_path: PathBuf, test_config_path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-
-
+    pub fn new(
+        binary_path: PathBuf,
+        test_config_path: PathBuf,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let config_manager = ConfigManager::new(&test_config_path)?;
-        
+
         Ok(TestRunner {
             binary_path,
             config_manager,
@@ -38,9 +38,9 @@ impl TestRunner {
 
     /// Run the dosr command with a specific policy fixture
     #[builder]
-    pub fn run_dosr(&self, 
-        #[builder(start_fn)]
-        args: &[&str], 
+    pub fn run_dosr(
+        &self,
+        #[builder(start_fn)] args: &[&str],
         fixture_name: Option<&str>,
         env_vars: Option<&[(&str, &str)]>,
         users: Option<&[&str]>,
@@ -57,17 +57,14 @@ impl TestRunner {
         if let Some(user_list) = users {
             // Check if users exist and create them if necessary
             for &user in user_list {
-                let user_check = Command::new("id")
-                    .arg(user)
-                    .status();
+                let user_check = Command::new("id").arg(user).status();
                 match user_check {
                     Ok(e) => {
                         //check if error is due to user not existing
                         if !e.success() {
                             // User does not exist, attempt to create
-                            let create_status = Command::new("useradd")
-                                .args(&["-m", user])
-                                .status();
+                            let create_status =
+                                Command::new("useradd").args(&["-m", user]).status();
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create user '{}': {}", user, e);
                             }
@@ -75,7 +72,6 @@ impl TestRunner {
                             added_users.push(user.to_string());
                         }
                         println!("User '{}' exists", user);
-                        
                     }
                     Err(e) => {
                         println!("Warning: Failed to check user '{}': {}", user, e);
@@ -86,16 +82,12 @@ impl TestRunner {
         if let Some(group_list) = groups {
             // Check if groups exist and create them if necessary
             for &group in group_list {
-                let group_check = Command::new("getent")
-                    .args(&["group", group])
-                    .status();
+                let group_check = Command::new("getent").args(&["group", group]).status();
                 match group_check {
                     Ok(e) => {
                         if !e.success() {
                             // Group does not exist, attempt to create
-                            let create_status = Command::new("groupadd")
-                                .args(&[group])
-                                .status();
+                            let create_status = Command::new("groupadd").args(&[group]).status();
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create group '{}': {}", group, e);
                             }
@@ -117,21 +109,23 @@ impl TestRunner {
             .stderr(Stdio::piped());
 
         let output = command.output()?;
-        println!("Output : {}", String::from_utf8(output.stdout.clone()).unwrap());
-        println!("Error  : {}", String::from_utf8(output.stderr.clone()).unwrap());
+        println!(
+            "Output : {}",
+            String::from_utf8(output.stdout.clone()).unwrap()
+        );
+        println!(
+            "Error  : {}",
+            String::from_utf8(output.stderr.clone()).unwrap()
+        );
 
         // Clean up any users or groups we added
         for user in added_users {
-            let _ = Command::new("userdel")
-                .args(&["-r", &user])
-                .status()?;
+            let _ = Command::new("userdel").args(&["-r", &user]).status()?;
         }
         for group in added_groups {
-            let _ = Command::new("groupdel")
-                .args(&[&group])
-                .status()?;
+            let _ = Command::new("groupdel").args(&[&group]).status()?;
         }
-        
+
         Ok(CommandResult {
             success: output.status.success(),
             exit_code: output.status.code().unwrap_or(-1),

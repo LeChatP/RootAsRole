@@ -25,7 +25,7 @@ mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod securemem;
 
-const PAM_SERVICE: &str = "dosr";
+const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
 struct SrConversationHandler {
@@ -162,16 +162,13 @@ pub(super) fn check_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
+    use nix::{libc::dev_t, unistd::Pid};
     use rar_common::{
         database::options::{SAuthentication, STimeout, TimestampType},
         Cred,
     };
     use std::ffi::OsStr;
-    use chrono::Duration;
-    use nix::{
-        libc::dev_t,
-        unistd::Pid,
-    };
 
     // Helper function to create a test user
     fn create_test_user() -> Cred {
@@ -212,7 +209,7 @@ mod tests {
     #[test]
     fn test_is_pam_password_prompt_basic() {
         let handler = SrConversationHandler::default();
-        
+
         // Test basic password prompts
         assert!(handler.is_pam_password_prompt(&"Password:"));
         assert!(handler.is_pam_password_prompt(&"Password: "));
@@ -225,18 +222,18 @@ mod tests {
     fn test_is_pam_password_prompt_with_username() {
         let mut handler = SrConversationHandler::default();
         handler.username = Some("testuser".to_string());
-        
+
         // Test user-specific password prompts
         assert!(handler.is_pam_password_prompt(&"testuser's Password:"));
         assert!(handler.is_pam_password_prompt(&"testuser's Password: "));
         assert!(!handler.is_pam_password_prompt(&"otheruser's Password:"));
-        assert!(!handler.is_pam_password_prompt(&"testuser Password:"));  // Missing apostrophe-s
+        assert!(!handler.is_pam_password_prompt(&"testuser Password:")); // Missing apostrophe-s
     }
 
     #[test]
     fn test_conversation_handler_error_msg() {
         let handler = SrConversationHandler::default();
-        
+
         // This test verifies the error_msg method doesn't panic
         // In a real test environment, you might want to capture stderr
         handler.error_msg(OsStr::new("Test error message"));
@@ -245,7 +242,7 @@ mod tests {
     #[test]
     fn test_conversation_handler_info_msg() {
         let handler = SrConversationHandler::default();
-        
+
         // This test verifies the info_msg method doesn't panic
         // In a real test environment, you might want to capture stdout
         handler.info_msg(OsStr::new("Test info message"));
@@ -256,18 +253,18 @@ mod tests {
         let authentication = SAuthentication::Skip;
         let timeout = create_test_timeout();
         let user = create_test_user();
-        
+
         // When authentication is skipped, it should always succeed
         let result = check_auth(&authentication, &timeout, &user, "Password: ");
         assert!(result.is_ok());
     }
 
-    #[test] 
+    #[test]
     fn test_check_auth_required_but_valid_timeout() {
         let authentication = SAuthentication::Perform;
         let timeout = create_test_timeout();
         let user = create_test_user();
-        
+
         // This test depends on the timeout::is_valid implementation
         // In a real environment, you might want to mock this
         let result = check_auth(&authentication, &timeout, &user, "Password: ");
@@ -280,23 +277,26 @@ mod tests {
     fn test_conversation_handler_no_interact_flag() {
         let mut handler = SrConversationHandler::default();
         handler.no_interact = true;
-        
+
         // When no_interact is true, both prompt methods should return ConversationError
         let prompt_result = handler.prompt(OsStr::new("Test prompt"));
         assert!(matches!(prompt_result, Err(ErrorCode::ConversationError)));
-        
+
         let masked_prompt_result = handler.masked_prompt(OsStr::new("Password:"));
-        assert!(matches!(masked_prompt_result, Err(ErrorCode::ConversationError)));
+        assert!(matches!(
+            masked_prompt_result,
+            Err(ErrorCode::ConversationError)
+        ));
     }
 
     #[test]
     fn test_password_prompt_replacement() {
         let custom_prompt = "Enter your secret: ";
         let handler = SrConversationHandler::new(custom_prompt);
-        
+
         // Test that the handler stores the custom prompt
         assert_eq!(handler.prompt, custom_prompt);
-        
+
         // Test that it recognizes standard PAM prompts
         assert!(handler.is_pam_password_prompt(&"Password:"));
         assert!(handler.is_pam_password_prompt(&"Password: "));
@@ -306,14 +306,14 @@ mod tests {
     fn test_regex_patterns_edge_cases() {
         let mut handler = SrConversationHandler::default();
         handler.username = Some("user.with.dots".to_string());
-        
+
         // Test with username containing special regex characters
         assert!(handler.is_pam_password_prompt(&"user.with.dots's Password:"));
-        
+
         // Test case sensitivity
         assert!(!handler.is_pam_password_prompt(&"password:"));
         assert!(!handler.is_pam_password_prompt(&"PASSWORD:"));
-        
+
         // Test with extra spaces and characters
         assert!(!handler.is_pam_password_prompt(&"Password:  ")); // Extra spaces
         assert!(!handler.is_pam_password_prompt(&" Password:")); // Leading space
@@ -322,19 +322,19 @@ mod tests {
     #[test]
     fn test_conversation_handler_fields() {
         let mut handler = SrConversationHandler::new("Custom: ");
-        
+
         // Test field modifications
         handler.use_stdin = true;
         handler.no_interact = true;
         handler.username = Some("alice".to_string());
-        
+
         assert!(handler.use_stdin);
         assert!(handler.no_interact);
         assert_eq!(handler.username.as_ref().unwrap(), "alice");
         assert_eq!(handler.prompt, "Custom: ");
     }
 
-    #[test] 
+    #[test]
     fn test_timeout_types() {
         let timeout_ppid = STimeout {
             type_field: Some(TimestampType::PPID),
@@ -342,17 +342,17 @@ mod tests {
             max_usage: Some(1),
             _extra_fields: Default::default(),
         };
-        
+
         let timeout_tty = STimeout {
             type_field: Some(TimestampType::TTY),
             duration: Some(Duration::seconds(600)),
             max_usage: Some(5),
             _extra_fields: Default::default(),
         };
-        
+
         let user = create_test_user();
         let auth = SAuthentication::Skip;
-        
+
         // Test different timeout types don't cause errors
         assert!(check_auth(&auth, &timeout_ppid, &user, "Password: ").is_ok());
         assert!(check_auth(&auth, &timeout_tty, &user, "Password: ").is_ok());

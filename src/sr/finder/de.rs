@@ -573,6 +573,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             if let Some(path) = opt.path.as_ref() {
                                 self.spath.union(path.clone().into());
                             }
+                            if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
+                            }
                             // skip the task if env_override is required and not allowed
                             if self.cli.opt_filter.as_ref().is_some_and(|o| {
                                 // we have a filter

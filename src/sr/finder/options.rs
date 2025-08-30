@@ -9,7 +9,7 @@ use konst::{iter, option, result, slice, string, unwrap_ctx};
 use libc::PATH_MAX;
 use nix::unistd::User;
 use rar_common::database::options::{
-    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SPathOptions, SPrivileged,
+    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
     STimeout, TimestampType,
 };
 use rar_common::database::score::SecurityMin;
@@ -138,6 +138,9 @@ const PRIVILEGED: SPrivileged = result::unwrap_or!(
     SPrivileged::User
 );
 
+const INFO: SInfo =
+    result::unwrap_or!(SInfo::try_parse(env!("RAR_EXEC_INFO_DISPLAY")), SInfo::Hide);
+
 //#[cfg(not(tarpaulin_include))]
 //const fn default() -> Opt<'static> {
 /* Opt::builder(Level::Default)
@@ -248,6 +251,8 @@ pub struct Opt<'a> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execinfo: Option<SInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
     pub _extra_fields: Value,
@@ -263,6 +268,7 @@ impl<'a> Opt<'a> {
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
+        execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
         #[builder(default)] _extra_fields: Value,
     ) -> Self {
@@ -273,6 +279,7 @@ impl<'a> Opt<'a> {
             root,
             bounding,
             authentication,
+            execinfo,
             timeout,
             _extra_fields,
         }
@@ -655,21 +662,27 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             task: None,
         }
     }
-    pub fn set_role(&mut self, role: Option<Opt<'a>>) {
+    fn _set_role(&mut self, role: Option<Opt<'a>>) {
         self.role = role;
     }
-    pub fn set_task(&mut self, task: Option<Opt<'a>>) {
+    fn _set_task(&mut self, task: Option<Opt<'a>>) {
         self.task = task;
     }
     pub fn from_task(task: &DLinkedTask<'t, 'c, 'a>) -> Self {
         let config = task.role().config().options.clone();
         let role = task.role().role().options.clone();
-        let task_opt = task.task.options.clone();
+        let task_opt = task.task().options.clone();
         Self {
             config,
             role,
             task: task_opt,
         }
+    }
+    pub fn set_role(&mut self, role: &DLinkedTask<'t, 'c, 'a>) {
+        self.role = role.role().role().options.clone();
+    }
+    pub fn set_task(&mut self, task: &DLinkedTask<'t, 'c, 'a>) {
+        self.task = task.task.options.clone();
     }
     pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
         // Preallocate with a reasonable guess, but will only allocate once.
@@ -880,6 +893,14 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
                 max_usage: Some(TIMEOUT_MAX_USAGE),
                 _extra_fields: Map::new(),
             })
+    }
+    pub fn calc_info(&self) -> SInfo {
+        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
+            .iter()
+            .flatten()
+            .filter_map(|o| o.execinfo)
+            .next()
+            .unwrap_or(INFO)
     }
     pub fn calc_authentication(&self) -> SAuthentication {
         [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
@@ -1214,8 +1235,8 @@ mod tests {
                 .build(),
         );
         let mut stack = BorrowedOptStack::new(config);
-        stack.set_role(role);
-        stack.set_task(task);
+        stack._set_role(role);
+        stack._set_task(task);
         assert_eq!(
             stack.calc_path(&["/test"]),
             env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>()

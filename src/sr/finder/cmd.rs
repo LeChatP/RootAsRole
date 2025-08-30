@@ -40,7 +40,13 @@ fn match_path(
                     None
                 }
             })
-            .inspect(|m| debug!("match_path: found better match {:?} with {}", m, final_path.as_ref().unwrap().display()))
+            .inspect(|m| {
+                debug!(
+                    "match_path: found better match {:?} with {}",
+                    m,
+                    final_path.as_ref().unwrap().display()
+                )
+            })
             .unwrap_or_default()
     }
 }

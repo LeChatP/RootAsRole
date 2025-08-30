@@ -109,7 +109,8 @@ Execute privileged commands with a role-based access control system
   <b>-g, --group</b> &lt;GROUP<,GROUP...>&gt; Group(s) to execute the command as
   <b>-E, --preserve-env</b>          Keep environment variables from the current process
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
-  <b>-i, --info</b>         Display rights of executor
+  <b>-K</b>                 Remove timestamp file
+  <b>-i, --info</b>         Display rights of executor if allowed by a matching task
   <b>-h, --help</b>         Print help (see more with '--help')
   <b>-V, --version</b>      Print version
 </pre>

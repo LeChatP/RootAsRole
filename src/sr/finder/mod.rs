@@ -147,7 +147,15 @@ impl BestExecSettings {
                 result
                     .setuid
                     .and_then(|x| User::from_uid(x.into()).expect("Target user do not exist")),
-                format!("{}{}",cli.cmd_path.display(), if cli.cmd_args.is_empty() { "".into() } else { format!(" {}", cli.cmd_args.join(" ")) } )
+                format!(
+                    "{}{}",
+                    cli.cmd_path.display(),
+                    if cli.cmd_args.is_empty() {
+                        "".into()
+                    } else {
+                        format!(" {}", cli.cmd_args.join(" "))
+                    }
+                ),
             )?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
@@ -191,6 +199,20 @@ impl BestExecSettings {
         let temp_opt_stack = BorrowedOptStack::from_task(data);
         let mut found = false;
         let mut f_env_path = None;
+        // We must do this check for each task as long they could have different options
+        // These checks are a small optimization to avoid useless command checks
+        if cli
+            .opt_filter
+            .as_ref()
+            .is_some_and(|f| f.env_behavior.is_some() && !temp_opt_stack.calc_override_behavior())
+        {
+            debug!("task_settings: deny task due to inherited from role or config env_override requirement");
+            return Ok(false);
+        }
+        if cli.info && temp_opt_stack.calc_info().is_hide() {
+            debug!("task_settings: deny task due to inherited from role or config info hide");
+            return Ok(false);
+        }
         if let Some(commands) = data.commands() {
             let t_env_path = opt_stack.calc_path(env_path);
             for command in commands.del() {
@@ -259,8 +281,8 @@ impl BestExecSettings {
                 DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
             });
             self.caps = data.caps.clone();
-            opt_stack.set_role(data.role().role().options.clone());
-            opt_stack.set_task(data.task().options.clone());
+            opt_stack.set_role(data);
+            opt_stack.set_task(data);
             debug!("resulting settings: {:?}", self);
         }
 
@@ -332,11 +354,14 @@ impl BestExecSettings {
 mod tests {
     use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
+    use rar_common::database::options::{EnvBehavior, Level, SInfo};
     use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
     use rar_common::database::structs::SetBehavior;
+    use rar_common::database::FilterMatcher;
     use serde_json::Value;
     use std::path::PathBuf;
 
+    use crate::finder::options::{DEnvOptions, Opt};
     use crate::Cli;
     use rar_common::Cred;
 
@@ -367,6 +392,7 @@ mod tests {
                                     .add(vec![DCommand::simple("/usr/bin/ls -l")])
                                     .build(),
                             )
+                            .options(Opt::builder(Level::Task).execinfo(SInfo::Hide).build())
                             .build(),
                         DTaskFinder::builder()
                             .id(IdTask::Number(1))
@@ -381,6 +407,16 @@ mod tests {
                                                 .collect::<serde_json::Map<String, Value>>(),
                                         )),
                                     ])
+                                    .build(),
+                            )
+                            .options(
+                                Opt::builder(Level::Task)
+                                    .execinfo(SInfo::Show)
+                                    .env(
+                                        DEnvOptions::builder(EnvBehavior::Delete)
+                                            .override_behavior(true)
+                                            .build(),
+                                    )
                                     .build(),
                             )
                             .build(),
@@ -398,6 +434,16 @@ mod tests {
                                     .add(vec![DCommand::simple("/usr/bin/ls -l")])
                                     .build(),
                             )
+                            .options(
+                                Opt::builder(Level::Task)
+                                    .execinfo(SInfo::Show)
+                                    .env(
+                                        DEnvOptions::builder(EnvBehavior::Delete)
+                                            .override_behavior(true)
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
                             .build(),
                         DTaskFinder::builder()
                             .id(IdTask::Number(1))
@@ -407,6 +453,7 @@ mod tests {
                                     .add(vec![DCommand::simple("/usr/bin/ls ^.*$")])
                                     .build(),
                             )
+                            .options(Opt::builder(Level::Task).execinfo(SInfo::Hide).build())
                             .build(),
                     ])
                     .build(),
@@ -475,10 +522,15 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(0).unwrap();
         let data = binding.tasks().nth(0).unwrap();
-        let mut opt_stack = BorrowedOptStack::new(None);
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/bin"];
         let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok_and(|r| r));
+        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(best.role == "test");
+        assert!(best.task == Some("0".to_string()));
+        assert!(best.caps.is_some());
+        assert!(best.score.cmd_min == CmdMin::MATCH);
     }
 
     #[cfg(feature = "pcre2")]
@@ -493,16 +545,14 @@ mod tests {
         let binding = binding.commands().unwrap();
         let data = binding.add().nth(0).unwrap();
         let result = best.command_settings(env_path, &cli, &data);
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.as_ref().is_ok_and(|b| *b));
         let data = binding.add().nth(1).unwrap();
         let result = best.command_settings(env_path, &cli, &data);
         assert!(
-            result.is_ok(),
+            result.as_ref().is_ok_and(|b| !*b),
             "Failed to process complex command : {}",
             result.unwrap_err()
         );
-        assert!(!result.unwrap())
     }
 
     #[test]
@@ -544,5 +594,183 @@ mod tests {
         let updated = settings.update_command_score(new_path, worse_cmd_min);
         assert!(!updated);
         assert_eq!(settings.final_path, PathBuf::from("/old/path"));
+    }
+
+    #[test]
+    fn test_info_denied_due_to_inherited_hide_one() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .info()
+            .build();
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.tasks().nth(0).unwrap();
+        // This task has info hide set in options, it should be denied
+        let data = binding;
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_hide_two() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .info()
+            .build();
+        // Now test with the second task which does not have info hide
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.tasks().nth(1).unwrap();
+        // This task has info hide set in options, it should be denied
+        let data = binding;
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_hide_three() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .info()
+            .build();
+        // Now try best.role_settings to ensure full flow works
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let data = binding.tasks().nth(1).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(best.role == "test", "role was {}", best.role);
+        assert!(best.task == Some("1".to_string()));
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_hide_four() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .info()
+            .build();
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(1).unwrap();
+        let data = binding.tasks().nth(0).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(best.role == "test2", "role was {}", best.role);
+        assert!(best.task == Some("0".to_string()));
+    }
+
+    #[test]
+    fn test_info_denied_due_to_inherited_env_override_one() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.tasks().nth(0).unwrap();
+        // This task has info hide set in options, it should be denied
+        let data = binding;
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_env_override_two() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        // Now test with the second task which does not have info hide
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.tasks().nth(1).unwrap();
+        // This task has info hide set in options, it should be denied
+        let data = binding;
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_env_override_three() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        // Now try best.role_settings to ensure full flow works
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(0).unwrap();
+        let data = binding.tasks().nth(1).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(best.role == "test", "role was {}", best.role);
+        assert!(best.task == Some("1".to_string()));
+    }
+    #[test]
+    fn test_info_denied_due_to_inherited_env_override_four() {
+        let mut best = BestExecSettings::default();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .cmd_args(vec!["-l".to_string()])
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        let binding = dummy_dconfigfinder();
+        let binding = binding.roles().nth(1).unwrap();
+        let data = binding.tasks().nth(0).unwrap();
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let env_path = &["/usr/bin"];
+        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(best.role == "test2", "role was {}", best.role);
+        assert!(best.task == Some("0".to_string()));
     }
 }

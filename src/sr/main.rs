@@ -292,6 +292,9 @@ fn main_inner() -> SrResult<()> {
             error!("Failed to clear timestamp cookies: {}", e);
             SrError::InsufficientPrivileges
         })?;
+        if args.cmd_path.as_os_str().is_empty() {
+            return Ok(());
+        }
     }
     let execcfg = find_best_exec_settings(
         &args,
@@ -325,16 +328,73 @@ fn main_inner() -> SrResult<()> {
     }
 
     if args.info {
-        //println!("Role: {}", if execcfg.role.is_empty() { "None" } else { &execcfg.role });
-        //println!("Task: {}", execcfg.task);
+        use capctl::CapSet;
+        use nix::unistd::User;
+        println!(
+            "Role: {}",
+            if execcfg.role.is_empty() {
+                "None"
+            } else {
+                &execcfg.role
+            }
+        );
+        println!(
+            "Task: {}",
+            if execcfg.task.is_none() {
+                "None"
+            } else {
+                &execcfg.task.as_ref().unwrap()
+            }
+        );
+        print!(
+            "Execute as user: '{}'",
+            if let Some(u) = execcfg.setuid {
+                if let Some(user) = User::from_uid(nix::unistd::Uid::from_raw(u)).unwrap_or(None) {
+                    format!("{} ({})", user.name, u)
+                } else {
+                    format!("{}", u)
+                }
+            } else {
+                "Your current user".to_string()
+            }
+        );
+        if let Some(gids) = execcfg.setgroups.as_ref() {
+            print!(" and group(s): ");
+            let groups = gids
+                .iter()
+                .map(|g| {
+                    if let Some(group) =
+                        nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(*g)).unwrap_or(None)
+                    {
+                        format!("{} ({})", group.name, g)
+                    } else {
+                        format!("{}", g)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("{}", groups);
+        } else {
+            println!(" and your current group(s)");
+        }
         println!(
             "With capabilities: {}",
-            execcfg
-                .caps
-                .unwrap_or_default()
-                .into_iter()
-                .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+            if execcfg.caps.is_none() {
+                "None".to_string()
+            } else if *execcfg.caps.as_ref().unwrap() == !CapSet::empty() {
+                "All capabilities".to_string()
+            } else {
+                format!(
+                    "{:?}",
+                    execcfg
+                        .caps
+                        .unwrap()
+                        .into_iter()
+                        .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+                )
+            }
         );
+        println!("Command: {:?} {:?}", execcfg.final_path, args.cmd_args);
         std::process::exit(0);
     }
 

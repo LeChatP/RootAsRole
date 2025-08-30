@@ -17,7 +17,7 @@ use crate::util::{
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
-pub const PAM_CONFIG_PATH: &str = "/etc/pam.d/dosr";
+pub const PAM_CONFIG_SERVICE: &str = env!("RAR_PAM_SERVICE");
 
 fn is_running_in_container() -> bool {
     // Check for environment files that might indicate a container
@@ -98,7 +98,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
     config.storage.options = Some(Opt {
         timeout: Some(STimeout {
             type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
-            duration: convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
+            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
                 .unwrap(),
             max_usage: if !env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
                 Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
@@ -152,7 +152,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
                     .map(|s| s.to_string())
                     .collect(),
             ),
-            set: if !env!("RAR_ENV_SET_LIST").is_empty() && !"{}".is_empty() {
+            set: if !env!("RAR_ENV_SET_LIST").is_empty() {
                 serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()
             } else {
                 HashMap::new()
@@ -343,9 +343,9 @@ pub fn pam_config(os: &OsTarget) -> &'static str {
 }
 
 fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
-    if fs::metadata(PAM_CONFIG_PATH).is_err() {
+    if fs::metadata(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE)).is_err() {
         info!("Deploying PAM configuration file");
-        let mut pam_conf = File::create(PAM_CONFIG_PATH)?;
+        let mut pam_conf = File::create(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE))?;
         pam_conf.write_all(pam_config(os).as_bytes())?;
         pam_conf.sync_all()?;
     }

@@ -244,6 +244,19 @@ pub enum SAuthentication {
     Skip = HARDENED_ENUM_VALUE_2,
 }
 
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
+#[strum(ascii_case_insensitive)]
+#[serde(rename_all = "kebab-case")]
+#[derive(Default)]
+#[repr(u32)]
+pub enum SInfo {
+    #[default]
+    Hide = HARDENED_ENUM_VALUE_0,
+    Show = HARDENED_ENUM_VALUE_1,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt {
@@ -260,6 +273,8 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execinfo: Option<SInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
     pub _extra_fields: Map<String, Value>,
@@ -275,6 +290,7 @@ impl Opt {
         root: Option<SPrivileged>,
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
+        execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Self {
@@ -285,6 +301,7 @@ impl Opt {
             root,
             bounding,
             authentication,
+            execinfo,
             timeout,
             _extra_fields,
         }
@@ -296,6 +313,7 @@ impl Opt {
             .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
             .path(SPathOptions::level_default())
             .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
+            .maybe_execinfo(env!("RAR_EXEC_INFO_DISPLAY").parse().ok())
             .env(
                 SEnvOptions::builder(
                     env!("RAR_ENV_DEFAULT")
@@ -333,7 +351,7 @@ impl Opt {
                 STimeout::builder()
                     .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
                     .maybe_duration(
-                        convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
+                        convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
                             .ok()
                             .flatten(),
                     )
@@ -351,6 +369,7 @@ impl Default for Opt {
             root: Some(SPrivileged::default()),
             bounding: Some(SBounding::default()),
             authentication: None,
+            execinfo: None,
             timeout: None,
             _extra_fields: Map::default(),
             level: Level::Default,
@@ -548,6 +567,16 @@ impl SPrivileged {
             _ if eq_str(input, "inherit") => Ok(SPrivileged::Inherit),
             _ if eq_str(input, "privileged") => Ok(SPrivileged::Privileged),
             _ => ConstParseError("SPrivileged").panic(),
+        }
+    }
+}
+
+impl SInfo {
+    pub const fn try_parse(input: &str) -> std::result::Result<SInfo, ConstParseError> {
+        match input {
+            _ if eq_str(input, "hide") => Ok(SInfo::Hide),
+            _ if eq_str(input, "show") => Ok(SInfo::Show),
+            _ => ConstParseError("SInfo").panic(),
         }
     }
 }

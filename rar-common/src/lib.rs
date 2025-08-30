@@ -280,9 +280,8 @@ impl<'de> Deserialize<'de> for FullSettings {
 
                 // If we have config fields, deserialize them into SConfig
                 let config = if !config_fields.is_empty() {
-                    let config_value = serde_json::Value::Object(
-                        config_fields.into_iter().collect(),
-                    );
+                    let config_value =
+                        serde_json::Value::Object(config_fields.into_iter().collect());
                     Some(Rc::new(RefCell::new(
                         SConfig::deserialize(config_value).map_err(serde::de::Error::custom)?,
                     )))
@@ -1005,10 +1004,7 @@ mod tests {
 
         // Should create default settings
         assert_eq!(locked_file.path, PathBuf::from(test_file));
-        assert_eq!(
-            *locked_file.data.borrow(),
-            FullSettings::default()
-        );
+        assert_eq!(*locked_file.data.borrow(), FullSettings::default());
     }
 
     #[test]
@@ -1060,7 +1056,7 @@ mod tests {
                 )
                 .build(),
         )));
-        
+
         let mut file = File::create(test_file).unwrap();
         write_json_config(&config, &mut file).unwrap();
         drop(file);
@@ -1078,10 +1074,7 @@ mod tests {
 
         // Should load the existing settings
         assert_eq!(locked_file.path, PathBuf::from(test_file));
-        assert_eq!(
-            *locked_file.data.borrow(),
-            *config.data.borrow()
-        );
+        assert_eq!(*locked_file.data.borrow(), *config.data.borrow());
     }
 
     #[test]
@@ -1112,7 +1105,7 @@ mod tests {
                 )
                 .build(),
         )));
-        
+
         let mut file = File::create(test_file).unwrap();
         write_json_config(&config, &mut file).unwrap();
         drop(file);
@@ -1144,7 +1137,8 @@ mod tests {
     #[test]
     fn test_locked_settings_file_open_with_separate_config() {
         let test_file = "/tmp/test_locked_settings_file_open_with_separate_config.json";
-        let external_file = "/tmp/test_locked_settings_file_open_with_separate_config_external.json";
+        let external_file =
+            "/tmp/test_locked_settings_file_open_with_separate_config_external.json";
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
@@ -1257,10 +1251,7 @@ mod tests {
 
         // Should fall back to default settings when JSON is invalid
         assert_eq!(locked_file.path, PathBuf::from(test_file));
-        assert_eq!(
-            *locked_file.data.borrow(),
-            FullSettings::default()
-        );
+        assert_eq!(*locked_file.data.borrow(), FullSettings::default());
     }
 
     #[test]
@@ -1285,7 +1276,7 @@ mod tests {
                 )
                 .build(),
         )));
-        
+
         let mut file = File::create(test_file).unwrap();
         write_json_config(&config, &mut file).unwrap();
         drop(file);
@@ -1293,9 +1284,7 @@ mod tests {
         // Test opening file in read-only mode
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
-                .read(true)
-                .to_owned(),
+            std::fs::OpenOptions::new().read(true).to_owned(),
             false, // not write mode
         )
         .unwrap();
@@ -1317,16 +1306,14 @@ mod tests {
     #[test]
     fn test_locked_settings_file_open_nonexistent_file_error() {
         let test_file = "/tmp/test_locked_settings_file_open_nonexistent_file_error.json";
-        
+
         // Ensure the file doesn't exist
         let _ = std::fs::remove_file(test_file);
 
         // Test opening non-existent file without create option - should fail
         let result = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
-                .read(true)
-                .to_owned(), // No create flag
+            std::fs::OpenOptions::new().read(true).to_owned(), // No create flag
             false,
         );
 
@@ -1334,7 +1321,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test] 
+    #[test]
     fn test_locked_settings_file_open_create_new() {
         let test_file = "/tmp/test_locked_settings_file_open_create_new.json";
         let _cleanup = defer(|| {
