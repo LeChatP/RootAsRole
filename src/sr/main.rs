@@ -347,7 +347,7 @@ fn main_inner() -> SrResult<()> {
             }
         );
         print!(
-            "Execute as user: '{}'",
+            "Execute as user: {}",
             if let Some(u) = execcfg.setuid {
                 if let Some(user) = User::from_uid(nix::unistd::Uid::from_raw(u)).unwrap_or(None) {
                     format!("{} ({})", user.name, u)
@@ -385,12 +385,13 @@ fn main_inner() -> SrResult<()> {
                 "All capabilities".to_string()
             } else {
                 format!(
-                    "{:?}",
+                    "{}",
                     execcfg
                         .caps
                         .unwrap()
                         .into_iter()
                         .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+                        .trim_end()
                 )
             }
         );
