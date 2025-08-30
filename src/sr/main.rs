@@ -375,7 +375,7 @@ fn main_inner() -> SrResult<()> {
                 .join(", ");
             println!("{}", groups);
         } else {
-            println!(" and your current group(s)");
+            println!(" your current group(s)");
         }
         println!(
             "With capabilities: {}",
