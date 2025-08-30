@@ -11,6 +11,9 @@ Chsr is a command-line tool to configure roles, permissions and execution option
   <b>-h, --help</b>                    Show help for commands and options.
   <b>list, show, l</b>                 List available items; use with specific commands for detailed views.
   <b>role, r</b>                       Manage roles and related operations.
+  <b>options, o</b>                    Manage global options.
+  <b>convert, c</b>                    Convert policy file format (json, cbor).
+  <b>editor, e</b>                     Open the configuration file with vim.
 
 
 <u><b>Role Operations:</b></u>
