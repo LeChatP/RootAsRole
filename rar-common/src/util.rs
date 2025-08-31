@@ -346,7 +346,10 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
             if e.kind() != std::io::ErrorKind::PermissionDenied {
                 return Err(e);
             }
-            debug!("Permission denied while opening {} file, retrying with privileges", p.as_ref().display());
+            debug!(
+                "Permission denied while opening {} file, retrying with privileges",
+                p.as_ref().display()
+            );
             with_privileges(&[Cap::DAC_READ_SEARCH], || options.open(&p)).or_else(|e| {
                 if e.kind() != std::io::ErrorKind::PermissionDenied {
                     return Err(e);
@@ -363,7 +366,10 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while opening {} file, retrying with privileges",p.as_ref().display());
+        debug!(
+            "Permission denied while opening {} file, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_READ_SEARCH], || std::fs::File::open(&p)).or_else(|e| {
             if e.kind() != std::io::ErrorKind::PermissionDenied {
                 return Err(e);
@@ -378,7 +384,10 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while removing {} file, retrying with privileges",p.as_ref().display());
+        debug!(
+            "Permission denied while removing {} file, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::remove_file(&p))
     })
 }
@@ -388,7 +397,10 @@ pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<(
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while creating {} directory, retrying with privileges",p.as_ref().display());
+        debug!(
+            "Permission denied while creating {} directory, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::create_dir_all(p))
     })
 }

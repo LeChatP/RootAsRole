@@ -1407,7 +1407,8 @@ mod tests {
         with_mutable_config(&mut file, |file| {
             file.write_all(initial_content.as_bytes()).unwrap();
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
 
         // Open the file using LockedSettingsFile
         let mut locked = LockedSettingsFile::open(
@@ -1417,7 +1418,8 @@ mod tests {
                 .write(true)
                 .to_owned(),
             true, // write mode
-        ).unwrap();
+        )
+        .unwrap();
 
         // Modify the settings to have fewer roles
         let new_config = SConfig::builder().build();
