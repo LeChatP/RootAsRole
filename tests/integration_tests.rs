@@ -275,10 +275,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_dosr_auth() {
-        // check that the /etc/pam.d/dosr_test file exists
-        use std::fs;
-        if fs::metadata("/etc/pam.d/dosr_test").is_err() {
-            eprintln!("Skipping test_dosr_auth: /etc/pam.d/dosr_test not found");
+        if env!("RAR_PAM_SERVICE") == "dosr" {
+            println!("Skipping test_dosr_auth because RAR_PAM_SERVICE is set to original dosr");
             return;
         }
         let runner = get_test_runner().expect("Failed to setup test environment");
@@ -294,11 +292,11 @@ mod tests {
         );
         assert_eq!(result.exit_code, 0);
         // assert that a timestamp cookie was created
-        let path = std::path::Path::new("/var/run/sr/ts").join("0");
+        let path = std::path::Path::new("/var/run/rar/ts").join("0");
         assert!(path.exists(), "Timestamp cookie was not created");
         // run dosr -K to delete the timestamp cookie
         let result = runner
-            .run_dosr(&["-K", "/usr/bin/true"])
+            .run_dosr(&["-K"])
             .fixture_name("tests/fixtures/perform_auth.json")
             .call()
             .expect("Failed to run dosr with auth role");

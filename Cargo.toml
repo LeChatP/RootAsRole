@@ -4,7 +4,7 @@ members = ["xtask", "rar-common"]
 [package]
 name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
-version = "3.2.1"
+version = "3.2.2"
 rust-version = "1.83.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2021"
@@ -71,7 +71,7 @@ toml = "0.8"
 chrono = { version = "0.4", features = ["unstable-locales"] }
 
 [dependencies]
-rar-common = { path = "rar-common", version = "3.2.1", package = "rootasrole-core" }
+rar-common = { path = "rar-common", version = "3.2.2", package = "rootasrole-core" }
 log = "0.4"
 libc = "0.2"
 strum = { version = "0.26", features = ["derive"] }

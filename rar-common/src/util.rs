@@ -94,6 +94,24 @@ pub fn with_mutable_config<F, R>(file: &mut File, f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut File) -> io::Result<R>,
 {
+    let mut val = unlock_immutable(file)?;
+    let res = f(file);
+    val |= FS_IMMUTABLE_FL;
+    lock_immutable(file, val)?;
+    res
+}
+
+pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
+    immutable_required_privileges(file, || {
+        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
     let mut val = 0;
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
@@ -109,15 +127,7 @@ where
     } else {
         warn!("Config file was not immutable.");
     }
-    let res = f(file);
-    val |= FS_IMMUTABLE_FL;
-    immutable_required_privileges(file, || {
-        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(())
-    })?;
-    res
+    Ok(val)
 }
 
 pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
@@ -336,7 +346,10 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
             if e.kind() != std::io::ErrorKind::PermissionDenied {
                 return Err(e);
             }
-            debug!("Permission denied while opening file, retrying with privileges",);
+            debug!(
+                "Permission denied while opening {} file, retrying with privileges",
+                p.as_ref().display()
+            );
             with_privileges(&[Cap::DAC_READ_SEARCH], || options.open(&p)).or_else(|e| {
                 if e.kind() != std::io::ErrorKind::PermissionDenied {
                     return Err(e);
@@ -353,7 +366,10 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while opening file, retrying with privileges",);
+        debug!(
+            "Permission denied while opening {} file, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_READ_SEARCH], || std::fs::File::open(&p)).or_else(|e| {
             if e.kind() != std::io::ErrorKind::PermissionDenied {
                 return Err(e);
@@ -368,7 +384,10 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while removing file, retrying with privileges",);
+        debug!(
+            "Permission denied while removing {} file, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::remove_file(&p))
     })
 }
@@ -378,7 +397,10 @@ pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<(
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
         }
-        debug!("Permission denied while creating directory, retrying with privileges",);
+        debug!(
+            "Permission denied while creating {} directory, retrying with privileges",
+            p.as_ref().display()
+        );
         with_privileges(&[Cap::DAC_OVERRIDE], || std::fs::create_dir_all(p))
     })
 }
