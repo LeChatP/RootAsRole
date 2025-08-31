@@ -70,9 +70,12 @@ nfacdGU6XXuJGhgFXCP7BYVQ5e8PlUowe/92T2NSPC7ZGCW0nsa3hH9wr8Jz
 
 ## Supported Versions
 
-For now, RootAsRole is not distributed widely on repositories because the software is not meant to be production-ready. The objective of 3.0.0 stable version is to be available on linux distributions repositories. So we'll only consider security issues when the software is broadly distributed.
+Here are the supported version for security updates:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| >=3.0.0 | :white_check_mark: |
-| < 3.0.0 | :x:                |
+| Version | Supported          | End of support (DD-MM-YYYY format) |
+| ------- | ------------------ | -------------------- |
+| >=3.2.0 | :white_check_mark: | N/A
+| < 3.2.0 | :warning:| 31-12-2026         |
+| < 3.0.0 | :x:  | 13-09-2024
+
+Starting the version 3.2.0, we start following the [Debian Long Term Support](https://wiki.debian.org/LTS) policy. As 3.2.0 is the first version packaged for Debian repository, we updated this table to support only this version and future versions.
