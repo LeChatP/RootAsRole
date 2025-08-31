@@ -2,7 +2,7 @@
 
 ## 1.0.0 (August 2018)
 
-RootAsRole initiated by SIERA IRIT CNRS research team with Ahmad Samer WASAN as owner of the proof of concept. It is presented for the first time at "Le capitole du libre" in Toulouse. A paper is published%%cite{wazanRootAsRoleSecureAlternative2021}.
+RootAsRole initiated by SIERA IRIT CNRS research team with Ahmad Samer WAZAN as owner of the proof of concept. It is presented for the first time at "Le capitole du libre" in Toulouse. A paper is published%%cite{wazanRootAsRoleSecureAlternative2021}.
 
 ## 2.0.0 (August 2019)
 

@@ -5,6 +5,7 @@ use std::{
     path::Path,
 };
 
+use chrono::Locale;
 use toml::Table;
 
 fn package_version<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn Error>> {
@@ -56,6 +57,37 @@ fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn E
     Ok(())
 }
 
+fn some_kind_of_uppercase_first_letter(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+fn set_man_version(package_version: &str, file: &str, lang:Locale) -> std::io::Result<()> {
+    let man = File::open(std::path::Path::new(file)).expect("man page not found");
+    let reader = BufReader::new(man);
+    let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
+    let mut man = File::create(std::path::Path::new(file)).expect("man page not found");
+    match lang {
+        Locale::en_US => {
+            man.write_all(format!("% RootAsRole(8) RootAsRole {} | System Manager's Manual\n", package_version).as_bytes())?;
+        },
+        Locale::fr_FR => {
+            man.write_all(format!("% RootAsRole(8) RootAsRole {} | Manuel de l'administrateur système\n", package_version).as_bytes())?;
+        },
+        _ => unreachable!(),
+    }
+    man.write_all(b"% Eddie Billoir <lechatp@outlook.fr>\n")?;
+    man.write_all(format!("% {}\n", some_kind_of_uppercase_first_letter(&chrono::Utc::now().format_localized("%B %Y", lang).to_string())).as_bytes())?;
+    for line in lines.iter().skip(3) {
+        man.write_all(format!("{}\n", line).as_bytes())?;
+    }
+    man.sync_all()?;
+    Ok(())
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
@@ -82,6 +114,14 @@ fn main() {
     }
 
     if let Err(err) = set_readme_version(&package_version, "README.md") {
+        eprintln!("cargo:warning={}", err);
+    }
+
+    if let Err(err) = set_man_version(&package_version, "resources/man/en_US.md", Locale::en_US) {
+        eprintln!("cargo:warning={}", err);
+    }
+
+    if let Err(err) = set_man_version(&package_version, "resources/man/fr_FR.md", Locale::fr_FR) {
         eprintln!("cargo:warning={}", err);
     }
 }

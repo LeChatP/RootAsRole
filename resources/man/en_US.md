@@ -1,6 +1,6 @@
-% RootAsRole(8) RootAsRole 3.1.0 | System Manager's Manual
+% RootAsRole(8) RootAsRole 3.2.1 | System Manager's Manual
 % Eddie Billoir <lechatp@outlook.fr>
-% September 2024
+% August 2025
 
 # NAME
 RootAsRole - An alternative to sudo/su commands that adheres to the principle of least privilege and provides more secure memory management.

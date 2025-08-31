@@ -1,6 +1,6 @@
-% RootAsRole(8) RootAsRole 3.1.0 | Manuel de l'administrateur système
-%
-% Septembre 2024
+% RootAsRole(8) RootAsRole 3.2.1 | Manuel de l'administrateur système
+% Eddie Billoir <lechatp@outlook.fr>
+% Août 2025
 
 # NAME
 RootAsRole - Une alternative pour les commandes sudo/su respectant le principe du moindre privilège et une gestion de la mémoire plus sécurisée.
