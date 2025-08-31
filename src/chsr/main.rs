@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     seccomp_lock()?;
 
     let mut settings = LockedSettingsFile::open(
-        &ROOTASROLE.to_string(),
+        ROOTASROLE,
         OpenOptions::new()
             .read(true)
             .write(true)

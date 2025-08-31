@@ -62,8 +62,8 @@ fn new_complex_command(event: &mut ApiEvent) -> SrResult<()> {
             env_path,
             cmd_path,
             cmd_args,
-            *cmd_min,
-            *final_path,
+            cmd_min,
+            final_path,
         );
     }
     Ok(())
@@ -114,10 +114,10 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        return CmdMin::builder()
+        CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)
-            .build();
+            .build()
     } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
         verify_executable_conditions(checker, final_path, cmd_path, min).unwrap_or_default()
@@ -168,7 +168,7 @@ fn verify_executable_conditions(
                 warn!("Error reading file {:?}", res);
                 return None;
             }
-            if !evaluate_hash(&hash_element, &buf) {
+            if !evaluate_hash(hash_element, &buf) {
                 warn!("Hash does not match");
                 return None;
             }
@@ -213,9 +213,7 @@ fn process_hash_check(
     min_score: &mut CmdMin,
     final_path: &mut Option<PathBuf>,
 ) {
-    match shell_words::split(&checker.command)
-        .map_err(|e| Into::<Box<dyn std::error::Error>>::into(e))
-    {
+    match shell_words::split(&checker.command).map_err(Into::<Box<dyn std::error::Error>>::into) {
         Ok(command) => {
             match_command_line(
                 &checker, env_path, cmd_path, cmd_args, &command, min_score, final_path,
@@ -301,7 +299,7 @@ mod tests {
             }
         });
         //create the file
-        File::create(&filename).unwrap();
+        File::create(filename).unwrap();
         let filename = PathBuf::from(filename).canonicalize().unwrap();
         //call sha256sum on the file
 
@@ -322,7 +320,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -345,7 +343,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -368,7 +366,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -390,7 +388,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -420,7 +418,7 @@ mod tests {
             }
         });
         //create the file
-        File::create(&filename).unwrap();
+        File::create(filename).unwrap();
 
         let filename = PathBuf::from(filename).canonicalize().unwrap();
         //call sha256sum on the file
@@ -435,7 +433,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -457,7 +455,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -479,7 +477,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -501,7 +499,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -525,7 +523,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -547,7 +545,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -569,7 +567,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -597,7 +595,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -619,7 +617,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &vec!["-l".to_string()],
+            cmd_args: &["-l".to_string()],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -641,7 +639,7 @@ mod tests {
         let file = File::open(path)?;
         let mut val = 0;
         if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
-            return Err(std::io::Error::last_os_error().into());
+            return Err(std::io::Error::last_os_error());
         }
         if lock {
             val |= FS_IMMUTABLE_FL;

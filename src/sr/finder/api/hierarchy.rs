@@ -26,7 +26,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
                         .opt_stack(opt_stack)
                         .settings(settings)
                         .matching(matching)
-                        .env_path(&env_path)
+                        .env_path(env_path)
                         .call()?;
                 }
                 Ok(())
@@ -38,7 +38,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
                 .opt_stack(opt_stack)
                 .settings(settings)
                 .matching(matching)
-                .env_path(&env_path)
+                .env_path(env_path)
                 .call(),
             Some(v) => {
                 debug!("Invalid parent value: {:?}", v);
@@ -60,11 +60,12 @@ fn evaluate_parent_role<'a>(
     matching: &mut &mut bool,
     env_path: &[&str],
 ) -> SrResult<()> {
-    Ok(if let Some(role) = role.config().role(parent) {
+    if let Some(role) = role.config().role(parent) {
         for task in role.tasks() {
             **matching |= settings.task_settings(cli, &task, opt_stack, env_path)?;
         }
-    })
+    };
+    Ok(())
 }
 
 pub fn register() {

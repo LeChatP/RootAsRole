@@ -35,14 +35,11 @@ In 2022, we published a journal article about our finding with the `capable` too
 
 In 2023, we published a third article about explaining linux kernel issues @@billoirImplementingPrincipleLeast2023. This article proposes enhancements to achieving a balance between usability and the principle of least privilege, emphasizing the need for precise capability definitions.
 
-In May 2024, we published a more general article about the Administrative privilege on various OS @@billoirImplementingPrincipleLeast2024. This article explores the different approaches implemented by the main operating systems (namely Linux, Windows, FreeBSD, and Solaris) to control the privileges of system administrators in order to enforce the principle of least privilege. We define a set of requirements to manage these privileges properly, striving to balance adherence to the principle of least privilege and usability. We also present a deep analysis of each administrative privilege system based on these requirements and exhibit their benefits and limitations.
+In May 2024, we published a more general article about the Administrative privilege on various OS @@billoirImplementingPrincipleLeast2024. This article explores the different approaches implemented by the main operating systems (namely Linux, Windows, FreeBSD, and Solaris) to control the privileges of system administrators in order to enforce the principle of least privilege.
 
-In July 2024, we studied how to integrate RootAsRole on today's production environment as the project becomes a mature project. This article presents a semi-automated process that improves Ansible-based deployments to have fine-grained control on administrative privileges granted to Ansible tasks. This article is not yet published.
+In July 2024, we studied how to integrate RootAsRole on today's production environment as the project becomes a mature project. This article presents a semi-automated process that improves Ansible-based deployments to have fine-grained control on administrative privileges granted to Ansible tasks @@billoirImplementingPrincipleLeast2024b.
 
-## Comparison with sudo 
-
-By using a role-based access control model, this project allows us to better manage administrative tasks. With this project, you could distribute privileges and prevent them from escalating directly. Unlike sudo does, we don't want to give entire privileges for any insignificant administrative task. You can configure our tool easily with `chsr` command. To find out which capability is needed for a administrative command, we provide the `capable` command. With these two tools, administrators could configure its system to respect the least privilege principle.
-
+In September 2025, we decided to generalize our RootAsRole policy to all Linux access control mechnanisms. This article presents how we unified DAC, DBus within our RaR policy. This article is being published in September 2025 for the ESORICS conference.
 
 ## Scenarios
 

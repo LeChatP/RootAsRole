@@ -244,8 +244,9 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 if let Ok(group) = v.parse() {
                     Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
                 } else {
@@ -256,8 +257,9 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 if let Ok(group) = v.parse() {
                     Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
                 } else {
@@ -300,13 +302,13 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
     }
 }
 
-impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
+impl<'de> Deserialize<'de> for SGroups {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct SGroupsVisitor;
-        impl<'de: 'a, 'a> serde::de::Visitor<'de> for SGroupsVisitor {
+        impl<'de> serde::de::Visitor<'de> for SGroupsVisitor {
             type Value = SGroups;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -327,8 +329,9 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 if let Ok(group) = v.parse() {
                     Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
@@ -339,14 +342,13 @@ impl<'de: 'a, 'a> Deserialize<'de> for SGroups {
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-                where
-                    E: serde::de::Error, {
+            where
+                E: serde::de::Error,
+            {
                 if let Ok(group) = v.parse() {
                     Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
-                        v,
-                    ))))
+                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(v))))
                 }
             }
 
@@ -1006,6 +1008,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cmp_owned)]
     fn test_partialeq_user() {
         assert!(SUserType::from(0) == 0);
         assert!(SUserType::from(0) != 1);

@@ -72,8 +72,8 @@ pub struct SettingsFile {
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageMethod {
-    JSON,
-    CBOR,
+    Json,
+    Cbor,
     //    SQLite,
     //    PostgreSQL,
     //    MySQL,
@@ -127,9 +127,9 @@ pub enum PathBehavior {
 #[derive(Default)]
 pub enum TimestampType {
     #[default]
-    PPID,
-    TTY,
-    UID,
+    Ppid,
+    Tty,
+    Uid,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
@@ -291,7 +291,7 @@ where
     }
 }
 
-pub fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
+pub fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())

@@ -87,7 +87,7 @@ impl From<&DGroups<'_>> for SetgidMin {
     fn from(s: &DGroups<'_>) -> Self {
         SetgidMin {
             is_root: dgroups_contains_root(Some(s)),
-            nb_groups: dgroups_len(Some(&s)),
+            nb_groups: dgroups_len(Some(s)),
         }
     }
 }
@@ -95,7 +95,7 @@ impl From<&DGroups<'_>> for SetgidMin {
 impl From<&DGroupType<'_>> for SetgidMin {
     fn from(s: &DGroupType<'_>) -> Self {
         SetgidMin {
-            is_root: dgroup_is_root(&s),
+            is_root: dgroup_is_root(s),
             nb_groups: 1,
         }
     }
@@ -104,7 +104,7 @@ impl From<&DGroupType<'_>> for SetgidMin {
 impl From<&Vec<u32>> for SetgidMin {
     fn from(s: &Vec<u32>) -> Self {
         SetgidMin {
-            is_root: s.iter().any(|id| *id == 0),
+            is_root: s.contains(&0),
             nb_groups: s.len(),
         }
     }
@@ -229,10 +229,15 @@ pub struct TaskScore {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Builder)]
 pub struct Score {
+    #[builder(default)]
     pub user_min: ActorMatchMin,
+    #[builder(default)]
     pub cmd_min: CmdMin,
+    #[builder(default)]
     pub caps_min: CapsMin,
+    #[builder(default)]
     pub setuser_min: SetUserMin,
+    #[builder(default)]
     pub security_min: SecurityMin,
 }
 
@@ -331,22 +336,22 @@ impl Ord for Score {
 
 #[inline]
 fn group_is_root(actortype: &SGroupType) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn dgroup_is_root(actortype: &DGroupType<'_>) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn user_is_root(actortype: &SUserType) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn duser_is_root(actortype: &DUserType<'_>) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
@@ -535,14 +540,18 @@ mod tests {
 
     #[test]
     fn test_score_ordering() {
-        let mut score1 = Score::default();
-        let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::builder().matching().build();
-        score2.cmd_min = CmdMin::builder()
-            .matching()
-            .order(CmdOrder::WildcardPath)
+        let score1 = Score::builder()
+            .cmd_min(CmdMin::builder().matching().build())
             .build();
-        assert!(score1 < score2 || score1 == score2 || score1 > score2);
+        let score2 = Score::builder()
+            .cmd_min(
+                CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::WildcardPath)
+                    .build(),
+            )
+            .build();
+        assert!(score1.better_command(&score2));
     }
 
     #[test]
@@ -743,10 +752,13 @@ mod tests {
         assert_eq!(score2.max(score1), score2);
         assert_eq!(score1.min(score2), score1);
         assert_eq!(score2.min(score1), score1);
-        let mut score3 = Score::default();
-        score3.cmd_min = CmdMin::builder()
-            .matching()
-            .order(CmdOrder::RegexArgs)
+        let score3 = Score::builder()
+            .cmd_min(
+                CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::RegexArgs)
+                    .build(),
+            )
             .build();
         assert_eq!(score1.clamp(score2, score3), score2);
         assert_eq!(score2.clamp(score1, score3), score2);

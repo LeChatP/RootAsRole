@@ -17,7 +17,8 @@
   <b>-g, --group</b> &lt;GROUP(,GROUP...)&gt;  Specify the group to execute the command as
   <b>-E, --preserve-env</b>  Preserve environment variables if allowed by a matching task
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
-  <b>-i, --info</b>         Display rights of executor
+  <b>-K</b>                 Remove timestamp file before authentication
+  <b>-i, --info</b>         Print the execution context of a command if allowed by a matching task
   <b>-h, --help</b>         Print help (see more with '--help')
   <b>-V, --version</b>      Print version
 </pre>

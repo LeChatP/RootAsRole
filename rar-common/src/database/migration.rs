@@ -209,14 +209,12 @@ mod tests {
         );
         assert_eq!(doc, 2);
         doc = 0;
-        assert!(
-            Migration::migrate(
-                &Version::parse("3.0.0-alpha.1").unwrap(),
-                &mut doc,
-                &migrations
-            )
-            .unwrap()
-        );
+        assert!(Migration::migrate(
+            &Version::parse("3.0.0-alpha.1").unwrap(),
+            &mut doc,
+            &migrations
+        )
+        .unwrap());
         assert_eq!(doc, 1);
         doc = 0;
         assert!(
@@ -224,14 +222,12 @@ mod tests {
         );
         assert_eq!(doc, -1);
         doc = 0;
-        assert!(
-            !Migration::migrate(
-                &Version::parse(PACKAGE_VERSION).unwrap(),
-                &mut doc,
-                &migrations
-            )
-            .unwrap()
-        );
+        assert!(!Migration::migrate(
+            &Version::parse(PACKAGE_VERSION).unwrap(),
+            &mut doc,
+            &migrations
+        )
+        .unwrap());
         assert_eq!(doc, 0);
     }
 }

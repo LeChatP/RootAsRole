@@ -1,6 +1,6 @@
-% RootAsRole(8) RootAsRole 3.1.0 | Manuel de l'administrateur système
-%
-% Septembre 2024
+% RootAsRole(8) RootAsRole 3.2.1 | Manuel de l'administrateur système
+% Eddie Billoir <lechatp@outlook.fr>
+% Août 2025
 
 # NAME
 RootAsRole - Une alternative pour les commandes sudo/su respectant le principe du moindre privilège et une gestion de la mémoire plus sécurisée.
@@ -31,30 +31,45 @@ Concernant l'authentification, RootAsRole utilise PAM. Il est possible de config
 
 Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par défaut il ajoute des fonctionnalités sous forme de plugins pour implémenter certaines fonctionnalités de RBAC-1. RBAC-0 implémente simplement les rôles, les tâches et les permissions. Les plugins ajoutent la hiérarchie de rôles et séparation des devoirs. Les plugins sont uniquement implémentable directement dans le projet. Il y a également un autre plugin qui permet de tester la somme de contrôle des fichiers exécutés.
 
-
-
 # OPTIONS
 
-- **\-r, --role** <ROLE> 
-  Role to select  
-- **\-t, --task** <TASK>
-  Task to select (--role required)  
-- **\-p, --prompt** <PROMPT>
-  Prompt to display  
-- **\-i, --info** 
-  Display rights of executor  
-- **\-h, --help** 
-  Print help (see more with '--help')  
-- **\-V, --version**
-  Print version information
+**\-r, --role** &lt;ROLE&gt;
+  Sélectionner un rôle spécifique.
 
-# EXAMPLES
+**\-t, --task** &lt;TASK&gt;
+  Sélectionner une tâche spécifique dans un rôle (--role requis)
+
+**\-u USER, --user** &lt;USER&gt;
+  Exécuter la commande en tant qu'un utilisateur spécifique (sert de filtre pour sélectionner une tâche)
+
+**\-g GROUP(,GROUP...) , --group** &lt;GROUP(,GROUP...)&gt;
+  Exécuter la commande en tant que groupe(s) spécifique(s) (sert de filtre pour sélectionner une tâche)
+
+**\-E, --preserve-env**  
+  Préserver les variables d'environnement du processus courant si autorisé par une tâche correspondante.
+
+**\-p, --prompt** &lt;PROMPT&gt; 
+  Prompt à afficher lors de l'authentification.
+
+**\-K**  
+  Supprimer le fichier de timestamp. (Cela oblige de s'authentifier à nouveau avant d'exécuter une commande)
+
+**\-i, --info**  
+  Afficher le contexte d'exécution d'une commande si autorisé par une tâche correspondante.
+
+**\-h, --help**  
+  Afficher l'aide (voir plus avec '--help')
+
+**\-v, --version**  
+  Afficher les informations de version
+
+# EXEMPLES
 
 - **dosr reboot**  
-  Execute the command reboot. (If the policy is defined and allowed as well)
+  Exécute la commande reboot (si la politique le permet).
 
 - **dosr -r dac chmod 644 /etc/foo/bar**
-  Execute the command chmod 644 /etc/foo/bar with the role dac (If the policy has a role dac and a task that allows chmod command)
+  Exécute la commande chmod 644 /etc/foo/bar avec le rôle dac (si la politique a un rôle dac et une tâche qui permet la commande chmod).
 
 # HISTORIQUE
 

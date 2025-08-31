@@ -295,7 +295,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a role")
             }
-            fn visit_map<V>(mut self, mut map: V) -> Result<Self::Value, V::Error>
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
             where
                 V: serde::de::MapAccess<'de>,
             {
@@ -312,7 +312,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Role;
                             if let Some(path) = opt.path.as_ref() {
-                                self.spath.union(path.clone().into());
+                                self.spath.union(path.clone());
                             }
                             options = Some(opt);
                         }
@@ -340,7 +340,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                             debug!("RoleFinderVisitor: tasks");
                             tasks = map.next_value_seed(TaskListFinderDeserializer {
                                 cli: self.cli,
-                                spath: &mut self.spath,
+                                spath: self.spath,
                                 env_path: self.env_path,
                             })?;
                         }
@@ -571,7 +571,11 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Task;
                             if let Some(path) = opt.path.as_ref() {
-                                self.spath.union(path.clone().into());
+                                self.spath.union(path.clone());
+                            }
+                            if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
                             }
                             // skip the task if env_override is required and not allowed
                             if self.cli.opt_filter.as_ref().is_some_and(|o| {
@@ -833,13 +837,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 };
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .map(|x| x.group.as_ref())
-                    .flatten()
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -870,13 +868,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 };
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .map(|x| x.group.as_ref())
-                    .flatten()
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -900,13 +892,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let group: DGroupType<'_> = (v as u32).into();
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .map(|x| x.group.as_ref())
-                    .flatten()
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -982,12 +968,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                         }
                         Field::Add => {
                             debug!("SGroupsChooserVisitor: add");
-                            if filter.is_some() {
+                            if let Some(filter) = filter {
                                 let add = map.next_value::<Cow<'_, [DGroups]>>()?;
                                 for group in add.iter() {
                                     let v: Vec<u32> =
                                         group.try_into().map_err(serde::de::Error::custom)?;
-                                    if v == *filter.unwrap() {
+                                    if v == *filter {
                                         ok = true;
                                         groups = Some(group.to_owned());
                                         score.replace(group.into());
@@ -1005,7 +991,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                             debug!("SGroupsChooserVisitor: del");
                             if let Some(u) = filter {
                                 for group in map.next_value::<Cow<'_, [DGroups]>>()?.iter() {
-                                    if let Some(v) = TryInto::<Vec<u32>>::try_into(group).ok() {
+                                    if let Ok(v) = TryInto::<Vec<u32>>::try_into(group) {
                                         if v == *u {
                                             while map
                                                 .next_entry::<IgnoredAny, IgnoredAny>()?
@@ -1078,7 +1064,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 };
                 let score = Some(SetuidMin::from(&user));
                 let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().map(|x| x.user).flatten() {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.user) {
                     if *y
                         != user
                             .fetch_id()
@@ -1108,7 +1094,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 };
                 let score = Some(SetuidMin::from(&user));
                 let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().map(|x| x.user).flatten() {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.user) {
                     if *y
                         != user
                             .fetch_id()
@@ -1130,7 +1116,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 let user = DUserType::from(v as u32);
                 let score = Some(SetuidMin::from(&user));
                 let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().map(|x| x.user).flatten() {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.user) {
                     if *y
                         != user
                             .fetch_id()
@@ -1167,7 +1153,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                                     .ok_or(serde::de::Error::custom("User does not exist"))?;
                                 if u == &userid {
                                     score.replace((&value).into());
-                                    user = Some(value.into());
+                                    user = Some(value);
                                     ok = true;
                                 }
                             } else {
@@ -1178,13 +1164,13 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                         }
                         Field::Add => {
                             debug!("SUserChooserVisitor: add");
-                            if filter.is_some() {
+                            if let Some(filter) = filter {
                                 let users = map.next_value::<Cow<'_, [DUserType]>>()?;
                                 for user_item in users.iter() {
                                     let user_id = user_item
                                         .fetch_id()
                                         .ok_or(serde::de::Error::custom("User does not exist"))?;
-                                    if user_id == *filter.unwrap() {
+                                    if user_id == *filter {
                                         ok = true;
                                         user = Some(user_item.to_owned());
                                         score.replace(user_item.into());
@@ -1300,11 +1286,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
                 while let Some(command) = seq.next_element()? {
                     add.push(command);
                 }
-                return Ok(DCommandList {
+                Ok(DCommandList {
                     default_behavior: None,
                     add: Cow::Owned(add),
                     del: Cow::Borrowed(&[]),
-                });
+                })
             }
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
@@ -1354,7 +1340,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandListDeserializer<'a> {
     }
 }
 
-impl<'a> DCommandListDeserializer<'a> {
+impl DCommandListDeserializer<'_> {
     fn generate_dcommand_deserializer(&mut self) -> DCommandDeserializer<'_> {
         DCommandDeserializer {
             env_path: self.env_path,
@@ -1509,7 +1495,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
                     &mut final_path,
                 );
                 debug!("DCommandVisitor: command result {:?}", cmd_min);
-                if cmd_min.better(&self.cmd_min) {
+                if cmd_min.better(self.cmd_min) {
                     debug!("DCommandVisitor: better command found");
                     result = true;
                     *self.final_path = final_path;
@@ -1630,7 +1616,7 @@ impl<'t, 'c, 'a> DLinkedTask<'t, 'c, 'a> {
     }
 }
 
-impl<'t, 'c, 'a> Deref for DLinkedTask<'t, 'c, 'a> {
+impl<'a> Deref for DLinkedTask<'_, '_, 'a> {
     type Target = DTaskFinder<'a>;
     fn deref(&self) -> &Self::Target {
         self.task
@@ -1666,7 +1652,7 @@ impl<'l, 't, 'c, 'a> DLinkedCommandList<'l, 't, 'c, 'a> {
     }
 }
 
-impl<'l, 't, 'c, 'a> Deref for DLinkedCommandList<'l, 't, 'c, 'a> {
+impl<'a> Deref for DLinkedCommandList<'_, '_, '_, 'a> {
     type Target = DCommandList<'a>;
     fn deref(&self) -> &Self::Target {
         self.command_list
@@ -1690,7 +1676,7 @@ impl<'d, 'l, 't, 'c, 'a> DLinkedCommand<'d, 'l, 't, 'c, 'a> {
     }
 }
 
-impl<'d, 'l, 't, 'c, 'a> Deref for DLinkedCommand<'d, 'l, 't, 'c, 'a> {
+impl<'a> Deref for DLinkedCommand<'_, '_, '_, '_, 'a> {
     type Target = DCommand<'a>;
     fn deref(&self) -> &Self::Target {
         self.command
@@ -1717,34 +1703,34 @@ mod tests {
         // list all users
         let passwd = fs::read_to_string("/etc/passwd").unwrap();
         let passwd: Vec<&str> = passwd.split('\n').collect();
-        return passwd
+        passwd
             .iter()
             .map(|line| {
                 let line: Vec<&str> = line.split(':').collect();
                 line[2].parse::<u32>().unwrap()
             })
             .filter(|uid| *uid != 0)
-            .nth(nth);
+            .nth(nth)
     }
 
     fn get_non_root_gid(nth: usize) -> Option<u32> {
         // list all users
         let passwd = fs::read_to_string("/etc/group").unwrap();
         let passwd: Vec<&str> = passwd.split('\n').collect();
-        return passwd
+        passwd
             .iter()
             .map(|line| {
                 let line: Vec<&str> = line.split(':').collect();
                 line[2].parse::<u32>().unwrap()
             })
             .filter(|uid| *uid != 0)
-            .nth(nth);
+            .nth(nth)
     }
 
     fn convert_json_to_cbor(json: &str) -> Vec<u8> {
         let value: Value = serde_json::from_str(json).unwrap();
-        let cbor = cbor4ii::serde::to_vec(Vec::new(), &value).unwrap();
-        cbor
+
+        cbor4ii::serde::to_vec(Vec::new(), &value).unwrap()
     }
 
     #[test]
@@ -1810,7 +1796,7 @@ mod tests {
         let deserializer = DCommandListDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from("/usr/bin/ls"),
-            cmd_args: &vec![],
+            cmd_args: &[],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
             blocker: false,
@@ -1830,7 +1816,7 @@ mod tests {
         let deserializer = DCommandDeserializer {
             env_path: &["/usr/bin"],
             cmd_path: &PathBuf::from("/usr/bin/ls"),
-            cmd_args: &vec![],
+            cmd_args: &[],
             final_path: &mut final_path,
             cmd_min: &mut cmd_min,
         };
@@ -2290,9 +2276,7 @@ mod tests {
         assert_eq!(role.role, "r_test");
         assert_eq!(role.tasks.len(), 1);
         assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));
-        let json = format!(
-            r#"[{{"name":"r_test","actors":[{{"type": "user", "id": "874510"}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]"#
-        );
+        let json = r#"[{"name":"r_test","actors":[{"type": "user", "id": "874510"}], "tasks": [{"name": "test", "cred": {"setuid":"0", "setgid":["0", 0], "caps": []}, "commands": ["/usr/bin/ls"]}]}]"#.to_string();
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,

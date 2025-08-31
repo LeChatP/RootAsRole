@@ -4,14 +4,12 @@ use std::fs;
 
 use crate::util::{files_are_equal, toggle_lock_config, ImmutableLock, ROOTASROLE};
 
-use super::{
-    configure::{config_state, PAM_CONFIG_PATH},
-    UninstallOptions, CHSR_DEST, SR_DEST,
-};
+use super::{configure::config_state, UninstallOptions, CHSR_DEST, SR_DEST};
 
 pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     let mut errors = vec![];
     if opts.kind.is_all() || opts.kind.is_sr() {
+        const PAM_CONFIG_PATH: &str = concat!("/etc/pam.d/", env!("RAR_PAM_SERVICE"));
         errors.push(fs::remove_file(SR_DEST).context(SR_DEST));
         errors.push(fs::remove_file(CHSR_DEST).context(CHSR_DEST));
         if opts.clean_config

@@ -1,6 +1,6 @@
-% RootAsRole(8) RootAsRole 3.1.0 | System Manager's Manual
+% RootAsRole(8) RootAsRole 3.2.1 | System Manager's Manual
 % Eddie Billoir <lechatp@outlook.fr>
-% September 2024
+% August 2025
 
 # NAME
 RootAsRole - An alternative to sudo/su commands that adheres to the principle of least privilege and provides more secure memory management.
@@ -37,23 +37,29 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
 **\-r, --role** &lt;ROLE&gt;
   Choose a specific role.
 
-
-
 **\-t, --task** &lt;TASK&gt;
-  Choose a specific task within a role (requires --role)  
+  Choose a specific task within a role (requires --role)
 
+**\-u USER, --user** &lt;USER&gt;
+  Execute the command as a specific user (act as a filter to select a task)
+
+**\-g GROUP(,GROUP...) , --group** &lt;GROUP(,GROUP...)&gt;
+  Execute the command as specific group(s) (act as a filter to select a task)
+
+**\-E, --preserve-env**  
+  Preserve environment variables from the current process if allowed by a matching task.
 
 **\-p, --prompt** &lt;PROMPT&gt; 
   Prompt to display when authenticating.
 
+**\-K**  
+  Remove timestamp file. (It requires you to authenticate again before executing a command)
 
 **\-i, --info**  
-  Display rights of the executor. Information displayed is very limited.
-
+  Print the execution context of a command if allowed by a matching task.
 
 **\-h, --help**  
   Print help (see more with '--help')  
-
 
 **\-v, --version**  
   Print version information

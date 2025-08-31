@@ -149,17 +149,14 @@ where
                 user = iter.next().map(|s| escape_parser_string(s).as_str().into());
             }
             "-g" | "--group" => {
-                group = iter
-                    .next()
-                    .map(|s| {
-                        SGroups::Multiple(
-                            s.as_ref()
-                                .split(',')
-                                .map(|g| g.into())
-                                .collect::<Vec<SGroupType>>(),
-                        )
-                    })
-                    .into();
+                group = iter.next().map(|s| {
+                    SGroups::Multiple(
+                        s.as_ref()
+                            .split(',')
+                            .map(|g| g.into())
+                            .collect::<Vec<SGroupType>>(),
+                    )
+                });
             }
             "-S" | "--stdin" => {
                 args.stdin = true;
@@ -243,9 +240,7 @@ fn main() {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u
-                        .and_then(|u| Some(u.name))
-                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
             );
@@ -254,9 +249,7 @@ fn main() {
             error!(
                 "User '{}' got a '{}' when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u
-                        .and_then(|u| Some(u.name))
-                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 e,
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
@@ -292,6 +285,9 @@ fn main_inner() -> SrResult<()> {
             error!("Failed to clear timestamp cookies: {}", e);
             SrError::InsufficientPrivileges
         })?;
+        if args.cmd_path.as_os_str().is_empty() {
+            return Ok(());
+        }
     }
     let execcfg = find_best_exec_settings(
         &args,
@@ -325,16 +321,72 @@ fn main_inner() -> SrResult<()> {
     }
 
     if args.info {
-        //println!("Role: {}", if execcfg.role.is_empty() { "None" } else { &execcfg.role });
-        //println!("Task: {}", execcfg.task);
+        use capctl::CapSet;
+        use nix::unistd::User;
+        println!(
+            "Role: {}",
+            if execcfg.role.is_empty() {
+                "None"
+            } else {
+                &execcfg.role
+            }
+        );
+        println!(
+            "Task: {}",
+            if execcfg.task.is_none() {
+                "None"
+            } else {
+                &execcfg.task.as_ref().unwrap()
+            }
+        );
+        print!(
+            "Execute as user: {}",
+            if let Some(u) = execcfg.setuid {
+                if let Some(user) = User::from_uid(nix::unistd::Uid::from_raw(u)).unwrap_or(None) {
+                    format!("{} ({})", user.name, u)
+                } else {
+                    format!("{}", u)
+                }
+            } else {
+                "Your current user".to_string()
+            }
+        );
+        if let Some(gids) = execcfg.setgroups.as_ref() {
+            print!(" and group(s): ");
+            let groups = gids
+                .iter()
+                .map(|g| {
+                    if let Some(group) =
+                        nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(*g)).unwrap_or(None)
+                    {
+                        format!("{} ({})", group.name, g)
+                    } else {
+                        format!("{}", g)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("{}", groups);
+        } else {
+            println!(" your current group(s)");
+        }
         println!(
             "With capabilities: {}",
-            execcfg
-                .caps
-                .unwrap_or_default()
-                .into_iter()
-                .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+            if execcfg.caps.is_none() {
+                "None".to_string()
+            } else if *execcfg.caps.as_ref().unwrap() == !CapSet::empty() {
+                "All capabilities".to_string()
+            } else {
+                execcfg
+                    .caps
+                    .unwrap()
+                    .into_iter()
+                    .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+                    .trim_end()
+                    .to_string()
+            }
         );
+        println!("Command: {:?} {:?}", execcfg.final_path, args.cmd_args);
         std::process::exit(0);
     }
 
@@ -377,7 +429,7 @@ fn main_inner() -> SrResult<()> {
 }
 
 fn make_cred() -> Cred {
-    return Cred::builder()
+    Cred::builder()
         .maybe_tty(stat::fstat(stdout().as_raw_fd()).ok().and_then(|s| {
             if isatty(stdout().as_raw_fd()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
@@ -385,7 +437,7 @@ fn make_cred() -> Cred {
                 None
             }
         }))
-        .build();
+        .build()
 }
 
 fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
@@ -494,9 +546,10 @@ mod tests {
             capset.effective.add(Cap::SETUID);
             capset.effective.add(Cap::SETGID);
             capset.set_current().unwrap();
-            let mut execcfg = BestExecSettings::default();
-            execcfg.setuid = Some(1000);
-            execcfg.setgroups = Some(vec![1000]);
+            let execcfg = BestExecSettings::builder()
+                .setuid(1000)
+                .setgroups(vec![1000])
+                .build();
             setuid_setgid(&execcfg).unwrap();
             assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
             if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {

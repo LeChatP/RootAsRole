@@ -118,7 +118,7 @@ where
     }
 }
 
-fn convert_string_to_duration(s: &String) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
+fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())

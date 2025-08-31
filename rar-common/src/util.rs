@@ -230,7 +230,7 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
         {
             use glob::Pattern;
             if let Ok(pattern) = Pattern::new(role_path) {
-                if pattern.matches_path(&cmd_path) {
+                if pattern.matches_path(cmd_path) {
                     use crate::database::score::CmdOrder;
 
                     match_status.union_order(CmdOrder::WildcardPath);
@@ -312,12 +312,8 @@ pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> s
 }
 
 pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
-    cbor4ii::serde::to_writer(file, &settings).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to write cbor config: {}", e),
-        )
-    })
+    cbor4ii::serde::to_writer(file, &settings)
+        .map_err(|e| std::io::Error::other(format!("Failed to write cbor config: {}", e)))
 }
 
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
@@ -501,26 +497,29 @@ mod test {
             if fs::remove_file(&path).is_err() {
                 // remove the immutable flag if set
                 with_privileges(&[Cap::LINUX_IMMUTABLE], || {
-                let file = File::open(&path).expect("Failed to open file");
-                let mut val = 0;
-                if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
-                    eprintln!("Failed to get flags");
-                    return Err(std::io::Error::last_os_error());
-                }
-                if val & FS_IMMUTABLE_FL != 0 {
-                    val &= !(FS_IMMUTABLE_FL);
-                    immutable_required_privileges(&file, || {
-                        if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) }
-                            < 0
-                        {
-                            eprintln!("Failed to remove immutable flag");
-                        }
-                        Ok(())
-                    })
-                    .ok();
-                }
-                fs::remove_file(&path)
-            }).unwrap();
+                    let file = File::open(&path).expect("Failed to open file");
+                    let mut val = 0;
+                    if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0
+                    {
+                        eprintln!("Failed to get flags");
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if val & FS_IMMUTABLE_FL != 0 {
+                        val &= !(FS_IMMUTABLE_FL);
+                        immutable_required_privileges(&file, || {
+                            if unsafe {
+                                nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val)
+                            } < 0
+                            {
+                                eprintln!("Failed to remove immutable flag");
+                            }
+                            Ok(())
+                        })
+                        .ok();
+                    }
+                    fs::remove_file(&path)
+                })
+                .unwrap();
             }
         });
         assert!(with_privileges(&[Cap::LINUX_IMMUTABLE], || {

@@ -252,8 +252,9 @@ impl<'de> Deserialize<'de> for SCommands {
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: de::Error, {
+            where
+                E: de::Error,
+            {
                 let set = SetBehavior::from_str(v).map_err(de::Error::custom)?;
                 Ok(SCommands {
                     default_behavior: Some(set),

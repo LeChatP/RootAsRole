@@ -14,7 +14,7 @@
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.2.0) — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
+# RootAsRole (V3.2.1) — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
 
 RootAsRole is a Linux/Unix privilege delegation tool based on **Role-Based Access Control (RBAC)**. It empowers administrators to assign precise privileges — not full root — to users and commands.
 
@@ -109,7 +109,8 @@ Execute privileged commands with a role-based access control system
   <b>-g, --group</b> &lt;GROUP<,GROUP...>&gt; Group(s) to execute the command as
   <b>-E, --preserve-env</b>          Keep environment variables from the current process
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
-  <b>-i, --info</b>         Display rights of executor
+  <b>-K</b>                 Remove timestamp file
+  <b>-i, --info</b>         Print the execution context of a command if allowed by a matching task
   <b>-h, --help</b>         Print help (see more with '--help')
   <b>-V, --version</b>      Print version
 </pre>

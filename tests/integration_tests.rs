@@ -1,6 +1,3 @@
-
-
-
 mod helpers;
 
 #[cfg(test)]
@@ -36,7 +33,7 @@ mod tests {
         assert!(result.success, "Command failed: {}", result.stderr);
         assert!(result
             .stdout
-            .contains(&format!("{}", env!("CARGO_PKG_VERSION"))));
+            .contains(&env!("CARGO_PKG_VERSION").to_string()));
         assert_eq!(result.exit_code, 0);
     }
 
@@ -49,7 +46,11 @@ mod tests {
             .fixture_name("tests/fixtures/multi_role.json")
             .call()
             .expect("Failed to run dosr with invalid role");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert!(result.stdout.contains("ROLE=B"));
         assert!(result.stdout.contains("TASK=B_A"));
         assert_eq!(result.exit_code, 0);
@@ -64,7 +65,11 @@ mod tests {
             .fixture_name("tests/fixtures/multi_role.json")
             .call()
             .expect("Failed to run dosr with invalid task");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert!(result.stdout.contains("ROLE=A"));
         assert!(result.stdout.contains("TASK=A_B"));
         assert_eq!(result.exit_code, 0);
@@ -91,12 +96,21 @@ mod tests {
     fn test_dosr_env_override() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
-            .run_dosr(&["-E","--role", "env", "--task", "allowed", "env"])
+            .run_dosr(&["-E", "--role", "env", "--task", "allowed", "env"])
             .fixture_name("tests/fixtures/env_override.json")
-            .env_vars(&[("KEEP",""),("TZ","Europe/Paris"),("DELETE",""),("FOO","BAR")])
+            .env_vars(&[
+                ("KEEP", ""),
+                ("TZ", "Europe/Paris"),
+                ("DELETE", ""),
+                ("FOO", "BAR"),
+            ])
             .call()
             .expect("Failed to run dosr with env override");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert!(result.stdout.contains("FOO=BAR"));
         assert!(result.stdout.contains("KEEP="));
         assert!(result.stdout.contains("TZ=Europe/Paris"));
@@ -111,10 +125,19 @@ mod tests {
         let result = runner
             .run_dosr(&["--role", "env", "--task", "allowed", "env"])
             .fixture_name("tests/fixtures/env_override.json")
-            .env_vars(&[("KEEP",""),("TZ","Europe/Paris"),("DELETE",""),("FOO","BAR")])
+            .env_vars(&[
+                ("KEEP", ""),
+                ("TZ", "Europe/Paris"),
+                ("DELETE", ""),
+                ("FOO", "BAR"),
+            ])
             .call()
             .expect("Failed to run dosr with env override");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert!(!result.stdout.contains("FOO=BAR"));
         assert!(result.stdout.contains("KEEP="));
         assert!(result.stdout.contains("TZ=Europe/Paris"));
@@ -127,9 +150,14 @@ mod tests {
     fn test_dosr_env_override_denied() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
-            .run_dosr(&["-E","--role", "env", "--task", "denied", "env"])
+            .run_dosr(&["-E", "--role", "env", "--task", "denied", "env"])
             .fixture_name("tests/fixtures/env_override.json")
-            .env_vars(&[("KEEP",""),("TZ","Europe/Paris"),("DELETE",""),("FOO","BAR")])
+            .env_vars(&[
+                ("KEEP", ""),
+                ("TZ", "Europe/Paris"),
+                ("DELETE", ""),
+                ("FOO", "BAR"),
+            ])
             .call()
             .expect("Failed to run dosr with env override");
         assert!(!result.success, "Command unexpectedly succeeded");
@@ -148,10 +176,19 @@ mod tests {
         let result = runner
             .run_dosr(&["--role", "env", "--task", "denied", "env"])
             .fixture_name("tests/fixtures/env_override.json")
-            .env_vars(&[("KEEP",""),("TZ","Europe/Paris"),("DELETE",""),("FOO","BAR")])
+            .env_vars(&[
+                ("KEEP", ""),
+                ("TZ", "Europe/Paris"),
+                ("DELETE", ""),
+                ("FOO", "BAR"),
+            ])
             .call()
             .expect("Failed to run dosr with env override");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert!(!result.stdout.contains("FOO=BAR"));
         assert!(result.stdout.contains("KEEP="));
         assert!(result.stdout.contains("TZ=Europe/Paris"));
@@ -175,7 +212,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-
     #[test]
     #[serial]
     fn test_dosr_as_group() {
@@ -193,31 +229,46 @@ mod tests {
         }
         assert!(result.success, "Command failed: {}", result.stderr);
         let re_gid = RegexBuilder::new().build(r"gid=\d+\(nobody\)").unwrap();
-        assert!(re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b));
+        assert!(re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b));
         assert_eq!(result.exit_code, 0);
     }
 
     #[test]
     #[serial]
     fn test_dosr_as_user_and_group() {
-        let runner = get_test_runner().inspect_err(|e| eprintln!("Failed to setup test environment: {}",e)).unwrap();
+        let runner = get_test_runner()
+            .inspect_err(|e| eprintln!("Failed to setup test environment: {}", e))
+            .unwrap();
         let result = runner
             .run_dosr(&["-u", "nobody", "-g", "daemon,nobody", "id"])
             .users(&["nobody"])
-            .groups(&["nobody","daemon"])
+            .groups(&["nobody", "daemon"])
             .fixture_name("tests/fixtures/user_group.json")
-            .env_vars(&[("LANG","en_US")])
+            .env_vars(&[("LANG", "en_US")])
             .call()
-            .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {}",e)).unwrap();
+            .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {}", e))
+            .unwrap();
         if !result.success {
             eprintln!("stderr: {}", result.stderr);
             println!("stdout: {}", result.stdout);
         }
         assert!(result.success, "Command failed: {}", result.stderr);
         let re_gid = RegexBuilder::new().build(r"gid=\d+\(daemon\)").unwrap();
-        let re_groups = RegexBuilder::new().build(r"groups=\d+\(daemon\),\d+\(nobody\)").unwrap();
-        assert!(re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b), "stdout: {}", result.stdout);
-        assert!(re_groups.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b), "stdout: {}", result.stdout);
+        let re_groups = RegexBuilder::new()
+            .build(r"groups=\d+\(daemon\),\d+\(nobody\)")
+            .unwrap();
+        assert!(
+            re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b),
+            "stdout: {}",
+            result.stdout
+        );
+        assert!(
+            re_groups
+                .is_match(result.stdout.as_bytes())
+                .is_ok_and(|b| b),
+            "stdout: {}",
+            result.stdout
+        );
         assert_eq!(result.exit_code, 0);
     }
 
@@ -226,7 +277,7 @@ mod tests {
     fn test_dosr_auth() {
         // check that the /etc/pam.d/dosr_test file exists
         use std::fs;
-        if !fs::metadata("/etc/pam.d/dosr_test").is_ok() {
+        if fs::metadata("/etc/pam.d/dosr_test").is_err() {
             eprintln!("Skipping test_dosr_auth: /etc/pam.d/dosr_test not found");
             return;
         }
@@ -236,19 +287,51 @@ mod tests {
             .fixture_name("tests/fixtures/perform_auth.json")
             .call()
             .expect("Failed to run dosr with auth role");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert_eq!(result.exit_code, 0);
         // assert that a timestamp cookie was created
         let path = std::path::Path::new("/var/run/sr/ts").join("0");
         assert!(path.exists(), "Timestamp cookie was not created");
         // run dosr -K to delete the timestamp cookie
         let result = runner
-            .run_dosr(&["-K","/usr/bin/true"])
+            .run_dosr(&["-K", "/usr/bin/true"])
             .fixture_name("tests/fixtures/perform_auth.json")
             .call()
             .expect("Failed to run dosr with auth role");
-        assert!(result.success, "Command unexpectedly failed: {}", result.stderr);
+        assert!(
+            result.success,
+            "Command unexpectedly failed: {}",
+            result.stderr
+        );
         assert_eq!(result.exit_code, 0);
         assert!(!path.exists(), "Timestamp cookie was not deleted");
+    }
+
+    #[test]
+    #[serial]
+    fn test_dosr_info() {
+        let runner = get_test_runner().expect("Failed to setup test environment");
+        let result = runner
+            .run_dosr(&["--info", "-r", "A", "cat", "/proc/self/status"])
+            .fixture_name("tests/fixtures/multi_role.json")
+            .call()
+            .expect("Failed to run dosr --info");
+        assert!(result.success, "Command failed: {}", result.stderr);
+        // it must print execution info, not executing the command
+        assert!(!result.stdout.contains("CapEff"));
+        assert!(result.stdout.contains("Role: A"));
+        // this also tests that not writing a absolute path in the policy is not a valid command.
+        assert!(result.stdout.contains("Task: A_B"));
+        assert!(result
+            .stdout
+            .contains("Execute as user: root (0) and group(s): root (0)"));
+        assert!(result
+            .stdout
+            .contains("With capabilities: CAP_DAC_OVERRIDE"));
+        assert_eq!(result.exit_code, 0);
     }
 }

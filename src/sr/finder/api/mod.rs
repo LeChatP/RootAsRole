@@ -21,8 +21,10 @@ thread_local! {
     static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
 }
 
+pub type EventCallbackFunction = dyn Fn(&mut ApiEvent) -> SrResult<()>;
+
 pub struct Api {
-    callbacks: HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> SrResult<()>>>>,
+    callbacks: HashMap<EventKey, Vec<Box<EventCallbackFunction>>>,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, Display)]
@@ -111,7 +113,7 @@ impl Api {
     {
         API.with(|api| unsafe {
             let api = &mut *api.get();
-            let callbacks = api.callbacks.entry(event).or_insert_with(Vec::new);
+            let callbacks = api.callbacks.entry(event).or_default();
             callbacks.push(Box::new(function));
         });
     }

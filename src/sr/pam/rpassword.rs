@@ -79,6 +79,7 @@ fn read_unbuffered(source: &mut impl io::Read) -> io::Result<PamBuffer> {
     let mut pwd_iter = password.iter_mut();
 
     const EOL: u8 = 0x0A;
+    #[allow(clippy::unbuffered_bytes)] // we want unbuffered reading for passwords
     let input = source.bytes().take_while(|x| x.as_ref().ok() != Some(&EOL));
 
     for read_byte in input {
@@ -246,10 +247,7 @@ mod test {
         let terminal = Terminal::open_stdie().unwrap();
 
         match terminal {
-            Terminal::StdIE(_, _) => {
-                // Expected for open_stdie
-                assert!(true);
-            }
+            Terminal::StdIE(_, _) => {}
             Terminal::Tty(_) => {
                 // Not expected for open_stdie
                 panic!("Expected StdIE variant, got Tty");
@@ -272,9 +270,6 @@ mod test {
             terminal.prompt(&"Test prompt: ")?;
             Ok(())
         };
-
-        // If this compiles, the Terminal interface is working correctly
-        assert!(true);
     }
 
     #[test]
@@ -285,10 +280,6 @@ mod test {
         // We verify the Terminal enum can be constructed and methods exist
         let terminal_result = Terminal::open_stdie();
         assert!(terminal_result.is_ok());
-
-        // The fact that Terminal has read_cleartext, read_password, and prompt methods
-        // that compile successfully indicates the source() and sink() methods work
-        assert!(true);
     }
 
     #[test]

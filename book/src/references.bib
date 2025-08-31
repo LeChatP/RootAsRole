@@ -31,6 +31,7 @@
 	author = {Sharaf, Husain and Ahmad, Imtiaz and Dimitriou, Tassos},
 	urldate = {2024-06-20},
 	date = {2022},
+	abstract = {The extended Berkeley Packet Filter (eBPF) is a lightweight and fast 64-bit RISC-like virtual machine (VM) inside the Linux kernel. eBPF has emerged as the most promising and de facto standard of executing untrusted, user-defined specialized code at run-time inside the kernel with strong performance, portability, flexibility, and safety guarantees. Due to these key benefits and availability of a rich ecosystem of compilers and tools within the Linux kernel, eBPF has received widespread adoption by both industry and academia for a wide range of application domains. The most important include enhancing performance of monitoring tools and providing a variety of new security mechanisms, data collection tools and data screening applications. In this review, we investigate the landscape of existing eBPF use-cases and trends with aim to provide a clear roadmap for researchers and developers. We first introduce the necessary background knowledge for eBPF before delving into its applications. Although, the potential use-cases of eBPF are vast, we restrict our focus on four key application domains related to networking, security, storage, and sandboxing. Then for each application domain, we analyze and summarize solution techniques along with their working principles in an effort to provide an insightful discussion that will enable researchers and practitioners to easily adopt eBPF into their designs. Finally, we delineate several exciting research avenues to fully exploit the revolutionary eBPF technology.}
 }
 
 @incollection{jinRABACRoleCentricAttributeBased2012,
@@ -51,6 +52,7 @@
 	date = {2012},
 	doi = {10.1007/978-3-642-33704-8_8},
 	note = {Series Title: Lecture Notes in Computer Science},
+	abstract = {Role-based access control (RBAC) is a commercially dominant model, standardized by the National Institute of Standards and Technology (NIST). Although RBAC provides compelling benefits for security management it has several known deficiencies such as role explosion, wherein multiple closely related roles are required (e.g., attending-doctor role is separately defined for each patient). Numerous extensions to RBAC have been proposed to overcome these shortcomings. Recently NIST announced an initiative to unify and standardize these extensions by integrating roles with attributes, and identified three approaches: use attributes to dynamically assign users to roles, treat roles as just another attribute, and constrain the permissions of a role via attributes. The first two approaches have been previously studied. This paper presents a formal model for the third approach for the first time in the literature. We propose the novel role-centric attribute-based access control (RABAC) model which extends the NIST RBAC model with permission filtering policies. Unlike prior proposals addressing the role-explosion problem, RABAC does not fundamentally modify the role concept and integrates seamlessly with the NIST RBAC model. We also define an XACML profile for RABAC based on the existing XACML profile for RBAC.},
 }
 
 @inproceedings{balamuruganHoneyBeeBehaviour2015,
@@ -66,6 +68,7 @@
 	author = {Balamurugan, B and Shivitha, N Gnana and Monisha, V and Saranya, V},
 	urldate = {2024-06-20},
 	date = {2015-02},
+	abstract = {Cloud computing is one of the emerging technologies that is being used widely these days. It makes use of the computing resources such as hardware and software that is delivered over the internet and provides remote services with user's data, software and computation. There has been a growing trend to use the cloud for large-scale data storage. This has raised the important security issue of how to control and prevent unauthorized access to data stored in the cloud. There are various access control techniques in cloud environment such as IBAC, RBAC, ABAC, MAC, DAC. Among these techniques, Attribute-Based Access Control (ABAC) is gaining more importance. Here access is granted based on attributes. Our primary objective is to summarize all the access control techniques in cloud environment. Our main objective is to come up with a Novel Attribute-Based Access Control for cloud security using Enhanced Bell-Lapadula Model inspired from Honey Bee behaviour. The Honey Bee prevents the intruders from entering into their hives. This is similar to the access control mechanism in cloud environment. It identifies the bee that belongs to the same hive by the possession of the small barbs on the stings. Similarly, we are trying to restrict the users based on the possession of correct set of attributes by using ABAC technique.}
 }
 
 @incollection{kashmarAccessControlModels2020,
@@ -85,6 +88,7 @@
 	langid = {english},
 	doi = {10.1007/978-3-030-12385-7_61},
 	note = {Series Title: Lecture Notes in Networks and Systems},
+	abstract = {Access control (AC) is a computer security requirement used to control, in a computing environment, what the user can access, when and how. Policy administration is an essential feature of an AC system. As the number of computers are in hundreds of millions, and due to the different organization requirements, applications and needs, various AC models are presented in literature, such as: Discretionary Access Control (DAC), Mandatory Access Control (MAC), Role Based Access Control (RBAC), etc. These models are used to implement organizational policies that prevent the unauthorized disclosure of sensitive data, protecting the data integrity, and enabling secure access and sharing of information. Each AC model has its own methods for making AC decisions and policy enforcement. However, due to the diversity of AC models and the various concerns and restrictions, its essential to find AC metamodels with higher level of abstraction. Access control metamodels serve as a unifying framework for specifying any AC policy and should ease the migration from an AC model to another. This study reviews existing works on metamodels descriptions and representations. But, are the presented metamodels sufficient to handle the needed target of controlling access especially in the presence of the current information technologies? Do they encompass all features of other AC models? In this paper we are presenting a survey on AC metamodels.}
 }
 
 @article{ferraioloProposedNISTStandard2001,
@@ -167,3 +171,20 @@
 	pages = {196--209},
 }
 
+@inproceedings{billoirImplementingPrincipleLeast2024b,
+	author = {Billoir, Eddie and Laborde, Romain and Wazan, Ahmad Samer and Rutschle, Yves and Benzekri, Abdelmalek},
+	title = {Enhancing Secure Deployment with Ansible: A Focus on Least Privilege and Automation for Linux},
+	year = {2024},
+	isbn = {9798400717185},
+	publisher = {Association for Computing Machinery},
+	address = {New York, NY, USA},
+	url = {https://doi.org/10.1145/3664476.3670929},
+	doi = {10.1145/3664476.3670929},
+	abstract = {As organisations increasingly adopt Infrastructure as Code (IaC), ensuring secure deployment practices becomes paramount. Ansible is a well-known open-source and modular tool for automating IT management tasks. However, Ansible is subject to supply-chain attacks that can compromise all managed hosts. This article presents a semi-automated process that improves Ansible-based deployments to have fine-grained control on administrative privileges granted to Ansible tasks. We describe the integration of the RootAsRole framework to Ansible. Finally, we analyse the limit of the current implementation.},
+	booktitle = {Proceedings of the 19th International Conference on Availability, Reliability and Security},
+	articleno = {56},
+	numpages = {7},
+	keywords = {Ansible, Infrastructure as Code, Principle of Least privilege, Security},
+	location = {Vienna, Austria},
+	series = {ARES '24}
+}

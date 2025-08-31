@@ -13,18 +13,18 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        return CmdMin::builder()
+        CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)
-            .build();
+            .build()
     } else if user_path.is_absolute() {
         debug!("match_path: user absolute path");
         let min = match_single_path(user_path, role_path);
-        if min.better(&previous_min) {
+        if min.better(previous_min) {
             info!("match_path: found better match {:?}", min);
             *final_path = Some(user_path.clone());
         }
-        return min;
+        min
     } else {
         debug!("match_path: user relative path");
         let mut curmin = CmdMin::empty();
@@ -32,7 +32,7 @@ fn match_path(
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
-                if min.better(&previous_min) && min.better(&curmin) {
+                if min.better(previous_min) && min.better(&curmin) {
                     *final_path = Some(cmd_path.clone());
                     curmin = min;
                     Some(min)
@@ -40,7 +40,13 @@ fn match_path(
                     None
                 }
             })
-            .inspect(|m| debug!("match_path: found better match {:?} with {}", m, final_path.as_ref().unwrap().display()))
+            .inspect(|m| {
+                debug!(
+                    "match_path: found better match {:?} with {}",
+                    m,
+                    final_path.as_ref().unwrap().display()
+                )
+            })
             .unwrap_or_default()
     }
 }
@@ -77,7 +83,7 @@ fn evaluate_regex_cmd(
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
     use pcre2::bytes::RegexBuilder;
 
-    let regex = RegexBuilder::new().build(&role_args)?;
+    let regex = RegexBuilder::new().build(role_args)?;
     if regex.is_match(commandline.as_bytes())? {
         Ok(CmdMin::builder()
             .matching()
@@ -114,7 +120,7 @@ fn match_command_line(
     }
     let mut result = match_path(
         env_path,
-        &user_path,
+        user_path,
         &role_command[0],
         previous_min,
         final_path,
@@ -148,7 +154,7 @@ pub fn evaluate_command_match(
     previous_min: &CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
-    match shell_words::split(role_cmd).map_err(|e| Into::<Box<dyn std::error::Error>>::into(e)) {
+    match shell_words::split(role_cmd).map_err(Into::<Box<dyn std::error::Error>>::into) {
         Ok(role_cmd) => match_command_line(
             env_path,
             cmd_path,
@@ -270,7 +276,7 @@ mod tests {
     fn test_match_args() {
         let input_args = vec!["-l".to_string(), "/tmp".to_string()];
         let role_args = "-l /tmp";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::MATCH);
     }
@@ -280,7 +286,7 @@ mod tests {
     fn test_match_args_full_regex() {
         let input_args = vec!["foo".to_string(), "bar".to_string()];
         let role_args = "'^.*$'";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -296,7 +302,7 @@ mod tests {
     fn test_match_args_full_regex_empty_input() {
         let input_args: Vec<String> = vec![];
         let role_args = "'^.*$'";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -312,7 +318,7 @@ mod tests {
     fn test_match_args_regex_args() {
         let input_args: Vec<String> = vec!["a".to_string(), "A".to_string()];
         let role_args = "'^[Aa ]*$'";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
@@ -322,7 +328,7 @@ mod tests {
                 .build()
         );
         let role_args = "'^[Aa]*$'";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::empty());
     }
@@ -331,7 +337,7 @@ mod tests {
     fn test_match_args_no_match() {
         let input_args = vec!["-a".to_string()];
         let role_args = "-l";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::empty());
     }
@@ -340,7 +346,7 @@ mod tests {
     fn test_match_args_input_longer_than_role() {
         let input_args = vec!["-l".to_string(), "/tmp".to_string(), "extra".to_string()];
         let role_args = "-l /tmp";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::empty());
     }
@@ -349,7 +355,7 @@ mod tests {
     fn test_match_args_input_shorter_than_role() {
         let input_args = vec!["-l".to_string()];
         let role_args = "-l /tmp";
-        let result = match_args(&input_args, &role_args);
+        let result = match_args(&input_args, role_args);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CmdMin::empty());
     }

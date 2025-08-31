@@ -183,7 +183,7 @@ mod tests {
         let sr_error: SrError = not_found.into();
         assert_eq!(sr_error, SrError::ExecutionFailed);
 
-        let other = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let other = std::io::Error::other("test");
         let sr_error: SrError = other.into();
         assert_eq!(sr_error, SrError::SystemError);
     }
@@ -207,15 +207,6 @@ mod tests {
 
         let sr_error: SrError = json_error.unwrap_err().into();
         assert_eq!(sr_error, SrError::ConfigurationError);
-    }
-
-    #[test]
-    fn test_sr_result_type() {
-        let success: SrResult<i32> = Ok(42);
-        assert_eq!(success.unwrap(), 42);
-
-        let failure: SrResult<i32> = Err(SrError::SystemError);
-        assert_eq!(failure.unwrap_err(), SrError::SystemError);
     }
 
     #[test]

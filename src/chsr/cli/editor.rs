@@ -398,7 +398,7 @@ pub(crate) fn edit_config(
     folder: &PathBuf,
     config: Rc<RefCell<FullSettings>>,
 ) -> Result<bool, Box<dyn Error>> {
-    migrate_settings(&mut *config.as_ref().borrow_mut())?;
+    migrate_settings(&mut config.as_ref().borrow_mut())?;
     debug!("Using editor: {}", SYSTEM_EDITOR);
 
     debug!("Created temporary folder: {:?}", folder);
@@ -439,7 +439,7 @@ pub(crate) fn edit_config(
             eprintln!("Editor exited with an error.");
             return Ok(false);
         }
-        let seek_pos = file.seek(std::io::SeekFrom::Current(0))?;
+        let seek_pos = file.stream_position()?;
         debug!("Current file position: {}", seek_pos);
         file.rewind()?;
         debug!("Rewound temporary file for reading");
