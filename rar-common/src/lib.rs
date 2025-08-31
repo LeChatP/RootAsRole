@@ -397,6 +397,7 @@ impl LockedSettingsFile {
             with_mutable_config(self.fd.deref_mut(), |file| {
                 debug!("Toggled immutable off for config file");
                 file.rewind()?;
+                file.set_len(0)?;
                 write_json_config(&versionned, file)
             })?;
         } else {
@@ -613,6 +614,7 @@ mod tests {
 
     use crate::database::actor::SActor;
     use crate::database::structs::{SCommand, SCommands, SCredentials, SRole, STask, SetBehavior};
+    use crate::util::unlock_immutable;
 
     use super::*;
 
@@ -1352,5 +1354,85 @@ mod tests {
         assert_eq!(locked_file.path, PathBuf::from(test_file));
         // File should exist now
         assert!(PathBuf::from(test_file).exists());
+    }
+
+    #[test]
+    fn test_locked_settings_truncates_file_on_save() {
+        if has_privileges(&[Cap::LINUX_IMMUTABLE]).is_ok_and(|b| !b) {
+            println!("Test skipped due to insufficient privileges in test environment");
+            return;
+        }
+        let test_file = "/tmp/test_locked_settings_truncates_file_on_save.json";
+        let _cleanup = defer(|| {
+            let filename = PathBuf::from(test_file)
+                .canonicalize()
+                .unwrap_or(test_file.into());
+            if std::fs::remove_file(&filename).is_err() {
+                debug!("Failed to delete the file: {}", filename.display());
+            }
+        });
+
+        // Create a test file with some initial content
+        let initial_content = r#"{
+            "version": "0.1.0",
+            "storage": {
+                "method": "JSON"
+            },
+            "config": {
+                "roles": [
+                    {
+                        "name": "old_role",
+                        "actors": [],
+                        "tasks": []
+                    },
+                    {
+                        "name": "another_old_role",
+                        "actors": [],
+                        "tasks": []
+                    },
+                    {
+                        "name": "yet_another_old_role",
+                        "actors": [],
+                        "tasks": []
+                    },
+                    {
+                        "name": "oldest_role",
+                        "actors": [],
+                        "tasks": []
+                    }
+                ]
+            }
+        }"#;
+        let mut file = File::create(test_file).unwrap();
+        with_mutable_config(&mut file, |file| {
+            file.write_all(initial_content.as_bytes()).unwrap();
+            Ok(())
+        }).unwrap();
+
+        // Open the file using LockedSettingsFile
+        let mut locked = LockedSettingsFile::open(
+            test_file,
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .to_owned(),
+            true, // write mode
+        ).unwrap();
+
+        // Modify the settings to have fewer roles
+        let new_config = SConfig::builder().build();
+        locked.data.borrow_mut().config = Some(new_config);
+        locked.save().unwrap();
+        // Read back the file content
+        let mut file = File::open(test_file).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        // The content should match the new settings and not contain old roles
+        assert!(!content.contains("old_role"));
+        assert!(!content.contains("another_old_role"));
+        assert!(!content.contains("yet_another_old_role"));
+        assert!(!content.contains("oldest_role"));
+        unlock_immutable(&mut file).unwrap();
+        fs::remove_file(test_file).unwrap();
     }
 }
