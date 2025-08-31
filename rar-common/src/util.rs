@@ -313,8 +313,7 @@ pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> s
 
 pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
     cbor4ii::serde::to_writer(file, &settings).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             format!("Failed to write cbor config: {}", e),
         )
     })

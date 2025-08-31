@@ -183,7 +183,7 @@ mod tests {
         let sr_error: SrError = not_found.into();
         assert_eq!(sr_error, SrError::ExecutionFailed);
 
-        let other = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let other = std::io::Error::other("test");
         let sr_error: SrError = other.into();
         assert_eq!(sr_error, SrError::SystemError);
     }

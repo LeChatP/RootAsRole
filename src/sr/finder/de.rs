@@ -968,12 +968,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                         }
                         Field::Add => {
                             debug!("SGroupsChooserVisitor: add");
-                            if filter.is_some() {
+                            if let Some(filter) = filter {
                                 let add = map.next_value::<Cow<'_, [DGroups]>>()?;
                                 for group in add.iter() {
                                     let v: Vec<u32> =
                                         group.try_into().map_err(serde::de::Error::custom)?;
-                                    if v == *filter.unwrap() {
+                                    if v == *filter {
                                         ok = true;
                                         groups = Some(group.to_owned());
                                         score.replace(group.into());
@@ -1164,13 +1164,13 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                         }
                         Field::Add => {
                             debug!("SUserChooserVisitor: add");
-                            if filter.is_some() {
+                            if let Some(filter) = filter {
                                 let users = map.next_value::<Cow<'_, [DUserType]>>()?;
                                 for user_item in users.iter() {
                                     let user_id = user_item
                                         .fetch_id()
                                         .ok_or(serde::de::Error::custom("User does not exist"))?;
-                                    if user_id == *filter.unwrap() {
+                                    if user_id == *filter {
                                         ok = true;
                                         user = Some(user_item.to_owned());
                                         score.replace(user_item.into());

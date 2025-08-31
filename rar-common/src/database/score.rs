@@ -104,7 +104,7 @@ impl From<&DGroupType<'_>> for SetgidMin {
 impl From<&Vec<u32>> for SetgidMin {
     fn from(s: &Vec<u32>) -> Self {
         SetgidMin {
-            is_root: s.iter().any(|id| *id == 0),
+            is_root: s.contains(&0),
             nb_groups: s.len(),
         }
     }

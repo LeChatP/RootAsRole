@@ -24,7 +24,7 @@ fn match_path(
             info!("match_path: found better match {:?}", min);
             *final_path = Some(user_path.clone());
         }
-        return min;
+        min
     } else {
         debug!("match_path: user relative path");
         let mut curmin = CmdMin::empty();
