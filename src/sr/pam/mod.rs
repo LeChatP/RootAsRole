@@ -267,23 +267,21 @@ mod tests {
 
     #[test]
     fn test_check_auth_required_but_valid_timeout() {
+        if env!("RAR_PAM_SERVICE") == "dosr" {
+            println!("Skipping test_check_auth_required_but_valid_timeout because RAR_PAM_SERVICE is set to original dosr");
+            return;
+        }
         let authentication = SAuthentication::Perform;
         let timeout = create_test_timeout();
         let user = create_test_user();
 
-        // This test depends on the timeout::is_valid implementation
-        // In a real environment, you might want to mock this
-        let result = check_auth(&authentication, &timeout, &user, "Password: ");
-        // Result will depend on whether there's a valid timeout cookie
-        // We're just testing that it doesn't panic
-        assert!(result.is_ok() || result.is_err());
+        let _ = check_auth(&authentication, &timeout, &user, "Password: ");
     }
 
     #[test]
     fn test_conversation_handler_no_interact_flag() {
         let handler = SrConversationHandler::builder().no_interact().build();
 
-        // When no_interact is true, both prompt methods should return ConversationError
         let prompt_result = handler.prompt(OsStr::new("Test prompt"));
         assert!(matches!(prompt_result, Err(ErrorCode::ConversationError)));
 
@@ -299,10 +297,8 @@ mod tests {
         let custom_prompt = "Enter your secret: ";
         let handler = SrConversationHandler::new(custom_prompt);
 
-        // Test that the handler stores the custom prompt
         assert_eq!(handler.prompt, custom_prompt);
 
-        // Test that it recognizes standard PAM prompts
         assert!(handler.is_pam_password_prompt(&"Password:"));
         assert!(handler.is_pam_password_prompt(&"Password: "));
     }
