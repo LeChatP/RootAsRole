@@ -5,16 +5,18 @@
  </p>
  <p align="center">
   
-<img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/build.yml?label=Build"/>
-<img alt="Test Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/tests.yml?label=Unit%20Tests">
-<a href="https://codecov.io/gh/LeChatP/RootAsRole" ><img src="https://codecov.io/gh/LeChatP/RootAsRole/branch/main/graph/badge.svg?token=6J7CRGEIG8"/></a>
- <img alt="GitHub" src="https://img.shields.io/github/license/LeChatP/RootAsRole">
+<img alt="crates.io" src="https://img.shields.io/crates/v/rootasrole.svg?style=for-the-badge&label=Version&color=e37602&logo=rust" height="25"/>
+<img alt="Build Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/build.yml?style=for-the-badge&logo=githubactions&label=Build&logoColor=white" height="25"/>
+<img alt="Tests Status" src="https://img.shields.io/github/actions/workflow/status/LeChatP/RootAsRole/tests.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=Tests" height="25"/>
+<img alt="Codecov" src="https://img.shields.io/codecov/c/github/lechatp/rootasrole?style=for-the-badge&logo=codecov&color=green&link=https%3A%2F%2Fapp.codecov.io%2Fgh%2FLeChatP%2FRootAsRole" height="25">
+<img alt="GitHub" src="https://img.shields.io/github/license/LeChatP/RootAsRole?style=for-the-badge&logo=github&logoColor=white" height="25"/>
+
 
 </p>
 <!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
-# RootAsRole (V3.2.1) — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
+# RootAsRole — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
 
 RootAsRole is a Linux/Unix privilege delegation tool based on **Role-Based Access Control (RBAC)**. It empowers administrators to assign precise privileges — not full root — to users and commands.
 

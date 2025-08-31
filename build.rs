@@ -35,28 +35,6 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-fn set_readme_version(package_version: &str, file: &str) -> Result<(), Box<dyn Error>> {
-    let readme = File::open(std::path::Path::new(file)).expect("README.md not found");
-    let reader = BufReader::new(readme);
-    let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
-    let mut readme = File::create(std::path::Path::new(file)).expect("README.md not found");
-    for line in lines {
-        if line.starts_with("# RootAsRole (V") {
-            let mut s = line.split("(V").next().unwrap().to_string();
-            let end = line
-                .split(')')
-                .skip(1)
-                .fold(String::new(), |acc, x| acc + ")" + x);
-            s.push_str(&format!("(V{}{}", package_version, end));
-            writeln!(readme, "{}", s)?;
-        } else {
-            writeln!(readme, "{}", line)?;
-        }
-    }
-    readme.sync_all()?;
-    Ok(())
-}
-
 fn some_kind_of_uppercase_first_letter(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -132,10 +110,6 @@ fn main() {
     }
 
     if let Err(err) = set_cargo_version(&package_version, "Cargo.toml") {
-        eprintln!("cargo:warning={}", err);
-    }
-
-    if let Err(err) = set_readme_version(&package_version, "README.md") {
         eprintln!("cargo:warning={}", err);
     }
 
