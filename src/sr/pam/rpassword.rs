@@ -247,8 +247,6 @@ mod test {
 
         match terminal {
             Terminal::StdIE(_, _) => {
-                // Expected for open_stdie
-                assert!(true);
             }
             Terminal::Tty(_) => {
                 // Not expected for open_stdie
@@ -272,9 +270,6 @@ mod test {
             terminal.prompt(&"Test prompt: ")?;
             Ok(())
         };
-
-        // If this compiles, the Terminal interface is working correctly
-        assert!(true);
     }
 
     #[test]
@@ -285,10 +280,6 @@ mod test {
         // We verify the Terminal enum can be constructed and methods exist
         let terminal_result = Terminal::open_stdie();
         assert!(terminal_result.is_ok());
-
-        // The fact that Terminal has read_cleartext, read_password, and prompt methods
-        // that compile successfully indicates the source() and sink() methods work
-        assert!(true);
     }
 
     #[test]

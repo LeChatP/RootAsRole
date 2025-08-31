@@ -8,6 +8,7 @@ use std::{
 };
 
 use api::{register_plugins, Api, ApiEvent};
+use bon::Builder;
 use capctl::CapSet;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
@@ -34,20 +35,29 @@ mod cmd;
 mod de;
 mod options;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Builder)]
 pub struct BestExecSettings {
+    #[builder(default)]
     pub score: Score,
+    #[builder(default)]
     pub final_path: PathBuf,
     pub setuid: Option<u32>,
     pub setgroups: Option<Vec<u32>>,
     pub caps: Option<CapSet>,
     pub task: Option<String>,
+    #[builder(default)]
     pub role: String,
+    #[builder(default)]
     pub env: HashMap<String, String>,
+    #[builder(default)]
     pub env_path: Vec<String>,
+    #[builder(default)]
     pub bounding: SBounding,
+    #[builder(default)]
     pub timeout: STimeout,
+    #[builder(default)]
     pub auth: SAuthentication,
+    #[builder(default)]
     pub root: SPrivileged,
 }
 
@@ -289,11 +299,11 @@ impl BestExecSettings {
         Ok(found)
     }
 
-    pub fn command_settings<'d, 'l, 't, 'c, 'a>(
+    pub fn command_settings<'d>(
         &mut self,
         env_path: &[&str],
         cli: &'d Cli,
-        data: &DLinkedCommand<'d, 'l, 't, 'c, 'a>,
+        data: &DLinkedCommand<'d, '_, '_, '_, '_>,
     ) -> SrResult<bool> {
         debug!("env_path: {:?}", env_path);
         Ok(match &**data {

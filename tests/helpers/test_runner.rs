@@ -48,7 +48,7 @@ impl TestRunner {
     ) -> IoResult<CommandResult> {
         // If a fixture is specified, update the configuration
         if let Some(fixture) = fixture_name {
-            if let Err(e) = self.config_manager.load_fixture(&fixture.into()) {
+            if let Err(e) = self.config_manager.load_fixture(fixture.into()) {
                 eprintln!("Warning: Failed to load fixture '{}': {}", fixture, e);
             }
         }

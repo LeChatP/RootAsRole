@@ -1,5 +1,6 @@
 use std::{ffi::CStr, ops::Deref};
 
+use bon::Builder;
 use log::{debug, error, info, warn};
 use nonstick::{
     AuthnFlags, ConversationAdapter, ErrorCode, Result as PamResult, Transaction,
@@ -28,10 +29,14 @@ mod securemem;
 const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
+#[derive(Builder)]
 struct SrConversationHandler {
     username: Option<String>,
+    #[builder(default = "Password: ".to_string())]
     prompt: String,
+    #[builder(default, with = ||true)]
     use_stdin: bool,
+    #[builder(default, with = ||true)]
     no_interact: bool,
 }
 
@@ -220,8 +225,7 @@ mod tests {
 
     #[test]
     fn test_is_pam_password_prompt_with_username() {
-        let mut handler = SrConversationHandler::default();
-        handler.username = Some("testuser".to_string());
+        let handler = SrConversationHandler::builder().username("testuser".to_string()).build();
 
         // Test user-specific password prompts
         assert!(handler.is_pam_password_prompt(&"testuser's Password:"));
@@ -275,8 +279,7 @@ mod tests {
 
     #[test]
     fn test_conversation_handler_no_interact_flag() {
-        let mut handler = SrConversationHandler::default();
-        handler.no_interact = true;
+        let handler = SrConversationHandler::builder().no_interact().build();
 
         // When no_interact is true, both prompt methods should return ConversationError
         let prompt_result = handler.prompt(OsStr::new("Test prompt"));
@@ -304,8 +307,9 @@ mod tests {
 
     #[test]
     fn test_regex_patterns_edge_cases() {
-        let mut handler = SrConversationHandler::default();
-        handler.username = Some("user.with.dots".to_string());
+        let handler = SrConversationHandler::builder()
+            .username("user.with.dots".to_string())
+            .build();
 
         // Test with username containing special regex characters
         assert!(handler.is_pam_password_prompt(&"user.with.dots's Password:"));

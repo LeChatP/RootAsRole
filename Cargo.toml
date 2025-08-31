@@ -5,7 +5,7 @@ members = ["xtask", "rar-common"]
 name = "rootasrole"
 # The project version is managed on json file in resources/rootasrole.json
 version = "3.2.1"
-rust-version = "1.76.0"
+rust-version = "1.83.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2021"
 default-run = "dosr"

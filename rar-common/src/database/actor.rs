@@ -1008,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::assertions_on_constants)]
+    #[allow(clippy::cmp_owned)]
     fn test_partialeq_user() {
         assert!(SUserType::from(0) == 0);
         assert!(SUserType::from(0) != 1);

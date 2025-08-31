@@ -229,10 +229,15 @@ pub struct TaskScore {
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Builder)]
 pub struct Score {
+    #[builder(default)]
     pub user_min: ActorMatchMin,
+    #[builder(default)]
     pub cmd_min: CmdMin,
+    #[builder(default)]
     pub caps_min: CapsMin,
+    #[builder(default)]
     pub setuser_min: SetUserMin,
+    #[builder(default)]
     pub security_min: SecurityMin,
 }
 
@@ -535,14 +540,12 @@ mod tests {
 
     #[test]
     fn test_score_ordering() {
-        let mut score1 = Score::default();
-        let mut score2 = Score::default();
-        score1.cmd_min = CmdMin::builder().matching().build();
-        score2.cmd_min = CmdMin::builder()
+        let score1 = Score::builder().cmd_min(CmdMin::builder().matching().build()).build();
+        let score2 = Score::builder().cmd_min(CmdMin::builder()
             .matching()
             .order(CmdOrder::WildcardPath)
-            .build();
-        assert!(score1 <= score2 || score1 > score2);
+            .build()).build();
+        assert!(score1.better_command(&score2));
     }
 
     #[test]
@@ -743,11 +746,10 @@ mod tests {
         assert_eq!(score2.max(score1), score2);
         assert_eq!(score1.min(score2), score1);
         assert_eq!(score2.min(score1), score1);
-        let mut score3 = Score::default();
-        score3.cmd_min = CmdMin::builder()
+        let score3 = Score::builder().cmd_min(CmdMin::builder()
             .matching()
             .order(CmdOrder::RegexArgs)
-            .build();
+            .build()).build();
         assert_eq!(score1.clamp(score2, score3), score2);
         assert_eq!(score2.clamp(score1, score3), score2);
     }

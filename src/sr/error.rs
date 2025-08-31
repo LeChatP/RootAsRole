@@ -210,15 +210,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sr_result_type() {
-        let success: SrResult<i32> = Ok(42);
-        assert_eq!(success.unwrap(), 42);
-
-        let failure: SrResult<i32> = Err(SrError::SystemError);
-        assert_eq!(failure.unwrap_err(), SrError::SystemError);
-    }
-
-    #[test]
     fn test_error_propagation() {
         fn test_function() -> SrResult<()> {
             std::fs::File::open("/nonexistent/path")?;

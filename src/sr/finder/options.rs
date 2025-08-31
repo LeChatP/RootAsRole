@@ -654,7 +654,7 @@ pub struct BorrowedOptStack<'a> {
     task: Option<Opt<'a>>,
 }
 
-impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
+impl<'a, 'c, 't> BorrowedOptStack<'a> {
     pub fn new(config: Option<Opt<'a>>) -> Self {
         Self {
             config,
@@ -703,16 +703,14 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
             &Some(ENV_PATH_REMOVE_LIST_SLICE),
         );
 
-        for opt in stack.iter() {
-            if let Some(path_opt) = opt {
-                calculate_combined_paths(
-                    path_var,
-                    &mut combined_paths,
-                    &path_opt.default_behavior,
-                    &path_opt.add.as_ref().map(|v| v.iter()),
-                    &path_opt.sub.as_ref().map(|v| v.iter()),
-                );
-            }
+        for path_opt in stack.iter().flatten() {
+            calculate_combined_paths(
+                path_var,
+                &mut combined_paths,
+                &path_opt.default_behavior,
+                &path_opt.add.as_ref().map(|v| v.iter()),
+                &path_opt.sub.as_ref().map(|v| v.iter()),
+            );
         }
         combined_paths
     }
@@ -759,7 +757,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         opt_filter: &Option<FilterMatcher>,
     ) -> DEnvOptions<'_> {
         let mut result = DEnvOptions::default();
-        fn determine_final_behavior<'a>(
+        fn determine_final_behavior(
             override_behavior: bool,
             opt_filter: &Option<FilterMatcher>,
             final_behavior: &mut EnvBehavior,
@@ -1115,7 +1113,7 @@ mod tests {
         assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
         assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
         assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
-        assert!(final_env.get("VAR4").is_none());
+        assert!(!final_env.contains_key("VAR4"));
         assert!(final_env.get("VAR5").unwrap() == "VALUE5");
 
         let env_options = DEnvOptions::builder(EnvBehavior::Keep)
@@ -1157,7 +1155,7 @@ mod tests {
         assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
         assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
         assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
-        assert!(final_env.get("VAR4").is_none());
+        assert!(!final_env.contains_key("VAR4"));
         assert!(final_env.get("VAR5").unwrap() == "VALUE5");
 
         let env_options = DEnvOptions::builder(EnvBehavior::Inherit)

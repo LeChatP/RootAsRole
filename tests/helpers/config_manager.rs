@@ -38,7 +38,7 @@ impl ConfigManager {
     }
 
     /// Load a specific policy fixture by updating the configuration
-    pub fn load_fixture(&self, fixture_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_fixture(&self, fixture_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         // Create a configuration that points to the fixture file
         let settings = FullSettings::builder()
             .storage(

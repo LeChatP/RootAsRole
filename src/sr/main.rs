@@ -549,9 +549,7 @@ mod tests {
             capset.effective.add(Cap::SETUID);
             capset.effective.add(Cap::SETGID);
             capset.set_current().unwrap();
-            let mut execcfg = BestExecSettings::default();
-            execcfg.setuid = Some(1000);
-            execcfg.setgroups = Some(vec![1000]);
+            let execcfg = BestExecSettings::builder().setuid(1000).setgroups(vec![1000]).build();
             setuid_setgid(&execcfg).unwrap();
             assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
             if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {

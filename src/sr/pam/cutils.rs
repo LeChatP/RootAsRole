@@ -97,16 +97,16 @@ mod test {
     fn miri_test_str_to_ptr() {
         let strp = |ptr| unsafe { string_from_ptr(ptr) };
         assert_eq!(strp(std::ptr::null()), "");
-        assert_eq!(strp("\0".as_ptr() as *const libc::c_char), "");
-        assert_eq!(strp("hello\0".as_ptr() as *const libc::c_char), "hello");
+        assert_eq!(strp(c"".as_ptr() as *const libc::c_char), "");
+        assert_eq!(strp(c"hello".as_ptr() as *const libc::c_char), "hello");
     }
 
     #[test]
     fn miri_test_os_str_to_ptr() {
         let strp = |ptr| unsafe { os_string_from_ptr(ptr) };
         assert_eq!(strp(std::ptr::null()), "");
-        assert_eq!(strp("\0".as_ptr() as *const libc::c_char), "");
-        assert_eq!(strp("hello\0".as_ptr() as *const libc::c_char), "hello");
+        assert_eq!(strp(c"".as_ptr() as *const libc::c_char), "");
+        assert_eq!(strp(c"hello".as_ptr() as *const libc::c_char), "hello");
     }
 
     #[test]

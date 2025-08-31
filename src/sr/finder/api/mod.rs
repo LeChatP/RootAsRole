@@ -21,8 +21,10 @@ thread_local! {
     static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
 }
 
+pub type EventCallbackFunction = dyn Fn(&mut ApiEvent) -> SrResult<()>;
+
 pub struct Api {
-    callbacks: HashMap<EventKey, Vec<Box<dyn Fn(&mut ApiEvent) -> SrResult<()>>>>,
+    callbacks: HashMap<EventKey, Vec<Box<EventCallbackFunction>>>,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, Display)]
