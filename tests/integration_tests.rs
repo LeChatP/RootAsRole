@@ -33,7 +33,7 @@ mod tests {
         assert!(result.success, "Command failed: {}", result.stderr);
         assert!(result
             .stdout
-            .contains(&format!("{}", env!("CARGO_PKG_VERSION"))));
+            .contains(&env!("CARGO_PKG_VERSION").to_string()));
         assert_eq!(result.exit_code, 0);
     }
 
@@ -229,7 +229,7 @@ mod tests {
         }
         assert!(result.success, "Command failed: {}", result.stderr);
         let re_gid = RegexBuilder::new().build(r"gid=\d+\(nobody\)").unwrap();
-        assert!(re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b));
+        assert!(re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b));
         assert_eq!(result.exit_code, 0);
     }
 
@@ -258,13 +258,13 @@ mod tests {
             .build(r"groups=\d+\(daemon\),\d+\(nobody\)")
             .unwrap();
         assert!(
-            re_gid.is_match(&result.stdout.as_bytes()).is_ok_and(|b| b),
+            re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b),
             "stdout: {}",
             result.stdout
         );
         assert!(
             re_groups
-                .is_match(&result.stdout.as_bytes())
+                .is_match(result.stdout.as_bytes())
                 .is_ok_and(|b| b),
             "stdout: {}",
             result.stdout
@@ -277,7 +277,7 @@ mod tests {
     fn test_dosr_auth() {
         // check that the /etc/pam.d/dosr_test file exists
         use std::fs;
-        if !fs::metadata("/etc/pam.d/dosr_test").is_ok() {
+        if fs::metadata("/etc/pam.d/dosr_test").is_err() {
             eprintln!("Skipping test_dosr_auth: /etc/pam.d/dosr_test not found");
             return;
         }

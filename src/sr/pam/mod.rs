@@ -107,7 +107,7 @@ impl ConversationAdapter for SrConversationHandler {
         term.prompt(&pam_prompt)
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_password().map_err(|_| ErrorCode::BufferError)?;
-        let os_str = CStr::from_bytes_until_nul(&read.deref()).unwrap();
+        let os_str = CStr::from_bytes_until_nul(read.deref()).unwrap();
         Ok(std::ffi::OsString::from(os_str.to_str().unwrap()))
     }
 
@@ -132,7 +132,7 @@ pub(super) fn check_auth(
         warn!("Skipping authentication, this is a security risk!");
         return Ok(());
     }
-    let is_valid = timeout::is_valid(user, user, &timeout);
+    let is_valid = timeout::is_valid(user, user, timeout);
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
         let conv = SrConversationHandler::new(prompt);
@@ -152,7 +152,7 @@ pub(super) fn check_auth(
             SrError::AuthenticationFailed
         })?;
     }
-    timeout::update_cookie(user, user, &timeout).map_err(|e| {
+    timeout::update_cookie(user, user, timeout).map_err(|e| {
         error!("Failed to update timeout cookie: {}", e);
         SrError::SystemError
     })?;

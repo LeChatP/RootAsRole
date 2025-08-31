@@ -92,7 +92,7 @@ where
                         SrError::ConfigurationError
                     })?,
                 env_vars,
-                &env_path,
+                env_path,
             )?)
         }
         StorageMethod::JSON => {
@@ -115,7 +115,7 @@ where
                         SrError::ConfigurationError
                     })?,
                 env_vars,
-                &env_path,
+                env_path,
             )?)
         }
     }
@@ -182,16 +182,16 @@ impl BestExecSettings {
         Ok(res)
     }
 
-    pub fn actors_settings<'c, 'a>(&mut self, data: &DLinkedRole<'c, 'a>) -> SrResult<bool> {
+    pub fn actors_settings(&mut self, data: &DLinkedRole<'_, '_>) -> SrResult<bool> {
         let mut res = !data.role().user_min.is_no_match();
         Api::notify(ApiEvent::ActorMatching(data, self, &mut res))?;
         Ok(res)
     }
 
-    pub fn task_settings<'t, 'c, 'a>(
+    pub fn task_settings<'t, 'a>(
         &mut self,
         cli: &'t Cli,
-        data: &DLinkedTask<'t, 'c, 'a>,
+        data: &DLinkedTask<'t, '_, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
     ) -> SrResult<bool> {
@@ -263,7 +263,7 @@ impl BestExecSettings {
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
         Api::notify(ApiEvent::BestTaskSettingsFound(
-            &cli, &data, opt_stack, self, &mut score,
+            cli, data, opt_stack, self, &mut score,
         ))?;
         if found && score.better_fully(&self.score) {
             debug!("found better task settings");
@@ -275,12 +275,12 @@ impl BestExecSettings {
                 .map(|s| s.to_string())
                 .collect();
             self.score = score;
-            self.setuid = data.setuid.clone().map(|u| u.fetch_id()).flatten();
-            self.setgroups = data.setgroups.clone().and_then(|g| match g {
-                DGroups::Single(g) => Some(vec![g.fetch_id()].into_iter().flatten().collect()),
-                DGroups::Multiple(g) => Some(g.iter().filter_map(|g| g.fetch_id()).collect()),
+            self.setuid = data.setuid.clone().and_then(|u| u.fetch_id());
+            self.setgroups = data.setgroups.clone().map(|g| match g {
+                DGroups::Single(g) => vec![g.fetch_id()].into_iter().flatten().collect(),
+                DGroups::Multiple(g) => g.iter().filter_map(|g| g.fetch_id()).collect(),
             });
-            self.caps = data.caps.clone();
+            self.caps = data.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
             debug!("resulting settings: {:?}", self);
@@ -469,7 +469,7 @@ mod tests {
         let env_vars = vec![("KEY", "VALUE")];
         let env_path = &["/bin"];
         let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
-        assert!(!result.is_ok());
+        assert!(result.is_err());
     }
 
     #[test]
@@ -485,8 +485,8 @@ mod tests {
         assert_eq!(settings.final_path, PathBuf::from("/usr/bin/ls"));
         assert_eq!(settings.role, "test");
         assert_eq!(settings.task, Some("0".to_string()));
-        assert!(!settings.setuid.is_some());
-        assert!(!settings.setgroups.is_some());
+        assert!(settings.setuid.is_none());
+        assert!(settings.setgroups.is_none());
         assert!(settings.caps.is_some());
         assert!(!settings.env.is_empty());
         assert!(!settings.env_path.is_empty());
@@ -498,7 +498,7 @@ mod tests {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
         let binding = dummy_dconfigfinder();
-        let data = binding.roles().nth(0).unwrap();
+        let data = binding.roles().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(None);
         let env_path = &["/bin"];
         let result = best.role_settings(&cli, &data, &mut opt_stack, env_path);
@@ -509,10 +509,10 @@ mod tests {
     fn test_actors_settings_returns_bool() {
         let mut best = BestExecSettings::default();
         let binding = dummy_dconfigfinder();
-        let data = binding.roles().nth(0).unwrap();
+        let data = binding.roles().next().unwrap();
         let result = best.actors_settings(&data);
         assert!(result.is_ok());
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -520,8 +520,8 @@ mod tests {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
-        let data = binding.tasks().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
+        let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/bin"];
         let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
@@ -540,10 +540,10 @@ mod tests {
         let cli = dummy_cli();
         let env_path = &["/usr/bin"];
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().nth(1).unwrap();
         let binding = binding.commands().unwrap();
-        let data = binding.add().nth(0).unwrap();
+        let data = binding.add().next().unwrap();
         let result = best.command_settings(env_path, &cli, &data);
         assert!(result.as_ref().is_ok_and(|b| *b));
         let data = binding.add().nth(1).unwrap();
@@ -570,7 +570,7 @@ mod tests {
         };
         let new_cmd_min = CmdMin::MATCH;
         let new_path = PathBuf::from("/new/path");
-        let updated = settings.update_command_score(new_path.clone(), new_cmd_min.clone());
+        let updated = settings.update_command_score(new_path.clone(), new_cmd_min);
         assert!(updated);
         assert_eq!(settings.score.cmd_min, new_cmd_min);
         assert_eq!(settings.final_path, new_path);
@@ -605,8 +605,8 @@ mod tests {
             .info()
             .build();
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
-        let binding = binding.tasks().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
+        let binding = binding.tasks().next().unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
@@ -625,7 +625,7 @@ mod tests {
             .build();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().nth(1).unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
@@ -645,7 +645,7 @@ mod tests {
             .build();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
@@ -666,7 +666,7 @@ mod tests {
             .build();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
-        let data = binding.tasks().nth(0).unwrap();
+        let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
@@ -690,8 +690,8 @@ mod tests {
             )
             .build();
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
-        let binding = binding.tasks().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
+        let binding = binding.tasks().next().unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
@@ -714,7 +714,7 @@ mod tests {
             .build();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().nth(1).unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
@@ -738,7 +738,7 @@ mod tests {
             .build();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
-        let binding = binding.roles().nth(0).unwrap();
+        let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
@@ -763,7 +763,7 @@ mod tests {
             .build();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
-        let data = binding.tasks().nth(0).unwrap();
+        let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);

@@ -87,7 +87,7 @@ impl From<&DGroups<'_>> for SetgidMin {
     fn from(s: &DGroups<'_>) -> Self {
         SetgidMin {
             is_root: dgroups_contains_root(Some(s)),
-            nb_groups: dgroups_len(Some(&s)),
+            nb_groups: dgroups_len(Some(s)),
         }
     }
 }
@@ -95,7 +95,7 @@ impl From<&DGroups<'_>> for SetgidMin {
 impl From<&DGroupType<'_>> for SetgidMin {
     fn from(s: &DGroupType<'_>) -> Self {
         SetgidMin {
-            is_root: dgroup_is_root(&s),
+            is_root: dgroup_is_root(s),
             nb_groups: 1,
         }
     }
@@ -331,22 +331,22 @@ impl Ord for Score {
 
 #[inline]
 fn group_is_root(actortype: &SGroupType) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn dgroup_is_root(actortype: &DGroupType<'_>) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn user_is_root(actortype: &SUserType) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
 fn duser_is_root(actortype: &DUserType<'_>) -> bool {
-    (*actortype).fetch_id().map_or(false, |id| id == 0)
+    (*actortype).fetch_id() == Some(0)
 }
 
 #[inline]
@@ -542,7 +542,7 @@ mod tests {
             .matching()
             .order(CmdOrder::WildcardPath)
             .build();
-        assert!(score1 < score2 || score1 == score2 || score1 > score2);
+        assert!(score1 <= score2 || score1 > score2);
     }
 
     #[test]

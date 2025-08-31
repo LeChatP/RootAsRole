@@ -111,7 +111,7 @@ impl Api {
     {
         API.with(|api| unsafe {
             let api = &mut *api.get();
-            let callbacks = api.callbacks.entry(event).or_insert_with(Vec::new);
+            let callbacks = api.callbacks.entry(event).or_default();
             callbacks.push(Box::new(function));
         });
     }

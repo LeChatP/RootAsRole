@@ -15,14 +15,14 @@ use nix::unistd::{fork, setgid, setgroups, setuid, unlink, User};
 
 use crate::helpers::test_runner::TestRunner;
 
-const TEMP_LIFETIME_BUILD_STATE: &'static str = "target/tmp/dosr_integration_test_build";
-const RAR_CFG_PATH: &'static str = "target/rootasrole.json";
+const TEMP_LIFETIME_BUILD_STATE: &str = "target/tmp/dosr_integration_test_build";
+const RAR_CFG_PATH: &str = "target/rootasrole.json";
 static CLEANUP_REGISTERED: Once = Once::new();
 
 fn register_cleanup() {
     CLEANUP_REGISTERED.call_once(|| {
         // Register cleanup to happen at program exit
-        let _ = std::panic::set_hook(Box::new(|_| {
+        std::panic::set_hook(Box::new(|_| {
             cleanup_temp_files();
         }));
 
@@ -138,7 +138,7 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
         std::io::stderr().write_all(&output.stderr).ok();
         return Err("Failed to compile dosr binary".into());
     }
-    fs::write(&temp_file, pid.to_string())?;
+    fs::write(temp_file, pid.to_string())?;
     print!("compiled binary ... ");
     Ok(())
 }

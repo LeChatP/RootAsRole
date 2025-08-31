@@ -230,7 +230,7 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
         {
             use glob::Pattern;
             if let Ok(pattern) = Pattern::new(role_path) {
-                if pattern.matches_path(&cmd_path) {
+                if pattern.matches_path(cmd_path) {
                     use crate::database::score::CmdOrder;
 
                     match_status.union_order(CmdOrder::WildcardPath);

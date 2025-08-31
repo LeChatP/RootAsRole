@@ -64,7 +64,7 @@ impl TestRunner {
                         if !e.success() {
                             // User does not exist, attempt to create
                             let create_status =
-                                Command::new("useradd").args(&["-m", user]).status();
+                                Command::new("useradd").args(["-m", user]).status();
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create user '{}': {}", user, e);
                             }
@@ -82,12 +82,12 @@ impl TestRunner {
         if let Some(group_list) = groups {
             // Check if groups exist and create them if necessary
             for &group in group_list {
-                let group_check = Command::new("getent").args(&["group", group]).status();
+                let group_check = Command::new("getent").args(["group", group]).status();
                 match group_check {
                     Ok(e) => {
                         if !e.success() {
                             // Group does not exist, attempt to create
-                            let create_status = Command::new("groupadd").args(&[group]).status();
+                            let create_status = Command::new("groupadd").args([group]).status();
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create group '{}': {}", group, e);
                             }
@@ -120,10 +120,10 @@ impl TestRunner {
 
         // Clean up any users or groups we added
         for user in added_users {
-            let _ = Command::new("userdel").args(&["-r", &user]).status()?;
+            let _ = Command::new("userdel").args(["-r", &user]).status()?;
         }
         for group in added_groups {
-            let _ = Command::new("groupdel").args(&[&group]).status()?;
+            let _ = Command::new("groupdel").args([&group]).status()?;
         }
 
         Ok(CommandResult {

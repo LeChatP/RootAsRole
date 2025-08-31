@@ -158,8 +158,7 @@ where
                                 .map(|g| g.into())
                                 .collect::<Vec<SGroupType>>(),
                         )
-                    })
-                    .into();
+                    });
             }
             "-S" | "--stdin" => {
                 args.stdin = true;
@@ -243,8 +242,7 @@ fn main() {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u
-                        .and_then(|u| Some(u.name))
+                    .and_then(|u| u.map(|u| u.name)
                         .ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
@@ -254,8 +252,7 @@ fn main() {
             error!(
                 "User '{}' got a '{}' when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u
-                        .and_then(|u| Some(u.name))
+                    .and_then(|u| u.map(|u| u.name)
                         .ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 e,
@@ -384,15 +381,12 @@ fn main_inner() -> SrResult<()> {
             } else if *execcfg.caps.as_ref().unwrap() == !CapSet::empty() {
                 "All capabilities".to_string()
             } else {
-                format!(
-                    "{}",
-                    execcfg
+                execcfg
                         .caps
                         .unwrap()
                         .into_iter()
                         .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
-                        .trim_end()
-                )
+                        .trim_end().to_string()
             }
         );
         println!("Command: {:?} {:?}", execcfg.final_path, args.cmd_args);
@@ -438,7 +432,7 @@ fn main_inner() -> SrResult<()> {
 }
 
 fn make_cred() -> Cred {
-    return Cred::builder()
+    Cred::builder()
         .maybe_tty(stat::fstat(stdout().as_raw_fd()).ok().and_then(|s| {
             if isatty(stdout().as_raw_fd()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
@@ -446,7 +440,7 @@ fn make_cred() -> Cred {
                 None
             }
         }))
-        .build();
+        .build()
 }
 
 fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {

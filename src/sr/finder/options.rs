@@ -286,7 +286,7 @@ impl<'a> Opt<'a> {
     }
 }
 
-impl<'a> DEnvOptions<'a> {
+impl DEnvOptions<'_> {
     pub fn calc_final_env(
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
@@ -364,28 +364,28 @@ impl<'a> DEnvOptions<'a> {
     }
 }
 
-impl Into<rar_common::database::options::Opt> for Opt<'_> {
-    fn into(self) -> rar_common::database::options::Opt {
-        rar_common::database::options::Opt::builder(self.level)
-            .maybe_path(if let Some(spath) = self.path {
+impl From<Opt<'_>> for rar_common::database::options::Opt {
+    fn from(val: Opt<'_>) -> Self {
+        rar_common::database::options::Opt::builder(val.level)
+            .maybe_path(if let Some(spath) = val.path {
                 Some(
                     rar_common::database::options::SPathOptions::builder(spath.default_behavior)
                         .maybe_add(
                             spath
                                 .add
-                                .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
                         )
                         .maybe_sub(
                             spath
                                 .sub
-                                .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
                         )
                         .build(),
                 )
             } else {
                 None
             })
-            .maybe_env(if let Some(senv) = self.env {
+            .maybe_env(if let Some(senv) = val.env {
                 Some(
                     rar_common::database::options::SEnvOptions::builder(senv.default_behavior)
                         .maybe_override_behavior(senv.override_behavior)
@@ -421,24 +421,24 @@ impl Into<rar_common::database::options::Opt> for Opt<'_> {
             } else {
                 None
             })
-            .maybe_root(self.root)
-            .maybe_bounding(self.bounding)
-            .maybe_authentication(self.authentication)
-            .maybe_timeout(self.timeout)
+            .maybe_root(val.root)
+            .maybe_bounding(val.bounding)
+            .maybe_authentication(val.authentication)
+            .maybe_timeout(val.timeout)
             .build()
     }
 }
 
-impl Into<SPathOptions> for DPathOptions<'_> {
-    fn into(self) -> SPathOptions {
-        SPathOptions::builder(self.default_behavior)
+impl From<DPathOptions<'_>> for SPathOptions {
+    fn from(val: DPathOptions<'_>) -> Self {
+        SPathOptions::builder(val.default_behavior)
             .maybe_add(
-                self.add
-                    .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                val.add
+                    .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
             )
             .maybe_sub(
-                self.sub
-                    .map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+                val.sub
+                    .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
             )
             .build()
     }
@@ -447,8 +447,8 @@ impl Into<SPathOptions> for DPathOptions<'_> {
 impl DPathOptions<'_> {
     pub fn default_path<'a>() -> DPathOptions<'a> {
         DPathOptions::builder(ENV_PATH_BEHAVIOR)
-            .add(ENV_PATH_ADD_LIST_SLICE.iter().map(|p| *p))
-            .sub(ENV_PATH_REMOVE_LIST_SLICE.iter().map(|p| *p))
+            .add(ENV_PATH_ADD_LIST_SLICE.iter().copied())
+            .sub(ENV_PATH_REMOVE_LIST_SLICE.iter().copied())
             .build()
     }
     pub fn calc_path<'a>(&'a self, path_var: &'a [&'a str]) -> Vec<&'a str> {
@@ -492,13 +492,13 @@ impl<'a> DPathOptions<'a> {
                     self.add
                         .get_or_insert_with(Default::default)
                         .to_mut()
-                        .extend_from_slice(&add);
+                        .extend_from_slice(add);
                 }
                 if let Some(sub) = &path_options.sub {
                     self.sub
                         .get_or_insert_with(Default::default)
                         .to_mut()
-                        .extend_from_slice(&sub);
+                        .extend_from_slice(sub);
                 }
             }
             behaviors => {
@@ -522,7 +522,7 @@ fn env_matches<K>(set: &HashSet<K>, needle: &K) -> bool
 where
     K: AsRef<str> + Eq + Hash,
 {
-    set.contains(&needle) || set.iter().any(|key| test_pattern(&needle, key.as_ref()))
+    set.contains(needle) || set.iter().any(|key| test_pattern(needle, key.as_ref()))
 }
 
 fn is_valid_env_name(s: &str) -> bool {
@@ -690,9 +690,9 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
 
         // Stack of options in order: default, config, role, task
         let stack = [
-            self.config.as_ref().map(|c| c.path.as_ref()).flatten(),
-            self.role.as_ref().map(|c| c.path.as_ref()).flatten(),
-            self.task.as_ref().map(|c| c.path.as_ref()).flatten(),
+            self.config.as_ref().and_then(|c| c.path.as_ref()),
+            self.role.as_ref().and_then(|c| c.path.as_ref()),
+            self.task.as_ref().and_then(|c| c.path.as_ref()),
         ];
 
         calculate_combined_paths(
@@ -704,13 +704,13 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         );
 
         for opt in stack.iter() {
-            if let Some(ref path_opt) = opt {
+            if let Some(path_opt) = opt {
                 calculate_combined_paths(
                     path_var,
                     &mut combined_paths,
                     &path_opt.default_behavior,
-                    &path_opt.add.as_ref().map(|v| v.into_iter()),
-                    &path_opt.sub.as_ref().map(|v| v.into_iter()),
+                    &path_opt.add.as_ref().map(|v| v.iter()),
+                    &path_opt.sub.as_ref().map(|v| v.iter()),
                 );
             }
         }
@@ -728,7 +728,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
                     .bounding(&o.bounding)
                     .root(&o.root)
                     .authentication(&o.authentication)
-                    .env_behavior(&o.env.as_ref().and_then(|e| Some(e.default_behavior)))
+                    .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
                     .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
                     .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
                     .call();
@@ -803,10 +803,10 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         ) {
             determine_final_behavior(
                 override_behavior,
-                &opt_filter,
+                opt_filter,
                 &mut result.default_behavior,
                 overriden,
-                &default_behavior,
+                default_behavior,
             );
             if default_behavior.is_keep() || default_behavior.is_delete() {
                 result.set.clear();
@@ -844,7 +844,7 @@ impl<'a, 'b, 'c, 't> BorrowedOptStack<'a> {
         let mut overriden = false;
         assign_env_settings()
             .override_behavior(override_behavior)
-            .opt_filter(&opt_filter)
+            .opt_filter(opt_filter)
             .result(&mut result)
             .overriden(&mut overriden)
             .default_behavior(&ENV_DEFAULT_BEHAVIOR)
@@ -992,7 +992,7 @@ fn calculate_combined_paths(
                 combined_paths.extend(add_paths.clone().into_iter().map(|p| p.to_string()));
             }
         }
-        ref is_safe => {
+        is_safe => {
             combined_paths.clear();
             combined_paths.extend(
                 path_var
@@ -1191,13 +1191,13 @@ mod tests {
 
     #[test]
     fn test_convert_string_to_duration() {
-        let duration = convert_string_to_duration(&"01:30:00".to_string());
+        let duration = convert_string_to_duration("01:30:00");
         assert!(duration.is_ok());
         assert_eq!(
             duration.unwrap(),
             Some(Duration::hours(1) + Duration::minutes(30))
         );
-        let invalid_duration = convert_string_to_duration(&"invalid".to_string());
+        let invalid_duration = convert_string_to_duration("invalid");
         assert!(invalid_duration.is_err());
     }
 
