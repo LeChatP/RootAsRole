@@ -316,17 +316,22 @@ mod tests {
     fn test_dosr_info() {
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
-                .run_dosr(&["--info", "-r", "A", "cat", "/proc/self/status"])
-                .fixture_name("tests/fixtures/multi_role.json")
-                .call().expect("Failed to run dosr --info");
+            .run_dosr(&["--info", "-r", "A", "cat", "/proc/self/status"])
+            .fixture_name("tests/fixtures/multi_role.json")
+            .call()
+            .expect("Failed to run dosr --info");
         assert!(result.success, "Command failed: {}", result.stderr);
         // it must print execution info, not executing the command
         assert!(!result.stdout.contains("CapEff"));
         assert!(result.stdout.contains("Role: A"));
         // this also tests that not writing a absolute path in the policy is not a valid command.
-        assert!(result.stdout.contains("Task: A_B")); 
-        assert!(result.stdout.contains("Execute as user: root (0) and group(s): root (0)"));
-        assert!(result.stdout.contains("With capabilities: CAP_DAC_OVERRIDE"));
+        assert!(result.stdout.contains("Task: A_B"));
+        assert!(result
+            .stdout
+            .contains("Execute as user: root (0) and group(s): root (0)"));
+        assert!(result
+            .stdout
+            .contains("With capabilities: CAP_DAC_OVERRIDE"));
         assert_eq!(result.exit_code, 0);
     }
 }

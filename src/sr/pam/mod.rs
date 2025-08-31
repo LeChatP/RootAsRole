@@ -225,7 +225,9 @@ mod tests {
 
     #[test]
     fn test_is_pam_password_prompt_with_username() {
-        let handler = SrConversationHandler::builder().username("testuser".to_string()).build();
+        let handler = SrConversationHandler::builder()
+            .username("testuser".to_string())
+            .build();
 
         // Test user-specific password prompts
         assert!(handler.is_pam_password_prompt(&"testuser's Password:"));

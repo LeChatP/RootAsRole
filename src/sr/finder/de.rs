@@ -837,12 +837,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 };
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .and_then(|x| x.group.as_ref())
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -873,12 +868,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 };
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .and_then(|x| x.group.as_ref())
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -902,12 +892,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let group: DGroupType<'_> = (v as u32).into();
                 let score = Some(SetgidMin::from(&group));
                 let ok = true;
-                if let Some(y) = &self
-                    .cli
-                    .opt_filter
-                    .as_ref()
-                    .and_then(|x| x.group.as_ref())
-                {
+                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref()) {
                     if y.len() == 1
                         && y[0]
                             != group
@@ -1744,7 +1729,7 @@ mod tests {
 
     fn convert_json_to_cbor(json: &str) -> Vec<u8> {
         let value: Value = serde_json::from_str(json).unwrap();
-        
+
         cbor4ii::serde::to_vec(Vec::new(), &value).unwrap()
     }
 

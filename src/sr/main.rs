@@ -149,16 +149,14 @@ where
                 user = iter.next().map(|s| escape_parser_string(s).as_str().into());
             }
             "-g" | "--group" => {
-                group = iter
-                    .next()
-                    .map(|s| {
-                        SGroups::Multiple(
-                            s.as_ref()
-                                .split(',')
-                                .map(|g| g.into())
-                                .collect::<Vec<SGroupType>>(),
-                        )
-                    });
+                group = iter.next().map(|s| {
+                    SGroups::Multiple(
+                        s.as_ref()
+                            .split(',')
+                            .map(|g| g.into())
+                            .collect::<Vec<SGroupType>>(),
+                    )
+                });
             }
             "-S" | "--stdin" => {
                 args.stdin = true;
@@ -242,8 +240,7 @@ fn main() {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u.map(|u| u.name)
-                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
             );
@@ -252,8 +249,7 @@ fn main() {
             error!(
                 "User '{}' got a '{}' when trying running '''{}'''",
                 User::from_uid(Uid::current())
-                    .and_then(|u| u.map(|u| u.name)
-                        .ok_or(nix::errno::Errno::EAGAIN))
+                    .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or(Uid::current().to_string()),
                 e,
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
@@ -382,11 +378,12 @@ fn main_inner() -> SrResult<()> {
                 "All capabilities".to_string()
             } else {
                 execcfg
-                        .caps
-                        .unwrap()
-                        .into_iter()
-                        .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
-                        .trim_end().to_string()
+                    .caps
+                    .unwrap()
+                    .into_iter()
+                    .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+                    .trim_end()
+                    .to_string()
             }
         );
         println!("Command: {:?} {:?}", execcfg.final_path, args.cmd_args);
@@ -549,7 +546,10 @@ mod tests {
             capset.effective.add(Cap::SETUID);
             capset.effective.add(Cap::SETGID);
             capset.set_current().unwrap();
-            let execcfg = BestExecSettings::builder().setuid(1000).setgroups(vec![1000]).build();
+            let execcfg = BestExecSettings::builder()
+                .setuid(1000)
+                .setgroups(vec![1000])
+                .build();
             setuid_setgid(&execcfg).unwrap();
             assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
             if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {

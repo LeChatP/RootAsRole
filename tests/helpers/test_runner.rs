@@ -63,8 +63,7 @@ impl TestRunner {
                         //check if error is due to user not existing
                         if !e.success() {
                             // User does not exist, attempt to create
-                            let create_status =
-                                Command::new("useradd").args(["-m", user]).status();
+                            let create_status = Command::new("useradd").args(["-m", user]).status();
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create user '{}': {}", user, e);
                             }

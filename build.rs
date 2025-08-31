@@ -65,22 +65,44 @@ fn some_kind_of_uppercase_first_letter(s: &str) -> String {
     }
 }
 
-fn set_man_version(package_version: &str, file: &str, lang:Locale) -> std::io::Result<()> {
+fn set_man_version(package_version: &str, file: &str, lang: Locale) -> std::io::Result<()> {
     let man = File::open(std::path::Path::new(file)).expect("man page not found");
     let reader = BufReader::new(man);
     let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
     let mut man = File::create(std::path::Path::new(file)).expect("man page not found");
     match lang {
         Locale::en_US => {
-            man.write_all(format!("% RootAsRole(8) RootAsRole {} | System Manager's Manual\n", package_version).as_bytes())?;
-        },
+            man.write_all(
+                format!(
+                    "% RootAsRole(8) RootAsRole {} | System Manager's Manual\n",
+                    package_version
+                )
+                .as_bytes(),
+            )?;
+        }
         Locale::fr_FR => {
-            man.write_all(format!("% RootAsRole(8) RootAsRole {} | Manuel de l'administrateur système\n", package_version).as_bytes())?;
-        },
+            man.write_all(
+                format!(
+                    "% RootAsRole(8) RootAsRole {} | Manuel de l'administrateur système\n",
+                    package_version
+                )
+                .as_bytes(),
+            )?;
+        }
         _ => unreachable!(),
     }
     man.write_all(b"% Eddie Billoir <lechatp@outlook.fr>\n")?;
-    man.write_all(format!("% {}\n", some_kind_of_uppercase_first_letter(&chrono::Utc::now().format_localized("%B %Y", lang).to_string())).as_bytes())?;
+    man.write_all(
+        format!(
+            "% {}\n",
+            some_kind_of_uppercase_first_letter(
+                &chrono::Utc::now()
+                    .format_localized("%B %Y", lang)
+                    .to_string()
+            )
+        )
+        .as_bytes(),
+    )?;
     for line in lines.iter().skip(3) {
         man.write_all(format!("{}\n", line).as_bytes())?;
     }

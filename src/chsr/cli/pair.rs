@@ -92,13 +92,14 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             let mut inner = pair.clone().into_inner();
             let temp_convertion = Default::default();
             let convertion = inputs.convertion.get_or_insert(temp_convertion);
-            convertion.from_type = Some(inner.next().unwrap().as_str().parse().inspect_err(|&e| {
-                warn!(
-                    "Unknown type {}, types available : {}",
-                    e,
-                    StorageMethod::VARIANTS.join(", ")
-                );
-            })?);
+            convertion.from_type =
+                Some(inner.next().unwrap().as_str().parse().inspect_err(|&e| {
+                    warn!(
+                        "Unknown type {}, types available : {}",
+                        e,
+                        StorageMethod::VARIANTS.join(", ")
+                    );
+                })?);
             convertion.from = Some(inner.next().unwrap().as_str().into());
         }
         Rule::convert_reconfigure => {

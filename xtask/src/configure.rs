@@ -98,8 +98,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
     config.storage.options = Some(Opt {
         timeout: Some(STimeout {
             type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
-            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
-                .unwrap(),
+            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")).unwrap(),
             max_usage: if !env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
                 Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
             } else {

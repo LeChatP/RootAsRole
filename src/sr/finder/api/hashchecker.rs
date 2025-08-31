@@ -213,9 +213,7 @@ fn process_hash_check(
     min_score: &mut CmdMin,
     final_path: &mut Option<PathBuf>,
 ) {
-    match shell_words::split(&checker.command)
-        .map_err(Into::<Box<dyn std::error::Error>>::into)
-    {
+    match shell_words::split(&checker.command).map_err(Into::<Box<dyn std::error::Error>>::into) {
         Ok(command) => {
             match_command_line(
                 &checker, env_path, cmd_path, cmd_args, &command, min_score, final_path,

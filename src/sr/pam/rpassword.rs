@@ -246,8 +246,7 @@ mod test {
         let terminal = Terminal::open_stdie().unwrap();
 
         match terminal {
-            Terminal::StdIE(_, _) => {
-            }
+            Terminal::StdIE(_, _) => {}
             Terminal::Tty(_) => {
                 // Not expected for open_stdie
                 panic!("Expected StdIE variant, got Tty");

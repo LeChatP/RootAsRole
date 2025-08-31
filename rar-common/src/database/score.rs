@@ -540,11 +540,17 @@ mod tests {
 
     #[test]
     fn test_score_ordering() {
-        let score1 = Score::builder().cmd_min(CmdMin::builder().matching().build()).build();
-        let score2 = Score::builder().cmd_min(CmdMin::builder()
-            .matching()
-            .order(CmdOrder::WildcardPath)
-            .build()).build();
+        let score1 = Score::builder()
+            .cmd_min(CmdMin::builder().matching().build())
+            .build();
+        let score2 = Score::builder()
+            .cmd_min(
+                CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::WildcardPath)
+                    .build(),
+            )
+            .build();
         assert!(score1.better_command(&score2));
     }
 
@@ -746,10 +752,14 @@ mod tests {
         assert_eq!(score2.max(score1), score2);
         assert_eq!(score1.min(score2), score1);
         assert_eq!(score2.min(score1), score1);
-        let score3 = Score::builder().cmd_min(CmdMin::builder()
-            .matching()
-            .order(CmdOrder::RegexArgs)
-            .build()).build();
+        let score3 = Score::builder()
+            .cmd_min(
+                CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::RegexArgs)
+                    .build(),
+            )
+            .build();
         assert_eq!(score1.clamp(score2, score3), score2);
         assert_eq!(score2.clamp(score1, score3), score2);
     }
