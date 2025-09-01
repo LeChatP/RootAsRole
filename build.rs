@@ -5,8 +5,12 @@ use std::{
     path::Path,
 };
 
-use chrono::Locale;
 use toml::Table;
+
+enum Locale {
+    EnUs,
+    FrFr,
+}
 
 fn package_version<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn Error>> {
     let cargo_toml = fs::read_to_string(path)?;
@@ -35,21 +39,13 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-fn some_kind_of_uppercase_first_letter(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
-
 fn set_man_version(package_version: &str, file: &str, lang: Locale) -> std::io::Result<()> {
     let man = File::open(std::path::Path::new(file)).expect("man page not found");
     let reader = BufReader::new(man);
     let lines = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
     let mut man = File::create(std::path::Path::new(file)).expect("man page not found");
     match lang {
-        Locale::en_US => {
+        Locale::EnUs => {
             man.write_all(
                 format!(
                     "% RootAsRole(8) RootAsRole {} | System Manager's Manual\n",
@@ -58,7 +54,7 @@ fn set_man_version(package_version: &str, file: &str, lang: Locale) -> std::io::
                 .as_bytes(),
             )?;
         }
-        Locale::fr_FR => {
+        Locale::FrFr => {
             man.write_all(
                 format!(
                     "% RootAsRole(8) RootAsRole {} | Manuel de l'administrateur système\n",
@@ -67,21 +63,8 @@ fn set_man_version(package_version: &str, file: &str, lang: Locale) -> std::io::
                 .as_bytes(),
             )?;
         }
-        _ => unreachable!(),
     }
-    man.write_all(b"% Eddie Billoir <lechatp@outlook.fr>\n")?;
-    man.write_all(
-        format!(
-            "% {}\n",
-            some_kind_of_uppercase_first_letter(
-                &chrono::Utc::now()
-                    .format_localized("%B %Y", lang)
-                    .to_string()
-            )
-        )
-        .as_bytes(),
-    )?;
-    for line in lines.iter().skip(3) {
+    for line in lines.iter().skip(1) {
         man.write_all(format!("{}\n", line).as_bytes())?;
     }
     man.sync_all()?;
@@ -113,11 +96,11 @@ fn main() {
         eprintln!("cargo:warning={}", err);
     }
 
-    if let Err(err) = set_man_version(&package_version, "resources/man/en_US.md", Locale::en_US) {
+    if let Err(err) = set_man_version(&package_version, "resources/man/en_US.md", Locale::EnUs) {
         eprintln!("cargo:warning={}", err);
     }
 
-    if let Err(err) = set_man_version(&package_version, "resources/man/fr_FR.md", Locale::fr_FR) {
+    if let Err(err) = set_man_version(&package_version, "resources/man/fr_FR.md", Locale::FrFr) {
         eprintln!("cargo:warning={}", err);
     }
 }

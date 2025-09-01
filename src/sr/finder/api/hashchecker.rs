@@ -113,11 +113,11 @@ fn match_path(
     role_path: &String,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
-    if role_path == "**" {
-        CmdMin::builder()
+    if cfg!(feature = "glob") && role_path == "**" {
+        return CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)
-            .build()
+            .build();
     } else if cmd_path.is_absolute() {
         let min = match_single_path(cmd_path, role_path);
         verify_executable_conditions(checker, final_path, cmd_path, min).unwrap_or_default()

@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ops::Deref};
+use std::{borrow::Cow, ffi::CStr, ops::Deref};
 
 use bon::Builder;
 use log::{debug, error, info, warn};
@@ -9,9 +9,10 @@ use nonstick::{
 use pcre2::bytes::RegexBuilder;
 
 use crate::{
-    error::{SrError, SrResult},
-    timeout,
+    error::{SrError, SrResult}, Cli,
 };
+#[cfg(feature = "timeout")]
+use crate::timeout;
 use rar_common::{
     database::options::{SAuthentication, STimeout},
     Cred,
@@ -30,25 +31,18 @@ const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
 #[derive(Builder)]
-struct SrConversationHandler {
-    username: Option<String>,
-    #[builder(default = "Password: ".to_string())]
-    prompt: String,
-    #[builder(default, with = ||true)]
+struct SrConversationHandler<'a> {
+    #[builder(into)]
+    username: Option<Cow<'a, str>>,
+    #[builder(default = "Password: ", into)]
+    prompt: Cow<'a, str>,
+    #[builder(default)]
     use_stdin: bool,
-    #[builder(default, with = ||true)]
+    #[builder(default)]
     no_interact: bool,
 }
 
-impl SrConversationHandler {
-    fn new(prompt: &str) -> Self {
-        SrConversationHandler {
-            prompt: prompt.to_string(),
-            username: None,
-            use_stdin: false,
-            no_interact: false,
-        }
-    }
+impl SrConversationHandler<'_> {
     fn open(&self) -> std::io::Result<Terminal<'_>> {
         if self.use_stdin {
             Terminal::open_stdie()
@@ -73,10 +67,10 @@ impl SrConversationHandler {
     }
 }
 
-impl Default for SrConversationHandler {
+impl Default for SrConversationHandler<'_> {
     fn default() -> Self {
         SrConversationHandler {
-            prompt: "Password: ".to_string(),
+            prompt: "Password: ".into(),
             username: None,
             use_stdin: false,
             no_interact: false,
@@ -84,7 +78,7 @@ impl Default for SrConversationHandler {
     }
 }
 
-impl ConversationAdapter for SrConversationHandler {
+impl ConversationAdapter for SrConversationHandler<'_> {
     fn prompt(&self, prompt: impl AsRef<std::ffi::OsStr>) -> PamResult<std::ffi::OsString> {
         if self.no_interact {
             return Err(ErrorCode::ConversationError);
@@ -106,7 +100,7 @@ impl ConversationAdapter for SrConversationHandler {
         let pam_prompt = if self.is_pam_password_prompt(&prompt.as_ref().to_string_lossy()) {
             self.prompt.clone()
         } else {
-            prompt.as_ref().to_string_lossy().to_string()
+            prompt.as_ref().to_string_lossy().into()
         };
         let mut term = self.open().map_err(|_| ErrorCode::ConversationError)?;
         term.prompt(&pam_prompt)
@@ -129,18 +123,25 @@ impl ConversationAdapter for SrConversationHandler {
 
 pub(super) fn check_auth(
     authentication: &SAuthentication,
+    #[cfg_attr(not(feature = "timeout"), allow(unused_variables))]
     timeout: &STimeout,
     user: &Cred,
-    prompt: &str,
+    cli: &Cli,
 ) -> SrResult<()> {
     if authentication.is_skip() {
         warn!("Skipping authentication, this is a security risk!");
         return Ok(());
     }
+    #[cfg(feature = "timeout")]
     let is_valid = timeout::is_valid(user, user, timeout);
+    #[cfg(not(feature = "timeout"))]
+    let is_valid = false;
     debug!("need to re-authenticate : {}", !is_valid);
     if !is_valid {
-        let conv = SrConversationHandler::new(prompt);
+        let conv = SrConversationHandler::builder()
+            .maybe_prompt(cli.prompt.as_ref().map(|s| Cow::Borrowed(s.as_str())))
+            .use_stdin(cli.stdin)
+            .build();
         let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
             .username(&user.user.name)
             .build(conv.into_conversation())
@@ -157,6 +158,7 @@ pub(super) fn check_auth(
             SrError::AuthenticationFailed
         })?;
     }
+    #[cfg(feature = "timeout")]
     timeout::update_cookie(user, user, timeout).map_err(|e| {
         error!("Failed to update timeout cookie: {}", e);
         SrError::SystemError
@@ -195,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_sr_conversation_handler_new() {
-        let handler = SrConversationHandler::new("Test prompt: ");
+        let handler = SrConversationHandler::builder().prompt("Test prompt: ").build();
         assert_eq!(handler.prompt, "Test prompt: ");
         assert!(handler.username.is_none());
         assert!(!handler.use_stdin);
@@ -226,7 +228,7 @@ mod tests {
     #[test]
     fn test_is_pam_password_prompt_with_username() {
         let handler = SrConversationHandler::builder()
-            .username("testuser".to_string())
+            .username("testuser")
             .build();
 
         // Test user-specific password prompts
@@ -261,7 +263,7 @@ mod tests {
         let user = create_test_user();
 
         // When authentication is skipped, it should always succeed
-        let result = check_auth(&authentication, &timeout, &user, "Password: ");
+        let result = check_auth(&authentication, &timeout, &user, &Cli::builder().prompt("Password: ").build());
         assert!(result.is_ok());
     }
 
@@ -275,12 +277,12 @@ mod tests {
         let timeout = create_test_timeout();
         let user = create_test_user();
 
-        let _ = check_auth(&authentication, &timeout, &user, "Password: ");
+        let _ = check_auth(&authentication, &timeout, &user, &Cli::builder().prompt("Password: ").build());
     }
 
     #[test]
     fn test_conversation_handler_no_interact_flag() {
-        let handler = SrConversationHandler::builder().no_interact().build();
+        let handler = SrConversationHandler::builder().no_interact(true).build();
 
         let prompt_result = handler.prompt(OsStr::new("Test prompt"));
         assert!(matches!(prompt_result, Err(ErrorCode::ConversationError)));
@@ -295,7 +297,7 @@ mod tests {
     #[test]
     fn test_password_prompt_replacement() {
         let custom_prompt = "Enter your secret: ";
-        let handler = SrConversationHandler::new(custom_prompt);
+        let handler = SrConversationHandler::builder().prompt(custom_prompt).build();
 
         assert_eq!(handler.prompt, custom_prompt);
 
@@ -306,7 +308,7 @@ mod tests {
     #[test]
     fn test_regex_patterns_edge_cases() {
         let handler = SrConversationHandler::builder()
-            .username("user.with.dots".to_string())
+            .username("user.with.dots")
             .build();
 
         // Test with username containing special regex characters
@@ -323,12 +325,7 @@ mod tests {
 
     #[test]
     fn test_conversation_handler_fields() {
-        let mut handler = SrConversationHandler::new("Custom: ");
-
-        // Test field modifications
-        handler.use_stdin = true;
-        handler.no_interact = true;
-        handler.username = Some("alice".to_string());
+        let handler = SrConversationHandler::builder().prompt("Custom: ").use_stdin(true).no_interact(true).username("alice").build();
 
         assert!(handler.use_stdin);
         assert!(handler.no_interact);
@@ -356,7 +353,7 @@ mod tests {
         let auth = SAuthentication::Skip;
 
         // Test different timeout types don't cause errors
-        assert!(check_auth(&auth, &timeout_ppid, &user, "Password: ").is_ok());
-        assert!(check_auth(&auth, &timeout_tty, &user, "Password: ").is_ok());
+        assert!(check_auth(&auth, &timeout_ppid, &user, &Cli::builder().prompt("Password: ").build()).is_ok());
+        assert!(check_auth(&auth, &timeout_tty, &user, &Cli::builder().prompt("Password: ").build()).is_ok());
     }
 }

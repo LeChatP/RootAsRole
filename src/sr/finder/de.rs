@@ -1544,6 +1544,7 @@ impl<'a> DConfigFinder<'a> {
         self.roles.iter().map(|role| DLinkedRole::new(self, role))
     }
 
+    #[cfg(any(feature = "hierarchy", feature = "ssd"))]
     pub fn role<'s>(&'s self, role_name: &str) -> Option<DLinkedRole<'s, 'a>> {
         self.roles
             .iter()
