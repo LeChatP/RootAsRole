@@ -100,7 +100,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
         let pam_prompt = if self.is_pam_password_prompt(&prompt.as_ref().to_string_lossy()) {
             self.prompt.clone()
         } else {
-            prompt.as_ref().to_string_lossy().into()
+            prompt.as_ref().to_string_lossy()
         };
         let mut term = self.open().map_err(|_| ErrorCode::ConversationError)?;
         term.prompt(&pam_prompt)
