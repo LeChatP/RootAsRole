@@ -62,11 +62,26 @@ RootAsRole solves this:
 
 ## 📥 Installation
 
+### Install from Linux distributions
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/dosr.svg)](https://repology.org/project/dosr/versions)
+
+**We really need your help to bring the project to Linux distributions repositories! Please contribute 🙏!**
+
+#### Arch Linux (AUR)
+
+```sh
+git clone https://aur.archlinux.org/dosr.git
+cd dosr
+makepkg -si
+```
+you can also use `yay` AUR manager or any other one you like. Please __**vote**__ for the [AUR](https://aur.archlinux.org/packages/dosr) if you want it into pacman `extra` repo! All you need is an [Arch AUR account](https://aur.archlinux.org/login) and you could vote for the AUR 🙂
+
 ### 🔧 From Source
 
 ### Prerequisites
 
-* [Rust](https://www.rust-lang.org/tools/install) >= 1.76.0
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.83.0
   * You can install Rust by running the following command:
     ```sh
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -88,11 +103,6 @@ RootAsRole solves this:
 >  1. `git clone https://github.com/LeChatP/RootAsRole`
 >  1. `cd RootAsRole`
 >  1. `cargo xtask install -bip sudo`
-
-### Install from Linux distributions
-
-**We really need your help to bring the project to Linux distributions repositories! Please contribute 🙏!**
-
 
 ## 🧰 Usage
 
