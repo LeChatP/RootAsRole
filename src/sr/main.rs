@@ -313,12 +313,7 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Best exec settings: {:?}", execcfg);
 
-    check_auth(
-        &execcfg.auth,
-        &execcfg.timeout,
-        &user,
-        &args,
-    )?;
+    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args)?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");

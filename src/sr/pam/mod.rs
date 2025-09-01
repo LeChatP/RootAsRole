@@ -8,11 +8,12 @@ use nonstick::{
 };
 use pcre2::bytes::RegexBuilder;
 
-use crate::{
-    error::{SrError, SrResult}, Cli,
-};
 #[cfg(feature = "timeout")]
 use crate::timeout;
+use crate::{
+    error::{SrError, SrResult},
+    Cli,
+};
 use rar_common::{
     database::options::{SAuthentication, STimeout},
     Cred,
@@ -123,8 +124,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
 
 pub(super) fn check_auth(
     authentication: &SAuthentication,
-    #[cfg_attr(not(feature = "timeout"), allow(unused_variables))]
-    timeout: &STimeout,
+    #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
     cli: &Cli,
 ) -> SrResult<()> {
@@ -197,7 +197,9 @@ mod tests {
 
     #[test]
     fn test_sr_conversation_handler_new() {
-        let handler = SrConversationHandler::builder().prompt("Test prompt: ").build();
+        let handler = SrConversationHandler::builder()
+            .prompt("Test prompt: ")
+            .build();
         assert_eq!(handler.prompt, "Test prompt: ");
         assert!(handler.username.is_none());
         assert!(!handler.use_stdin);
@@ -263,7 +265,12 @@ mod tests {
         let user = create_test_user();
 
         // When authentication is skipped, it should always succeed
-        let result = check_auth(&authentication, &timeout, &user, &Cli::builder().prompt("Password: ").build());
+        let result = check_auth(
+            &authentication,
+            &timeout,
+            &user,
+            &Cli::builder().prompt("Password: ").build(),
+        );
         assert!(result.is_ok());
     }
 
@@ -277,7 +284,12 @@ mod tests {
         let timeout = create_test_timeout();
         let user = create_test_user();
 
-        let _ = check_auth(&authentication, &timeout, &user, &Cli::builder().prompt("Password: ").build());
+        let _ = check_auth(
+            &authentication,
+            &timeout,
+            &user,
+            &Cli::builder().prompt("Password: ").build(),
+        );
     }
 
     #[test]
@@ -297,7 +309,9 @@ mod tests {
     #[test]
     fn test_password_prompt_replacement() {
         let custom_prompt = "Enter your secret: ";
-        let handler = SrConversationHandler::builder().prompt(custom_prompt).build();
+        let handler = SrConversationHandler::builder()
+            .prompt(custom_prompt)
+            .build();
 
         assert_eq!(handler.prompt, custom_prompt);
 
@@ -325,7 +339,12 @@ mod tests {
 
     #[test]
     fn test_conversation_handler_fields() {
-        let handler = SrConversationHandler::builder().prompt("Custom: ").use_stdin(true).no_interact(true).username("alice").build();
+        let handler = SrConversationHandler::builder()
+            .prompt("Custom: ")
+            .use_stdin(true)
+            .no_interact(true)
+            .username("alice")
+            .build();
 
         assert!(handler.use_stdin);
         assert!(handler.no_interact);
@@ -353,7 +372,19 @@ mod tests {
         let auth = SAuthentication::Skip;
 
         // Test different timeout types don't cause errors
-        assert!(check_auth(&auth, &timeout_ppid, &user, &Cli::builder().prompt("Password: ").build()).is_ok());
-        assert!(check_auth(&auth, &timeout_tty, &user, &Cli::builder().prompt("Password: ").build()).is_ok());
+        assert!(check_auth(
+            &auth,
+            &timeout_ppid,
+            &user,
+            &Cli::builder().prompt("Password: ").build()
+        )
+        .is_ok());
+        assert!(check_auth(
+            &auth,
+            &timeout_tty,
+            &user,
+            &Cli::builder().prompt("Password: ").build()
+        )
+        .is_ok());
     }
 }
