@@ -13,8 +13,11 @@ use super::{
     BestExecSettings,
 };
 
+#[cfg(feature = "hashchecker")]
 mod hashchecker;
+#[cfg(feature = "hierarchy")]
 mod hierarchy;
+#[cfg(feature = "ssd")]
 mod ssd;
 
 thread_local! {
@@ -94,6 +97,7 @@ impl Api {
             callbacks: HashMap::new(),
         }
     }
+    #[cfg(feature = "plugins")]
     pub fn notify(mut event: ApiEvent) -> SrResult<()> {
         let key = event.get_key();
         API.with(|api| -> SrResult<()> {
@@ -107,6 +111,7 @@ impl Api {
         })?;
         Ok(())
     }
+    #[cfg(feature = "plugins")]
     pub fn register<F>(event: EventKey, function: F)
     where
         F: Fn(&mut ApiEvent) -> SrResult<()> + Send + 'static,
@@ -120,7 +125,10 @@ impl Api {
 }
 
 pub(super) fn register_plugins() {
+    #[cfg(feature = "ssd")]
     ssd::register();
+    #[cfg(feature = "hashchecker")]
     hashchecker::register();
+    #[cfg(feature = "hierarchy")]
     hierarchy::register();
 }

@@ -113,7 +113,7 @@ fn match_path(
     role_path: &String,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
-    if role_path == "**" {
+    if cfg!(feature = "glob") && role_path == "**" {
         CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)

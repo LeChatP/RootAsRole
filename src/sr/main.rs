@@ -1,6 +1,7 @@
 mod error;
 mod finder;
 pub mod pam;
+#[cfg(feature = "timeout")]
 mod timeout;
 
 use bon::Builder;
@@ -170,6 +171,7 @@ where
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
             }
+            #[cfg(feature = "timeout")]
             "-K" | "--remove-timestamp" => {
                 args.del_ts = true;
             }
@@ -281,12 +283,20 @@ fn main_inner() -> SrResult<()> {
     }
     let user = make_cred();
     if args.del_ts {
-        timeout::clear_cookies(&user).map_err(|e| {
-            error!("Failed to clear timestamp cookies: {}", e);
-            SrError::InsufficientPrivileges
-        })?;
-        if args.cmd_path.as_os_str().is_empty() {
-            return Ok(());
+        #[cfg(not(feature = "timeout"))]
+        {
+            error!("The timeout feature is not enabled, cannot delete timestamp cookie");
+            return Err(SrError::InvalidAgruments);
+        }
+        #[cfg(feature = "timeout")]
+        {
+            timeout::clear_cookies(&user).map_err(|e| {
+                error!("Failed to clear timestamp cookies: {}", e);
+                SrError::InsufficientPrivileges
+            })?;
+            if args.cmd_path.as_os_str().is_empty() {
+                return Ok(());
+            }
         }
     }
     let execcfg = find_best_exec_settings(
@@ -303,12 +313,7 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Best exec settings: {:?}", execcfg);
 
-    check_auth(
-        &execcfg.auth,
-        &execcfg.timeout,
-        &user,
-        &args.prompt.unwrap_or(PAM_PROMPT.to_string()),
-    )?;
+    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args)?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");

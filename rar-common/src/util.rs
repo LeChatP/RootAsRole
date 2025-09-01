@@ -235,16 +235,12 @@ pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
     debug!("Matching path {:?} with {:?}", cmd_path, role_path);
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
-    } else {
-        #[cfg(feature = "glob")]
-        {
-            use glob::Pattern;
-            if let Ok(pattern) = Pattern::new(role_path) {
-                if pattern.matches_path(cmd_path) {
-                    use crate::database::score::CmdOrder;
-
-                    match_status.union_order(CmdOrder::WildcardPath);
-                }
+    } else if cfg!(feature = "glob") {
+        use glob::Pattern;
+        if let Ok(pattern) = Pattern::new(role_path) {
+            if pattern.matches_path(cmd_path) {
+                use crate::database::score::CmdOrder;
+                match_status.union_order(CmdOrder::WildcardPath);
             }
         }
     }
