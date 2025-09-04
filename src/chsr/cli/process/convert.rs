@@ -8,7 +8,9 @@ use std::{
 };
 
 use log::{debug, error};
-use rar_common::{database::versionning::Versioning, retrieve_sconfig, FullSettings, StorageMethod};
+use rar_common::{
+    database::versionning::Versioning, retrieve_sconfig, FullSettings, StorageMethod,
+};
 
 use crate::{cli::data::Convertion, ROOTASROLE};
 

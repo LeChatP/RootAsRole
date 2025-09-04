@@ -317,8 +317,9 @@ impl<'de> Deserialize<'de> for SGroups {
             }
 
             fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-                where
-                    D: serde::Deserializer<'de>, {
+            where
+                D: serde::Deserializer<'de>,
+            {
                 deserializer.deserialize_any(self)
             }
 

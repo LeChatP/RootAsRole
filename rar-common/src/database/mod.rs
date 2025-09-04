@@ -363,13 +363,17 @@ mod serde_tests {
         let cap = SCapabilities::builder(SetBehavior::None).build();
         assert_tokens(
             &cap.clone().compact(),
-            &[
-                Token::UnitVariant { name: "SetBehavior", variant: "none" },
-            ],
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
         );
         assert_tokens(
             &cap.readable(),
-            &[Token::UnitVariant { name: "SetBehavior", variant: "none" },],
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
         );
         let cap = SCapabilities::builder(SetBehavior::All)
             .add_cap(Cap::NET_BIND_SERVICE)
@@ -457,7 +461,9 @@ mod serde_tests {
             ],
         );
 
-        assert_tokens(&setuid.compact(), &[
+        assert_tokens(
+            &setuid.compact(),
+            &[
                 Token::Map { len: None },
                 Token::Str("d"),
                 Token::U32(HARDENED_ENUM_VALUE_1),
@@ -477,7 +483,8 @@ mod serde_tests {
                 Token::U32(1003),
                 Token::SeqEnd,
                 Token::MapEnd,
-        ]);
+            ],
+        );
     }
 
     #[test]
@@ -510,7 +517,10 @@ mod serde_tests {
                 SetBehavior::None,
                 SGroups::Multiple(vec![1000.into(), 1001.into()]),
             )
-            .add(vec![SGroups::Multiple(vec![1002.into(),1003.into()]), SGroups::Single(1003.into())])
+            .add(vec![
+                SGroups::Multiple(vec![1002.into(), 1003.into()]),
+                SGroups::Single(1003.into()),
+            ])
             .sub(vec![1004.into(), 1005.into()])
             .build(),
         );
@@ -550,7 +560,9 @@ mod serde_tests {
             ],
         );
 
-        assert_tokens(&groups.compact(), &[
+        assert_tokens(
+            &groups.compact(),
+            &[
                 Token::Map { len: None },
                 Token::Str("d"),
                 Token::U32(HARDENED_ENUM_VALUE_0),
@@ -580,7 +592,8 @@ mod serde_tests {
                 Token::U32(1005),
                 Token::SeqEnd,
                 Token::MapEnd,
-        ]);
+            ],
+        );
     }
 
     #[test]
@@ -588,7 +601,12 @@ mod serde_tests {
         let cred = SCredentials::builder()
             .setuid(SUserEither::MandatoryUser(1000.into()))
             .setgid(SGroupsEither::MandatoryGroup(1000.into()))
-            .capabilities(SCapabilities::builder(SetBehavior::None).add_cap(Cap::BPF).sub_cap(Cap::CHOWN).build())
+            .capabilities(
+                SCapabilities::builder(SetBehavior::None)
+                    .add_cap(Cap::BPF)
+                    .sub_cap(Cap::CHOWN)
+                    .build(),
+            )
             .build();
         assert_tokens(
             &cred.clone().readable(),
@@ -625,7 +643,9 @@ mod serde_tests {
                 Token::MapEnd,
             ],
         );
-        assert_tokens(&cred.compact(), &[
+        assert_tokens(
+            &cred.compact(),
+            &[
                 Token::Map { len: None },
                 Token::Str("u"),
                 Token::Some,
@@ -641,9 +661,9 @@ mod serde_tests {
                 Token::Str("d"),
                 Token::U32(HARDENED_ENUM_VALUE_0),
                 Token::Str("a"),
-                Token::U64((1u64<<Cap::BPF as u8) as u64),
+                Token::U64((1u64 << Cap::BPF as u8) as u64),
                 Token::Str("s"),
-                Token::U64((1u64<<Cap::CHOWN as u8) as u64),
+                Token::U64((1u64 << Cap::CHOWN as u8) as u64),
                 Token::MapEnd,
                 Token::MapEnd,
             ],
@@ -653,18 +673,8 @@ mod serde_tests {
     #[test]
     fn test_scommand() {
         let cmd = SCommand::Simple("/bin/true".into());
-        assert_tokens(
-            &cmd.clone().readable(),
-            &[
-                Token::Str("/bin/true"),
-            ],
-        );
-        assert_tokens(
-            &cmd.compact(),
-            &[
-                Token::Str("/bin/true"),
-            ],
-        );
+        assert_tokens(&cmd.clone().readable(), &[Token::Str("/bin/true")]);
+        assert_tokens(&cmd.compact(), &[Token::Str("/bin/true")]);
     }
 
     #[test]
@@ -672,13 +682,17 @@ mod serde_tests {
         let cmds = SCommands::builder(SetBehavior::None).build();
         assert_tokens(
             &cmds.clone().readable(),
-            &[
-                Token::UnitVariant { name: "SetBehavior", variant: "none" },
-            ],
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
         );
         assert_tokens(
             &cmds.compact(),
-            &[Token::UnitVariant { name: "SetBehavior", variant: "none" },],
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
         );
         let cmds = SCommands::builder(SetBehavior::None)
             .add(vec![
@@ -695,12 +709,15 @@ mod serde_tests {
                 Token::SeqEnd,
             ],
         );
-        assert_tokens(&cmds.compact(), &[
+        assert_tokens(
+            &cmds.compact(),
+            &[
                 Token::Seq { len: Some(2) },
                 Token::Str("/bin/true"),
                 Token::Str("/bin/echo hello"),
                 Token::SeqEnd,
-        ]);
+            ],
+        );
         let cmds = SCommands::builder(SetBehavior::All)
             .add(vec![
                 SCommand::Simple("/bin/true".into()),
@@ -726,7 +743,9 @@ mod serde_tests {
                 Token::MapEnd,
             ],
         );
-        assert_tokens(&cmds.compact(), &[
+        assert_tokens(
+            &cmds.compact(),
+            &[
                 Token::Map { len: None },
                 Token::Str("d"),
                 Token::U32(HARDENED_ENUM_VALUE_1),
@@ -740,6 +759,7 @@ mod serde_tests {
                 Token::Str("/bin/false"),
                 Token::SeqEnd,
                 Token::MapEnd,
-        ]);
+            ],
+        );
     }
 }

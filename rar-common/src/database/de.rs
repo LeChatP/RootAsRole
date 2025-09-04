@@ -4,7 +4,10 @@ use std::str::FromStr;
 use log::debug;
 use serde::{de::DeserializeSeed, Deserialize};
 
-use crate::database::{actor::SGroups, structs::{SCommand, SSetgidSet, SetBehavior}};
+use crate::database::{
+    actor::SGroups,
+    structs::{SCommand, SSetgidSet, SetBehavior},
+};
 
 use super::{
     actor::SGenericActorType,
@@ -124,7 +127,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
             #[serde(alias = "a")]
             Add,
             #[serde(alias = "del", alias = "s")]
-            Sub
+            Sub,
         }
 
         impl<'de> Visitor<'de> for SCapabilitiesVisitor {
@@ -223,8 +226,9 @@ impl<'de> DeserializeSeed<'de> for CapSetDeserializer {
                 Ok(CapSet::from_bitmask_truncate(v))
             }
             fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>, {
+            where
+                A: SeqAccess<'de>,
+            {
                 let mut capset = CapSet::default();
                 let mut seq = seq;
                 while let Some(cap) = seq.next_element_seed(CapDeserializer)? {
@@ -343,7 +347,6 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                     sub,
                 })
             }
-            
         }
         debug!("de_ssetgidset: deserialize");
         deserializer.deserialize_any(SSetgidSetVisitor)

@@ -115,9 +115,19 @@ pub struct STask {
     pub name: IdTask,
     #[serde(alias = "p", skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
-    #[serde(alias = "i", alias = "credentials", default, skip_serializing_if = "is_default")]
+    #[serde(
+        alias = "i",
+        alias = "credentials",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     pub cred: SCredentials,
-    #[serde(alias = "c", alias = "cmds", default, skip_serializing_if = "cmds_is_default")]
+    #[serde(
+        alias = "c",
+        alias = "cmds",
+        default,
+        skip_serializing_if = "cmds_is_default"
+    )]
     pub commands: SCommands,
     #[serde(
         alias = "o",
@@ -826,10 +836,7 @@ mod tests {
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
         assert!(capabilities.sub.has(Cap::SYS_ADMIN));
         let commands = &as_borrow!(&role[0]).commands;
-        assert_eq!(
-            *commands.default.as_ref().unwrap(),
-            SetBehavior::All
-        );
+        assert_eq!(*commands.default.as_ref().unwrap(), SetBehavior::All);
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
         assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
     }
@@ -1073,10 +1080,7 @@ mod tests {
         assert!(capabilities.add.has(Cap::NET_BIND_SERVICE));
         assert!(capabilities.sub.is_empty());
         let commands = &as_borrow!(&role[0]).commands;
-        assert_eq!(
-            *commands.default.as_ref().unwrap(),
-            SetBehavior::All
-        );
+        assert_eq!(*commands.default.as_ref().unwrap(), SetBehavior::All);
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
         assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
     }

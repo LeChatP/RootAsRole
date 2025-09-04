@@ -330,7 +330,7 @@ mod tests {
                 assert!(!caps.unwrap().sub.has(cap));
             })
         }
-        
+
         fn with_path_options<F, R>(&self, f: F) -> R
         where
             F: FnOnce(&SPathOptions) -> R,
@@ -443,7 +443,11 @@ mod tests {
 
         fn assert_env_keep_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options.keep.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(env_options
+                    .keep
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
@@ -455,7 +459,11 @@ mod tests {
 
         fn assert_env_delete_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options.delete.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(env_options
+                    .delete
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
@@ -468,7 +476,12 @@ mod tests {
         fn assert_env_set_key_value(&self, key: &str, value: &str) {
             self.with_env_options(|env_options| {
                 assert_eq!(
-                    env_options.set.as_ref().unwrap().get_key_value(key).unwrap(),
+                    env_options
+                        .set
+                        .as_ref()
+                        .unwrap()
+                        .get_key_value(key)
+                        .unwrap(),
                     (&key.to_string(), &value.to_string())
                 );
             })
@@ -488,13 +501,22 @@ mod tests {
 
         fn assert_env_set_key_not_exists(&self, key: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options.set.as_ref().unwrap().get_key_value(key).is_none());
+                assert!(env_options
+                    .set
+                    .as_ref()
+                    .unwrap()
+                    .get_key_value(key)
+                    .is_none());
             })
         }
 
         fn assert_env_keep_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options.keep.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(!env_options
+                    .keep
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
@@ -506,7 +528,11 @@ mod tests {
 
         fn assert_env_delete_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options.delete.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(!env_options
+                    .delete
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
@@ -518,13 +544,21 @@ mod tests {
 
         fn assert_env_check_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options.check.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(env_options
+                    .check
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
         fn assert_env_check_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options.check.as_ref().unwrap().contains(&var.to_string().into()));
+                assert!(!env_options
+                    .check
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
             })
         }
 
@@ -810,8 +844,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_grant_u_user1_g_group1_g_group2_group3() {
-        let (ctx, _defer) =
-            TestContext::new("r_complete_grant_u_user1_g_group1_g_group2_group3");
+        let (ctx, _defer) = TestContext::new("r_complete_grant_u_user1_g_group1_g_group2_group3");
 
         // Test grant command (should make changes)
         ctx.assert_command_success("r complete grant -u user1 -g group1 -g group2&group3");
@@ -1088,13 +1121,13 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_path_blacklist_purge() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_blacklist_purge");
-        
+
         ctx.assert_command_success("r complete t t_complete o path blacklist purge");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
-        
+
         ctx.assert_command_success("r complete t t_complete o env keep-only MYVAR,VAR2");
         ctx.assert_env_default_behavior_is_delete();
         ctx.assert_env_keep_contains("MYVAR");
@@ -1103,8 +1136,9 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_delete_only_myvar_var2() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
-        
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
+
         ctx.assert_command_success("r complete t t_complete o env delete-only MYVAR,VAR2");
         ctx.assert_env_default_behavior_is_keep();
         ctx.assert_env_delete_contains("MYVAR");
@@ -1113,33 +1147,39 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
-        
-        ctx.assert_command_success(r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#);
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
+
+        ctx.assert_command_success(
+            r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#,
+        );
         ctx.assert_env_set_key_value("MYVAR", "value");
         ctx.assert_env_set_key_value("VAR2", "value2");
         ctx.assert_env_set_len(2);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_add_myvar_value_var2_value2() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
-        
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
+
         // Test setlist set
         ctx.assert_command_success(r#"r complete t t_complete o env setlist set VAR3=value3"#);
-        
+
         // Test setlist add
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist add MYVAR=value,VAR2="value2""#);
+        ctx.assert_command_success(
+            r#"r complete t t_complete o env setlist add MYVAR=value,VAR2="value2""#,
+        );
         ctx.assert_env_set_key_value("MYVAR", "value");
         ctx.assert_env_set_key_value("VAR2", "value2");
         ctx.assert_env_set_key_value("VAR3", "value3");
         ctx.assert_env_set_len(3);
-        
+
         // Test setlist del
         ctx.assert_command_success(r#"r complete t t_complete o env setlist del MYVAR,VAR2"#);
         ctx.assert_env_set_len(1);
         ctx.assert_env_set_key_not_exists("MYVAR");
         ctx.assert_env_set_key_not_exists("VAR2");
-        
+
         // Test setlist purge
         ctx.assert_command_success(r#"r complete t t_complete o env setlist purge"#);
         ctx.assert_env_set_is_none();
@@ -1147,37 +1187,37 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_delete_all");
-        
+
         ctx.assert_command_success("r complete t t_complete o env setpolicy delete-all");
         ctx.assert_env_default_behavior(EnvBehavior::Delete);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_keep_all() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_keep_all");
-        
+
         ctx.assert_command_success("r complete t t_complete o env setpolicy keep-all");
         ctx.assert_env_default_behavior(EnvBehavior::Keep);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_inherit() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_inherit");
-        
+
         ctx.assert_command_success("r complete t t_complete o env setpolicy inherit");
         ctx.assert_env_default_behavior(EnvBehavior::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
-        
+
         // Test whitelist add
         ctx.assert_command_success("r complete t t_complete o env whitelist add MYVAR");
         ctx.assert_env_keep_contains("MYVAR");
         // Note: Length > 1 suggests there are default environment variables
-        
+
         // Test whitelist del
         ctx.assert_command_success("r complete t t_complete o env whitelist del MYVAR");
         ctx.assert_env_keep_not_contains("MYVAR");
-        
+
         debug!("=====");
         // Test whitelist set
         ctx.assert_command_success("r complete t t_complete o env whitelist set MYVAR");
@@ -1187,18 +1227,18 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_purge() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_purge");
-        
+
         ctx.assert_command_success("r complete t t_complete o env whitelist purge");
         ctx.assert_env_keep_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_add_myvar() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
-        
+
         // Test blacklist add
         ctx.assert_command_success("r complete t t_complete o env blacklist add MYVAR");
         ctx.assert_env_delete_contains("MYVAR");
-        
+
         // Test blacklist del
         ctx.assert_command_success("r complete t t_complete o env blacklist del MYVAR");
         ctx.assert_env_delete_not_contains("MYVAR");
@@ -1206,7 +1246,7 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_set_myvar() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
-        
+
         ctx.assert_command_success("r complete t t_complete o env blacklist set MYVAR");
         ctx.assert_env_delete_contains("MYVAR");
         ctx.assert_env_delete_len(1);
@@ -1214,29 +1254,29 @@ mod tests {
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_purge() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_purge");
-        
+
         ctx.assert_command_success("r complete t t_complete o env blacklist purge");
         ctx.assert_env_delete_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_checklist_add_myvar() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
-        
+
         // Test checklist add
         ctx.assert_command_success("r complete t t_complete o env checklist add MYVAR");
         ctx.assert_env_check_contains("MYVAR");
-        
+
         debug!("=====");
         // Test checklist del
         ctx.assert_command_success("r complete t t_complete o env checklist del MYVAR");
         ctx.assert_env_check_not_contains("MYVAR");
-        
+
         debug!("=====");
         // Test checklist set
         ctx.assert_command_success("r complete t t_complete o env checklist set MYVAR");
         ctx.assert_env_check_contains("MYVAR");
         ctx.assert_env_check_len(1);
-        
+
         debug!("=====");
         // Test checklist purge
         ctx.assert_command_success("r complete t t_complete o env checklist purge");
@@ -1306,22 +1346,23 @@ mod tests {
                 let mut sorted_map = Map::new();
                 let mut sorted_entries: Vec<_> = map.into_iter().collect();
                 sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
-                
+
                 for (key, val) in sorted_entries {
                     sorted_map.insert(key, normalize_json_object(val));
                 }
                 Value::Object(sorted_map)
             }
-            Value::Array(arr) => {
-                Value::Array(arr.into_iter().map(normalize_json_object).collect())
-            }
+            Value::Array(arr) => Value::Array(arr.into_iter().map(normalize_json_object).collect()),
             other => other,
         }
     }
 
     #[test]
     fn test_convert() {
-        let _ = env_logger::builder().filter_level(log::LevelFilter::Debug).is_test(true).try_init();
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
         let (ctx, _defer) = TestContext::new("convert");
 
         ctx.assert_command_success(&format!("convert cbor {}.convert.bin", ROOTASROLE));
@@ -1329,16 +1370,46 @@ mod tests {
 
         assert!(fs::metadata(format!("{}.convert.bin", ROOTASROLE)).is_ok());
 
-        ctx.assert_command_success(&format!("convert --from cbor {0}.convert.bin json {0}.convert.json", ROOTASROLE));
+        ctx.assert_command_success(&format!(
+            "convert --from cbor {0}.convert.bin json {0}.convert.json",
+            ROOTASROLE
+        ));
         assert!(fs::metadata(format!("{}.convert.json", ROOTASROLE)).is_ok());
         assert_eq!(
-            normalize_json_object(serde_json::from_str::<Value>(&fs::read_to_string(format!("{}.convert.json", ROOTASROLE)).unwrap()).unwrap()),
-            normalize_json_object(serde_json::from_str::<Value>(&fs::read_to_string(format!("{}.convert.json.1", ROOTASROLE)).unwrap()).unwrap())
+            normalize_json_object(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(format!("{}.convert.json", ROOTASROLE)).unwrap()
+                )
+                .unwrap()
+            ),
+            normalize_json_object(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(format!("{}.convert.json.1", ROOTASROLE)).unwrap()
+                )
+                .unwrap()
+            )
         );
 
-        ctx.assert_command_success(&format!("convert --reconfigure cbor {}.reconfigure.convert.bin", ROOTASROLE));
+        ctx.assert_command_success(&format!(
+            "convert --reconfigure cbor {}.reconfigure.convert.bin",
+            ROOTASROLE
+        ));
 
-        assert_eq!(ctx.settings.as_ref().borrow().storage.settings.as_ref().unwrap().path.as_ref().unwrap().to_str().unwrap(),format!("{}.reconfigure.convert.bin", ROOTASROLE));
+        assert_eq!(
+            ctx.settings
+                .as_ref()
+                .borrow()
+                .storage
+                .settings
+                .as_ref()
+                .unwrap()
+                .path
+                .as_ref()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("{}.reconfigure.convert.bin", ROOTASROLE)
+        );
 
         fs::remove_file(format!("{}.convert.bin", ROOTASROLE)).unwrap();
         fs::remove_file(format!("{}.convert.json", ROOTASROLE)).unwrap();

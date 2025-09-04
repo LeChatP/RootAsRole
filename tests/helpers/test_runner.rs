@@ -110,8 +110,8 @@ impl TestRunner {
                     env_vars
                         .unwrap_or(&[])
                         .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_string()))
-                )
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
             )
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

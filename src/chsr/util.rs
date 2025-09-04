@@ -73,7 +73,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pest::{error::{Error, ErrorVariant}};
+    use pest::error::{Error, ErrorVariant};
 
     // Simple rule type for testing - pest provides a blanket implementation
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -83,8 +83,10 @@ mod tests {
     fn test_underline_with_pos() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_pos(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Position::new(input, 6).unwrap()
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Position::new(input, 6).unwrap(),
         );
 
         let result = underline(&error);
@@ -96,8 +98,10 @@ mod tests {
     fn test_underline_with_span() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_span(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Span::new(input, 6, 11).unwrap() // "world"
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Span::new(input, 6, 11).unwrap(), // "world"
         );
 
         let result = underline(&error);
@@ -109,8 +113,10 @@ mod tests {
     fn test_underline_with_span_single_char() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_span(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Span::new(input, 6, 7).unwrap() // single char "w"
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Span::new(input, 6, 7).unwrap(), // single char "w"
         );
 
         let result = underline(&error);
@@ -122,8 +128,10 @@ mod tests {
     fn test_underline_with_tabs() {
         let input = "\t\thello world";
         let error = Error::<TestRule>::new_from_pos(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Position::new(input, 8).unwrap() // "world" position
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Position::new(input, 8).unwrap(), // "world" position
         );
 
         let result = underline(&error);
@@ -135,8 +143,10 @@ mod tests {
     fn test_underline_at_beginning() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_pos(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Position::new(input, 0).unwrap() // beginning
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Position::new(input, 0).unwrap(), // beginning
         );
 
         let result = underline(&error);
@@ -186,7 +196,7 @@ mod tests {
         let input = vec!["hello".to_string(), "world".to_string()];
         let result = escape_parser_string_vec(input);
         assert_eq!(result, "hello world");
-        
+
         // Test with mixed str references
         let input = vec!["hello", "world"];
         let result = escape_parser_string_vec(input);
@@ -197,25 +207,29 @@ mod tests {
     fn test_start_with_pos() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_pos(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Position::new(input, 6).unwrap()
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Position::new(input, 6).unwrap(),
         );
 
         let (line, col) = start(&error);
         assert_eq!(line, 1); // pest uses 1-based line numbers
-        assert_eq!(col, 7);  // pest uses 1-based column numbers, position 6 = column 7
+        assert_eq!(col, 7); // pest uses 1-based column numbers, position 6 = column 7
     }
 
     #[test]
     fn test_start_with_span() {
         let input = "hello world";
         let error = Error::<TestRule>::new_from_span(
-            ErrorVariant::CustomError { message: "test error".to_string() },
-            pest::Span::new(input, 6, 11).unwrap()
+            ErrorVariant::CustomError {
+                message: "test error".to_string(),
+            },
+            pest::Span::new(input, 6, 11).unwrap(),
         );
 
         let (line, col) = start(&error);
         assert_eq!(line, 1); // pest uses 1-based line numbers
-        assert_eq!(col, 7);  // pest uses 1-based column numbers
+        assert_eq!(col, 7); // pest uses 1-based column numbers
     }
 }
