@@ -79,28 +79,42 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             let mut inner = pair.clone().into_inner();
             let temp_convertion = Default::default();
             let convertion = inputs.convertion.get_or_insert(temp_convertion);
-            convertion.to_type = inner.next().unwrap().as_str().parse().inspect_err(|&e| {
-                warn!(
-                    "Unknown type {}, types available : {}",
-                    e,
-                    StorageMethod::VARIANTS.join(", ")
-                );
-            })?;
-            convertion.to = inner.next().unwrap().as_str().into();
-        }
-        Rule::from => {
-            let mut inner = pair.clone().into_inner();
-            let temp_convertion = Default::default();
-            let convertion = inputs.convertion.get_or_insert(temp_convertion);
-            convertion.from_type =
-                Some(inner.next().unwrap().as_str().parse().inspect_err(|&e| {
+            println!("to: {}", pair.as_str());
+            convertion.to_type = inner
+                .next()
+                .unwrap()
+                .as_str()
+                .to_lowercase()
+                .parse()
+                .inspect_err(|&e| {
                     warn!(
                         "Unknown type {}, types available : {}",
                         e,
                         StorageMethod::VARIANTS.join(", ")
                     );
-                })?);
-            convertion.from = Some(inner.next().unwrap().as_str().into());
+                })?;
+            convertion.to = inner.next().expect("to_value not found").as_str().into();
+        }
+        Rule::from => {
+            let mut inner = pair.clone().into_inner();
+            let temp_convertion = Default::default();
+            let convertion = inputs.convertion.get_or_insert(temp_convertion);
+            convertion.from_type = Some(
+                inner
+                    .next()
+                    .expect("from_type not found")
+                    .as_str()
+                    .to_lowercase()
+                    .parse()
+                    .inspect_err(|&e| {
+                        warn!(
+                            "Unknown type {}, types available : {}",
+                            e,
+                            StorageMethod::VARIANTS.join(", ")
+                        );
+                    })?,
+            );
+            convertion.from = Some(inner.next().expect("from_value not found").as_str().into());
         }
         Rule::convert_reconfigure => {
             inputs.convert_reconfigure = true;

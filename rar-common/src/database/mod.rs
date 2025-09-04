@@ -133,14 +133,6 @@ fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<
     Err("Invalid duration format".into())
 }
 
-fn serialize_capset<S>(value: &capctl::CapSet, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let v: Vec<String> = value.iter().map(|cap| cap.to_string()).collect();
-    v.serialize(serializer)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,5 +328,438 @@ mod tests {
         let json = r#"["key1", 123, null]"#;
         let deserialized: Result<LinkedHashSetTester<EnvKey>, _> = serde_json::from_str(json);
         assert!(deserialized.is_err());
+    }
+}
+
+#[cfg(test)]
+mod serde_tests {
+    use crate::{
+        database::{
+            actor::{SGroups, SUserType},
+            structs::*,
+        },
+        util::*,
+    };
+
+    use capctl::Cap;
+    use serde_test::{assert_tokens, Configure, Token};
+
+    #[test]
+    fn test_set_behavior() {
+        assert_tokens(
+            &SetBehavior::All.compact(),
+            &[Token::U32(HARDENED_ENUM_VALUE_1)],
+        );
+        assert_tokens(
+            &SetBehavior::None.compact(),
+            &[Token::U32(HARDENED_ENUM_VALUE_0)],
+        );
+        assert_tokens(&SetBehavior::All.readable(), &[Token::Str("all")]);
+        assert_tokens(&SetBehavior::None.readable(), &[Token::Str("none")]);
+    }
+
+    #[test]
+    fn test_scapabilities() {
+        let cap = SCapabilities::builder(SetBehavior::None).build();
+        assert_tokens(
+            &cap.clone().compact(),
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
+        );
+        assert_tokens(
+            &cap.readable(),
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
+        );
+        let cap = SCapabilities::builder(SetBehavior::All)
+            .add_cap(Cap::NET_BIND_SERVICE)
+            .sub_cap(Cap::CHOWN)
+            .build();
+        let add = optimized_serialize_capset(&cap.add);
+        let sub = optimized_serialize_capset(&cap.sub);
+        assert_tokens(
+            &cap.clone().compact(),
+            &[
+                Token::Map { len: None },
+                Token::Str("d"),
+                Token::U32(HARDENED_ENUM_VALUE_1),
+                Token::Str("a"),
+                Token::U64(add),
+                Token::Str("s"),
+                Token::U64(sub),
+                Token::MapEnd,
+            ],
+        );
+        assert_tokens(
+            &cap.readable(),
+            &[
+                Token::Map { len: None },
+                Token::Str("default"),
+                Token::Str("all"),
+                Token::Str("add"),
+                Token::Seq { len: Some(1) },
+                Token::UnitVariant {
+                    name: "Cap",
+                    variant: "NET_BIND_SERVICE",
+                },
+                Token::SeqEnd,
+                Token::Str("del"),
+                Token::Seq { len: Some(1) },
+                Token::UnitVariant {
+                    name: "Cap",
+                    variant: "CHOWN",
+                },
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_susereither() {
+        let setuid = SUserEither::MandatoryUser(1000.into());
+        assert_tokens(
+            &setuid.readable(),
+            &[Token::NewtypeStruct { name: "SUserType" }, Token::U32(1000)],
+        );
+
+        let setuid = SUserEither::UserSelector(
+            SSetuidSet::builder()
+                .default(SetBehavior::All)
+                .fallback(SUserType::from(1000))
+                .add(vec![1001.into(), 1002.into()])
+                .sub([1003.into()])
+                .build(),
+        );
+
+        assert_tokens(
+            &setuid.clone().readable(),
+            &[
+                Token::Map { len: None },
+                Token::Str("default"),
+                Token::Str("all"),
+                Token::Str("fallback"),
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1000),
+                Token::Str("add"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1001),
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1002),
+                Token::SeqEnd,
+                Token::Str("del"),
+                Token::Seq { len: Some(1) },
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+
+        assert_tokens(
+            &setuid.compact(),
+            &[
+                Token::Map { len: None },
+                Token::Str("d"),
+                Token::U32(HARDENED_ENUM_VALUE_1),
+                Token::Str("f"),
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1000),
+                Token::Str("a"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1001),
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1002),
+                Token::SeqEnd,
+                Token::Str("s"),
+                Token::Seq { len: Some(1) },
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_sgroups() {
+        let groups = SGroupsEither::MandatoryGroup(1000.into());
+        assert_tokens(
+            &groups.readable(),
+            &[
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+            ],
+        );
+
+        let groups =
+            SGroupsEither::MandatoryGroups(SGroups::Multiple(vec![1000.into(), 1001.into()]));
+        assert_tokens(
+            &groups.readable(),
+            &[
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1001),
+                Token::SeqEnd,
+            ],
+        );
+
+        let groups = SGroupsEither::GroupSelector(
+            SSetgidSet::builder(
+                SetBehavior::None,
+                SGroups::Multiple(vec![1000.into(), 1001.into()]),
+            )
+            .add(vec![
+                SGroups::Multiple(vec![1002.into(), 1003.into()]),
+                SGroups::Single(1003.into()),
+            ])
+            .sub(vec![1004.into(), 1005.into()])
+            .build(),
+        );
+
+        assert_tokens(
+            &groups.clone().readable(),
+            &[
+                Token::Map { len: None },
+                Token::Str("default"),
+                Token::Str("none"),
+                Token::Str("fallback"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1001),
+                Token::SeqEnd,
+                Token::Str("add"),
+                Token::Seq { len: Some(2) },
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1002),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::Str("del"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1004),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1005),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+
+        assert_tokens(
+            &groups.compact(),
+            &[
+                Token::Map { len: None },
+                Token::Str("d"),
+                Token::U32(HARDENED_ENUM_VALUE_0),
+                Token::Str("f"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1001),
+                Token::SeqEnd,
+                Token::Str("a"),
+                Token::Seq { len: Some(2) },
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1002),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1003),
+                Token::SeqEnd,
+                Token::Str("s"),
+                Token::Seq { len: Some(2) },
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1004),
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1005),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_scredentials() {
+        let cred = SCredentials::builder()
+            .setuid(SUserEither::MandatoryUser(1000.into()))
+            .setgid(SGroupsEither::MandatoryGroup(1000.into()))
+            .capabilities(
+                SCapabilities::builder(SetBehavior::None)
+                    .add_cap(Cap::BPF)
+                    .sub_cap(Cap::CHOWN)
+                    .build(),
+            )
+            .build();
+        assert_tokens(
+            &cred.clone().readable(),
+            &[
+                Token::Map { len: None },
+                Token::Str("setuid"),
+                Token::Some,
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1000),
+                Token::Str("setgid"),
+                Token::Some,
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+                Token::Str("capabilities"),
+                Token::Some,
+                Token::Map { len: None },
+                Token::Str("default"),
+                Token::Str("none"),
+                Token::Str("add"),
+                Token::Seq { len: Some(1) },
+                Token::UnitVariant {
+                    name: "Cap",
+                    variant: "BPF",
+                },
+                Token::SeqEnd,
+                Token::Str("del"),
+                Token::Seq { len: Some(1) },
+                Token::UnitVariant {
+                    name: "Cap",
+                    variant: "CHOWN",
+                },
+                Token::SeqEnd,
+                Token::MapEnd,
+                Token::MapEnd,
+            ],
+        );
+        assert_tokens(
+            &cred.compact(),
+            &[
+                Token::Map { len: None },
+                Token::Str("u"),
+                Token::Some,
+                Token::NewtypeStruct { name: "SUserType" },
+                Token::U32(1000),
+                Token::Str("g"),
+                Token::Some,
+                Token::NewtypeStruct { name: "SGroupType" },
+                Token::U32(1000),
+                Token::Str("c"),
+                Token::Some,
+                Token::Map { len: None },
+                Token::Str("d"),
+                Token::U32(HARDENED_ENUM_VALUE_0),
+                Token::Str("a"),
+                Token::U64((1u64 << Cap::BPF as u8) as u64),
+                Token::Str("s"),
+                Token::U64((1u64 << Cap::CHOWN as u8) as u64),
+                Token::MapEnd,
+                Token::MapEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_scommand() {
+        let cmd = SCommand::Simple("/bin/true".into());
+        assert_tokens(&cmd.clone().readable(), &[Token::Str("/bin/true")]);
+        assert_tokens(&cmd.compact(), &[Token::Str("/bin/true")]);
+    }
+
+    #[test]
+    fn test_scommands() {
+        let cmds = SCommands::builder(SetBehavior::None).build();
+        assert_tokens(
+            &cmds.clone().readable(),
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
+        );
+        assert_tokens(
+            &cmds.compact(),
+            &[Token::UnitVariant {
+                name: "SetBehavior",
+                variant: "none",
+            }],
+        );
+        let cmds = SCommands::builder(SetBehavior::None)
+            .add(vec![
+                SCommand::Simple("/bin/true".into()),
+                SCommand::Simple("/bin/echo hello".into()),
+            ])
+            .build();
+        assert_tokens(
+            &cmds.clone().readable(),
+            &[
+                Token::Seq { len: Some(2) },
+                Token::Str("/bin/true"),
+                Token::Str("/bin/echo hello"),
+                Token::SeqEnd,
+            ],
+        );
+        assert_tokens(
+            &cmds.compact(),
+            &[
+                Token::Seq { len: Some(2) },
+                Token::Str("/bin/true"),
+                Token::Str("/bin/echo hello"),
+                Token::SeqEnd,
+            ],
+        );
+        let cmds = SCommands::builder(SetBehavior::All)
+            .add(vec![
+                SCommand::Simple("/bin/true".into()),
+                SCommand::Simple("/bin/echo hello".into()),
+            ])
+            .sub(vec![SCommand::Simple("/bin/false".into())])
+            .build();
+        assert_tokens(
+            &cmds.clone().readable(),
+            &[
+                Token::Map { len: None },
+                Token::Str("default"),
+                Token::Str("all"),
+                Token::Str("add"),
+                Token::Seq { len: Some(2) },
+                Token::Str("/bin/true"),
+                Token::Str("/bin/echo hello"),
+                Token::SeqEnd,
+                Token::Str("del"),
+                Token::Seq { len: Some(1) },
+                Token::Str("/bin/false"),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
+        assert_tokens(
+            &cmds.compact(),
+            &[
+                Token::Map { len: None },
+                Token::Str("d"),
+                Token::U32(HARDENED_ENUM_VALUE_1),
+                Token::Str("a"),
+                Token::Seq { len: Some(2) },
+                Token::Str("/bin/true"),
+                Token::Str("/bin/echo hello"),
+                Token::SeqEnd,
+                Token::Str("s"),
+                Token::Seq { len: Some(1) },
+                Token::Str("/bin/false"),
+                Token::SeqEnd,
+                Token::MapEnd,
+            ],
+        );
     }
 }

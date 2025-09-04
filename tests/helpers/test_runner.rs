@@ -1,3 +1,4 @@
+use std::env;
 use std::io::Result as IoResult;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -101,9 +102,17 @@ impl TestRunner {
             }
         }
         let mut command = Command::new(&self.binary_path);
+        println!("Running command: {:?} {:?}", command, args);
         command
             .args(args)
-            .envs(env_vars.unwrap_or(&[]).iter().cloned())
+            .envs(
+                env::vars().chain(
+                    env_vars
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
+            )
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

@@ -4,6 +4,7 @@ use std::{
 };
 
 use bon::bon;
+use log::debug;
 use nix::unistd::{Group, User};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -315,10 +316,18 @@ impl<'de> Deserialize<'de> for SGroups {
                 formatter.write_str("a string or a number")
             }
 
+            fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserializer.deserialize_any(self)
+            }
+
             fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
+                debug!("SGroups: visit_borrowed_str: {}", v);
                 if let Ok(group) = v.parse() {
                     Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
@@ -332,6 +341,7 @@ impl<'de> Deserialize<'de> for SGroups {
             where
                 E: serde::de::Error,
             {
+                debug!("SGroups: visit_str: {}", v);
                 if let Ok(group) = v.parse() {
                     Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
@@ -345,6 +355,7 @@ impl<'de> Deserialize<'de> for SGroups {
             where
                 E: serde::de::Error,
             {
+                debug!("SGroups: visit_string: {}", v);
                 if let Ok(group) = v.parse() {
                     Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
                 } else {
@@ -356,6 +367,7 @@ impl<'de> Deserialize<'de> for SGroups {
             where
                 E: serde::de::Error,
             {
+                debug!("SGroups: visit_u64: {}", value);
                 if value > u32::MAX as u64 {
                     return Err(E::custom("value is too large"));
                 }
@@ -368,6 +380,7 @@ impl<'de> Deserialize<'de> for SGroups {
             where
                 A: serde::de::SeqAccess<'de>,
             {
+                debug!("SGroups: visit_seq");
                 let mut groups = Vec::new();
                 while let Some(group) = seq.next_element::<SGroupType>()? {
                     groups.push(group);

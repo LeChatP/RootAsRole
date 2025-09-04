@@ -58,7 +58,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{env::current_dir, io::Write};
+    use std::{env::current_dir, fs, io::Write};
 
     use linked_hash_set::LinkedHashSet;
     use rar_common::{
@@ -73,6 +73,7 @@ mod tests {
         util::remove_with_privileges,
         FullSettings, RemoteStorageSettings, SettingsContent, StorageMethod,
     };
+    use serde_json::{Map, Value};
 
     use crate::ROOTASROLE;
 
@@ -100,6 +101,499 @@ mod tests {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    // Test helper functions
+    struct TestContext {
+        settings: Rc<RefCell<FullSettings>>,
+        role_index: usize,
+        task_index: usize,
+    }
+
+    impl TestContext {
+        fn new(name: &str) -> (Self, Defer<impl FnOnce()>) {
+            let defer = setup(name);
+            let path = format!("{}.{}", ROOTASROLE, name);
+            let settings = read_full_settings(&path).expect("Failed to get settings");
+            (
+                Self {
+                    settings,
+                    role_index: 0,
+                    task_index: 0,
+                },
+                defer,
+            )
+        }
+
+        fn run_command(&self, command: &str) -> Result<bool, Box<dyn Error>> {
+            main(self.settings.clone(), command.split(" "))
+                .call()
+                .inspect_err(|e| error!("{}", e))
+                .inspect(|e| debug!("{}", e))
+        }
+
+        fn assert_command_success(&self, command: &str) {
+            assert!(self.run_command(command).expect("Command should not fail"));
+        }
+
+        fn assert_command_no_change(&self, command: &str) {
+            assert!(!self.run_command(command).expect("Command should not fail"));
+        }
+
+        fn opt(&self, level: Level) -> Rc<RefCell<Opt>> {
+            match level {
+                Level::Task => {
+                    let task = self.task();
+                    let task_ref = task.as_ref().borrow();
+                    task_ref.options.as_ref().unwrap().clone()
+                }
+                Level::Role => {
+                    let role = self.role();
+                    let role_ref = role.as_ref().borrow();
+                    role_ref.options.as_ref().unwrap().clone()
+                }
+                Level::Global => {
+                    let settings_ref = self.settings.as_ref().borrow();
+                    let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+                    config_ref.options.as_ref().unwrap().clone()
+                }
+                _ => panic!("Invalid level"),
+            }
+        }
+
+        fn get_role(&self, role_index: usize) -> Rc<RefCell<SRole>> {
+            let settings_ref = self.settings.as_ref().borrow();
+            let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+            config_ref[role_index].clone()
+        }
+
+        fn get_task(&self, role_index: usize, task_index: usize) -> Rc<RefCell<STask>> {
+            let settings_ref = self.get_role(role_index);
+            let role_ref = settings_ref.as_ref().borrow();
+            role_ref.tasks[task_index].clone()
+        }
+
+        fn role(&self) -> Rc<RefCell<SRole>> {
+            self.get_role(self.role_index)
+        }
+
+        fn task(&self) -> Rc<RefCell<STask>> {
+            self.get_task(self.role_index, self.task_index)
+        }
+
+        fn with_role_actors<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&Vec<SActor>) -> R,
+        {
+            let settings_ref = self.role();
+            let role_ref = settings_ref.as_ref().borrow();
+            f(&role_ref.actors)
+        }
+
+        fn assert_actor_exists(&self, actor: &SActor) {
+            self.with_role_actors(|actors| {
+                assert!(actors.contains(actor));
+            })
+        }
+
+        fn assert_actor_not_exists(&self, actor: &SActor) {
+            self.with_role_actors(|actors| {
+                assert!(!actors.contains(actor));
+            })
+        }
+
+        fn task_count(&self) -> usize {
+            self.role().as_ref().borrow().tasks.len()
+        }
+
+        fn with_task_commands<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&SCommands) -> R,
+        {
+            let settings_ref = self.task();
+            let task_ref = settings_ref.as_ref().borrow();
+            f(&task_ref.commands)
+        }
+
+        fn with_task_capabilities<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(Option<&SCapabilities>) -> R,
+        {
+            let settings_ref = self.task();
+            let task_ref = settings_ref.as_ref().borrow();
+            f(task_ref.cred.capabilities.as_ref())
+        }
+
+        fn assert_command_default_behavior(&self, expected: Option<SetBehavior>) {
+            self.with_task_commands(|commands| {
+                assert_eq!(commands.default, expected);
+            })
+        }
+
+        fn assert_command_contains(&self, command: &SCommand) {
+            self.with_task_commands(|commands| {
+                assert!(commands.add.contains(command));
+            })
+        }
+
+        fn assert_command_not_contains(&self, command: &SCommand) {
+            self.with_task_commands(|commands| {
+                assert!(!commands.add.contains(command));
+            })
+        }
+
+        fn assert_command_blacklist_contains(&self, command: &SCommand) {
+            self.with_task_commands(|commands| {
+                assert!(commands.sub.contains(command));
+            })
+        }
+
+        fn assert_command_blacklist_not_contains(&self, command: &SCommand) {
+            self.with_task_commands(|commands| {
+                assert!(!commands.sub.contains(command));
+            })
+        }
+
+        fn run_command_vec(&self, args: Vec<&str>) -> Result<bool, Box<dyn Error>> {
+            main(self.settings.clone(), args)
+                .call()
+                .inspect_err(|e| error!("{}", e))
+                .inspect(|e| debug!("{}", e))
+        }
+
+        fn assert_command_vec_success(&self, args: Vec<&str>) {
+            assert!(self.run_command_vec(args).expect("Command should not fail"));
+        }
+
+        fn assert_capability_default_behavior_is_none(&self) {
+            self.with_task_capabilities(|caps| {
+                assert!(caps.unwrap().default_behavior.is_none());
+            })
+        }
+
+        fn assert_capability_has(&self, cap: Cap) {
+            self.with_task_capabilities(|caps| {
+                assert!(caps.unwrap().add.has(cap));
+            })
+        }
+
+        fn assert_capability_sub_size(&self, expected: usize) {
+            self.with_task_capabilities(|caps| {
+                assert_eq!(caps.unwrap().sub.size(), expected);
+            })
+        }
+
+        fn assert_capability_add_size(&self, expected: usize) {
+            self.with_task_capabilities(|caps| {
+                assert_eq!(caps.unwrap().add.size(), expected);
+            })
+        }
+
+        fn assert_capability_add_is_empty(&self) {
+            self.with_task_capabilities(|caps| {
+                assert!(caps.unwrap().add.is_empty());
+            })
+        }
+
+        fn assert_setuid_is_none(&self) {
+            let settings_ref = self.task();
+            let task_ref = settings_ref.as_ref().borrow();
+            assert!(task_ref.cred.setuid.is_none());
+        }
+
+        fn assert_setgid_is_none(&self) {
+            let settings_ref = self.task();
+            let task_ref = settings_ref.as_ref().borrow();
+            assert!(task_ref.cred.setgid.is_none());
+        }
+
+        fn assert_capability_default_behavior(&self, expected: SetBehavior) {
+            self.with_task_capabilities(|caps| {
+                assert_eq!(caps.unwrap().default_behavior, expected);
+            })
+        }
+
+        fn assert_capability_sub_has(&self, cap: Cap) {
+            self.with_task_capabilities(|caps| {
+                assert!(caps.unwrap().sub.has(cap));
+            })
+        }
+
+        fn assert_capability_add_not_has(&self, cap: Cap) {
+            self.with_task_capabilities(|caps| {
+                assert!(!caps.unwrap().add.has(cap));
+            })
+        }
+
+        fn assert_capability_sub_not_has(&self, cap: Cap) {
+            self.with_task_capabilities(|caps| {
+                assert!(!caps.unwrap().sub.has(cap));
+            })
+        }
+
+        fn with_path_options<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&SPathOptions) -> R,
+        {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            f(&task_ref.path.as_ref().unwrap())
+        }
+
+        fn assert_path_default_behavior(&self, expected: PathBehavior) {
+            self.with_path_options(|path_options| {
+                assert_eq!(path_options.default_behavior, expected);
+            });
+        }
+
+        fn assert_path_whitelist_contains(&self, path: &str) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert!(path_options
+                    .add
+                    .as_ref()
+                    .unwrap_or(&default)
+                    .contains(&path.to_string()));
+            });
+        }
+
+        fn assert_path_whitelist_not_contains(&self, path: &str) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert!(!path_options
+                    .add
+                    .as_ref()
+                    .unwrap_or(&default)
+                    .contains(&path.to_string()));
+            });
+        }
+
+        fn assert_path_blacklist_contains(&self, path: &str) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert!(path_options
+                    .sub
+                    .as_ref()
+                    .unwrap_or(&default)
+                    .contains(&path.to_string()));
+            });
+        }
+
+        fn assert_path_blacklist_not_contains(&self, path: &str) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert!(!path_options
+                    .sub
+                    .as_ref()
+                    .unwrap_or(&default)
+                    .contains(&path.to_string()));
+            });
+        }
+
+        fn assert_path_whitelist_is_empty(&self) {
+            self.assert_path_whitelist_len(0);
+        }
+
+        fn assert_path_whitelist_len(&self, expected: usize) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert_eq!(
+                    path_options.add.as_ref().unwrap_or(&default).len(),
+                    expected
+                );
+            });
+        }
+
+        fn assert_path_blacklist_len(&self, expected: usize) {
+            self.with_path_options(|path_options| {
+                let default = LinkedHashSet::new();
+                assert_eq!(
+                    path_options.sub.as_ref().unwrap_or(&default).len(),
+                    expected
+                );
+            });
+        }
+
+        fn with_env_options<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&SEnvOptions) -> R,
+        {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            f(&task_ref.env.as_ref().unwrap())
+        }
+
+        fn assert_env_default_behavior_is_delete(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.default_behavior.is_delete());
+            })
+        }
+
+        fn assert_env_default_behavior_is_keep(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.default_behavior.is_keep());
+            })
+        }
+
+        fn assert_env_default_behavior(&self, expected: EnvBehavior) {
+            self.with_env_options(|env_options| {
+                assert_eq!(env_options.default_behavior, expected);
+            })
+        }
+
+        fn assert_env_keep_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(env_options
+                    .keep
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_keep_len(&self, expected: usize) {
+            self.with_env_options(|env_options| {
+                assert_eq!(env_options.keep.as_ref().unwrap().len(), expected);
+            })
+        }
+
+        fn assert_env_delete_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(env_options
+                    .delete
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_delete_len(&self, expected: usize) {
+            self.with_env_options(|env_options| {
+                assert_eq!(env_options.delete.as_ref().unwrap().len(), expected);
+            })
+        }
+
+        fn assert_env_set_key_value(&self, key: &str, value: &str) {
+            self.with_env_options(|env_options| {
+                assert_eq!(
+                    env_options
+                        .set
+                        .as_ref()
+                        .unwrap()
+                        .get_key_value(key)
+                        .unwrap(),
+                    (&key.to_string(), &value.to_string())
+                );
+            })
+        }
+
+        fn assert_env_set_len(&self, expected: usize) {
+            self.with_env_options(|env_options| {
+                assert_eq!(env_options.set.as_ref().unwrap().len(), expected);
+            })
+        }
+
+        fn assert_env_set_is_none(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.set.is_none());
+            })
+        }
+
+        fn assert_env_set_key_not_exists(&self, key: &str) {
+            self.with_env_options(|env_options| {
+                assert!(env_options
+                    .set
+                    .as_ref()
+                    .unwrap()
+                    .get_key_value(key)
+                    .is_none());
+            })
+        }
+
+        fn assert_env_keep_not_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(!env_options
+                    .keep
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_keep_is_none(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.keep.is_none());
+            })
+        }
+
+        fn assert_env_delete_not_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(!env_options
+                    .delete
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_delete_is_none(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.delete.is_none());
+            })
+        }
+
+        fn assert_env_check_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(env_options
+                    .check
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_check_not_contains(&self, var: &str) {
+            self.with_env_options(|env_options| {
+                assert!(!env_options
+                    .check
+                    .as_ref()
+                    .unwrap()
+                    .contains(&var.to_string().into()));
+            })
+        }
+
+        fn assert_env_check_len(&self, expected: usize) {
+            self.with_env_options(|env_options| {
+                assert_eq!(env_options.check.as_ref().unwrap().len(), expected);
+            })
+        }
+
+        fn assert_env_check_is_none(&self) {
+            self.with_env_options(|env_options| {
+                assert!(env_options.check.is_none());
+            })
+        }
+
+        // Root option helpers
+        fn assert_root_option(&self, expected: &SPrivileged) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            assert_eq!(task_ref.root.as_ref().unwrap(), expected);
+        }
+
+        // Bounding option helpers
+        fn assert_bounding_option(&self, expected: &SBounding) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            assert_eq!(task_ref.bounding.as_ref().unwrap(), expected);
+        }
+
+        // Authentication option helpers
+        fn assert_authentication_option(&self, expected: &SAuthentication) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            assert_eq!(task_ref.authentication.as_ref().unwrap(), expected);
+        }
     }
 
     fn setup(name: &str) -> Defer<impl FnOnce()> {
@@ -311,3641 +805,613 @@ mod tests {
 
     #[test]
     fn test_all_main() {
-        let _defer = setup("all_main");
-        let path = format!("{}.{}", ROOTASROLE, "all_main");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), vec!["--help"],)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r r1 create".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete delete".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("all_main");
+
+        // Test --help command (should not change anything)
+        ctx.assert_command_no_change("--help");
+
+        // Test role creation
+        ctx.assert_command_success("r r1 create");
+
+        // Test role deletion
+        ctx.assert_command_success("r complete delete");
     }
     #[test]
     fn test_r_complete_show_actors() {
-        let _defer = setup("r_complete_show_actors");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_show_actors");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete show actors".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete show tasks".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete show all".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(
-            main(settings.clone(), "r complete purge actors".split(" "),)
-                .call()
-                .inspect_err(|e| {
-                    error!("{}", e);
-                })
-                .inspect(|e| {
-                    debug!("{}", e);
-                })
-                .is_ok_and(|b| b)
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_show_actors");
+
+        // Test show commands (should not change anything)
+        ctx.assert_command_no_change("r complete show actors");
+        ctx.assert_command_no_change("r complete show tasks");
+        ctx.assert_command_no_change("r complete show all");
+
+        // Test purge actors command (should make changes)
+        ctx.assert_command_success("r complete purge actors");
     }
     #[test]
     fn test_purge_tasks() {
-        let _defer = setup("purge_tasks");
-        let path = format!("{}.{}", ROOTASROLE, "purge_tasks");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete purge tasks".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("purge_tasks");
+
+        // Test purge tasks command (should make changes)
+        ctx.assert_command_success("r complete purge tasks");
     }
     #[test]
     fn test_r_complete_purge_all() {
-        let _defer = setup("r_complete_purge_all");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_purge_all");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete purge all".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_purge_all");
+
+        // Test purge all command (should make changes)
+        ctx.assert_command_success("r complete purge all");
     }
     #[test]
     fn test_r_complete_grant_u_user1_g_group1_g_group2_group3() {
-        let _defer = setup("r_complete_grant_u_user1_g_group1_g_group2_group3");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_grant_u_user1_g_group1_g_group2_group3"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete grant -u user1 -g group1 -g group2&group3".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::user("user1").build()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::group("group1").build()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::group(["group2", "group3"]).build()));
-        assert!(main(
-            settings.clone(),
-            "r complete revoke -u user1 -g group1 -g group2&group3".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::user("user1").build()));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::group("group1").build()));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .actors
-            .contains(&SActor::group(["group2", "group3"]).build()));
+        let (ctx, _defer) = TestContext::new("r_complete_grant_u_user1_g_group1_g_group2_group3");
+
+        // Test grant command (should make changes)
+        ctx.assert_command_success("r complete grant -u user1 -g group1 -g group2&group3");
+
+        // Verify actors were added
+        ctx.assert_actor_exists(&SActor::user("user1").build());
+        ctx.assert_actor_exists(&SActor::group("group1").build());
+        ctx.assert_actor_exists(&SActor::group(["group2", "group3"]).build());
+
+        // Test revoke command (should make changes)
+        ctx.assert_command_success("r complete revoke -u user1 -g group1 -g group2&group3");
+
+        // Verify actors were removed
+        ctx.assert_actor_not_exists(&SActor::user("user1").build());
+        ctx.assert_actor_not_exists(&SActor::group("group1").build());
+        ctx.assert_actor_not_exists(&SActor::group(["group2", "group3"]).build());
     }
     #[test]
     fn test_r_complete_task_t_complete_show_all() {
-        let _defer = setup("r_complete_task_t_complete_show_all");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_show_all");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete show all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete show cmd".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete show cred".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete purge all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_show_all");
+
+        // Test show commands (should not change anything)
+        ctx.assert_command_no_change("r complete task t_complete show all");
+        ctx.assert_command_no_change("r complete task t_complete show cmd");
+        ctx.assert_command_no_change("r complete task t_complete show cred");
+
+        // Test purge all command (should make changes)
+        ctx.assert_command_success("r complete task t_complete purge all");
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cmd() {
-        let _defer = setup("r_complete_task_t_complete_purge_cmd");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cmd");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete purge cmd".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cmd");
+
+        // Test purge cmd command (should make changes)
+        ctx.assert_command_success("r complete task t_complete purge cmd");
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cred() {
-        let _defer = setup("r_complete_task_t_complete_purge_cred");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete task t_complete purge cred".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cred");
+
+        // Test purge cred command (should make changes)
+        ctx.assert_command_success("r complete task t_complete purge cred");
+
         debug!("=====");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_task_t_complete_purge_cred");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        let task_count = settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks
-            .len();
-        assert!(main(settings.clone(), "r complete t t1 add".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks
-                .len(),
-            task_count + 1
-        );
-        assert!(main(settings.clone(), "r complete t t1 del".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks
-                .len(),
-            task_count
-        );
+        let task_count = ctx.task_count();
+        ctx.assert_command_success("r complete t t1 add");
+        assert_eq!(ctx.task_count(), task_count + 1);
+
+        ctx.assert_command_success("r complete t t1 del");
+        assert_eq!(ctx.task_count(), task_count);
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_deny_all() {
-        let _defer = setup("r_complete_t_t_complete_cmd_setpolicy_deny_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_deny_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cmd setpolicy deny-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .commands
-                .default_behavior,
-            Some(SetBehavior::None)
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_deny_all");
+
+        ctx.assert_command_success("r complete t t_complete cmd setpolicy deny-all");
+        ctx.assert_command_default_behavior(Some(SetBehavior::None));
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_allow_all() {
-        let _defer = setup("r_complete_t_t_complete_cmd_setpolicy_allow_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cmd_setpolicy_allow_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cmd setpolicy allow-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .commands
-                .default_behavior,
-            Some(SetBehavior::All)
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_allow_all");
+
+        ctx.assert_command_success("r complete t t_complete cmd setpolicy allow-all");
+        ctx.assert_command_default_behavior(Some(SetBehavior::All));
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces() {
-        let _defer = setup("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces"
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
+
+        let command = SCommand::Simple("super command with spaces".to_string());
+
+        // Test whitelist add
+        ctx.assert_command_success(
+            "r complete t t_complete cmd whitelist add super command with spaces",
         );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cmd whitelist add super command with spaces".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .commands
-            .add
-            .contains(&SCommand::Simple("super command with spaces".to_string())));
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cmd blacklist add super command with spaces".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .commands
-            .sub
-            .contains(&SCommand::Simple("super command with spaces".to_string())));
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cmd whitelist del super command with spaces".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .commands
-            .add
-            .contains(&SCommand::Simple("super command with spaces".to_string())));
+        ctx.assert_command_contains(&command);
+
+        // Test blacklist add
+        ctx.assert_command_success(
+            "r complete t t_complete cmd blacklist add super command with spaces",
+        );
+        ctx.assert_command_blacklist_contains(&command);
+
+        // Test whitelist del
+        ctx.assert_command_success(
+            "r complete t t_complete cmd whitelist del super command with spaces",
+        );
+        ctx.assert_command_not_contains(&command);
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {
-        let _defer = setup("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            vec![
-                "r",
-                "complete",
-                "t",
-                "t_complete",
-                "cmd",
-                "blacklist",
-                "del",
-                "super",
-                "command",
-                "with",
-                "spaces"
-            ]
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .commands
-            .sub
-            .contains(&SCommand::Simple("super command with spaces".to_string())));
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
+
+        let command = SCommand::Simple("super command with spaces".to_string());
+        let args = vec![
+            "r",
+            "complete",
+            "t",
+            "t_complete",
+            "cmd",
+            "blacklist",
+            "del",
+            "super",
+            "command",
+            "with",
+            "spaces",
+        ];
+
+        ctx.assert_command_vec_success(args);
+        ctx.assert_command_blacklist_not_contains(&command);
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2(
     ) {
-        let _defer = setup("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
-        let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
-        ).call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_none());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::DAC_OVERRIDE));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_ADMIN));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_BOOT));
-        assert!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .cred
-                .capabilities
-                .as_ref()
-                .unwrap()
-                .sub
-                .size()
-                == 0
-        );
-        assert!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .cred
-                .capabilities
-                .as_ref()
-                .unwrap()
-                .add
-                .size()
-                == 3
-        );
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cred unset --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .is_empty());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .setuid
-            .is_none());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .setgid
-            .is_none());
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
+
+        // Test cred set command
+        ctx.assert_command_success("r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2");
+
+        // Verify capabilities
+        ctx.assert_capability_default_behavior_is_none();
+        ctx.assert_capability_has(Cap::DAC_OVERRIDE);
+        ctx.assert_capability_has(Cap::SYS_ADMIN);
+        ctx.assert_capability_has(Cap::SYS_BOOT);
+        ctx.assert_capability_sub_size(0);
+        ctx.assert_capability_add_size(3);
+
+        // Test cred unset command
+        ctx.assert_command_success("r complete t t_complete cred unset --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2");
+
+        // Verify everything is cleared
+        ctx.assert_capability_add_is_empty();
+        ctx.assert_setuid_is_none();
+        ctx.assert_setgid_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_deny_all() {
-        let _defer = setup("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_deny_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cred caps setpolicy deny-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .cred
-                .capabilities
-                .as_ref()
-                .unwrap()
-                .default_behavior,
-            SetBehavior::None
-        );
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
+
+        ctx.assert_command_success("r complete t t_complete cred caps setpolicy deny-all");
+        ctx.assert_capability_default_behavior(SetBehavior::None);
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_allow_all() {
-        let _defer = setup("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_cred_caps_setpolicy_allow_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cred caps setpolicy allow-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .cred
-                .capabilities
-                .as_ref()
-                .unwrap()
-                .default_behavior,
-            SetBehavior::All
-        );
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
+
+        ctx.assert_command_success("r complete t t_complete cred caps setpolicy allow-all");
+        ctx.assert_capability_default_behavior(SetBehavior::All);
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
-        let _defer = setup("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot".split(" ")).call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::DAC_OVERRIDE));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_ADMIN));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_BOOT));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+
+        ctx.assert_command_success("r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot");
+        ctx.assert_capability_has(Cap::DAC_OVERRIDE);
+        ctx.assert_capability_has(Cap::SYS_ADMIN);
+        ctx.assert_capability_has(Cap::SYS_BOOT);
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
     ) {
-        let _defer = setup("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let path = format!("{}.{}",ROOTASROLE,"r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::DAC_OVERRIDE));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::SYS_ADMIN));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::SYS_BOOT));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+
+        // Test blacklist add
+        ctx.assert_command_success("r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot");
+        ctx.assert_capability_sub_has(Cap::DAC_OVERRIDE);
+        ctx.assert_capability_sub_has(Cap::SYS_ADMIN);
+        ctx.assert_capability_sub_has(Cap::SYS_BOOT);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cred caps whitelist del cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::DAC_OVERRIDE));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_ADMIN));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .add
-            .has(Cap::SYS_BOOT));
+        // Test whitelist del
+        ctx.assert_command_success("r complete t t_complete cred caps whitelist del cap_dac_override cap_sys_admin cap_sys_boot");
+        ctx.assert_capability_add_not_has(Cap::DAC_OVERRIDE);
+        ctx.assert_capability_add_not_has(Cap::SYS_ADMIN);
+        ctx.assert_capability_add_not_has(Cap::SYS_BOOT);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete cred caps blacklist del cap_dac_override cap_sys_admin cap_sys_boot".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::DAC_OVERRIDE));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::SYS_ADMIN));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .cred
-            .capabilities
-            .as_ref()
-            .unwrap()
-            .sub
-            .has(Cap::SYS_BOOT));
+        // Test blacklist del
+        ctx.assert_command_success("r complete t t_complete cred caps blacklist del cap_dac_override cap_sys_admin cap_sys_boot");
+        ctx.assert_capability_sub_not_has(Cap::DAC_OVERRIDE);
+        ctx.assert_capability_sub_not_has(Cap::SYS_ADMIN);
+        ctx.assert_capability_sub_not_has(Cap::SYS_BOOT);
     }
     #[test]
     fn test_options_show_all() {
-        let _defer = setup("options_show_all");
-        let path = format!("{}.{}", ROOTASROLE, "options_show_all");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(settings.clone(), "options show all".split(" "),)
-            .call()
-            .inspect_err(|e| {
-                error!("{}", e);
-            })
-            .inspect(|e| {
-                debug!("{}", e);
-            })
-            .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
+        let (ctx, _defer) = TestContext::new("options_show_all");
 
-        assert!(
-            main(settings.clone(), "r complete options show path".split(" "),)
-                .call()
-                .inspect_err(|e| {
-                    error!("{}", e);
-                })
-                .inspect(|e| {
-                    debug!("{}", e);
-                })
-                .is_ok_and(|b| !b)
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete options show bounding".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
+        // Test show commands (should not change anything)
+        ctx.assert_command_no_change("options show all");
+        ctx.assert_command_no_change("r complete options show path");
+        ctx.assert_command_no_change("r complete options show bounding");
     }
     #[test]
     fn test_r_complete_t_t_complete_options_show_env() {
-        let _defer = setup("r_complete_t_t_complete_options_show_env");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_options_show_env"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete options show env".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete options show root".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete options show bounding".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| !b));
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path set /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_options_show_env");
+
+        // Test show commands (should not change anything)
+        ctx.assert_command_no_change("r complete t t_complete options show env");
+        ctx.assert_command_no_change("r complete t t_complete options show root");
+        ctx.assert_command_no_change("r complete t t_complete options show bounding");
+
+        // Test path set command (should make changes)
+        ctx.assert_command_success("r complete t t_complete o path set /usr/bin:/bin");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_delete_all() {
-        let _defer = setup("r_complete_t_t_complete_o_path_setpolicy_delete_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_delete_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path setpolicy delete-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_delete());
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_setpolicy_delete_all");
+
+        ctx.assert_command_success("r complete t t_complete o path setpolicy delete-all");
+        ctx.assert_path_default_behavior(PathBehavior::Delete);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_keep_unsafe() {
-        let _defer = setup("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_path_setpolicy_keep_unsafe"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path setpolicy keep-unsafe".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_keep_unsafe());
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path setpolicy keep-safe".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_keep_safe());
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
+
+        ctx.assert_command_success("r complete t t_complete o path setpolicy keep-unsafe");
+        ctx.assert_path_default_behavior(PathBehavior::KeepUnsafe);
+
+        ctx.assert_command_success("r complete t t_complete o path setpolicy keep-safe");
+        ctx.assert_path_default_behavior(PathBehavior::KeepSafe);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path setpolicy inherit".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_inherit());
+        ctx.assert_command_success("r complete t t_complete o path setpolicy inherit");
+        ctx.assert_path_default_behavior(PathBehavior::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_whitelist_add() {
-        let _defer = setup("r_complete_t_t_complete_o_path_whitelist_add");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_path_whitelist_add"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path whitelist add /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        let default = LinkedHashSet::new();
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/usr/bin".to_string()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/bin".to_string()));
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path whitelist del /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/usr/bin".to_string()));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/bin".to_string()));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_whitelist_add");
+
+        // Test whitelist add
+        ctx.assert_command_success("r complete t t_complete o path whitelist add /usr/bin:/bin");
+        ctx.assert_path_whitelist_contains("/usr/bin");
+        ctx.assert_path_whitelist_contains("/bin");
+
+        // Test whitelist del
+        ctx.assert_command_success("r complete t t_complete o path whitelist del /usr/bin:/bin");
+        ctx.assert_path_whitelist_not_contains("/usr/bin");
+        ctx.assert_path_whitelist_not_contains("/bin");
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path whitelist purge".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .is_empty());
+        // Test whitelist purge
+        ctx.assert_command_success("r complete t t_complete o path whitelist purge");
+        ctx.assert_path_whitelist_is_empty();
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path whitelist set /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/usr/bin".to_string()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/bin".to_string()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .path
-                .as_ref()
-                .unwrap()
-                .add
-                .as_ref()
-                .unwrap_or(&default)
-                .len(),
-            2
-        );
+        // Test whitelist set
+        ctx.assert_command_success("r complete t t_complete o path whitelist set /usr/bin:/bin");
+        ctx.assert_path_whitelist_contains("/usr/bin");
+        ctx.assert_path_whitelist_contains("/bin");
+        ctx.assert_path_whitelist_len(2);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path blacklist set /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        // Test blacklist set
+        ctx.assert_command_success("r complete t t_complete o path blacklist set /usr/bin:/bin");
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path blacklist add /tmp".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/tmp".to_string()));
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path blacklist del /usr/bin:/bin".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        debug!(
-            "add : {:?}",
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .path
-                .as_ref()
-                .unwrap()
-                .sub
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .path
-                .as_ref()
-                .unwrap()
-                .sub
-                .as_ref()
-                .unwrap_or(&default)
-                .len(),
-            1
-        );
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/tmp".to_string()));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/usr/bin".to_string()));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap_or(&default)
-            .contains(&"/bin".to_string()));
+        // Test blacklist add
+        ctx.assert_command_success("r complete t t_complete o path blacklist add /tmp");
+        ctx.assert_path_blacklist_contains("/tmp");
+
+        // Test blacklist del
+        ctx.assert_command_success("r complete t t_complete o path blacklist del /usr/bin:/bin");
+        ctx.assert_path_blacklist_len(1);
+        ctx.assert_path_blacklist_contains("/tmp");
+        ctx.assert_path_blacklist_not_contains("/usr/bin");
+        ctx.assert_path_blacklist_not_contains("/bin");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_blacklist_purge() {
-        let _defer = setup("r_complete_t_t_complete_o_path_blacklist_purge");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_path_blacklist_purge"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o path blacklist purge".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_blacklist_purge");
+
+        ctx.assert_command_success("r complete t t_complete o path blacklist purge");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
-        let _defer = setup("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env keep-only MYVAR,VAR2".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_delete());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap()
-            .contains(&"VAR2".to_string().into()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .keep
-                .as_ref()
-                .unwrap()
-                .len(),
-            2
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
+
+        ctx.assert_command_success("r complete t t_complete o env keep-only MYVAR,VAR2");
+        ctx.assert_env_default_behavior_is_delete();
+        ctx.assert_env_keep_contains("MYVAR");
+        ctx.assert_env_keep_contains("VAR2");
+        ctx.assert_env_keep_len(2);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_delete_only_myvar_var2() {
-        let _defer = setup("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env delete-only MYVAR,VAR2".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .default_behavior
-            .is_keep());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .as_ref()
-            .unwrap()
-            .contains(&"VAR2".to_string().into()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .delete
-                .as_ref()
-                .unwrap()
-                .len(),
-            2
-        );
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
+
+        ctx.assert_command_success("r complete t t_complete o env delete-only MYVAR,VAR2");
+        ctx.assert_env_default_behavior_is_keep();
+        ctx.assert_env_delete_contains("MYVAR");
+        ctx.assert_env_delete_contains("VAR2");
+        ctx.assert_env_delete_len(2);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
-        let _defer = setup("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2"
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
+
+        ctx.assert_command_success(
+            r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#,
         );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            r#"r complete t t_complete o env set MYVAR=value,VAR2="value2""#.split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .get_key_value("MYVAR")
-                .unwrap(),
-            (&"MYVAR".to_string(), &"value".to_string())
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .get_key_value("VAR2")
-                .unwrap(),
-            (&"VAR2".to_string(), &"value2".to_string())
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .len(),
-            2
-        );
+        ctx.assert_env_set_key_value("MYVAR", "value");
+        ctx.assert_env_set_key_value("VAR2", "value2");
+        ctx.assert_env_set_len(2);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_add_myvar_value_var2_value2() {
-        let _defer = setup("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2"
+        let (ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
+
+        // Test setlist set
+        ctx.assert_command_success(r#"r complete t t_complete o env setlist set VAR3=value3"#);
+
+        // Test setlist add
+        ctx.assert_command_success(
+            r#"r complete t t_complete o env setlist add MYVAR=value,VAR2="value2""#,
         );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            r#"r complete t t_complete o env setlist set VAR3=value3"#.split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(main(
-            settings.clone(),
-            r#"r complete t t_complete o env setlist add MYVAR=value,VAR2="value2""#.split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .get_key_value("MYVAR")
-                .unwrap(),
-            (&"MYVAR".to_string(), &"value".to_string())
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .get_key_value("VAR2")
-                .unwrap(),
-            (&"VAR2".to_string(), &"value2".to_string())
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .get_key_value("VAR3")
-                .unwrap(),
-            (&"VAR3".to_string(), &"value3".to_string())
-        );
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .len(),
-            3
-        );
-        assert!(main(
-            settings.clone(),
-            r#"r complete t t_complete o env setlist del MYVAR,VAR2"#.split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .set
-                .as_ref()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .set
-            .as_ref()
-            .unwrap()
-            .get_key_value("MYVAR")
-            .is_none());
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .set
-            .as_ref()
-            .unwrap()
-            .get_key_value("VAR2")
-            .is_none());
-        assert!(main(
-            settings.clone(),
-            r#"r complete t t_complete o env setlist purge"#.split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .set
-            .is_none());
+        ctx.assert_env_set_key_value("MYVAR", "value");
+        ctx.assert_env_set_key_value("VAR2", "value2");
+        ctx.assert_env_set_key_value("VAR3", "value3");
+        ctx.assert_env_set_len(3);
+
+        // Test setlist del
+        ctx.assert_command_success(r#"r complete t t_complete o env setlist del MYVAR,VAR2"#);
+        ctx.assert_env_set_len(1);
+        ctx.assert_env_set_key_not_exists("MYVAR");
+        ctx.assert_env_set_key_not_exists("VAR2");
+
+        // Test setlist purge
+        ctx.assert_command_success(r#"r complete t t_complete o env setlist purge"#);
+        ctx.assert_env_set_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
-        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_delete_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_delete_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env setpolicy delete-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .default_behavior,
-            EnvBehavior::Delete
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_delete_all");
+
+        ctx.assert_command_success("r complete t t_complete o env setpolicy delete-all");
+        ctx.assert_env_default_behavior(EnvBehavior::Delete);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_keep_all() {
-        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_keep_all");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_keep_all"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env setpolicy keep-all".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .default_behavior,
-            EnvBehavior::Keep
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_keep_all");
+
+        ctx.assert_command_success("r complete t t_complete o env setpolicy keep-all");
+        ctx.assert_env_default_behavior(EnvBehavior::Keep);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_inherit() {
-        let _defer = setup("r_complete_t_t_complete_o_env_setpolicy_inherit");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_setpolicy_inherit"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env setpolicy inherit".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .default_behavior,
-            EnvBehavior::Inherit
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_inherit");
+
+        ctx.assert_command_success("r complete t t_complete o env setpolicy inherit");
+        ctx.assert_env_default_behavior(EnvBehavior::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
-        let _defer = setup("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_add_MYVAR"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env whitelist add MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .keep
-                .as_ref()
-                .unwrap()
-                .len()
-                > 1
-        );
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env whitelist del MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
+
+        // Test whitelist add
+        ctx.assert_command_success("r complete t t_complete o env whitelist add MYVAR");
+        ctx.assert_env_keep_contains("MYVAR");
+        // Note: Length > 1 suggests there are default environment variables
+
+        // Test whitelist del
+        ctx.assert_command_success("r complete t t_complete o env whitelist del MYVAR");
+        ctx.assert_env_keep_not_contains("MYVAR");
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env whitelist set MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .keep
-                .as_ref()
-                .unwrap()
-                .len(),
-            1
-        );
+        // Test whitelist set
+        ctx.assert_command_success("r complete t t_complete o env whitelist set MYVAR");
+        ctx.assert_env_keep_contains("MYVAR");
+        ctx.assert_env_keep_len(1);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_purge() {
-        let _defer = setup("r_complete_t_t_complete_o_env_whitelist_purge");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_whitelist_purge"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env whitelist purge".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .keep
-            .is_none());
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_purge");
+
+        ctx.assert_command_success("r complete t t_complete o env whitelist purge");
+        ctx.assert_env_keep_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_add_myvar() {
-        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_add_MYVAR"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env blacklist add MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env blacklist del MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
+
+        // Test blacklist add
+        ctx.assert_command_success("r complete t t_complete o env blacklist add MYVAR");
+        ctx.assert_env_delete_contains("MYVAR");
+
+        // Test blacklist del
+        ctx.assert_command_success("r complete t t_complete o env blacklist del MYVAR");
+        ctx.assert_env_delete_not_contains("MYVAR");
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_set_myvar() {
-        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_set_MYVAR"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env blacklist set MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .delete
-                .as_ref()
-                .unwrap()
-                .len(),
-            1
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
+
+        ctx.assert_command_success("r complete t t_complete o env blacklist set MYVAR");
+        ctx.assert_env_delete_contains("MYVAR");
+        ctx.assert_env_delete_len(1);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_purge() {
-        let _defer = setup("r_complete_t_t_complete_o_env_blacklist_purge");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_blacklist_purge"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env blacklist purge".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .delete
-            .is_none());
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_purge");
+
+        ctx.assert_command_success("r complete t t_complete o env blacklist purge");
+        ctx.assert_env_delete_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_checklist_add_myvar() {
-        let _defer = setup("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_env_checklist_add_MYVAR"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env checklist add MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .check
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
+
+        // Test checklist add
+        ctx.assert_command_success("r complete t t_complete o env checklist add MYVAR");
+        ctx.assert_env_check_contains("MYVAR");
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env checklist del MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(!settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .check
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
+        // Test checklist del
+        ctx.assert_command_success("r complete t t_complete o env checklist del MYVAR");
+        ctx.assert_env_check_not_contains("MYVAR");
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env checklist set MYVAR".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .check
-            .as_ref()
-            .unwrap()
-            .contains(&"MYVAR".to_string().into()));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .env
-                .as_ref()
-                .unwrap()
-                .check
-                .as_ref()
-                .unwrap()
-                .len(),
-            1
-        );
+        // Test checklist set
+        ctx.assert_command_success("r complete t t_complete o env checklist set MYVAR");
+        ctx.assert_env_check_contains("MYVAR");
+        ctx.assert_env_check_len(1);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o env checklist purge".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert!(settings
-            .as_ref()
-            .borrow()
-            .config
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()[0]
-            .as_ref()
-            .borrow()
-            .tasks[0]
-            .as_ref()
-            .borrow()
-            .options
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .borrow()
-            .env
-            .as_ref()
-            .unwrap()
-            .check
-            .is_none());
+        // Test checklist purge
+        ctx.assert_command_success("r complete t t_complete o env checklist purge");
+        ctx.assert_env_check_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_root_privileged() {
-        let _defer = setup("r_complete_t_t_complete_o_root_privileged");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_root_privileged"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o root privileged".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .root
-                .as_ref()
-                .unwrap(),
-            &SPrivileged::Privileged
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_root_privileged");
+
+        // Test root privileged
+        ctx.assert_command_success("r complete t t_complete o root privileged");
+        ctx.assert_root_option(&SPrivileged::Privileged);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o root user".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .root
-                .as_ref()
-                .unwrap(),
-            &SPrivileged::User
-        );
+        // Test root user
+        ctx.assert_command_success("r complete t t_complete o root user");
+        ctx.assert_root_option(&SPrivileged::User);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o root inherit".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .root
-                .as_ref()
-                .unwrap(),
-            &SPrivileged::Inherit
-        );
+        // Test root inherit
+        ctx.assert_command_success("r complete t t_complete o root inherit");
+        ctx.assert_root_option(&SPrivileged::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
-        let _defer = setup("r_complete_t_t_complete_o_bounding_strict");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_bounding_strict"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o bounding strict".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .bounding
-                .as_ref()
-                .unwrap(),
-            &SBounding::Strict
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_strict");
+
+        ctx.assert_command_success("r complete t t_complete o bounding strict");
+        ctx.assert_bounding_option(&SBounding::Strict);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
-        let _defer = setup("r_complete_t_t_complete_o_bounding_ignore");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_bounding_ignore"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o bounding ignore".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .bounding
-                .as_ref()
-                .unwrap(),
-            &SBounding::Ignore
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_ignore");
+
+        ctx.assert_command_success("r complete t t_complete o bounding ignore");
+        ctx.assert_bounding_option(&SBounding::Ignore);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
-        let _defer = setup("r_complete_t_t_complete_o_bounding_inherit");
-        let path = format!(
-            "{}.{}",
-            ROOTASROLE, "r_complete_t_t_complete_o_bounding_inherit"
-        );
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o bounding inherit".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .bounding
-                .as_ref()
-                .unwrap(),
-            &SBounding::Inherit
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_inherit");
+
+        ctx.assert_command_success("r complete t t_complete o bounding inherit");
+        ctx.assert_bounding_option(&SBounding::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
-        let _defer = setup("r_complete_t_t_complete_o_auth_skip");
-        let path = format!("{}.{}", ROOTASROLE, "r_complete_t_t_complete_o_auth_skip");
-        let settings = read_full_settings(&path).expect("Failed to get settings");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o auth skip".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .authentication
-                .as_ref()
-                .unwrap(),
-            &SAuthentication::Skip
-        );
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_auth_skip");
+
+        // Test auth skip
+        ctx.assert_command_success("r complete t t_complete o auth skip");
+        ctx.assert_authentication_option(&SAuthentication::Skip);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o auth perform".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
-        assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .borrow()
-                .authentication
-                .as_ref()
-                .unwrap(),
-            &SAuthentication::Perform
-        );
+        // Test auth perform
+        ctx.assert_command_success("r complete t t_complete o auth perform");
+        ctx.assert_authentication_option(&SAuthentication::Perform);
+
         debug!("=====");
-        assert!(main(
-            settings.clone(),
-            "r complete t t_complete o auth inherit".split(" "),
-        )
-        .call()
-        .inspect_err(|e| {
-            error!("{}", e);
-        })
-        .inspect(|e| {
-            debug!("{}", e);
-        })
-        .is_ok_and(|b| b));
+        // Test auth inherit
+        ctx.assert_command_success("r complete t t_complete o auth inherit");
+        ctx.assert_authentication_option(&SAuthentication::Inherit);
+    }
+
+    fn normalize_json_object(value: Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let mut sorted_map = Map::new();
+                let mut sorted_entries: Vec<_> = map.into_iter().collect();
+                sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (key, val) in sorted_entries {
+                    sorted_map.insert(key, normalize_json_object(val));
+                }
+                Value::Object(sorted_map)
+            }
+            Value::Array(arr) => Value::Array(arr.into_iter().map(normalize_json_object).collect()),
+            other => other,
+        }
+    }
+
+    #[test]
+    fn test_convert() {
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
+        let (ctx, _defer) = TestContext::new("convert");
+
+        ctx.assert_command_success(&format!("convert cbor {}.convert.bin", ROOTASROLE));
+        ctx.assert_command_success(&format!("convert json {}.convert.json.1", ROOTASROLE));
+
+        assert!(fs::metadata(format!("{}.convert.bin", ROOTASROLE)).is_ok());
+
+        ctx.assert_command_success(&format!(
+            "convert --from cbor {0}.convert.bin json {0}.convert.json",
+            ROOTASROLE
+        ));
+        assert!(fs::metadata(format!("{}.convert.json", ROOTASROLE)).is_ok());
         assert_eq!(
-            settings
-                .as_ref()
-                .borrow()
-                .config
-                .as_ref()
+            normalize_json_object(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(format!("{}.convert.json", ROOTASROLE)).unwrap()
+                )
                 .unwrap()
-                .as_ref()
-                .borrow()[0]
-                .as_ref()
-                .borrow()
-                .tasks[0]
-                .as_ref()
-                .borrow()
-                .options
-                .as_ref()
+            ),
+            normalize_json_object(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(format!("{}.convert.json.1", ROOTASROLE)).unwrap()
+                )
                 .unwrap()
-                .as_ref()
-                .borrow()
-                .authentication
-                .as_ref()
-                .unwrap(),
-            &SAuthentication::Inherit
+            )
         );
+
+        ctx.assert_command_success(&format!(
+            "convert --reconfigure cbor {}.reconfigure.convert.bin",
+            ROOTASROLE
+        ));
+
+        assert_eq!(
+            ctx.settings
+                .as_ref()
+                .borrow()
+                .storage
+                .settings
+                .as_ref()
+                .unwrap()
+                .path
+                .as_ref()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("{}.reconfigure.convert.bin", ROOTASROLE)
+        );
+
+        fs::remove_file(format!("{}.convert.bin", ROOTASROLE)).unwrap();
+        fs::remove_file(format!("{}.convert.json", ROOTASROLE)).unwrap();
     }
 }

@@ -125,7 +125,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field<'a> {
+            #[serde(alias = "o")]
             Options,
+            #[serde(alias = "r")]
             Roles,
             #[serde(untagged, borrow)]
             #[allow(dead_code)]
@@ -1233,8 +1235,11 @@ impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field {
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
+            #[serde(alias = "a")]
             Add,
+            #[serde(alias = "s", alias = "sub", alias = "del")]
             Del,
         }
         #[derive(Default)]
@@ -1381,7 +1386,7 @@ impl<'de: 'a, 'a> serde::de::Visitor<'de> for DCommandListDeserializer<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field {
-            #[serde(alias = "d")]
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
             #[serde(alias = "a")]
             Add,

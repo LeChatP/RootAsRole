@@ -998,7 +998,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "rootasrole"
-version = "3.2.3"
+version = "3.2.4"
 dependencies = [
  "bon",
  "capctl",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "rootasrole-core"
-version = "3.2.3"
+version = "3.2.4"
 dependencies = [
  "bitflags 2.9.3",
  "bon",
@@ -1054,6 +1054,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_test",
  "strum",
  "syslog",
  "test-log",
@@ -1152,6 +1153,15 @@ name = "serde_spanned"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_test"
+version = "1.0.177"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f901ee573cab6b3060453d2d5f0bae4e6d628c23c0a962ff9b5f1d7c8d4f1ed"
 dependencies = [
  "serde",
 ]
@@ -1748,7 +1758,7 @@ checksum = "052283831dbae3d879dc7f51f3d92703a316ca49f91540417d38591826127814"
 
 [[package]]
 name = "xtask"
-version = "3.2.3"
+version = "3.2.4"
 dependencies = [
  "anyhow",
  "capctl",

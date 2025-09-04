@@ -1,4 +1,4 @@
-% RootAsRole(8) RootAsRole 3.2.3 | Manuel de l'administrateur système
+% RootAsRole(8) RootAsRole 3.2.4 | Manuel de l'administrateur système
 % Eddie Billoir <lechatp@outlook.fr>
 % Août 2025
 

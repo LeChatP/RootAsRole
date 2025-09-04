@@ -561,16 +561,8 @@ pub fn retrieve_sconfig(
 ) -> Result<Rc<RefCell<SConfig>>, Box<dyn Error>> {
     let file = read_with_privileges(path)?;
     let value: Versioning<Rc<RefCell<SConfig>>> = match file_type {
-        StorageMethod::JSON => serde_json::from_reader(file)
-            .inspect_err(|e| {
-                debug!("Error reading file: {}", e);
-            })
-            .unwrap_or_default(),
-        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-            .inspect_err(|e| {
-                debug!("Error reading file: {}", e);
-            })
-            .unwrap_or_default(),
+        StorageMethod::JSON => serde_json::from_reader(file)?,
+        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))?,
     };
     make_weak_config(&value.data);
     //read_effective(false).or(dac_override_effective(false))?;

@@ -89,9 +89,18 @@ impl Default for Cookiev1 {
     }
 }
 
+const MAX_RETRIES: u32 = match u32::from_str_radix(env!("RAR_MAX_LOCKFILE_RETRIES"), 10) {
+    Ok(v) => v,
+    Err(_) => panic!("Bad value"),
+};
+const RETRY_INTERVAL: time::Duration = time::Duration::from_millis(
+    match u64::from_str_radix(env!("RAR_LOCKFILE_RETRY_INTERVAL"), 10) {
+        Ok(v) => v,
+        Err(_) => panic!("Bad value"),
+    },
+);
+
 fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
-    let max_retries = 10;
-    let retry_interval = time::Duration::from_secs(1);
     let pid_contents: pid_t;
     if lockfile_path.exists() {
         if let Ok(mut lockfile) = read_with_privileges(lockfile_path) {
@@ -125,17 +134,17 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    for i in 0..max_retries {
+    for i in 0..MAX_RETRIES {
         if lockfile_path.exists() {
             if i > 0 {
                 print!("\r");
             }
             println!(
-                "Lockfile exists, waiting {} seconds{}",
+                "Lockfile exists, waiting {} ms {}",
                 i,
                 ".".repeat(i as usize % 3 + 1)
             );
-            sleep(retry_interval);
+            sleep(RETRY_INTERVAL);
         } else {
             debug!("Lockfile not found, continuing...");
             return Ok(());
@@ -158,7 +167,7 @@ fn write_lockfile(lockfile_path: &Path) {
 }
 
 #[cfg(not(test))]
-const TS_LOCATION: &str = "/var/run/rar/ts";
+const TS_LOCATION: &str = env!("RAR_TIMEOUT_STORAGE");
 #[cfg(test)]
 const TS_LOCATION: &str = "target/ts";
 

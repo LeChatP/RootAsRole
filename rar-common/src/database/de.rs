@@ -1,15 +1,19 @@
 use core::fmt;
 use std::str::FromStr;
 
-use serde::Deserialize;
+use log::debug;
+use serde::{de::DeserializeSeed, Deserialize};
 
-use crate::database::structs::{SCommand, SetBehavior};
+use crate::database::{
+    actor::SGroups,
+    structs::{SCommand, SSetgidSet, SetBehavior},
+};
 
 use super::{
     actor::SGenericActorType,
     structs::{SCapabilities, SCommands},
 };
-use capctl::CapSet;
+use capctl::{Cap, CapSet};
 use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
     Deserializer,
@@ -35,12 +39,14 @@ impl<'de> Deserialize<'de> for SetBehavior {
             where
                 E: de::Error,
             {
+                debug!("de_setbehavior: visit_str");
                 value.parse().map_err(de::Error::custom)
             }
             fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
+                debug!("de_setbehavior: visit_i32");
                 SetBehavior::from_repr(v as u32).ok_or(de::Error::custom(format!(
                     "Invalid value for SetBehavior: {}",
                     v
@@ -101,7 +107,7 @@ impl<'de> Deserialize<'de> for SetBehavior {
                 self.visit_i32(v as i32)
             }
         }
-
+        debug!("de_setbehavior: deserialize");
         deserializer.deserialize_any(SetBehaviorVisitor)
     }
 }
@@ -114,17 +120,14 @@ impl<'de> Deserialize<'de> for SCapabilities {
         struct SCapabilitiesVisitor;
 
         #[derive(Deserialize, Display)]
-        #[serde(rename_all = "kebab-case")]
-        #[repr(u8)]
+        #[serde(field_identifier, rename_all = "kebab-case")]
         enum Field {
-            #[serde(alias = "d")]
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
             #[serde(alias = "a")]
             Add,
             #[serde(alias = "del", alias = "s")]
             Sub,
-            #[serde(untagged)]
-            Other(String),
         }
 
         impl<'de> Visitor<'de> for SCapabilitiesVisitor {
@@ -132,6 +135,18 @@ impl<'de> Deserialize<'de> for SCapabilities {
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("an array of strings or a map with SCapabilities fields")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let set = SetBehavior::from_str(v).map_err(de::Error::custom)?;
+                Ok(SCapabilities {
+                    default_behavior: set,
+                    add: CapSet::default(),
+                    sub: CapSet::default(),
+                })
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -167,25 +182,10 @@ impl<'de> Deserialize<'de> for SCapabilities {
                                 .expect("default entry must be either 'all' or 'none'");
                         }
                         Field::Add => {
-                            let values: Vec<String> =
-                                map.next_value().expect("add entry must be a list");
-                            for value in values {
-                                add.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
+                            add = map.next_value_seed(CapSetDeserializer)?;
                         }
                         Field::Sub => {
-                            let values: Vec<String> =
-                                map.next_value().expect("sub entry must be a list");
-                            for value in values {
-                                sub.add(value.parse().map_err(|_| {
-                                    de::Error::custom(format!("Invalid capability: {}", value))
-                                })?);
-                            }
-                        }
-                        Field::Other(other) => {
-                            _extra_fields.insert(other.to_string(), map.next_value()?);
+                            sub = map.next_value_seed(CapSetDeserializer)?;
                         }
                     }
                 }
@@ -197,8 +197,159 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 })
             }
         }
-
+        debug!("de_scapabilities: deserialize");
         deserializer.deserialize_any(SCapabilitiesVisitor)
+    }
+}
+
+struct CapSetDeserializer;
+
+impl<'de> DeserializeSeed<'de> for CapSetDeserializer {
+    type Value = CapSet;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct CapSetVisitor;
+
+        impl<'de> Visitor<'de> for CapSetVisitor {
+            type Value = CapSet;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an array of capability strings")
+            }
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(CapSet::from_bitmask_truncate(v))
+            }
+            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut capset = CapSet::default();
+                let mut seq = seq;
+                while let Some(cap) = seq.next_element_seed(CapDeserializer)? {
+                    capset.add(cap);
+                }
+                Ok(capset)
+            }
+        }
+        debug!("de_capset: deserialize");
+        deserializer.deserialize_any(CapSetVisitor)
+    }
+}
+
+struct CapDeserializer;
+
+impl<'de> DeserializeSeed<'de> for CapDeserializer {
+    type Value = Cap;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct CapVisitor;
+
+        impl<'de> Visitor<'de> for CapVisitor {
+            type Value = Cap;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a capability string")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let v = v.to_uppercase();
+                if v.starts_with("CAP_") {
+                    v.parse().map_err(de::Error::custom)
+                } else {
+                    format!("CAP_{}", v).parse().map_err(de::Error::custom)
+                }
+            }
+        }
+        debug!("de_cap: deserialize");
+        deserializer.deserialize_any(CapVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for SSetgidSet {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SSetgidSetVisitor;
+
+        #[derive(Deserialize, Display)]
+        #[serde(field_identifier, rename_all = "kebab-case")]
+        enum Field {
+            #[serde(alias = "d", alias = "default_behavior")]
+            Default,
+            #[serde(alias = "f")]
+            Fallback,
+            #[serde(alias = "a")]
+            Add,
+            #[serde(alias = "del", alias = "s")]
+            Sub,
+        }
+
+        impl<'de> Visitor<'de> for SSetgidSetVisitor {
+            type Value = SSetgidSet;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a map")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut default_behavior = SetBehavior::None;
+                let mut add = Vec::new();
+                let mut sub = Vec::new();
+                let mut fallback = None;
+
+                while let Some(key) = map.next_key::<Field>()? {
+                    match key {
+                        Field::Default => {
+                            default_behavior = map
+                                .next_value()
+                                .expect("default entry must be either 'all' or 'none'");
+                        }
+                        Field::Fallback => {
+                            fallback.replace(map.next_value::<SGroups>()?);
+                        }
+                        Field::Add => {
+                            let values: Vec<SGroups> =
+                                map.next_value().expect("add entry must be a list");
+                            add.extend(values);
+                        }
+                        Field::Sub => {
+                            let values: Vec<SGroups> =
+                                map.next_value().expect("sub entry must be a list");
+                            sub.extend(values);
+                        }
+                    }
+                }
+                if fallback.is_none() {
+                    return Err(de::Error::custom(
+                        "Missing required field 'fallback' in SSetgidSet",
+                    ));
+                }
+                Ok(SSetgidSet {
+                    default_behavior,
+                    fallback: fallback.unwrap(),
+                    add,
+                    sub,
+                })
+            }
+        }
+        debug!("de_ssetgidset: deserialize");
+        deserializer.deserialize_any(SSetgidSetVisitor)
     }
 }
 
@@ -234,7 +385,7 @@ impl<'de> Deserialize<'de> for SCommands {
         #[derive(Deserialize, Display)]
         #[serde(field_identifier, rename_all = "kebab-case")]
         enum Fields {
-            #[serde(alias = "d")]
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
             #[serde(alias = "a")]
             Add,
@@ -257,7 +408,7 @@ impl<'de> Deserialize<'de> for SCommands {
             {
                 let set = SetBehavior::from_str(v).map_err(de::Error::custom)?;
                 Ok(SCommands {
-                    default_behavior: Some(set),
+                    default: Some(set),
                     add: Vec::new(),
                     sub: Vec::new(),
                     _extra_fields: Map::new(),
@@ -270,7 +421,7 @@ impl<'de> Deserialize<'de> for SCommands {
             {
                 let set = SetBehavior::from_str(&v).map_err(de::Error::custom)?;
                 Ok(SCommands {
-                    default_behavior: Some(set),
+                    default: Some(set),
                     add: Vec::new(),
                     sub: Vec::new(),
                     _extra_fields: Map::new(),
@@ -286,7 +437,7 @@ impl<'de> Deserialize<'de> for SCommands {
                     add.push(cmd);
                 }
                 Ok(SCommands {
-                    default_behavior: Some(SetBehavior::None),
+                    default: Some(SetBehavior::None),
                     add,
                     sub: Vec::new(),
                     _extra_fields: Map::new(),
@@ -327,13 +478,14 @@ impl<'de> Deserialize<'de> for SCommands {
                 }
 
                 Ok(SCommands {
-                    default_behavior,
+                    default: default_behavior,
                     add,
                     sub,
                     _extra_fields,
                 })
             }
         }
+        debug!("de_scommands: deserialize");
         deserializer.deserialize_any(SCommandsVisitor)
     }
 }
@@ -445,7 +597,7 @@ mod tests {
 
         let commands: SCommands = serde_json::from_value(json_data).unwrap();
 
-        assert_eq!(commands.default_behavior.unwrap(), SetBehavior::All);
+        assert_eq!(commands.default.unwrap(), SetBehavior::All);
         assert_eq!(commands.add.len(), 1);
         assert_eq!(commands.add[0], "/bin/ls".into());
         assert_eq!(commands.sub.len(), 1);

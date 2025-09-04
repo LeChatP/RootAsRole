@@ -26,7 +26,9 @@ coverage = [
     "tarpaulin",
     "--workspace",
     "--all-features",
-    "--all-targets",
+    "--bin", "dosr",
+    "--bin", "chsr",
+    "--lib",
     "--timeout",
     "120",
     "--exclude-files",
@@ -61,3 +63,6 @@ RAR_AUTHENTICATION = "perform"
 RAR_EXEC_INFO_DISPLAY = "hide"
 RAR_USER_CONSIDERED = "user"
 RAR_BOUNDING = "strict"
+RAR_MAX_LOCKFILE_RETRIES = "10"
+RAR_LOCKFILE_RETRY_INTERVAL = "1"
+RAR_TIMEOUT_STORAGE = "/var/run/rar/ts"
