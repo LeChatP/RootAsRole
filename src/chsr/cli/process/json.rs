@@ -241,7 +241,7 @@ pub fn task_add_del(
                 Some(TaskType::Commands) => {
                     task.as_ref().borrow_mut().commands.add.clear();
                     task.as_ref().borrow_mut().commands.sub.clear();
-                    task.as_ref().borrow_mut().commands.default_behavior = None;
+                    task.as_ref().borrow_mut().commands.default = None;
                 }
                 Some(TaskType::Credentials) => {
                     task.as_ref().borrow_mut().cred.capabilities = None;
@@ -251,7 +251,7 @@ pub fn task_add_del(
                 None | Some(TaskType::All) => {
                     task.as_ref().borrow_mut().commands.add.clear();
                     task.as_ref().borrow_mut().commands.sub.clear();
-                    task.as_ref().borrow_mut().commands.default_behavior = None;
+                    task.as_ref().borrow_mut().commands.default = None;
                     task.as_ref().borrow_mut().cred.capabilities = None;
                     task.as_ref().borrow_mut().cred.setuid = None;
                     task.as_ref().borrow_mut().cred.setgid = None;
@@ -533,7 +533,7 @@ pub fn cmd_setpolicy(
     task.as_ref()
         .borrow_mut()
         .commands
-        .default_behavior
+        .default
         .replace(cmd_policy);
     Ok(true)
 }

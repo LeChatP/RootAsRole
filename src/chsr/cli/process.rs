@@ -24,6 +24,16 @@ pub fn process_input(
     storage: &Rc<RefCell<FullSettings>>,
     inputs: Inputs,
 ) -> Result<bool, Box<dyn Error>> {
+    if inputs.action == InputAction::Convert {
+        debug!("chsr convert");
+        return convert::convert(
+            storage,
+            inputs
+                .convertion
+                .expect("Convertion data should be present"),
+            inputs.convert_reconfigure,
+        );
+    }
     let binding = storage.as_ref().borrow();
     let rconfig = binding.config.as_ref().unwrap();
     match inputs {
@@ -335,13 +345,6 @@ pub fn process_input(
             options_key_env: None,
             ..
         } => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
-
-        Inputs {
-            action: InputAction::Convert,
-            convertion: Some(convertion),
-            convert_reconfigure,
-            ..
-        } => convert::convert(storage, convertion, convert_reconfigure),
         _ => Err("Unknown Input".into()),
     }
 }

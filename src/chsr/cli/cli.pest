@@ -28,7 +28,7 @@ convert_op = { convert ~ convert_reconfigure? ~ convert_args }
 convert_args = { from? ~ to }
 from = { "--from" ~ convert_type ~ path }
 to   = { convert_type ~ path }
-convert_type = _{ "json" | "cbor" }
+convert_type = { "json" | "cbor" }
 convert_reconfigure = { "--reconfigure" | "-r" }
 
 

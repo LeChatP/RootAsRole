@@ -40,12 +40,14 @@ jobs:
 
     - name: Install Dependencies
       run: cargo xtask dependencies -dip sudo
-    
+
     - name: run integration coverage
-      run: sudo -E /usr/local/cargo/bin/cargo +nightly coverage
+      run: cargo +nightly coverage
       env:
         RAR_AUTHENTICATION: skip
         RAR_CFG_PATH: target/rootasrole.json
+        RAR_MAX_LOCKFILE_RETRIES: 2
+        RAR_LOCKFILE_RETRY_INTERVAL: 300
         SKIP_BUILD: true
 
     - name: Upload coverage reports to Codecov
@@ -54,4 +56,21 @@ jobs:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:
         file: cobertura.xml
-        flags: unittests
+        flags: unittests    
+
+    - name: run integration coverage as Root
+      run: sudo -E /usr/local/cargo/bin/cargo +nightly coverage --tests
+      env:
+        RAR_AUTHENTICATION: skip
+        RAR_CFG_PATH: target/rootasrole.json
+        RAR_MAX_LOCKFILE_RETRIES: 2
+        RAR_LOCKFILE_RETRY_INTERVAL: 300
+        SKIP_BUILD: true
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v3
+      env: 
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        file: cobertura.xml
+        flags: admin-unittests

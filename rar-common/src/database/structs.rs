@@ -50,13 +50,14 @@ where
 #[serde(rename_all = "kebab-case")]
 #[derivative(PartialEq, Eq)]
 pub struct SRole {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(alias = "n", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(alias = "a", default, skip_serializing_if = "Vec::is_empty")]
     pub actors: Vec<SActor>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(alias = "t", default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<Rc<RefCell<STask>>>,
     #[serde(
+        alias = "o",
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "srole_opt"
@@ -99,7 +100,7 @@ impl std::fmt::Display for IdTask {
 }
 
 pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
-    cmds.default_behavior
+    cmds.default
         .as_ref()
         .is_none_or(|b| *b == Default::default())
         && cmds.add.is_empty()
@@ -114,9 +115,9 @@ pub struct STask {
     pub name: IdTask,
     #[serde(alias = "p", skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
-    #[serde(alias = "i", default, skip_serializing_if = "is_default")]
+    #[serde(alias = "i", alias = "credentials", default, skip_serializing_if = "is_default")]
     pub cred: SCredentials,
-    #[serde(alias = "c", default, skip_serializing_if = "cmds_is_default")]
+    #[serde(alias = "c", alias = "cmds", default, skip_serializing_if = "cmds_is_default")]
     pub commands: SCommands,
     #[serde(
         alias = "o",
@@ -145,6 +146,7 @@ where
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 #[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
@@ -260,28 +262,20 @@ impl From<u32> for SGroupsEither {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
+#[derive(Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
-    #[serde(
-        rename = "default",
-        alias = "d",
-        default,
-        skip_serializing_if = "is_default"
-    )]
     #[builder(start_fn)]
-    pub default: SetBehavior,
-    #[serde(alias = "f")]
+    pub default_behavior: SetBehavior,
     #[builder(start_fn, into)]
     pub fallback: SGroups,
-    #[serde(default, alias = "a", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
-    #[serde(default, alias = "s", skip_serializing_if = "Vec::is_empty")]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
 }
 
 #[derive(PartialEq, Eq, Debug, Builder)]
+#[cfg_attr(test, derive(Clone))]
 pub struct SCapabilities {
     #[builder(start_fn)]
     pub default_behavior: SetBehavior,
@@ -317,9 +311,10 @@ pub enum SCommand {
     Complex(Value),
 }
 
+#[cfg_attr(test, derive(Clone))]
 #[derive(PartialEq, Eq, Debug)]
 pub struct SCommands {
-    pub default_behavior: Option<SetBehavior>,
+    pub default: Option<SetBehavior>,
     pub add: Vec<SCommand>,
     pub sub: Vec<SCommand>,
     pub _extra_fields: Map<String, Value>,
@@ -380,7 +375,7 @@ impl Default for SCredentials {
 impl Default for SCommands {
     fn default() -> Self {
         SCommands {
-            default_behavior: Some(SetBehavior::default()),
+            default: Some(SetBehavior::default()),
             add: Vec::new(),
             sub: Vec::new(),
             _extra_fields: Map::default(),
@@ -634,13 +629,13 @@ impl Index<usize> for SRole {
 impl SCommands {
     #[builder]
     pub fn new(
-        #[builder(start_fn)] default_behavior: SetBehavior,
+        #[builder(start_fn)] default: SetBehavior,
         #[builder(default, with = FromIterator::from_iter)] add: Vec<SCommand>,
         #[builder(default, with = FromIterator::from_iter)] sub: Vec<SCommand>,
         #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
     ) -> Self {
         SCommands {
-            default_behavior: Some(default_behavior),
+            default: Some(default),
             add,
             sub,
             _extra_fields,
@@ -832,7 +827,7 @@ mod tests {
         assert!(capabilities.sub.has(Cap::SYS_ADMIN));
         let commands = &as_borrow!(&role[0]).commands;
         assert_eq!(
-            *commands.default_behavior.as_ref().unwrap(),
+            *commands.default.as_ref().unwrap(),
             SetBehavior::All
         );
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
@@ -1079,7 +1074,7 @@ mod tests {
         assert!(capabilities.sub.is_empty());
         let commands = &as_borrow!(&role[0]).commands;
         assert_eq!(
-            *commands.default_behavior.as_ref().unwrap(),
+            *commands.default.as_ref().unwrap(),
             SetBehavior::All
         );
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));

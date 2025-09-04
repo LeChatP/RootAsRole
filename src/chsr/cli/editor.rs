@@ -106,7 +106,7 @@ fn warn_cmds(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommand
     });
     if cmds.add.is_empty()
         && !cmds
-            .default_behavior
+            .default
             .as_ref()
             .is_some_and(|b| *b == rar_common::database::structs::SetBehavior::All)
     {

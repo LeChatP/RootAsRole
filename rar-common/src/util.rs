@@ -185,6 +185,12 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
+pub fn optimized_serialize_capset(capset: &CapSet) -> u64 {
+    // convert capset to u64
+    let bits: u64 = capset.iter().fold(0, |acc, cap| acc | (1 << (cap as u64)));
+    bits
+}
+
 pub fn definitive_drop(needed: &[Cap]) -> Result<(), capctl::Error> {
     let capset = !CapSet::from_iter(needed.iter().cloned());
     capctl::ambient::clear()?;

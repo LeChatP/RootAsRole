@@ -8,7 +8,7 @@ use std::{
 };
 
 use log::{debug, error};
-use rar_common::{retrieve_sconfig, FullSettings, StorageMethod};
+use rar_common::{database::versionning::Versioning, retrieve_sconfig, FullSettings, StorageMethod};
 
 use crate::{cli::data::Convertion, ROOTASROLE};
 
@@ -52,6 +52,10 @@ pub fn convert(
             .clone()
             .expect("A configuration should be loaded"),
     };
+    println!(
+        "Config : {}",
+        serde_json::to_string_pretty(&Versioning::new(config.clone())).unwrap()
+    );
     if !convert_reconfigure && convertion.to != *path {
         write_config_file(&convertion, config)
     } else if convert_reconfigure {
@@ -76,7 +80,7 @@ fn write_config_file(
 ) -> Result<bool, Box<dyn Error>> {
     match convertion.to_type {
         StorageMethod::JSON => {
-            let json = serde_json::to_string_pretty(&config)?;
+            let json = serde_json::to_string_pretty(&Versioning::new(config))?;
             let file = File::create(&convertion.to)?;
             let mut writer = BufWriter::new(file);
             writer.write_all(json.as_bytes())?;
@@ -84,8 +88,8 @@ fn write_config_file(
         StorageMethod::CBOR => {
             let file = File::create(&convertion.to)?;
             let writer = BufWriter::new(file);
-            cbor4ii::serde::to_writer(writer, &config)?;
+            cbor4ii::serde::to_writer(writer, &Versioning::new(config))?;
         }
     }
-    Ok(false)
+    Ok(true)
 }
