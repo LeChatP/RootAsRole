@@ -292,7 +292,7 @@ impl DEnvOptions<'_> {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
         current_user: &Cred,
-        target: Option<User>,
+        target: &Option<User>,
         command: String,
     ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
@@ -339,7 +339,7 @@ impl DEnvOptions<'_> {
                 }
             }),
         );
-        let target_user = target.unwrap_or_else(|| current_user.user.clone());
+        let target_user = target.as_ref().unwrap_or_else(|| &current_user.user);
         final_set.insert("LOGNAME".into(), target_user.name.clone());
         final_set.insert("USER".into(), target_user.name.clone());
         final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
@@ -1092,7 +1092,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1133,7 +1133,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1175,7 +1175,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(result.is_err());
     }
 

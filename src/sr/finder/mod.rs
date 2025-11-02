@@ -9,10 +9,8 @@ use std::{
 
 use api::{register_plugins, Api, ApiEvent};
 use bon::Builder;
-use capctl::CapSet;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
-use nix::unistd::User;
 use options::BorrowedOptStack;
 use rar_common::{
     database::{
@@ -26,13 +24,12 @@ use rar_common::{
 use serde::de::DeserializeSeed;
 
 use crate::{
-    error::{SrError, SrResult},
-    Cli,
+    error::{SrError, SrResult}, finder::de::{CredOwnedData}, Cli
 };
 
-mod api;
+pub(crate) mod api;
 mod cmd;
-mod de;
+pub(crate) mod de;
 mod options;
 
 #[derive(Debug, Default, Clone, Builder)]
@@ -41,9 +38,8 @@ pub struct BestExecSettings {
     pub score: Score,
     #[builder(default)]
     pub final_path: PathBuf,
-    pub setuid: Option<u32>,
-    pub setgroups: Option<Vec<u32>>,
-    pub caps: Option<CapSet>,
+    #[builder(default)]
+    pub cred: CredOwnedData,
     pub task: Option<String>,
     #[builder(default)]
     pub role: String,
@@ -66,7 +62,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cred: &'a Cred,
     path: &'a P,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-    env_path: &[&str],
+    env_path: & [&str],
 ) -> SrResult<BestExecSettings>
 where
     P: AsRef<Path>,
@@ -154,9 +150,8 @@ impl BestExecSettings {
                 env_vars,
                 opt_stack.calc_path(env_path),
                 cred,
-                result
-                    .setuid
-                    .and_then(|x| User::from_uid(x.into()).expect("Target user do not exist")),
+                &result
+                    .cred.setuid,
                 format!(
                     "{}{}",
                     cli.cmd_path.display(),
@@ -285,12 +280,12 @@ impl BestExecSettings {
                 .map(|s| s.to_string())
                 .collect();
             self.score = score;
-            self.setuid = data.setuid.clone().and_then(|u| u.fetch_id());
-            self.setgroups = data.setgroups.clone().map(|g| match g {
-                DGroups::Single(g) => vec![g.fetch_id()].into_iter().flatten().collect(),
-                DGroups::Multiple(g) => g.iter().filter_map(|g| g.fetch_id()).collect(),
+            self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
+            self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
+                DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
+                DGroups::Multiple(g) => g.iter().filter_map(|g| g.fetch_group()).collect(),
             });
-            self.caps = data.caps;
+            self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
             debug!("resulting settings: {:?}", self);
@@ -364,6 +359,7 @@ impl BestExecSettings {
 mod tests {
     use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
+    use capctl::CapSet;
     use rar_common::database::options::{EnvBehavior, Level, SInfo};
     use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
     use rar_common::database::structs::SetBehavior;
@@ -371,6 +367,7 @@ mod tests {
     use serde_json::Value;
     use std::path::PathBuf;
 
+    use crate::finder::de::CredData;
     use crate::finder::options::{DEnvOptions, Opt};
     use crate::Cli;
     use rar_common::Cred;
@@ -396,7 +393,7 @@ mod tests {
                     .tasks(vec![
                         DTaskFinder::builder()
                             .id(IdTask::Number(0))
-                            .caps(!CapSet::empty())
+                            .cred(CredData::builder().caps(!CapSet::empty()).build())
                             .commands(
                                 DCommandList::builder(SetBehavior::None)
                                     .add(vec![DCommand::simple("/usr/bin/ls -l")])
@@ -406,7 +403,7 @@ mod tests {
                             .build(),
                         DTaskFinder::builder()
                             .id(IdTask::Number(1))
-                            .caps(CapSet::empty())
+                            .cred(CredData::builder().caps(CapSet::empty()).build())
                             .commands(
                                 DCommandList::builder(SetBehavior::None)
                                     .add(vec![
@@ -438,7 +435,7 @@ mod tests {
                     .tasks(vec![
                         DTaskFinder::builder()
                             .id(IdTask::Number(0))
-                            .caps(!CapSet::empty())
+                            .cred(CredData::builder().caps(!CapSet::empty()).build())
                             .commands(
                                 DCommandList::builder(SetBehavior::None)
                                     .add(vec![DCommand::simple("/usr/bin/ls -l")])
@@ -457,7 +454,7 @@ mod tests {
                             .build(),
                         DTaskFinder::builder()
                             .id(IdTask::Number(1))
-                            .caps(CapSet::empty())
+                            .cred(CredData::builder().caps(CapSet::empty()).build())
                             .commands(
                                 DCommandList::builder(SetBehavior::None)
                                     .add(vec![DCommand::simple("/usr/bin/ls ^.*$")])
@@ -495,9 +492,9 @@ mod tests {
         assert_eq!(settings.final_path, PathBuf::from("/usr/bin/ls"));
         assert_eq!(settings.role, "test");
         assert_eq!(settings.task, Some("0".to_string()));
-        assert!(settings.setuid.is_none());
-        assert!(settings.setgroups.is_none());
-        assert!(settings.caps.is_some());
+        assert!(settings.cred.setuid.is_none());
+        assert!(settings.cred.setgroups.is_none());
+        assert!(settings.cred.caps.is_some());
         assert!(!settings.env.is_empty());
         assert!(!settings.env_path.is_empty());
         assert!(settings.env_path.iter().all(|p| p != "/UNWANTED"));
@@ -539,7 +536,7 @@ mod tests {
         assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
         assert!(best.role == "test");
         assert!(best.task == Some("0".to_string()));
-        assert!(best.caps.is_some());
+        assert!(best.cred.caps.is_some());
         assert!(best.score.cmd_min == CmdMin::MATCH);
     }
 

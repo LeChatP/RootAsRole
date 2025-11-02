@@ -51,7 +51,7 @@ path = "tests/integration_tests.rs"
 required-features = ["finder"]
 
 [features]
-finder = ["plugins", "timeout", "pcre2", "glob", "rar-common/finder", "dep:nonstick", "dep:libpam-sys", "dep:pty-process", "dep:once_cell"]
+finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "seccomp", "rar-common/finder", "dep:nonstick", "dep:libpam-sys", "dep:pty-process", "dep:once_cell"]
 glob = ["rar-common/glob"]
 pcre2 = ["dep:pcre2", "rar-common/pcre2"]
 plugins = ["hashchecker", "ssd", "hierarchy"]
@@ -59,6 +59,8 @@ hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
 hierarchy = []
 timeout = []
+landlock = ["dep:landlock", "dep:bitflags"]
+seccomp = ["dep:libseccomp"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:linked_hash_set"]
 
 [lints.rust]
@@ -97,6 +99,7 @@ linked_hash_set = { version = "0.1", default-features = false, optional = true }
 hex = { version = "0.4", default-features = false, optional = true, features = ["alloc"]}
 landlock = { version = "0.4", optional = true }
 libseccomp = { version = "0.3", optional = true }
+bitflags = { version = "2.9", default-features = false, optional = true }
 
 [dev-dependencies]
 log = { version = "0.4", default-features = false, features = ["std"] }
