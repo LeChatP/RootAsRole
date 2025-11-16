@@ -63,7 +63,10 @@ The following example shows a RootAsRole config without plugins when almost ever
       "type": "ppid", // Type of timeout: tty, ppid, uid
       "duration": "15:30:30", // Duration of the timeout in HH:MM:SS format
       "max_usage": 1 // Maximum usage before timeout expires
-    }
+    },
+    "umask": "022", // umask value for the executed command
+    "execinfo": "show", // Allow users to see execution context: show, hide
+    "authentication": "perform" // Authentication: perform, skip
   },
   "roles": [ // Role list
     {

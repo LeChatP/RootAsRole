@@ -70,9 +70,12 @@ chsr role [role_name] options [option] [operation]
 chsr role [role_name] task [task_name] options [option] [operation]
   <b>path</b>                          Manage path settings (set, whitelist, blacklist).
   <b>env</b>                           Manage environment variable settings (set, whitelist, blacklist, checklist).
-  <b>root</b> [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (privileged, user, inherit)
-  <b>bounding</b> [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (strict, ignore, inherit)
+  <b>root</b> [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (del, privileged, user)
+  <b>bounding</b> [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (del, strict, ignore)
   <b>timeout</b>                       Manage timeout settings (set, unset).
+  <b>umask</b> [umask|del]             Set the umask execution environment (in octal format, e.g., 022, or del for removing).
+  <b>authentication</b> [policy]       Defines if user needs to authenticate (del, skip, perform).
+  <b>execinfo</b> [policy]             Defines if user can see execution settings (del, show, hide).
 
 
 <u><b>Path options:</b></u>
