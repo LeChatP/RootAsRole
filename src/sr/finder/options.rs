@@ -6,11 +6,16 @@ use bon::{bon, builder, Builder};
 use libc::PATH_MAX;
 use nix::unistd::User;
 use rar_common::database::options::{
-    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged, STimeout, SUMask
+    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
+    STimeout, SUMask,
 };
 use rar_common::database::score::SecurityMin;
 use rar_common::database::FilterMatcher;
-use rar_common::util::{ENV_PATH_BEHAVIOR,ENV_PATH_ADD_LIST_SLICE,ENV_PATH_REMOVE_LIST_SLICE,BOUNDING,PRIVILEGED,AUTHENTICATION,ENV_DEFAULT_BEHAVIOR,ENV_OVERRIDE_BEHAVIOR,ENV_KEEP_LIST,ENV_CHECK_LIST,ENV_DELETE_LIST,ENV_SET_LIST,TIMEOUT_TYPE,TIMEOUT_DURATION,TIMEOUT_MAX_USAGE,INFO,UMASK};
+use rar_common::util::{
+    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
+    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
+};
 use std::hash::Hash;
 
 #[cfg(feature = "pcre2")]

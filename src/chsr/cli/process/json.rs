@@ -77,10 +77,7 @@ fn list_task(
                             );
                         }
                         OptType::ExecInfo => {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.execinfo).unwrap()
-                            );
+                            println!("{}", serde_json::to_string_pretty(&opt.execinfo).unwrap());
                         }
                         OptType::UMask => {
                             println!("{}", serde_json::to_string_pretty(&opt.umask).unwrap());

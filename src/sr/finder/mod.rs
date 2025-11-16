@@ -15,11 +15,13 @@ use log::debug;
 use nix::unistd::User;
 use options::BorrowedOptStack;
 use rar_common::{
-    Cred, StorageMethod, database::{
+    database::{
         actor::DGroups,
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{CmdMin, CmdOrder, Score},
-    }, util::{all_paths_from_env, read_with_privileges}
+    },
+    util::{all_paths_from_env, read_with_privileges},
+    Cred, StorageMethod,
 };
 use serde::de::DeserializeSeed;
 

@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::num::ParseIntError;
+use std::result::Result;
 use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
-use std::result::Result;
 
 use bon::{bon, builder, Builder};
 use chrono::Duration;
@@ -22,12 +22,13 @@ use log::debug;
 
 use crate::rc_refcell;
 use crate::util::{
-    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK
+    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
+    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
+    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK,
 };
 
-use super::{
-    deserialize_duration, is_default, serialize_duration, FilterMatcher,
-};
+use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -263,8 +264,11 @@ impl Default for SAuthentication {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SUMask(
-    #[serde(deserialize_with = "deserialize_umask", serialize_with = "serialize_umask")]
-    pub u16
+    #[serde(
+        deserialize_with = "deserialize_umask",
+        serialize_with = "serialize_umask"
+    )]
+    pub u16,
 );
 
 impl Default for SUMask {
@@ -283,8 +287,7 @@ impl FromStr for SUMask {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        u16::from_str_radix(s, 8)
-            .map(SUMask)
+        u16::from_str_radix(s, 8).map(SUMask)
     }
 }
 
@@ -300,7 +303,9 @@ where
     D: serde::Deserializer<'de>,
 {
     let s: Cow<'de, str> = Deserialize::deserialize(deserializer)?;
-    SUMask::from_str(&s).map(|umask| umask.0).map_err(serde::de::Error::custom)
+    SUMask::from_str(&s)
+        .map(|umask| umask.0)
+        .map_err(serde::de::Error::custom)
 }
 
 impl From<SUMask> for u16 {
@@ -391,25 +396,21 @@ impl Opt {
             .execinfo(INFO)
             .umask(UMASK)
             .env(
-                SEnvOptions::builder(
-                    ENV_DEFAULT_BEHAVIOR,
-                )
-                .keep(ENV_KEEP_LIST)
-                .unwrap()
-                .check(ENV_CHECK_LIST)
-                .unwrap()
-                .delete(ENV_DELETE_LIST)
-                .unwrap()
-                .set(ENV_SET_LIST)
-                .override_behavior(ENV_OVERRIDE_BEHAVIOR)
-                .build(),
+                SEnvOptions::builder(ENV_DEFAULT_BEHAVIOR)
+                    .keep(ENV_KEEP_LIST)
+                    .unwrap()
+                    .check(ENV_CHECK_LIST)
+                    .unwrap()
+                    .delete(ENV_DELETE_LIST)
+                    .unwrap()
+                    .set(ENV_SET_LIST)
+                    .override_behavior(ENV_OVERRIDE_BEHAVIOR)
+                    .build(),
             )
             .timeout(
                 STimeout::builder()
                     .type_field(TIMEOUT_TYPE)
-                    .duration(
-                        TIMEOUT_DURATION,
-                    )
+                    .duration(TIMEOUT_DURATION)
                     .build(),
             )
             .build()
@@ -419,9 +420,9 @@ impl Opt {
 impl SPathOptions {
     pub fn level_default() -> Self {
         SPathOptions::builder(ENV_PATH_BEHAVIOR)
-        .add(ENV_PATH_ADD_LIST_SLICE)
-        .sub(ENV_PATH_REMOVE_LIST_SLICE)
-        .build()
+            .add(ENV_PATH_ADD_LIST_SLICE)
+            .sub(ENV_PATH_REMOVE_LIST_SLICE)
+            .build()
     }
 }
 
@@ -958,10 +959,10 @@ impl OptStack {
 #[cfg(test)]
 mod tests {
 
-    use serde_test::Token;
     use serde_test::assert_de_tokens;
     use serde_test::assert_de_tokens_error;
     use serde_test::assert_tokens;
+    use serde_test::Token;
 
     use super::super::options::*;
     use super::super::structs::*;
@@ -1523,13 +1524,13 @@ mod tests {
     fn test_sumask_deserialize_various_formats() {
         // Test single digit
         assert_de_tokens(&SUMask(0o7), &[Token::Str("7")]);
-        
+
         // Test two digits
         assert_de_tokens(&SUMask(0o22), &[Token::Str("22")]);
-        
+
         // Test three digits with leading zeros
         assert_de_tokens(&SUMask(0o022), &[Token::Str("022")]);
-        
+
         // Test four digit octal (though unusual for umask)
         assert_de_tokens(&SUMask(0o1755), &[Token::Str("1755")]);
     }
@@ -1538,7 +1539,7 @@ mod tests {
     fn test_sumask_deserialize_invalid_octal() {
         // Test invalid octal digit
         assert_de_tokens_error::<SUMask>(&[Token::Str("888")], "invalid digit found in string");
-        
+
         // Test mixed valid/invalid
         assert_de_tokens_error::<SUMask>(&[Token::Str("729")], "invalid digit found in string");
     }
@@ -1547,13 +1548,16 @@ mod tests {
     fn test_sumask_deserialize_invalid_format() {
         // Test non-numeric string
         assert_de_tokens_error::<SUMask>(&[Token::Str("abc")], "invalid digit found in string");
-        
+
         // Test empty string
-        assert_de_tokens_error::<SUMask>(&[Token::Str("")], "cannot parse integer from empty string");
-        
+        assert_de_tokens_error::<SUMask>(
+            &[Token::Str("")],
+            "cannot parse integer from empty string",
+        );
+
         // Test string with spaces
         assert_de_tokens_error::<SUMask>(&[Token::Str(" 22")], "invalid digit found in string");
-        
+
         // Test hexadecimal format (should fail)
         assert_de_tokens_error::<SUMask>(&[Token::Str("0x22")], "invalid digit found in string");
     }
@@ -1563,7 +1567,7 @@ mod tests {
         let umask1 = SUMask(0o22);
         let umask2 = SUMask(0o22);
         let umask3 = SUMask(0o755);
-        
+
         assert_eq!(umask1, umask2);
         assert_ne!(umask1, umask3);
     }
@@ -1580,7 +1584,7 @@ mod tests {
         let umask1 = SUMask(0o644);
         let umask2 = umask1; // Copy
         let umask3 = umask1.clone(); // Clone
-        
+
         assert_eq!(umask1, umask2);
         assert_eq!(umask1, umask3);
     }
@@ -1600,7 +1604,7 @@ mod tests {
         // Test that the struct is truly transparent in serialization
         // The tokens should be exactly the same as if we serialized the inner u16 with our custom functions
         let umask = SUMask(0o644);
-        
+
         // This should serialize as just a string, not as a struct
         assert_tokens(&umask, &[Token::Str("644")]);
     }

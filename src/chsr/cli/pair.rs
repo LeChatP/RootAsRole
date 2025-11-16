@@ -9,13 +9,12 @@ use strum::VariantNames;
 
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::{
-    StorageMethod, database::{
+    database::{
         actor::{SActor, SGroupType},
-        options::{
-            EnvBehavior, OptType, PathBehavior, TimestampType
-        },
+        options::{EnvBehavior, OptType, PathBehavior, TimestampType},
         structs::{IdTask, SetBehavior},
-    }
+    },
+    StorageMethod,
 };
 
 use super::data::*;

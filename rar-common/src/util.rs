@@ -16,7 +16,8 @@ use nix::fcntl::{Flock, FlockArg};
 use serde::Serialize;
 
 use crate::database::options::{
-    EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask, TimestampType
+    EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
+    TimestampType,
 };
 
 #[cfg(feature = "finder")]

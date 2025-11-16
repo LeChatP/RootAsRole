@@ -7,13 +7,15 @@ use linked_hash_set::LinkedHashSet;
 
 use pest_derive::Parser;
 use rar_common::{
-    StorageMethod, database::{
+    database::{
         actor::{SActor, SGroups, SUserType},
         options::{
-            EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask, TimestampType
+            EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
+            SPrivileged, SUMask, TimestampType,
         },
         structs::{IdTask, SetBehavior},
-    }
+    },
+    StorageMethod,
 };
 
 #[derive(Parser)]
