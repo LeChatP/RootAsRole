@@ -145,7 +145,7 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o t unset --type --duration --max_usage
 
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth }
+opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
 opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout"  }
@@ -181,16 +181,19 @@ env_escape      = _{ "\\" ~ ("\"" | ",") }
 env_key   = @{ (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
 
 opt_root      = { "root" ~ (opt_root_args | help) }
-opt_root_args = { "privileged" | "user" | "inherit" }
+opt_root_args = { del | "privileged" | "user" }
 
 opt_bounding      = { "bounding" ~ (opt_bounding_args | help) }
-opt_bounding_args = { "strict" | "ignore" | "inherit" }
+opt_bounding_args = { del | "strict" | "ignore" }
 
 opt_skip_auth = { ( "authentication" | "auth") ~ (opt_skip_auth_args | help) }
-opt_skip_auth_args = { "skip" | "perform" | "inherit" }
+opt_skip_auth_args = { del | "skip" | "perform" }
 
+opt_execinfo = { ( "execinfo" | "info") ~ (opt_execinfo_args | help) }
+opt_execinfo_args = { del | "show" | "hide" }
 
-
+opt_mask = { ( "umask" | "mask") ~ (opt_mask_args | help) }
+opt_mask_args = { ASCII_DIGIT{1,4} | del }
 
 opt_timeout = { ("timeout" | "t") ~ opt_timeout_operations }
 opt_timeout_operations = { (set | del) ~ opt_timeout_args }

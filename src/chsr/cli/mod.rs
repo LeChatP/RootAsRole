@@ -575,24 +575,38 @@ mod tests {
         }
 
         // Root option helpers
-        fn assert_root_option(&self, expected: &SPrivileged) {
+        fn assert_root_option(&self, expected: &Option<SPrivileged>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.root.as_ref().unwrap(), expected);
+            assert_eq!(task_ref.root, *expected);
         }
 
         // Bounding option helpers
-        fn assert_bounding_option(&self, expected: &SBounding) {
+        fn assert_bounding_option(&self, expected: &Option<SBounding>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.bounding.as_ref().unwrap(), expected);
+            assert_eq!(task_ref.bounding, *expected);
         }
 
         // Authentication option helpers
-        fn assert_authentication_option(&self, expected: &SAuthentication) {
+        fn assert_authentication_option(&self, expected: &Option<SAuthentication>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.authentication.as_ref().unwrap(), expected);
+            assert_eq!(task_ref.authentication, *expected);
+        }
+
+        // Execinfo option helpers
+        fn assert_execinfo_option(&self, expected: &Option<SInfo>) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            assert_eq!(task_ref.execinfo, *expected);
+        }
+
+        // SUMask option helpers
+        fn assert_umask_option(&self, expected: &Option<SUMask>) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            assert_eq!(task_ref.umask, *expected);
         }
     }
 
@@ -1288,38 +1302,38 @@ mod tests {
 
         // Test root privileged
         ctx.assert_command_success("r complete t t_complete o root privileged");
-        ctx.assert_root_option(&SPrivileged::Privileged);
+        ctx.assert_root_option(&Some(SPrivileged::Privileged));
 
         debug!("=====");
         // Test root user
         ctx.assert_command_success("r complete t t_complete o root user");
-        ctx.assert_root_option(&SPrivileged::User);
+        ctx.assert_root_option(&Some(SPrivileged::User));
 
         debug!("=====");
-        // Test root inherit
-        ctx.assert_command_success("r complete t t_complete o root inherit");
-        ctx.assert_root_option(&SPrivileged::Inherit);
+        // Test root unset
+        ctx.assert_command_success("r complete t t_complete o root unset");
+        ctx.assert_root_option(&None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_strict");
 
         ctx.assert_command_success("r complete t t_complete o bounding strict");
-        ctx.assert_bounding_option(&SBounding::Strict);
+        ctx.assert_bounding_option(&Some(SBounding::Strict));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_ignore");
 
         ctx.assert_command_success("r complete t t_complete o bounding ignore");
-        ctx.assert_bounding_option(&SBounding::Ignore);
+        ctx.assert_bounding_option(&Some(SBounding::Ignore));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_inherit");
 
-        ctx.assert_command_success("r complete t t_complete o bounding inherit");
-        ctx.assert_bounding_option(&SBounding::Inherit);
+        ctx.assert_command_success("r complete t t_complete o bounding unset");
+        ctx.assert_bounding_option(&None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
@@ -1327,17 +1341,48 @@ mod tests {
 
         // Test auth skip
         ctx.assert_command_success("r complete t t_complete o auth skip");
-        ctx.assert_authentication_option(&SAuthentication::Skip);
+        ctx.assert_authentication_option(&Some(SAuthentication::Skip));
 
         debug!("=====");
         // Test auth perform
         ctx.assert_command_success("r complete t t_complete o auth perform");
-        ctx.assert_authentication_option(&SAuthentication::Perform);
+        ctx.assert_authentication_option(&Some(SAuthentication::Perform));
 
         debug!("=====");
-        // Test auth inherit
-        ctx.assert_command_success("r complete t t_complete o auth inherit");
-        ctx.assert_authentication_option(&SAuthentication::Inherit);
+        // Test auth unset
+        ctx.assert_command_success("r complete t t_complete o auth unset");
+        ctx.assert_authentication_option(&None);
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_execinfo() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_execinfo");
+
+        // Test execinfo set
+        ctx.assert_command_success("r complete t t_complete o execinfo show");
+        ctx.assert_execinfo_option(&Some(SInfo::Show));
+
+        ctx.assert_command_success("r complete t t_complete o execinfo hide");
+        ctx.assert_execinfo_option(&Some(SInfo::Hide));
+
+        debug!("=====");
+        // Test execinfo unset
+        ctx.assert_command_success("r complete t t_complete o execinfo unset");
+        ctx.assert_execinfo_option(&None);
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_umask() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_umask");
+
+        // Test umask set
+        ctx.assert_command_success("r complete t t_complete o umask 027");
+        ctx.assert_umask_option(&Some(0o27.into()));
+
+        debug!("=====");
+        // Test umask unset
+        ctx.assert_command_success("r complete t t_complete o umask unset");
+        ctx.assert_umask_option(&None);
     }
 
     fn normalize_json_object(value: Value) -> Value {

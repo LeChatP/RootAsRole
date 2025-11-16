@@ -15,13 +15,11 @@ use log::debug;
 use nix::unistd::User;
 use options::BorrowedOptStack;
 use rar_common::{
-    database::{
+    Cred, StorageMethod, database::{
         actor::DGroups,
-        options::{SAuthentication, SBounding, SPrivileged, STimeout},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{CmdMin, CmdOrder, Score},
-    },
-    util::{all_paths_from_env, read_with_privileges},
-    Cred, StorageMethod,
+    }, util::{all_paths_from_env, read_with_privileges}
 };
 use serde::de::DeserializeSeed;
 
@@ -59,6 +57,8 @@ pub struct BestExecSettings {
     pub auth: SAuthentication,
     #[builder(default)]
     pub root: SPrivileged,
+    #[builder(default)]
+    pub umask: SUMask,
 }
 
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
@@ -171,6 +171,7 @@ impl BestExecSettings {
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
         result.root = opt_stack.calc_privileged();
+        result.umask = opt_stack.calc_umask();
         Ok(result)
     }
 

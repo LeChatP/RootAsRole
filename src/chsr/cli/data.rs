@@ -7,15 +7,13 @@ use linked_hash_set::LinkedHashSet;
 
 use pest_derive::Parser;
 use rar_common::{
-    database::{
+    StorageMethod, database::{
         actor::{SActor, SGroups, SUserType},
         options::{
-            EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
-            TimestampType,
+            EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask, TimestampType
         },
         structs::{IdTask, SetBehavior},
-    },
-    StorageMethod,
+    }
 };
 
 #[derive(Parser)]
@@ -36,7 +34,7 @@ pub enum TaskType {
     Credentials,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum InputAction {
     Help,
     List,
@@ -45,6 +43,7 @@ pub enum InputAction {
     Del,
     Purge,
     Convert,
+    #[default]
     None,
 }
 
@@ -64,7 +63,7 @@ pub enum TimeoutOpt {
     MaxUsage,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Inputs {
     pub action: InputAction,
     pub editor: bool,
@@ -94,6 +93,8 @@ pub struct Inputs {
     pub options_root: Option<SPrivileged>,
     pub options_bounding: Option<SBounding>,
     pub options_auth: Option<SAuthentication>,
+    pub options_execinfo: Option<SInfo>,
+    pub options_umask: Option<SUMask>,
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
 }
@@ -104,41 +105,4 @@ pub struct Convertion {
     pub from: Option<PathBuf>,
     pub to_type: StorageMethod,
     pub to: PathBuf,
-}
-
-impl Default for Inputs {
-    fn default() -> Self {
-        Inputs {
-            action: InputAction::None,
-            editor: false,
-            setlist_type: None,
-            timeout_arg: None,
-            timeout_type: None,
-            timeout_duration: None,
-            timeout_max_usage: None,
-            role_id: None,
-            role_type: None,
-            actors: None,
-            task_id: None,
-            task_type: None,
-            cmd_policy: None,
-            cmd_id: None,
-            cred_caps: None,
-            cred_setuid: None,
-            cred_setgid: None,
-            cred_policy: None,
-            options: false,
-            options_type: None,
-            options_path: None,
-            options_path_policy: None,
-            options_key_env: None,
-            options_env_values: None,
-            options_env_policy: None,
-            options_root: None,
-            options_bounding: None,
-            options_auth: None,
-            convertion: None,
-            convert_reconfigure: false,
-        }
-    }
 }

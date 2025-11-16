@@ -9,15 +9,13 @@ use strum::VariantNames;
 
 use crate::cli::data::{RoleType, TaskType};
 use rar_common::{
-    database::{
+    StorageMethod, database::{
         actor::{SActor, SGroupType},
         options::{
-            EnvBehavior, OptType, PathBehavior, SAuthentication, SBounding, SPrivileged,
-            TimestampType,
+            EnvBehavior, OptType, PathBehavior, TimestampType
         },
         structs::{IdTask, SetBehavior},
-    },
-    StorageMethod,
+    }
 };
 
 use super::data::*;
@@ -387,6 +385,12 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 inputs.options_type = Some(OptType::Bounding);
             } else if pair.as_str() == "timeout" {
                 inputs.options_type = Some(OptType::Timeout);
+            } else if pair.as_str() == "authentication" {
+                inputs.options_type = Some(OptType::Authentication);
+            } else if pair.as_str() == "execinfo" {
+                inputs.options_type = Some(OptType::ExecInfo);
+            } else if pair.as_str() == "umask" {
+                inputs.options_type = Some(OptType::UMask);
             } else {
                 unreachable!("Unknown option type: {}", pair.as_str())
             }
@@ -416,40 +420,24 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             }
         }
         Rule::opt_root_args => {
-            inputs.action = InputAction::Set;
-            if pair.as_str() == "privileged" {
-                inputs.options_root = Some(SPrivileged::Privileged);
-            } else if pair.as_str() == "user" {
-                inputs.options_root = Some(SPrivileged::User);
-            } else if pair.as_str() == "inherit" {
-                inputs.options_root = Some(SPrivileged::Inherit);
-            } else {
-                unreachable!("Unknown root type: {}", pair.as_str());
-            }
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_root = Some(pair.as_str().parse().unwrap_or_default());
         }
         Rule::opt_bounding_args => {
-            inputs.action = InputAction::Set;
-            if pair.as_str() == "strict" {
-                inputs.options_bounding = Some(SBounding::Strict);
-            } else if pair.as_str() == "ignore" {
-                inputs.options_bounding = Some(SBounding::Ignore);
-            } else if pair.as_str() == "inherit" {
-                inputs.options_bounding = Some(SBounding::Inherit);
-            } else {
-                unreachable!("Unknown bounding type: {}", pair.as_str());
-            }
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_bounding = Some(pair.as_str().parse().unwrap_or_default());
         }
         Rule::opt_skip_auth_args => {
-            inputs.action = InputAction::Set;
-            if pair.as_str() == "skip" {
-                inputs.options_auth = Some(SAuthentication::Skip);
-            } else if pair.as_str() == "perform" {
-                inputs.options_auth = Some(SAuthentication::Perform);
-            } else if pair.as_str() == "inherit" {
-                inputs.options_auth = Some(SAuthentication::Inherit);
-            } else {
-                unreachable!("Unknown authentication type: {}", pair.as_str());
-            }
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_auth = Some(pair.as_str().parse().unwrap_or_default());
+        }
+        Rule::opt_execinfo_args => {
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_execinfo = Some(pair.as_str().parse().unwrap_or_default());
+        }
+        Rule::opt_mask_args => {
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_umask = Some(pair.as_str().parse().unwrap_or_default());
         }
         Rule::all => {
             if inputs.role_id.is_some() && inputs.task_id.is_none() {

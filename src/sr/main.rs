@@ -267,6 +267,7 @@ fn main_inner() -> SrResult<()> {
 
     use crate::{pam::check_auth, ROOTASROLE};
     use finder::find_best_exec_settings;
+    use nix::sys::stat::umask;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -401,6 +402,8 @@ fn main_inner() -> SrResult<()> {
     }
 
     debug!("setuid : {:?}", execcfg.setuid);
+
+    umask(execcfg.umask.into());
 
     setuid_setgid(&execcfg)?;
 
