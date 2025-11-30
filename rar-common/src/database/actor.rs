@@ -69,6 +69,12 @@ impl DUserType<'_> {
             },
         }
     }
+    pub fn fetch_user(&self) -> Option<User> {
+        match &self.0 {
+            DGenericActorType::Id(id) => User::from_uid((*id).into()).ok().flatten(),
+            DGenericActorType::Name(name) => User::from_name(name).ok().flatten(),
+        }
+    }
 }
 
 impl fmt::Display for SUserType {
@@ -129,6 +135,12 @@ impl DGroupType<'_> {
                 Ok(Some(group)) => Some(group.gid.as_raw()),
                 _ => None,
             },
+        }
+    }
+    pub fn fetch_group(&self) -> Option<Group> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Group::from_gid((*id).into()).ok().flatten(),
+            DGenericActorType::Name(name) => Group::from_name(name).ok().flatten(),
         }
     }
 }

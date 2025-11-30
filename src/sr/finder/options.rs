@@ -30,13 +30,6 @@ use crate::Cred;
 
 use super::de::DLinkedTask;
 
-//#[cfg(feature = "finder")]
-//use super::finder::Cred;
-//#[cfg(feature = "finder")]
-//use super::finder::SecurityMin;
-
-//=== DPathOptions ===
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct DPathOptions<'a> {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
@@ -141,7 +134,7 @@ impl DEnvOptions<'_> {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
         current_user: &Cred,
-        target: Option<User>,
+        target: &Option<User>,
         command: String,
     ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
@@ -188,7 +181,7 @@ impl DEnvOptions<'_> {
                 }
             }),
         );
-        let target_user = target.unwrap_or_else(|| current_user.user.clone());
+        let target_user = target.as_ref().unwrap_or_else(|| &current_user.user);
         final_set.insert("LOGNAME".into(), target_user.name.clone());
         final_set.insert("USER".into(), target_user.name.clone());
         final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
@@ -533,9 +526,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
     pub fn calc_security_min(&self) -> SecurityMin {
         let mut security_min = SecurityMin::default();
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .for_each(|o| {
                 update_security_min()
                     .security_min(&mut security_min)
@@ -560,9 +551,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_override_behavior(&self) -> bool {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
             .find_map(|o| o.override_behavior)
             .unwrap_or(ENV_OVERRIDE_BEHAVIOR)
@@ -667,9 +656,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .delete(&ENV_DELETE_LIST)
             .set(&ENV_SET_LIST)
             .call();
-        [self.config.as_ref(), self.role.as_ref(), self.task.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
             .for_each(|o| {
                 assign_env_settings()
@@ -688,17 +675,18 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_bounding(&self) -> SBounding {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.bounding)
             .next()
             .unwrap_or(BOUNDING)
     }
+
+    pub fn get_opt_iter(&self) -> impl Iterator<Item = &Opt<'a>> {
+        [self.config.as_ref(),self.task.as_ref(), self.role.as_ref()].into_iter().flatten()
+    }
+
     pub fn calc_timeout(&self) -> STimeout {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.timeout.clone())
             .next()
             .unwrap_or(STimeout {
@@ -709,33 +697,25 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             })
     }
     pub fn calc_info(&self) -> SInfo {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.execinfo)
             .next()
             .unwrap_or(INFO)
     }
     pub fn calc_authentication(&self) -> SAuthentication {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.authentication)
             .next()
             .unwrap_or(AUTHENTICATION)
     }
     pub fn calc_privileged(&self) -> SPrivileged {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.root)
             .next()
             .unwrap_or(PRIVILEGED)
     }
     pub fn calc_umask(&self) -> SUMask {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.umask)
             .next()
             .unwrap_or(UMASK)
@@ -916,7 +896,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -957,7 +937,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -999,7 +979,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(result.is_err());
     }
 

@@ -19,6 +19,8 @@ mod hashchecker;
 mod hierarchy;
 #[cfg(feature = "ssd")]
 mod ssd;
+#[cfg(feature = "landlock")]
+mod landlock;
 
 thread_local! {
     static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
@@ -37,6 +39,7 @@ pub enum EventKey {
     BestTaskSettings,
     NewComplexCommand,
     ActorMatching,
+    PreExec,
 }
 
 #[allow(dead_code)]
@@ -77,6 +80,10 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
         &'g mut BestExecSettings,
         &'h mut bool,
     ),
+    PreExec(
+        &'f Cli,
+        &'h BestExecSettings,
+    ),
 }
 
 impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
@@ -87,6 +94,7 @@ impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
             ApiEvent::BestTaskSettingsFound(..) => EventKey::BestTaskSettings,
             ApiEvent::ProcessComplexCommand(..) => EventKey::NewComplexCommand,
             ApiEvent::ActorMatching(..) => EventKey::ActorMatching,
+            ApiEvent::PreExec(..) => EventKey::PreExec,
         }
     }
 }
@@ -131,4 +139,6 @@ pub(super) fn register_plugins() {
     hashchecker::register();
     #[cfg(feature = "hierarchy")]
     hierarchy::register();
+    #[cfg(feature = "landlock")]
+    landlock::register();
 }
