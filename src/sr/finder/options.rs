@@ -526,18 +526,17 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
     pub fn calc_security_min(&self) -> SecurityMin {
         let mut security_min = SecurityMin::default();
-        self.get_opt_iter()
-            .for_each(|o| {
-                update_security_min()
-                    .security_min(&mut security_min)
-                    .bounding(&o.bounding)
-                    .root(&o.root)
-                    .authentication(&o.authentication)
-                    .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
-                    .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
-                    .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
-                    .call();
-            });
+        self.get_opt_iter_rev().for_each(|o| {
+            update_security_min()
+                .security_min(&mut security_min)
+                .bounding(&o.bounding)
+                .root(&o.root)
+                .authentication(&o.authentication)
+                .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
+                .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
+                .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
+                .call();
+        });
         update_security_min()
             .security_min(&mut security_min)
             .bounding(&Some(BOUNDING))
@@ -551,7 +550,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_override_behavior(&self) -> bool {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.env.as_ref())
             .find_map(|o| o.override_behavior)
             .unwrap_or(ENV_OVERRIDE_BEHAVIOR)
@@ -675,18 +674,26 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_bounding(&self) -> SBounding {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.bounding)
             .next()
             .unwrap_or(BOUNDING)
     }
 
     pub fn get_opt_iter(&self) -> impl Iterator<Item = &Opt<'a>> {
-        [self.config.as_ref(),self.task.as_ref(), self.role.as_ref()].into_iter().flatten()
+        [self.config.as_ref(), self.role.as_ref(), self.task.as_ref()]
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn get_opt_iter_rev(&self) -> impl Iterator<Item = &Opt<'a>> {
+        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
+            .into_iter()
+            .flatten()
     }
 
     pub fn calc_timeout(&self) -> STimeout {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.timeout.clone())
             .next()
             .unwrap_or(STimeout {
@@ -697,25 +704,25 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             })
     }
     pub fn calc_info(&self) -> SInfo {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.execinfo)
             .next()
             .unwrap_or(INFO)
     }
     pub fn calc_authentication(&self) -> SAuthentication {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.authentication)
             .next()
             .unwrap_or(AUTHENTICATION)
     }
     pub fn calc_privileged(&self) -> SPrivileged {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.root)
             .next()
             .unwrap_or(PRIVILEGED)
     }
     pub fn calc_umask(&self) -> SUMask {
-        self.get_opt_iter()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.umask)
             .next()
             .unwrap_or(UMASK)
