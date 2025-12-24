@@ -505,6 +505,8 @@ fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::finder::de::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
@@ -512,6 +514,34 @@ mod tests {
     use rar_common::database::options::SBounding;
 
     use super::*;
+
+    fn get_non_root_uid(nth: usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/passwd").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth)
+    }
+
+    fn get_non_root_gid(nth: usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/group").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth)
+    }
 
     #[test]
     fn test_getopt() {
@@ -573,8 +603,8 @@ mod tests {
             let execcfg = BestExecSettings::builder()
                 .cred(
                     CredOwnedData::builder()
-                        .setuid(User::from_uid(1000.into()).unwrap().unwrap())
-                        .setgroups(vec![Group::from_gid(1000.into()).unwrap().unwrap()])
+                        .setuid(User::from_uid(get_non_root_uid(0).unwrap().into()).unwrap().unwrap())
+                        .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into()).unwrap().unwrap()])
                         .build(),
                 )
                 .build();
