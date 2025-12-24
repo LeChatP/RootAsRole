@@ -603,8 +603,14 @@ mod tests {
             let execcfg = BestExecSettings::builder()
                 .cred(
                     CredOwnedData::builder()
-                        .setuid(User::from_uid(get_non_root_uid(0).unwrap().into()).unwrap().unwrap())
-                        .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into()).unwrap().unwrap()])
+                        .setuid(
+                            User::from_uid(get_non_root_uid(0).unwrap().into())
+                                .unwrap()
+                                .unwrap(),
+                        )
+                        .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into())
+                            .unwrap()
+                            .unwrap()])
                         .build(),
                 )
                 .build();
