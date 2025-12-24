@@ -356,13 +356,7 @@ fn main_inner() -> SrResult<()> {
             print!(" and group(s): ");
             let groups = gids
                 .iter()
-                .map(|g| {
-                    format!(
-                        "{} ({})",
-                        g.name,
-                        g.gid
-                    )
-                })
+                .map(|g| format!("{} ({})", g.name, g.gid))
                 .collect::<Vec<_>>()
                 .join(", ");
             println!("{}", groups);
@@ -413,22 +407,24 @@ fn main_inner() -> SrResult<()> {
     let cargs = args.cmd_args.clone();
     let cfinal_path = execcfg.final_path.clone();
     let cfinal_env = execcfg.env.clone();
-    let command = unsafe { Command::new(&execcfg.final_path)
-        .pre_exec(move || {
-            use crate::finder::api::{Api, ApiEvent};
-            Api::notify(ApiEvent::PreExec(&args, &execcfg)).map_err(|e| {
-                error!("Failed to notify pre-exec event: {}", e);
-                std::io::Error::new(std::io::ErrorKind::Other, "Failed to notify pre-exec")
-            })?;
-            Ok(())
-        })
-        .args(cargs.iter())
-        .env_clear()
-        .envs(cfinal_env)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn(&pty.pts().expect("Failed to get pts")) };
+    let command = unsafe {
+        Command::new(&execcfg.final_path)
+            .pre_exec(move || {
+                use crate::finder::api::{Api, ApiEvent};
+                Api::notify(ApiEvent::PreExec(&args, &execcfg)).map_err(|e| {
+                    error!("Failed to notify pre-exec event: {}", e);
+                    std::io::Error::new(std::io::ErrorKind::Other, "Failed to notify pre-exec")
+                })?;
+                Ok(())
+            })
+            .args(cargs.iter())
+            .env_clear()
+            .envs(cfinal_env)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn(&pty.pts().expect("Failed to get pts"))
+    };
     let mut command = match command {
         Ok(command) => command,
         Err(e) => {
@@ -482,11 +478,23 @@ fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
-    let gid = execcfg.cred.setgroups.as_ref().and_then(|g| g.first().cloned()).map(|g| g.gid.as_raw());
+    let gid = execcfg
+        .cred
+        .setgroups
+        .as_ref()
+        .and_then(|g| g.first().cloned())
+        .map(|g| g.gid.as_raw());
     with_privileges(&[Cap::SETUID, Cap::SETGID], || {
-        capctl::cap_set_ids(execcfg.cred.setuid.as_ref().map(|u| u.uid.as_raw()), gid, execcfg.cred.setgroups.as_ref().map(
-            |g| g.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>(),
-        ).as_deref())?;
+        capctl::cap_set_ids(
+            execcfg.cred.setuid.as_ref().map(|u| u.uid.as_raw()),
+            gid,
+            execcfg
+                .cred
+                .setgroups
+                .as_ref()
+                .map(|g| g.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>())
+                .as_deref(),
+        )?;
         Ok(())
     })
     .map_err(|e| {
@@ -497,11 +505,11 @@ fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::finder::de::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
     use nix::unistd::{getgroups, getuid, Group, Pid, User};
     use rar_common::database::options::SBounding;
-    use super::finder::de::CredOwnedData;
 
     use super::*;
 
@@ -563,7 +571,12 @@ mod tests {
             capset.effective.add(Cap::SETGID);
             capset.set_current().unwrap();
             let execcfg = BestExecSettings::builder()
-                .cred(CredOwnedData::builder().setuid(User::from_uid(1000.into()).unwrap().unwrap()).setgroups(vec![Group::from_gid(1000.into()).unwrap().unwrap()]).build())
+                .cred(
+                    CredOwnedData::builder()
+                        .setuid(User::from_uid(1000.into()).unwrap().unwrap())
+                        .setgroups(vec![Group::from_gid(1000.into()).unwrap().unwrap()])
+                        .build(),
+                )
                 .build();
             setuid_setgid(&execcfg).unwrap();
             assert_eq!(getuid(), execcfg.cred.setuid.unwrap().uid);

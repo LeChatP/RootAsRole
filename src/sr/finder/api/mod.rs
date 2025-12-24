@@ -17,10 +17,10 @@ use super::{
 mod hashchecker;
 #[cfg(feature = "hierarchy")]
 mod hierarchy;
-#[cfg(feature = "ssd")]
-mod ssd;
 #[cfg(feature = "landlock")]
 mod landlock;
+#[cfg(feature = "ssd")]
+mod ssd;
 
 thread_local! {
     static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
@@ -80,10 +80,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
         &'g mut BestExecSettings,
         &'h mut bool,
     ),
-    PreExec(
-        &'f Cli,
-        &'h BestExecSettings,
-    ),
+    PreExec(&'f Cli, &'h BestExecSettings),
 }
 
 impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {

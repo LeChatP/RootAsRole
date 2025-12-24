@@ -1,8 +1,10 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use landlock::{Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI};
-use serde::{Deserialize, Serialize};
 use bitflags::bitflags;
+use landlock::{
+    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{SrError, SrResult},
@@ -81,7 +83,8 @@ impl<'de> Deserialize<'de> for FAccess {
             where
                 E: serde::de::Error,
             {
-                FAccess::from_bits(v).ok_or_else(|| E::custom(format!("invalid access bitmask: {}", v)))
+                FAccess::from_bits(v)
+                    .ok_or_else(|| E::custom(format!("invalid access bitmask: {}", v)))
             }
         }
 
@@ -104,29 +107,35 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
                     whitelist.insert(PathBuf::from(key), access);
                 }
             }
-            
+
             let mut ruleset = Ruleset::default()
                 .handle_access(AccessFs::from_all(VERSION))
                 .map_err(|_| SrError::ConfigurationError)?
                 .create()
                 .map_err(|_| SrError::ConfigurationError)?;
-            
+
             for (path, access) in whitelist.iter() {
                 let landlock_access = match *access {
                     FAccess::RWX | FAccess::RX => AccessFs::from_all(VERSION),
                     FAccess::WX => AccessFs::from_write(VERSION) | AccessFs::Execute,
-                    FAccess::RW => AccessFs::from_read(VERSION) | AccessFs::from_write(VERSION) & !AccessFs::Execute,
+                    FAccess::RW => {
+                        AccessFs::from_read(VERSION)
+                            | AccessFs::from_write(VERSION) & !AccessFs::Execute
+                    }
                     FAccess::R => AccessFs::from_read(VERSION) & !AccessFs::Execute,
                     FAccess::W => AccessFs::from_write(VERSION),
                     FAccess::X => AccessFs::from_read(VERSION),
                     _ => !AccessFs::from_all(VERSION),
                 };
                 let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
-                ruleset = ruleset.add_rule(PathBeneath::new(path_fd, landlock_access))
+                ruleset = ruleset
+                    .add_rule(PathBeneath::new(path_fd, landlock_access))
                     .map_err(|_| SrError::ConfigurationError)?;
             }
-            
-            ruleset.restrict_self().map_err(|_| SrError::ConfigurationError)?;
+
+            ruleset
+                .restrict_self()
+                .map_err(|_| SrError::ConfigurationError)?;
         }
     }
     Ok(())

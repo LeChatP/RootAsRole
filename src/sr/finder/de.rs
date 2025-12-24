@@ -786,7 +786,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                     }
                 }
                 debug!("CredFinderVisitor: end");
-                Ok(CredResult{cred: CredData {setuid, setgroups, caps, extra_values}, score, ok})
+                Ok(CredResult {
+                    cred: CredData {
+                        setuid,
+                        setgroups,
+                        caps,
+                        extra_values,
+                    },
+                    score,
+                    ok,
+                })
             }
         }
         const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities", "0", "1", "2"];
@@ -2108,9 +2117,18 @@ mod tests {
         let result = result.unwrap();
         assert!(result.ok);
         assert_eq!(result.cred.setuid, Some("root".into()));
-        assert_eq!(result.cred.setgroups, Some(DGroups::from(vec!["root".into()])));
-        assert_eq!(result.cred.caps, Some(CapSet::from_iter(vec![Cap::SYS_ADMIN])));
-        assert_eq!(result.score.setuser_min.uid, Some(SetuidMin::from(&"root".into())));
+        assert_eq!(
+            result.cred.setgroups,
+            Some(DGroups::from(vec!["root".into()]))
+        );
+        assert_eq!(
+            result.cred.caps,
+            Some(CapSet::from_iter(vec![Cap::SYS_ADMIN]))
+        );
+        assert_eq!(
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&"root".into()))
+        );
         assert_eq!(
             result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into("root")))
@@ -2129,7 +2147,10 @@ mod tests {
         assert_eq!(result.cred.setuid, Some(uid.into()));
         assert_eq!(result.cred.setgroups, Some(DGroups::from(vec![gid.into()])));
         assert_eq!(result.cred.caps, None);
-        assert_eq!(result.score.setuser_min.uid, Some(SetuidMin::from(&uid.into())));
+        assert_eq!(
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&uid.into()))
+        );
         assert_eq!(
             result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into(uid)))
@@ -2148,7 +2169,10 @@ mod tests {
         assert_eq!(result.cred.setuid, Some(uid.into()));
         assert_eq!(result.cred.setgroups, Some(DGroups::from(vec![gid.into()])));
         assert_eq!(result.cred.caps, None);
-        assert_eq!(result.score.setuser_min.uid, Some(SetuidMin::from(&uid.into())));
+        assert_eq!(
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&uid.into()))
+        );
         assert_eq!(
             result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into(uid)))

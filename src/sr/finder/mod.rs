@@ -24,7 +24,9 @@ use rar_common::{
 use serde::de::DeserializeSeed;
 
 use crate::{
-    error::{SrError, SrResult}, finder::de::{CredOwnedData}, Cli
+    error::{SrError, SrResult},
+    finder::de::CredOwnedData,
+    Cli,
 };
 
 pub(crate) mod api;
@@ -64,7 +66,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cred: &'a Cred,
     path: &'a P,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-    env_path: & [&str],
+    env_path: &[&str],
 ) -> SrResult<BestExecSettings>
 where
     P: AsRef<Path>,
@@ -160,8 +162,7 @@ impl BestExecSettings {
                 env_vars,
                 opt_stack.calc_path(env_path),
                 cred,
-                &result
-                    .cred.setuid,
+                &result.cred.setuid,
                 format!(
                     "{}{}",
                     cli.cmd_path.display(),
