@@ -1009,7 +1009,6 @@ dependencies = [
  "derivative",
  "env_logger",
  "hex",
- "konst",
  "landlock",
  "libc",
  "libpam-sys",
