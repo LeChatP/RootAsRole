@@ -688,12 +688,55 @@ echo '{}' > "$file"
         let script = r#"#!/bin/sh
 for last; do true; done
 file="$last"
-echo '{ "version": "1.0.0", "storage": { "method": "json" }, "config": null }' > "$file"
+echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$file"
 "#;
         fs::write(&mock_editor_path, script).unwrap();
         fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
 
         let input_data = b"a\n";
+        let mut input = Cursor::new(input_data);
+        let mut output = Vec::new();
+
+        let result = edit_config_internal(
+            &temp_dir_path,
+            config.clone(),
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+            |_| {},
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+        #[test]
+    fn test_edit_config_err() {
+        // Setup a unique temp folder
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{}", timestamp));
+        fs::create_dir_all(&temp_dir_path).unwrap();
+
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+
+        let config = Rc::new(RefCell::new(FullSettings::default()));
+
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = r#"#!/bin/sh
+for last; do true; done
+file="$last"
+echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$file"
+"#;
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let input_data = b"y\na\n";
         let mut input = Cursor::new(input_data);
         let mut output = Vec::new();
 
@@ -789,6 +832,9 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" } }' > "$file"
             "actors": [
                 { "type": "user", "id": "rar_missing_u", "unknown_user_field": "u" },
                 { "type": "group", "groups": "rar_missing_g", "unknown_group_field": "g" },
+                { "type": "group", "groups": ["rar_missing_g0"] },
+                { "type": "group", "groups": ["rar_missing_g1","rar_missing_g2"] },
+                { "type": "group", "groups": [] },
                 { "unknown_actor_type": "something" }
             ],
             "options": {
@@ -825,6 +871,29 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" } }' > "$file"
                         }
                     },
                     "commands": { "add": ["/bin/true"] }
+                },
+                {
+                    "name": "task3",
+                    "cred": {
+                        "setgid": [ "rar_missing_g6", "rar_missing_g7" ]
+                    },
+                    "commands": { "default": "none" }
+                },
+                {
+                    "name": "task4",
+                    "cred": {
+                        "setgid": [ "rar_missing_g8" ]
+                    }
+                },
+                {
+                    "name": "task5",
+                    "cred": {
+                        "setgid": {
+                            "fallback": [ "rar_missing_g9", "rar_missing_g10" ],
+                            "add": [ ["rar_missing_g11", "rar_missing_g12"] ],
+                            "sub": [ ["rar_missing_g13", "rar_missing_g14"] ]
+                        }
+                    }
                 }
             ]
         }
@@ -880,7 +949,11 @@ EOF
         assert!(w("Unknown commands field"));
         assert!(w("Empty command in role"));
         assert!(w("Complex command is not an dictionnary"));
-        assert!(w("Unknown user in role")); // Matches setuid fallback/add/sub too
-        assert!(w("Unknown group in role")); // Matches setgid fallback/add/sub too
+        assert!(w("setuid fallback"));
+        assert!(w("setuid add"));
+        assert!(w("setuid sub"));
+        assert!(w("setgid fallback"));
+        assert!(w("setgid add"));
+        assert!(w("setgid sub"));
     }
 }
