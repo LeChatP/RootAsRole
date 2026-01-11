@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use bitflags::bitflags;
 use landlock::{
-    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI, BitFlags,
 };
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ use crate::{
 const VERSION: ABI = ABI::V6;
 
 bitflags! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub struct FAccess: u8 {
         const R   = 0b100;
         const W   = 0b010;
@@ -96,6 +96,21 @@ impl<'de> Deserialize<'de> for FAccess {
     }
 }
 
+fn get_landlock_access(access: FAccess) -> BitFlags<AccessFs> {
+    match access {
+        FAccess::RWX | FAccess::RX => AccessFs::from_all(VERSION),
+        FAccess::WX => AccessFs::from_write(VERSION) | AccessFs::Execute,
+        FAccess::RW => {
+            AccessFs::from_read(VERSION)
+                | AccessFs::from_write(VERSION) & !AccessFs::Execute
+        }
+        FAccess::R => AccessFs::from_read(VERSION) & !AccessFs::Execute,
+        FAccess::W => AccessFs::from_write(VERSION),
+        FAccess::X => AccessFs::from_read(VERSION),
+        _ => !AccessFs::from_all(VERSION),
+    }
+}
+
 fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::PreExec(_, settings) = event {
         if let Some(fileset) = settings.cred.extra_values.get("files") {
@@ -115,18 +130,7 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
                 .map_err(|_| SrError::ConfigurationError)?;
 
             for (path, access) in whitelist.iter() {
-                let landlock_access = match *access {
-                    FAccess::RWX | FAccess::RX => AccessFs::from_all(VERSION),
-                    FAccess::WX => AccessFs::from_write(VERSION) | AccessFs::Execute,
-                    FAccess::RW => {
-                        AccessFs::from_read(VERSION)
-                            | AccessFs::from_write(VERSION) & !AccessFs::Execute
-                    }
-                    FAccess::R => AccessFs::from_read(VERSION) & !AccessFs::Execute,
-                    FAccess::W => AccessFs::from_write(VERSION),
-                    FAccess::X => AccessFs::from_read(VERSION),
-                    _ => !AccessFs::from_all(VERSION),
-                };
+                let landlock_access = get_landlock_access(*access);
                 let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
                 ruleset = ruleset
                     .add_rule(PathBeneath::new(path_fd, landlock_access))
@@ -143,4 +147,38 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
 
 pub(crate) fn register() {
     Api::register(EventKey::PreExec, pre_exec);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::from_str;
+
+    #[test]
+    fn test_faccess_serde() {
+        assert_eq!(from_str::<FAccess>("\"R\"").unwrap(), FAccess::R);
+        assert_eq!(from_str::<FAccess>("\"W\"").unwrap(), FAccess::W);
+        assert_eq!(from_str::<FAccess>("\"X\"").unwrap(), FAccess::X);
+        assert_eq!(from_str::<FAccess>("\"RW\"").unwrap(), FAccess::RW);
+        assert_eq!(from_str::<FAccess>("\"RWX\"").unwrap(), FAccess::RWX);
+
+        // Test invalid char
+        assert!(from_str::<FAccess>("\"Z\"").is_err());
+    }
+
+    #[test]
+    fn test_get_landlock_access() {
+        assert_eq!(
+            get_landlock_access(FAccess::R),
+            AccessFs::from_read(VERSION) & !AccessFs::Execute
+        );
+        assert_eq!(
+            get_landlock_access(FAccess::W),
+            AccessFs::from_write(VERSION)
+        );
+        assert_eq!(
+            get_landlock_access(FAccess::RWX),
+            AccessFs::from_all(VERSION)
+        );
+    }
 }
