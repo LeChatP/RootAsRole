@@ -5,7 +5,7 @@ use std::result::Result;
 use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
-use bon::{bon, builder, Builder};
+use bon::{bon, Builder};
 use chrono::Duration;
 
 use konst::eq_str;

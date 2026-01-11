@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use bon::{builder, Builder};
+use bon::Builder;
 use strum::EnumIs;
 
 use crate::util::{

@@ -141,9 +141,21 @@ const fn convert_string_to_duration(
         None => return Err(DurationParseError),
     };
 
-    let hours: i64 = unwrap_ctx!(parse_i64(hours));
-    let minutes: i64 = unwrap_ctx!(parse_i64(minutes));
-    let seconds: i64 = unwrap_ctx!(parse_i64(seconds));
+    let hours: i64 = if let Ok(hours) = parse_i64(hours) {
+        hours
+    } else {
+        return Err(DurationParseError);
+    };
+    let minutes: i64 = if let Ok(minutes) = parse_i64(minutes) {
+        minutes
+    } else {
+        return Err(DurationParseError);
+    };
+    let seconds: i64 = if let Ok(seconds) = parse_i64(seconds) {
+        seconds
+    } else {
+        return Err(DurationParseError);
+    };
     Ok(Some(Duration::seconds(
         hours * 3600 + minutes * 60 + seconds,
     )))
