@@ -711,7 +711,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
         assert!(!result.unwrap());
     }
 
-        #[test]
+    #[test]
     fn test_edit_config_err() {
         // Setup a unique temp folder
         let timestamp = SystemTime::now()

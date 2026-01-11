@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use bitflags::bitflags;
 use landlock::{
-    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI, BitFlags,
+    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,8 +101,7 @@ fn get_landlock_access(access: FAccess) -> BitFlags<AccessFs> {
         FAccess::RWX | FAccess::RX => AccessFs::from_all(VERSION),
         FAccess::WX => AccessFs::from_write(VERSION) | AccessFs::Execute,
         FAccess::RW => {
-            AccessFs::from_read(VERSION)
-                | AccessFs::from_write(VERSION) & !AccessFs::Execute
+            AccessFs::from_read(VERSION) | AccessFs::from_write(VERSION) & !AccessFs::Execute
         }
         FAccess::R => AccessFs::from_read(VERSION) & !AccessFs::Execute,
         FAccess::W => AccessFs::from_write(VERSION),
