@@ -577,6 +577,24 @@ mod tests {
     }
 
     #[test]
+    fn test_s_setgid_set_deserialization() {
+        let json_data = json!({
+            "default": "all",
+            "fallback": "group1",
+            "add": ["group2", "group3"],
+            "sub": ["group4"]
+        });
+        let setgid_set: SSetgidSet = serde_json::from_value(json_data).unwrap();
+        assert_eq!(setgid_set.default_behavior, SetBehavior::All);
+        assert_eq!(setgid_set.fallback, SGroups::from("group1"));
+        assert_eq!(setgid_set.add.len(), 2);
+        assert_eq!(setgid_set.add[0], SGroups::from("group2"));
+        assert_eq!(setgid_set.add[1], SGroups::from("group3"));
+        assert_eq!(setgid_set.sub.len(), 1);
+        assert_eq!(setgid_set.sub[0], SGroups::from("group4"));
+    }
+
+    #[test]
     fn test_s_commands_deserialization_seq() {
         let json_data = json!(["/bin/ls", "/bin/cat"]);
 
