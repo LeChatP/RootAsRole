@@ -19,6 +19,15 @@ pub enum SGenericActorType {
     Name(String),
 }
 
+impl SGenericActorType {
+    fn as_str(&self) -> Cow<'_, str> {
+        match self {
+            SGenericActorType::Id(id) => Cow::Owned(id.to_string()),
+            SGenericActorType::Name(name) => Cow::Borrowed(name),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SUserType(SGenericActorType);
 
@@ -57,6 +66,11 @@ impl SUserType {
             _ => false,
         }
     }
+    // Allowing dead code for RootAsRole-gensr project
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> Cow<'_, str> {
+        self.0.as_str()
+    }
 }
 
 impl DUserType<'_> {
@@ -67,6 +81,12 @@ impl DUserType<'_> {
                 Ok(Some(user)) => Some(user.uid.as_raw()),
                 _ => None,
             },
+        }
+    }
+    pub fn fetch_user(&self) -> Option<User> {
+        match &self.0 {
+            DGenericActorType::Id(id) => User::from_uid((*id).into()).ok().flatten(),
+            DGenericActorType::Name(name) => User::from_name(name).ok().flatten(),
         }
     }
 }
@@ -119,6 +139,9 @@ impl SGroupType {
             SGenericActorType::Name(name) => Group::from_name(name).ok().flatten(),
         }
     }
+    pub fn as_str(&self) -> Cow<'_, str> {
+        self.0.as_str()
+    }
 }
 
 impl DGroupType<'_> {
@@ -129,6 +152,12 @@ impl DGroupType<'_> {
                 Ok(Some(group)) => Some(group.gid.as_raw()),
                 _ => None,
             },
+        }
+    }
+    pub fn fetch_group(&self) -> Option<Group> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Group::from_gid((*id).into()).ok().flatten(),
+            DGenericActorType::Name(name) => Group::from_name(name).ok().flatten(),
         }
     }
 }
@@ -808,12 +837,20 @@ mod tests {
         let group = SGroupType::from("unkown");
         assert_eq!(group.fetch_id(), None);
     }
+
     #[test]
     fn test_fetch_user() {
-        let user = SUserType::from("testuser");
-        assert!(user.fetch_user().is_none());
-        let user_by_id = SUserType::from(0);
-        assert!(user_by_id.fetch_user().is_some());
+        let user = DUserType::from("root");
+        assert_eq!(
+            user.fetch_user(),
+            Some(User::from_uid(0.into()).unwrap().unwrap())
+        );
+
+        let user = DUserType::from(0);
+        assert_eq!(
+            user.fetch_user(),
+            Some(User::from_uid(0.into()).unwrap().unwrap())
+        );
     }
 
     #[test]
@@ -1012,6 +1049,8 @@ mod tests {
         assert!(group.is_single());
         let group = SGroups::from(["test"]);
         assert!(group.is_single());
+        let group = SGroups::from("test");
+        assert!(group.is_single());
         let group = SGroups::from(["test", "test2"]);
         assert!(!group.is_single());
         let group = SGroups::from(vec![0, 1]);
@@ -1079,5 +1118,17 @@ mod tests {
         let groups = DGroups::from(vec![DGroupType::from("unkown")]);
         let ids: Result<Vec<u32>, _> = (&groups).try_into();
         assert!(ids.is_err());
+    }
+
+    #[test]
+    fn test_as_str() {
+        let group = SGroupType::from("test");
+        assert_eq!(group.as_str(), "test");
+        let group = SGroupType::from(100);
+        assert_eq!(group.as_str(), "100");
+        let user = SUserType::from("test");
+        assert_eq!(user.as_str(), "test");
+        let user = SUserType::from(100);
+        assert_eq!(user.as_str(), "100");
     }
 }

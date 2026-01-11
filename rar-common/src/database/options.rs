@@ -1,13 +1,17 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::num::ParseIntError;
+use std::result::Result;
+use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
-use std::{env, result::Result};
 
-use bon::{bon, builder, Builder};
+use bon::{bon, Builder};
 use chrono::Duration;
 
 use konst::eq_str;
 use linked_hash_set::LinkedHashSet;
 
+use nix::sys::stat::Mode;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,12 +22,13 @@ use log::debug;
 
 use crate::rc_refcell;
 use crate::util::{
-    HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3,
+    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
+    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
+    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK,
 };
 
-use super::{
-    convert_string_to_duration, deserialize_duration, is_default, serialize_duration, FilterMatcher,
-};
+use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -48,6 +53,9 @@ pub enum OptType {
     Root,
     Bounding,
     Timeout,
+    Authentication,
+    ExecInfo,
+    UMask,
 }
 
 #[derive(
@@ -97,7 +105,7 @@ pub struct STimeout {
     pub _extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct SPathOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
     #[builder(start_fn)]
@@ -207,27 +215,16 @@ pub struct SEnvOptions {
 )]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 #[repr(u32)]
 pub enum SBounding {
     Strict = HARDENED_ENUM_VALUE_0,
-    #[default]
-    Inherit = HARDENED_ENUM_VALUE_1,
     Ignore = HARDENED_ENUM_VALUE_2,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
-#[serde(rename_all = "kebab-case")]
-#[derive(Default)]
-#[repr(u32)]
-pub enum SPrivileged {
-    #[default]
-    User = HARDENED_ENUM_VALUE_0,
-    Inherit = HARDENED_ENUM_VALUE_1,
-    Privileged = HARDENED_ENUM_VALUE_2,
+impl Default for SBounding {
+    fn default() -> Self {
+        BOUNDING
+    }
 }
 
 #[derive(
@@ -235,13 +232,92 @@ pub enum SPrivileged {
 )]
 #[strum(ascii_case_insensitive)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
+#[repr(u32)]
+pub enum SPrivileged {
+    User = HARDENED_ENUM_VALUE_0,
+    Privileged = HARDENED_ENUM_VALUE_1,
+}
+
+impl Default for SPrivileged {
+    fn default() -> Self {
+        PRIVILEGED
+    }
+}
+
+#[derive(
+    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
+)]
+#[strum(ascii_case_insensitive)]
+#[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum SAuthentication {
-    #[default]
     Perform = HARDENED_ENUM_VALUE_0,
-    Inherit = HARDENED_ENUM_VALUE_1,
-    Skip = HARDENED_ENUM_VALUE_2,
+    Skip = HARDENED_ENUM_VALUE_1,
+}
+
+impl Default for SAuthentication {
+    fn default() -> Self {
+        AUTHENTICATION
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SUMask(
+    #[serde(
+        deserialize_with = "deserialize_umask",
+        serialize_with = "serialize_umask"
+    )]
+    pub u16,
+);
+
+impl Default for SUMask {
+    fn default() -> Self {
+        UMASK
+    }
+}
+
+impl From<SUMask> for Mode {
+    fn from(umask: SUMask) -> Self {
+        Mode::from_bits_truncate(umask.0 as u32)
+    }
+}
+
+impl FromStr for SUMask {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        u16::from_str_radix(s, 8).map(SUMask)
+    }
+}
+
+fn serialize_umask<S>(value: &u16, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&format!("{:03o}", value))
+}
+
+fn deserialize_umask<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: Cow<'de, str> = Deserialize::deserialize(deserializer)?;
+    SUMask::from_str(&s)
+        .map(|umask| umask.0)
+        .map_err(serde::de::Error::custom)
+}
+
+impl From<SUMask> for u16 {
+    fn from(val: SUMask) -> Self {
+        val.0
+    }
+}
+
+impl From<u16> for SUMask {
+    fn from(val: u16) -> Self {
+        SUMask(val)
+    }
 }
 
 #[derive(
@@ -276,6 +352,8 @@ pub struct Opt {
     pub execinfo: Option<SInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub _extra_fields: Map<String, Value>,
 }
@@ -292,6 +370,7 @@ impl Opt {
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
+        umask: Option<SUMask>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Self {
         Opt {
@@ -303,104 +382,47 @@ impl Opt {
             authentication,
             execinfo,
             timeout,
+            umask,
             _extra_fields,
         }
     }
 
     pub fn level_default() -> Self {
         Self::builder(Level::Default)
-            .maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
-            .maybe_bounding(env!("RAR_BOUNDING").parse().ok())
+            .root(PRIVILEGED)
+            .bounding(BOUNDING)
             .path(SPathOptions::level_default())
-            .maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
-            .maybe_execinfo(env!("RAR_EXEC_INFO_DISPLAY").parse().ok())
+            .authentication(AUTHENTICATION)
+            .execinfo(INFO)
+            .umask(UMASK)
             .env(
-                SEnvOptions::builder(
-                    env!("RAR_ENV_DEFAULT")
-                        .parse()
-                        .unwrap_or(EnvBehavior::Delete),
-                )
-                .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
-                .unwrap()
-                .check(
-                    env!("RAR_ENV_CHECK_LIST")
-                        .split(',')
-                        .filter(|s| {
-                            #[cfg(feature = "pcre2")]
-                            return is_valid_env_name(s) || is_regex(s);
-                            #[cfg(not(feature = "pcre2"))]
-                            is_valid_env_name(&s)
-                        })
-                        .collect::<Vec<&str>>(),
-                )
-                .unwrap()
-                .delete(
-                    env!("RAR_ENV_DELETE_LIST")
-                        .split(',')
-                        .collect::<Vec<&str>>(),
-                )
-                .unwrap()
-                .set(
-                    serde_json::from_str(env!("RAR_ENV_SET_LIST"))
-                        .unwrap_or_else(|_| Map::default()),
-                )
-                .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
-                .build(),
+                SEnvOptions::builder(ENV_DEFAULT_BEHAVIOR)
+                    .keep(ENV_KEEP_LIST)
+                    .unwrap()
+                    .check(ENV_CHECK_LIST)
+                    .unwrap()
+                    .delete(ENV_DELETE_LIST)
+                    .unwrap()
+                    .set(ENV_SET_LIST)
+                    .override_behavior(ENV_OVERRIDE_BEHAVIOR)
+                    .build(),
             )
             .timeout(
                 STimeout::builder()
-                    .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
-                    .maybe_duration(
-                        convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
-                            .ok()
-                            .flatten(),
-                    )
+                    .type_field(TIMEOUT_TYPE)
+                    .duration(TIMEOUT_DURATION)
                     .build(),
             )
             .build()
     }
 }
 
-impl Default for Opt {
-    fn default() -> Self {
-        Opt {
-            path: Some(SPathOptions::default()),
-            env: Some(SEnvOptions::default()),
-            root: Some(SPrivileged::default()),
-            bounding: Some(SBounding::default()),
-            authentication: None,
-            execinfo: None,
-            timeout: None,
-            _extra_fields: Map::default(),
-            level: Level::Default,
-        }
-    }
-}
-
-impl Default for SPathOptions {
-    fn default() -> Self {
-        SPathOptions {
-            default_behavior: PathBehavior::Inherit,
-            add: None,
-            sub: None,
-        }
-    }
-}
-
 impl SPathOptions {
     pub fn level_default() -> Self {
-        SPathOptions::builder(
-            env!("RAR_PATH_DEFAULT")
-                .parse()
-                .unwrap_or(PathBehavior::Delete),
-        )
-        .add(env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>())
-        .sub(
-            env!("RAR_PATH_REMOVE_LIST")
-                .split(':')
-                .collect::<Vec<&str>>(),
-        )
-        .build()
+        SPathOptions::builder(ENV_PATH_BEHAVIOR)
+            .add(ENV_PATH_ADD_LIST_SLICE)
+            .sub(ENV_PATH_REMOVE_LIST_SLICE)
+            .build()
     }
 }
 
@@ -564,7 +586,6 @@ impl SPrivileged {
     pub const fn try_parse(input: &str) -> std::result::Result<SPrivileged, ConstParseError> {
         match input {
             _ if eq_str(input, "user") => Ok(SPrivileged::User),
-            _ if eq_str(input, "inherit") => Ok(SPrivileged::Inherit),
             _ if eq_str(input, "privileged") => Ok(SPrivileged::Privileged),
             _ => ConstParseError("SPrivileged").panic(),
         }
@@ -596,7 +617,6 @@ impl SBounding {
     pub const fn try_parse(input: &str) -> std::result::Result<SBounding, ConstParseError> {
         match input {
             _ if eq_str(input, "strict") => Ok(SBounding::Strict),
-            _ if eq_str(input, "inherit") => Ok(SBounding::Inherit),
             _ if eq_str(input, "ignore") => Ok(SBounding::Ignore),
             _ => ConstParseError("SBounding").panic(),
         }
@@ -607,9 +627,18 @@ impl SAuthentication {
     pub const fn try_parse(input: &str) -> std::result::Result<SAuthentication, ConstParseError> {
         match input {
             _ if eq_str(input, "perform") => Ok(SAuthentication::Perform),
-            _ if eq_str(input, "inherit") => Ok(SAuthentication::Inherit),
             _ if eq_str(input, "skip") => Ok(SAuthentication::Skip),
             _ => ConstParseError("SAuthentication").panic(),
+        }
+    }
+}
+
+// === Defaults based on config.toml ===
+impl Default for Opt {
+    fn default() -> Self {
+        Opt {
+            level: Level::None,
+            ..Opt::level_default()
         }
     }
 }
@@ -929,6 +958,11 @@ impl OptStack {
 
 #[cfg(test)]
 mod tests {
+
+    use serde_test::assert_de_tokens;
+    use serde_test::assert_de_tokens_error;
+    use serde_test::assert_tokens;
+    use serde_test::Token;
 
     use super::super::options::*;
     use super::super::structs::*;
@@ -1434,5 +1468,144 @@ mod tests {
                 invalid_env
             )
         );
+    }
+
+    #[test]
+    fn test_sumask_from_u16() {
+        let umask = SUMask::from(0o755);
+        assert_eq!(umask.0, 0o755);
+    }
+
+    #[test]
+    fn test_u16_from_sumask() {
+        let umask = SUMask(0o644);
+        let value: u16 = umask.into();
+        assert_eq!(value, 0o644);
+    }
+
+    #[test]
+    fn test_mode_from_sumask() {
+        let umask = SUMask(0o22);
+        let mode: Mode = umask.into();
+        assert_eq!(mode, Mode::from_bits_truncate(0o22));
+    }
+
+    #[test]
+    fn test_sumask_serde_standard_umask() {
+        let umask = SUMask(0o22);
+        assert_tokens(&umask, &[Token::Str("022")]);
+    }
+
+    #[test]
+    fn test_sumask_serde_three_digits() {
+        let umask = SUMask(0o755);
+        assert_tokens(&umask, &[Token::Str("755")]);
+    }
+
+    #[test]
+    fn test_sumask_serde_single_digit() {
+        let umask = SUMask(0o7);
+        assert_tokens(&umask, &[Token::Str("007")]);
+    }
+
+    #[test]
+    fn test_sumask_serde_zero() {
+        let umask = SUMask(0);
+        assert_tokens(&umask, &[Token::Str("000")]);
+    }
+
+    #[test]
+    fn test_sumask_serde_max_value() {
+        let umask = SUMask(0o777);
+        assert_tokens(&umask, &[Token::Str("777")]);
+    }
+
+    #[test]
+    fn test_sumask_deserialize_various_formats() {
+        // Test single digit
+        assert_de_tokens(&SUMask(0o7), &[Token::Str("7")]);
+
+        // Test two digits
+        assert_de_tokens(&SUMask(0o22), &[Token::Str("22")]);
+
+        // Test three digits with leading zeros
+        assert_de_tokens(&SUMask(0o022), &[Token::Str("022")]);
+
+        // Test four digit octal (though unusual for umask)
+        assert_de_tokens(&SUMask(0o1755), &[Token::Str("1755")]);
+    }
+
+    #[test]
+    fn test_sumask_deserialize_invalid_octal() {
+        // Test invalid octal digit
+        assert_de_tokens_error::<SUMask>(&[Token::Str("888")], "invalid digit found in string");
+
+        // Test mixed valid/invalid
+        assert_de_tokens_error::<SUMask>(&[Token::Str("729")], "invalid digit found in string");
+    }
+
+    #[test]
+    fn test_sumask_deserialize_invalid_format() {
+        // Test non-numeric string
+        assert_de_tokens_error::<SUMask>(&[Token::Str("abc")], "invalid digit found in string");
+
+        // Test empty string
+        assert_de_tokens_error::<SUMask>(
+            &[Token::Str("")],
+            "cannot parse integer from empty string",
+        );
+
+        // Test string with spaces
+        assert_de_tokens_error::<SUMask>(&[Token::Str(" 22")], "invalid digit found in string");
+
+        // Test hexadecimal format (should fail)
+        assert_de_tokens_error::<SUMask>(&[Token::Str("0x22")], "invalid digit found in string");
+    }
+
+    #[test]
+    fn test_sumask_partial_eq() {
+        let umask1 = SUMask(0o22);
+        let umask2 = SUMask(0o22);
+        let umask3 = SUMask(0o755);
+
+        assert_eq!(umask1, umask2);
+        assert_ne!(umask1, umask3);
+    }
+
+    #[test]
+    fn test_sumask_debug() {
+        let umask = SUMask(0o22);
+        let debug_str = format!("{:?}", umask);
+        assert_eq!(debug_str, "SUMask(18)"); // 0o22 = 18 in decimal
+    }
+
+    #[test]
+    fn test_sumask_copy_clone() {
+        let umask1 = SUMask(0o644);
+        let umask2 = umask1; // Copy
+        let umask3 = umask1.clone(); // Clone
+
+        assert_eq!(umask1, umask2);
+        assert_eq!(umask1, umask3);
+    }
+
+    #[test]
+    fn test_sumask_common_umask_values() {
+        // Test common umask values
+        assert_tokens(&SUMask(0o022), &[Token::Str("022")]); // Default
+        assert_tokens(&SUMask(0o002), &[Token::Str("002")]); // Group writable
+        assert_tokens(&SUMask(0o077), &[Token::Str("077")]); // Private
+        assert_tokens(&SUMask(0o000), &[Token::Str("000")]); // No restrictions
+        assert_tokens(&SUMask(0o027), &[Token::Str("027")]); // Group readable
+    }
+
+    #[test]
+    fn test_sumask_transparent_serde() {
+        // Test that the struct is truly transparent in serialization
+        // The tokens should be exactly the same as if we serialized the inner u16 with our custom functions
+        let umask = SUMask(0o644);
+
+        // This should serialize as just a string, not as a struct
+        assert_tokens(&umask, &[Token::Str("644")]);
     }
 }

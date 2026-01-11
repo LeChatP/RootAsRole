@@ -1,4 +1,4 @@
-use bon::{bon, builder, Builder};
+use bon::{bon, Builder};
 use capctl::{Cap, CapSet};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -23,7 +23,7 @@ use super::{
     options::{Level, Opt, OptBuilder},
 };
 
-#[derive(Deserialize, PartialEq, Eq, Debug)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct SConfig {
     #[serde(default, deserialize_with = "sconfig_opt", alias = "o")]
     pub options: Option<Rc<RefCell<Opt>>>,
@@ -46,7 +46,7 @@ where
     }
 }
 
-#[derive(Deserialize, Debug, Derivative)]
+#[derive(Deserialize, Debug, Derivative, Default)]
 #[serde(rename_all = "kebab-case")]
 #[derivative(PartialEq, Eq)]
 pub struct SRole {
@@ -90,6 +90,12 @@ pub enum IdTask {
     Number(usize),
 }
 
+impl Default for IdTask {
+    fn default() -> Self {
+        IdTask::Number(0)
+    }
+}
+
 impl std::fmt::Display for IdTask {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -108,7 +114,7 @@ pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
         && cmds._extra_fields.is_empty()
 }
 
-#[derive(Deserialize, Debug, Derivative)]
+#[derive(Deserialize, Debug, Derivative, Default)]
 #[derivative(PartialEq, Eq)]
 pub struct STask {
     #[serde(alias = "n", default, skip_serializing_if = "IdTask::is_number")]
@@ -157,7 +163,7 @@ where
 }
 
 #[cfg_attr(test, derive(Clone))]
-#[derive(Deserialize, Debug, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Builder, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct SCredentials {
     #[serde(alias = "u", skip_serializing_if = "Option::is_none")]
@@ -284,7 +290,7 @@ pub struct SSetgidSet {
     pub sub: Vec<SGroups>,
 }
 
-#[derive(PartialEq, Eq, Debug, Builder)]
+#[derive(PartialEq, Eq, Debug, Builder, Default)]
 #[cfg_attr(test, derive(Clone))]
 pub struct SCapabilities {
     #[builder(start_fn)]
@@ -322,97 +328,12 @@ pub enum SCommand {
 }
 
 #[cfg_attr(test, derive(Clone))]
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Default)]
 pub struct SCommands {
     pub default: Option<SetBehavior>,
     pub add: Vec<SCommand>,
     pub sub: Vec<SCommand>,
     pub _extra_fields: Map<String, Value>,
-}
-
-// ------------------------
-// Default implementations
-// ------------------------
-
-impl Default for SConfig {
-    fn default() -> Self {
-        SConfig {
-            options: Some(Rc::new(RefCell::new(Opt::default()))),
-            roles: Vec::new(),
-            _extra_fields: Map::default(),
-        }
-    }
-}
-
-impl Default for SRole {
-    fn default() -> Self {
-        SRole {
-            name: "".to_string(),
-            actors: Vec::new(),
-            tasks: Vec::new(),
-            options: None,
-            _extra_fields: Map::default(),
-            _config: None,
-        }
-    }
-}
-
-impl Default for STask {
-    fn default() -> Self {
-        STask {
-            name: IdTask::Number(0),
-            purpose: None,
-            cred: SCredentials::default(),
-            commands: SCommands::default(),
-            options: None,
-            _extra_fields: Map::default(),
-            _role: None,
-        }
-    }
-}
-
-impl Default for SCredentials {
-    fn default() -> Self {
-        SCredentials {
-            setuid: None,
-            setgid: None,
-            capabilities: Some(SCapabilities::default()),
-            _extra_fields: Map::default(),
-        }
-    }
-}
-
-impl Default for SCommands {
-    fn default() -> Self {
-        SCommands {
-            default: Some(SetBehavior::default()),
-            add: Vec::new(),
-            sub: Vec::new(),
-            _extra_fields: Map::default(),
-        }
-    }
-}
-
-impl Default for SCapabilities {
-    fn default() -> Self {
-        SCapabilities {
-            default_behavior: SetBehavior::default(),
-            add: CapSet::empty(),
-            sub: CapSet::empty(),
-        }
-    }
-}
-
-impl Default for SSetuidSet {
-    fn default() -> Self {
-        SSetuidSet::builder().build()
-    }
-}
-
-impl Default for IdTask {
-    fn default() -> Self {
-        IdTask::Number(0)
-    }
 }
 
 // ------------------------
@@ -466,7 +387,7 @@ impl SConfig {
     #[builder]
     pub fn new(
         #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
-        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Global))))]
+        #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Global))))]
         options: Option<Rc<RefCell<Opt>>>,
         _extra_fields: Option<Map<String, Value>>,
     ) -> Rc<RefCell<Self>> {
@@ -564,7 +485,7 @@ impl SRole {
         #[builder(start_fn, into)] name: String,
         #[builder(field)] tasks: Vec<Rc<RefCell<STask>>>,
         #[builder(field)] actors: Vec<SActor>,
-        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Role))))]
+        #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Role))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
     ) -> Rc<RefCell<Self>> {
@@ -599,7 +520,7 @@ impl STask {
         purpose: Option<String>,
         #[builder(default)] cred: SCredentials,
         #[builder(default)] commands: SCommands,
-        #[builder(with = |f : fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Task))))]
+        #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Task))))]
         options: Option<Rc<RefCell<Opt>>>,
         #[builder(default)] _extra_fields: Map<String, Value>,
         _role: Option<Weak<RefCell<SRole>>>,

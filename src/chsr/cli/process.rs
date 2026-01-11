@@ -205,7 +205,16 @@ pub fn process_input(
             task_id,
             options_root: Some(options_root),
             ..
-        } => set_privileged(rconfig, role_id, task_id, options_root),
+        } => set_privileged(rconfig, role_id, task_id, Some(options_root)),
+
+        Inputs {
+            // chsr o root del
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_root: Some(_),
+            ..
+        } => set_privileged(rconfig, role_id, task_id, None),
 
         Inputs {
             // chsr o bounding set strict
@@ -214,16 +223,69 @@ pub fn process_input(
             task_id,
             options_bounding: Some(options_bounding),
             ..
-        } => set_bounding(rconfig, role_id, task_id, options_bounding),
+        } => set_bounding(rconfig, role_id, task_id, Some(options_bounding)),
 
         Inputs {
-            // chsr o bounding set strict
+            // chsr o bounding del
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_bounding: Some(_),
+            ..
+        } => set_bounding(rconfig, role_id, task_id, None),
+
+        Inputs {
+            // chsr o authentication perform
             action: InputAction::Set,
             role_id,
             task_id,
             options_auth: Some(options_auth),
             ..
-        } => set_authentication(rconfig, role_id, task_id, options_auth),
+        } => set_authentication(rconfig, role_id, task_id, Some(options_auth)),
+
+        Inputs {
+            // chsr o authentication del
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_auth: Some(_),
+            ..
+        } => set_authentication(rconfig, role_id, task_id, None),
+
+        Inputs {
+            // chsr o execinfo hide|show
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_execinfo: Some(options_execinfo),
+            ..
+        } => set_execinfo(rconfig, role_id, task_id, Some(options_execinfo)),
+
+        Inputs {
+            // chsr o execinfo del
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_execinfo: Some(_),
+            ..
+        } => set_execinfo(rconfig, role_id, task_id, None),
+
+        Inputs {
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_umask: Some(options_umask),
+            ..
+        } => set_umask(rconfig, role_id, task_id, Some(options_umask)),
+
+        Inputs {
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_umask: Some(_),
+            ..
+        } => set_umask(rconfig, role_id, task_id, None),
+
         Inputs {
             // chsr o path whitelist set a:b:c
             action: InputAction::Set,

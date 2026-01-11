@@ -2,18 +2,20 @@ use std::collections::HashSet;
 use std::{borrow::Cow, collections::HashMap};
 
 use bon::{bon, builder, Builder};
-use chrono::Duration;
 
-use konst::primitive::parse_i64;
-use konst::{iter, option, result, slice, string, unwrap_ctx};
 use libc::PATH_MAX;
 use nix::unistd::User;
 use rar_common::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
-    STimeout, TimestampType,
+    STimeout, SUMask,
 };
 use rar_common::database::score::SecurityMin;
 use rar_common::database::FilterMatcher;
+use rar_common::util::{
+    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
+    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
+};
 use std::hash::Hash;
 
 #[cfg(feature = "pcre2")]
@@ -27,170 +29,6 @@ use crate::error::{SrError, SrResult};
 use crate::Cred;
 
 use super::de::DLinkedTask;
-
-//#[cfg(feature = "finder")]
-//use super::finder::Cred;
-//#[cfg(feature = "finder")]
-//use super::finder::SecurityMin;
-
-//=== DPathOptions ===
-
-const ENV_PATH_BEHAVIOR: PathBehavior = result::unwrap_or!(
-    PathBehavior::try_parse(env!("RAR_PATH_DEFAULT")),
-    PathBehavior::Delete
-);
-
-const ENV_PATH_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
-    string::split(env!("RAR_PATH_ADD_LIST"), ":"),
-        map(string::trim),
-);
-
-//static ENV_PATH_ADD_LIST: [&str; ENV_PATH_ADD_LIST_SLICE.len()] = *unwrap_ctx!(slice::try_into_array(ENV_PATH_ADD_LIST_SLICE));
-
-const ENV_PATH_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
-    string::split(env!("RAR_PATH_REMOVE_LIST"), ":"),
-        map(string::trim),
-);
-
-//static ENV_PATH_REMOVE_LIST: [&str; ENV_PATH_REMOVE_LIST_SLICE.len()] = *unwrap_ctx!(slice::try_into_array(ENV_PATH_REMOVE_LIST_SLICE));
-
-//=== ENV ===
-const ENV_DEFAULT_BEHAVIOR: EnvBehavior = result::unwrap_or!(
-    EnvBehavior::try_parse(env!("RAR_ENV_DEFAULT")),
-    EnvBehavior::Delete
-);
-
-const ENV_KEEP_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
-    string::split(env!("RAR_ENV_KEEP_LIST"), ","),
-        map(string::trim),
-);
-
-const ENV_CHECK_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
-    string::split(env!("RAR_ENV_CHECK_LIST"), ","),
-        map(string::trim),
-);
-
-const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
-    string::split(env!("RAR_ENV_DELETE_LIST"), ","),
-        map(string::trim),
-);
-
-const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
-    string::split(env!("RAR_ENV_SET_LIST"), "\n"),
-        filter_map(|s| {
-            if let Some((key,value)) = string::split_once(s, '=') {
-                Some((string::trim(key),string::trim(value)))
-            } else {
-                None
-            }
-        })
-);
-
-const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
-    konst::primitive::parse_bool(env!("RAR_ENV_OVERRIDE_BEHAVIOR")),
-    false
-);
-
-static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_KEEP_LIST_SLICE));
-
-static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_CHECK_LIST_SLICE));
-
-static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_DELETE_LIST_SLICE));
-
-static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_SET_LIST_SLICE));
-
-//=== STimeout ===
-
-const TIMEOUT_TYPE: TimestampType = result::unwrap_or!(
-    TimestampType::try_parse(env!("RAR_TIMEOUT_TYPE")),
-    TimestampType::PPID
-);
-
-const TIMEOUT_DURATION: Duration = option::unwrap_or!(
-    result::unwrap_or!(
-        convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")),
-        None
-    ),
-    Duration::seconds(5)
-);
-
-const TIMEOUT_MAX_USAGE: u64 = result::unwrap_or!(
-    konst::primitive::parse_u64(env!("RAR_TIMEOUT_MAX_USAGE")),
-    0
-);
-
-const BOUNDING: SBounding = result::unwrap_or!(
-    SBounding::try_parse(env!("RAR_BOUNDING")),
-    SBounding::Strict
-);
-
-const AUTHENTICATION: SAuthentication = result::unwrap_or!(
-    SAuthentication::try_parse(env!("RAR_AUTHENTICATION")),
-    SAuthentication::Perform
-);
-
-const PRIVILEGED: SPrivileged = result::unwrap_or!(
-    SPrivileged::try_parse(env!("RAR_USER_CONSIDERED")),
-    SPrivileged::User
-);
-
-const INFO: SInfo =
-    result::unwrap_or!(SInfo::try_parse(env!("RAR_EXEC_INFO_DISPLAY")), SInfo::Hide);
-
-//#[cfg(not(tarpaulin_include))]
-//const fn default() -> Opt<'static> {
-/* Opt::builder(Level::Default)
-.maybe_root(env!("RAR_USER_CONSIDERED").parse().ok())
-.maybe_bounding(env!("RAR_BOUNDING").parse().ok())
-.path(DPathOptions::default_path())
-.maybe_authentication(env!("RAR_AUTHENTICATION").parse().ok())
-.env(
-    DEnvOptions::builder(
-        env!("RAR_ENV_DEFAULT")
-            .parse()
-            .unwrap_or(EnvBehavior::Delete),
-    )
-    .keep(env!("RAR_ENV_KEEP_LIST").split(',').collect::<Vec<&str>>())
-    .unwrap()
-    .check(env!("RAR_ENV_CHECK_LIST").split(',').collect::<Vec<&str>>())
-    .unwrap()
-    .delete(
-        env!("RAR_ENV_DELETE_LIST")
-            .split(',')
-            .collect::<Vec<&str>>(),
-    )
-    .unwrap()
-    .set(
-        serde_json::from_str(env!("RAR_ENV_SET_LIST"))
-            .unwrap_or_else(|_| Map::default())
-            .into_iter()
-            .filter_map(|(k, v)| {
-                if let Some(v) = v.as_str() {
-                    Some((k.to_string(), v.to_string()))
-                } else {
-                    None
-                }
-            }),
-    )
-    .maybe_override_behavior(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().ok())
-    .build(),
-)
-.timeout(
-    STimeout::builder()
-        .maybe_type_field(env!("RAR_TIMEOUT_TYPE").parse().ok())
-        .maybe_duration(
-            convert_string_to_duration(&env!("RAR_TIMEOUT_DURATION").to_string())
-                .ok()
-                .flatten(),
-        )
-        .build(),
-)
-.build() */
-//}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct DPathOptions<'a> {
@@ -254,6 +92,8 @@ pub struct Opt<'a> {
     pub execinfo: Option<SInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub _extra_fields: Value,
 }
@@ -270,6 +110,7 @@ impl<'a> Opt<'a> {
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
+        umask: Option<SUMask>,
         #[builder(default)] _extra_fields: Value,
     ) -> Self {
         Self {
@@ -281,6 +122,7 @@ impl<'a> Opt<'a> {
             authentication,
             execinfo,
             timeout,
+            umask,
             _extra_fields,
         }
     }
@@ -292,7 +134,7 @@ impl DEnvOptions<'_> {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
         current_user: &Cred,
-        target: Option<User>,
+        target: &Option<User>,
         command: String,
     ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
@@ -339,7 +181,7 @@ impl DEnvOptions<'_> {
                 }
             }),
         );
-        let target_user = target.unwrap_or_else(|| current_user.user.clone());
+        let target_user = target.as_ref().unwrap_or_else(|| &current_user.user);
         final_set.insert("LOGNAME".into(), target_user.name.clone());
         final_set.insert("USER".into(), target_user.name.clone());
         final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
@@ -615,39 +457,6 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
-#[derive(Debug)]
-struct DurationParseError;
-impl std::fmt::Display for DurationParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Invalid duration format")
-    }
-}
-
-const fn convert_string_to_duration(
-    s: &str,
-) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
-    let parts = string::split(s, ':');
-    let (hours, parts) = match parts.next() {
-        Some(h) => h,
-        None => return Err(DurationParseError),
-    };
-    let (minutes, parts) = match parts.next() {
-        Some(m) => m,
-        None => return Err(DurationParseError),
-    };
-    let (seconds, _) = match parts.next() {
-        Some(sec) => sec,
-        None => return Err(DurationParseError),
-    };
-
-    let hours: i64 = unwrap_ctx!(parse_i64(hours));
-    let minutes: i64 = unwrap_ctx!(parse_i64(minutes));
-    let seconds: i64 = unwrap_ctx!(parse_i64(seconds));
-    Ok(Some(Duration::seconds(
-        hours * 3600 + minutes * 60 + seconds,
-    )))
-}
-
 pub struct BorrowedOptStack<'a> {
     config: Option<Opt<'a>>,
     role: Option<Opt<'a>>,
@@ -717,20 +526,17 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
     pub fn calc_security_min(&self) -> SecurityMin {
         let mut security_min = SecurityMin::default();
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
-            .for_each(|o| {
-                update_security_min()
-                    .security_min(&mut security_min)
-                    .bounding(&o.bounding)
-                    .root(&o.root)
-                    .authentication(&o.authentication)
-                    .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
-                    .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
-                    .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
-                    .call();
-            });
+        self.get_opt_iter_rev().for_each(|o| {
+            update_security_min()
+                .security_min(&mut security_min)
+                .bounding(&o.bounding)
+                .root(&o.root)
+                .authentication(&o.authentication)
+                .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
+                .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
+                .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
+                .call();
+        });
         update_security_min()
             .security_min(&mut security_min)
             .bounding(&Some(BOUNDING))
@@ -744,9 +550,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_override_behavior(&self) -> bool {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.env.as_ref())
             .find_map(|o| o.override_behavior)
             .unwrap_or(ENV_OVERRIDE_BEHAVIOR)
@@ -851,9 +655,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .delete(&ENV_DELETE_LIST)
             .set(&ENV_SET_LIST)
             .call();
-        [self.config.as_ref(), self.role.as_ref(), self.task.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
             .for_each(|o| {
                 assign_env_settings()
@@ -872,17 +674,26 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
     }
 
     pub fn calc_bounding(&self) -> SBounding {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.bounding)
             .next()
             .unwrap_or(BOUNDING)
     }
-    pub fn calc_timeout(&self) -> STimeout {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
+
+    pub fn get_opt_iter(&self) -> impl Iterator<Item = &Opt<'a>> {
+        [self.config.as_ref(), self.role.as_ref(), self.task.as_ref()]
+            .into_iter()
             .flatten()
+    }
+
+    pub fn get_opt_iter_rev(&self) -> impl Iterator<Item = &Opt<'a>> {
+        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn calc_timeout(&self) -> STimeout {
+        self.get_opt_iter_rev()
             .filter_map(|o| o.timeout.clone())
             .next()
             .unwrap_or(STimeout {
@@ -893,28 +704,28 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             })
     }
     pub fn calc_info(&self) -> SInfo {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.execinfo)
             .next()
             .unwrap_or(INFO)
     }
     pub fn calc_authentication(&self) -> SAuthentication {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.authentication)
             .next()
             .unwrap_or(AUTHENTICATION)
     }
     pub fn calc_privileged(&self) -> SPrivileged {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .iter()
-            .flatten()
+        self.get_opt_iter_rev()
             .filter_map(|o| o.root)
             .next()
             .unwrap_or(PRIVILEGED)
+    }
+    pub fn calc_umask(&self) -> SUMask {
+        self.get_opt_iter_rev()
+            .filter_map(|o| o.umask)
+            .next()
+            .unwrap_or(UMASK)
     }
 }
 
@@ -1092,7 +903,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1133,7 +944,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -1175,7 +986,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
         assert!(result.is_err());
     }
 
@@ -1185,18 +996,6 @@ mod tests {
         assert!(is_default(&default));
         let non_default = Opt::builder(Level::Default).build();
         assert!(!is_default(&non_default));
-    }
-
-    #[test]
-    fn test_convert_string_to_duration() {
-        let duration = convert_string_to_duration("01:30:00");
-        assert!(duration.is_ok());
-        assert_eq!(
-            duration.unwrap(),
-            Some(Duration::hours(1) + Duration::minutes(30))
-        );
-        let invalid_duration = convert_string_to_duration("invalid");
-        assert!(invalid_duration.is_err());
     }
 
     #[test]

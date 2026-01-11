@@ -85,9 +85,12 @@ chsr role [role_name] options [option] [operation]
 chsr role [role_name] task [task_name] options [option] [operation]
   {BOLD}path{RST}                          Manage path settings (set, whitelist, blacklist).
   {BOLD}env{RST}                           Manage environment variable settings (set, whitelist, blacklist, checklist).
-  {BOLD}root{RST} [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (privileged, user, inherit)
-  {BOLD}bounding{RST} [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (strict, ignore, inherit)
+  {BOLD}root{RST} [policy]                 Defines when the root user (uid == 0) gets his privileges by default. (unset, privileged, user, inherit)
+  {BOLD}bounding{RST} [policy]             Defines when dropped capabilities are permanently removed in the instantiated process. (unset, strict, ignore, inherit)
   {BOLD}timeout{RST}                       Manage timeout settings (set, unset).
+  {BOLD}authentication{RST} [policy]       Defines if user needs to authenticate (unset, skip, perform, inherit).
+  {BOLD}execinfo{RST} [policy]             Defines if user can see execution settings (unset, display, hide, inherit).
+  {BOLD}umask, mask{RST} [del|umask]       Defines the umask for the executed command (unset or 022).
 ",UNDERLINE=UNDERLINE, BOLD=BOLD, RST=RST);
 
 const RAR_USAGE_OPTIONS_PATH :&str = formatcp!("{UNDERLINE}{BOLD}Path options:{RST}

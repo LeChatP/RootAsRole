@@ -1,6 +1,6 @@
 [package]
 name = "rootasrole-core"
-version = "3.2.4"
+version = "3.3.0"
 edition = "2021"
 description = "This core crate for the RootAsRole project."
 license = "LGPL-3.0-or-later"

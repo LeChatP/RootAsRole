@@ -8,7 +8,7 @@ use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt}
 use rar_common::database::{
     options::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout,
+        STimeout, SUMask,
     },
     structs::{
         IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
@@ -69,6 +69,18 @@ fn list_task(
                         }
                         OptType::Timeout => {
                             println!("{}", serde_json::to_string_pretty(&opt.timeout).unwrap());
+                        }
+                        OptType::Authentication => {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.authentication).unwrap()
+                            );
+                        }
+                        OptType::ExecInfo => {
+                            println!("{}", serde_json::to_string_pretty(&opt.execinfo).unwrap());
+                        }
+                        OptType::UMask => {
+                            println!("{}", serde_json::to_string_pretty(&opt.umask).unwrap());
                         }
                     }
                 } else {
@@ -570,11 +582,11 @@ pub fn set_privileged(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_root: rar_common::database::options::SPrivileged,
+    options_root: Option<rar_common::database::options::SPrivileged>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o root set privileged");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        opt.as_ref().borrow_mut().root = Some(options_root);
+        opt.as_ref().borrow_mut().root = options_root;
         Ok(())
     })?;
     Ok(true)
@@ -584,11 +596,11 @@ pub fn set_bounding(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_bounding: rar_common::database::options::SBounding,
+    options_bounding: Option<rar_common::database::options::SBounding>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o bounding set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        opt.as_ref().borrow_mut().bounding = Some(options_bounding);
+        opt.as_ref().borrow_mut().bounding = options_bounding;
         Ok(())
     })?;
     Ok(true)
@@ -598,11 +610,39 @@ pub fn set_authentication(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<String>,
     task_id: Option<IdTask>,
-    options_auth: rar_common::database::options::SAuthentication,
+    options_auth: Option<rar_common::database::options::SAuthentication>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o auth set");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        opt.as_ref().borrow_mut().authentication = Some(options_auth);
+        opt.as_ref().borrow_mut().authentication = options_auth;
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_execinfo(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_execinfo: Option<rar_common::database::options::SInfo>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o execinfo set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().execinfo = options_execinfo;
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn set_umask(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<String>,
+    task_id: Option<IdTask>,
+    options_umask: Option<SUMask>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o umask set");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().umask = options_umask;
         Ok(())
     })?;
     Ok(true)

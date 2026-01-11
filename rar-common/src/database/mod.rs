@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use actor::{SGroups, SUserType};
-use bon::{builder, Builder};
+use bon::Builder;
 use chrono::Duration;
 use linked_hash_set::LinkedHashSet;
 use options::EnvBehavior;

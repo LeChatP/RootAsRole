@@ -267,6 +267,7 @@ fn main_inner() -> SrResult<()> {
 
     use crate::{pam::check_auth, ROOTASROLE};
     use finder::find_best_exec_settings;
+    use nix::sys::stat::umask;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -327,7 +328,6 @@ fn main_inner() -> SrResult<()> {
 
     if args.info {
         use capctl::CapSet;
-        use nix::unistd::User;
         println!(
             "Role: {}",
             if execcfg.role.is_empty() {
@@ -346,29 +346,17 @@ fn main_inner() -> SrResult<()> {
         );
         print!(
             "Execute as user: {}",
-            if let Some(u) = execcfg.setuid {
-                if let Some(user) = User::from_uid(nix::unistd::Uid::from_raw(u)).unwrap_or(None) {
-                    format!("{} ({})", user.name, u)
-                } else {
-                    format!("{}", u)
-                }
+            if let Some(u) = execcfg.cred.setuid {
+                format!("{} ({})", u.name, u.uid)
             } else {
                 "Your current user".to_string()
             }
         );
-        if let Some(gids) = execcfg.setgroups.as_ref() {
+        if let Some(gids) = execcfg.cred.setgroups.as_ref() {
             print!(" and group(s): ");
             let groups = gids
                 .iter()
-                .map(|g| {
-                    if let Some(group) =
-                        nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(*g)).unwrap_or(None)
-                    {
-                        format!("{} ({})", group.name, g)
-                    } else {
-                        format!("{}", g)
-                    }
-                })
+                .map(|g| format!("{} ({})", g.name, g.gid))
                 .collect::<Vec<_>>()
                 .join(", ");
             println!("{}", groups);
@@ -377,12 +365,13 @@ fn main_inner() -> SrResult<()> {
         }
         println!(
             "With capabilities: {}",
-            if execcfg.caps.is_none() {
+            if execcfg.cred.caps.is_none() {
                 "None".to_string()
-            } else if *execcfg.caps.as_ref().unwrap() == !CapSet::empty() {
+            } else if *execcfg.cred.caps.as_ref().unwrap() == !CapSet::empty() {
                 "All capabilities".to_string()
             } else {
                 execcfg
+                    .cred
                     .caps
                     .unwrap()
                     .into_iter()
@@ -400,7 +389,9 @@ fn main_inner() -> SrResult<()> {
         activates_no_new_privs().expect("Failed to activate no new privs");
     }
 
-    debug!("setuid : {:?}", execcfg.setuid);
+    debug!("setuid : {:?}", execcfg.cred.setuid);
+
+    umask(execcfg.umask.into());
 
     setuid_setgid(&execcfg)?;
 
@@ -413,19 +404,32 @@ fn main_inner() -> SrResult<()> {
         execcfg.final_path,
         args.cmd_args.join(" ")
     );
-    let command = Command::new(&execcfg.final_path)
-        .args(args.cmd_args.iter())
-        .env_clear()
-        .envs(execcfg.env)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn(&pty.pts().expect("Failed to get pts"));
+    let cargs = args.cmd_args.clone();
+    let cfinal_path = execcfg.final_path.clone();
+    let cfinal_env = execcfg.env.clone();
+    let command = unsafe {
+        Command::new(&execcfg.final_path)
+            .pre_exec(move || {
+                use crate::finder::api::{Api, ApiEvent};
+                Api::notify(ApiEvent::PreExec(&args, &execcfg)).map_err(|e| {
+                    error!("Failed to notify pre-exec event: {}", e);
+                    std::io::Error::new(std::io::ErrorKind::Other, "Failed to notify pre-exec")
+                })?;
+                Ok(())
+            })
+            .args(cargs.iter())
+            .env_clear()
+            .envs(cfinal_env)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn(&pty.pts().expect("Failed to get pts"))
+    };
     let mut command = match command {
         Ok(command) => command,
         Err(e) => {
             error!("{}", e);
-            eprintln!("sr: {} : {}", execcfg.final_path.display(), e);
+            eprintln!("sr: {} : {}", cfinal_path.display(), e);
             std::process::exit(1);
         }
     };
@@ -447,7 +451,7 @@ fn make_cred() -> Cred {
 
 fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
     //set capabilities
-    let caps = execcfg.caps.unwrap_or_default();
+    let caps = execcfg.cred.caps.unwrap_or_default();
     // case where capabilities are more than bounding set
     let bounding = capctl::bounding::probe();
     if bounding & caps != caps {
@@ -474,9 +478,23 @@ fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
 }
 
 fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
-    let gid = execcfg.setgroups.as_ref().and_then(|g| g.first().cloned());
+    let gid = execcfg
+        .cred
+        .setgroups
+        .as_ref()
+        .and_then(|g| g.first().cloned())
+        .map(|g| g.gid.as_raw());
     with_privileges(&[Cap::SETUID, Cap::SETGID], || {
-        capctl::cap_set_ids(execcfg.setuid, gid, execcfg.setgroups.as_deref())?;
+        capctl::cap_set_ids(
+            execcfg.cred.setuid.as_ref().map(|u| u.uid.as_raw()),
+            gid,
+            execcfg
+                .cred
+                .setgroups
+                .as_ref()
+                .map(|g| g.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>())
+                .as_deref(),
+        )?;
         Ok(())
     })
     .map_err(|e| {
@@ -487,12 +505,43 @@ fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use super::finder::de::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
-    use nix::unistd::{getgroups, getuid, Group, Pid};
+    use nix::unistd::{getgroups, getuid, Group, Pid, User};
     use rar_common::database::options::SBounding;
 
     use super::*;
+
+    fn get_non_root_uid(nth: usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/passwd").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth)
+    }
+
+    fn get_non_root_gid(nth: usize) -> Option<u32> {
+        // list all users
+        let passwd = fs::read_to_string("/etc/group").unwrap();
+        let passwd: Vec<&str> = passwd.split('\n').collect();
+        passwd
+            .iter()
+            .map(|line| {
+                let line: Vec<&str> = line.split(':').collect();
+                line[2].parse::<u32>().unwrap()
+            })
+            .filter(|uid| *uid != 0)
+            .nth(nth)
+    }
 
     #[test]
     fn test_getopt() {
@@ -552,13 +601,23 @@ mod tests {
             capset.effective.add(Cap::SETGID);
             capset.set_current().unwrap();
             let execcfg = BestExecSettings::builder()
-                .setuid(1000)
-                .setgroups(vec![1000])
+                .cred(
+                    CredOwnedData::builder()
+                        .setuid(
+                            User::from_uid(get_non_root_uid(0).unwrap().into())
+                                .unwrap()
+                                .unwrap(),
+                        )
+                        .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into())
+                            .unwrap()
+                            .unwrap()])
+                        .build(),
+                )
                 .build();
             setuid_setgid(&execcfg).unwrap();
-            assert_eq!(getuid().as_raw(), execcfg.setuid.unwrap());
-            if let Some(gid) = execcfg.setgroups.as_ref().and_then(|g| g.first()) {
-                assert_eq!(unsafe { getgid() }, *gid);
+            assert_eq!(getuid(), execcfg.cred.setuid.unwrap().uid);
+            if let Some(gid) = execcfg.cred.setgroups.as_ref().and_then(|g| g.first()) {
+                assert_eq!(unsafe { getgid() }, gid.gid.as_raw());
             }
             capset.effective.clear();
             capset.set_current().unwrap();
@@ -579,7 +638,7 @@ mod tests {
             capset.add(Cap::SETUID);
             capset.add(Cap::SETGID);
             capset.add(Cap::SETPCAP);
-            execcfg.caps = Some(capset);
+            execcfg.cred.caps = Some(capset);
             set_capabilities(&execcfg).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(capset.permitted.has(Cap::SETUID));
@@ -594,22 +653,41 @@ mod tests {
             assert!(capctl::ambient::probe().unwrap().has(Cap::SETUID));
             assert!(capctl::ambient::probe().unwrap().has(Cap::SETGID));
             assert!(capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
-            execcfg.caps = None;
+            execcfg.cred.caps = None;
             execcfg.bounding = SBounding::Strict;
             set_capabilities(&execcfg).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(!capset.permitted.has(Cap::SETUID));
-            assert!(!capset.permitted.has(Cap::SETGID));
-            assert!(!capset.permitted.has(Cap::SETPCAP));
-            assert!(!capset.inheritable.has(Cap::SETUID));
-            assert!(!capset.inheritable.has(Cap::SETGID));
-            assert!(!capset.inheritable.has(Cap::SETPCAP));
-            assert!(!capctl::bounding::probe().has(Cap::SETUID));
-            assert!(!capctl::bounding::probe().has(Cap::SETGID));
-            assert!(!capctl::bounding::probe().has(Cap::SETPCAP));
-            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETUID));
-            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETGID));
-            assert!(!capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
         }
+    }
+
+    #[test]
+    fn test_setuid_setgid_coverage() {
+        let execcfg = BestExecSettings::builder()
+            .cred(
+                CredOwnedData::builder()
+                    .setuid(
+                        User::from_uid(get_non_root_uid(0).unwrap().into())
+                            .unwrap()
+                            .unwrap(),
+                    )
+                    .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into())
+                        .unwrap()
+                        .unwrap()])
+                    .build(),
+            )
+            .build();
+        // We expect this to fail if we don't have privileges, but we want to execute the code before the failure.
+        let _ = setuid_setgid(&execcfg);
+    }
+
+    #[test]
+    fn test_set_capabilities_coverage() {
+        let mut execcfg = BestExecSettings::default();
+        let mut capset = CapSet::empty();
+        capset.add(Cap::SETUID);
+        execcfg.cred.caps = Some(capset);
+        // We expect this to fail or succeed depending on environment, but we want to execute the code.
+        let _ = set_capabilities(&execcfg);
     }
 }

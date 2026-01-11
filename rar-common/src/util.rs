@@ -8,10 +8,17 @@ use std::{
 use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
 
+use chrono::Duration;
+use konst::{iter, option, primitive::parse_i64, result, slice, string, unwrap_ctx};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use nix::fcntl::{Flock, FlockArg};
 use serde::Serialize;
+
+use crate::database::options::{
+    EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
+    TimestampType,
+};
 
 #[cfg(feature = "finder")]
 use crate::database::score::CmdMin;
@@ -29,6 +36,158 @@ pub const HARDENED_ENUM_VALUE_1: u32 = 0x0ad5d6da; // 10101101010111010110110110
 pub const HARDENED_ENUM_VALUE_2: u32 = 0x69d61fc8; // 1101001110101100001111111001000
 pub const HARDENED_ENUM_VALUE_3: u32 = 0x1629e037; // 0010110001010011110000000110111
 pub const HARDENED_ENUM_VALUE_4: u32 = 0x1fc8d3ac; // 11111110010001101001110101100
+
+pub const ENV_PATH_BEHAVIOR: PathBehavior = result::unwrap_or!(
+    PathBehavior::try_parse(env!("RAR_PATH_DEFAULT")),
+    PathBehavior::Delete
+);
+
+pub const ENV_PATH_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_PATH_ADD_LIST"), ":"),
+        map(string::trim),
+);
+
+pub const ENV_PATH_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_PATH_REMOVE_LIST"), ":"),
+        map(string::trim),
+);
+
+//=== ENV ===
+pub const ENV_DEFAULT_BEHAVIOR: EnvBehavior = result::unwrap_or!(
+    EnvBehavior::try_parse(env!("RAR_ENV_DEFAULT")),
+    EnvBehavior::Delete
+);
+
+pub const ENV_KEEP_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_ENV_KEEP_LIST"), ","),
+        map(string::trim),
+);
+
+pub const ENV_CHECK_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_ENV_CHECK_LIST"), ","),
+        map(string::trim),
+);
+
+pub const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_ENV_DELETE_LIST"), ","),
+        map(string::trim),
+);
+
+pub const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
+    string::split(env!("RAR_ENV_SET_LIST"), "\n"),
+        filter_map(|s| {
+            if let Some((key,value)) = string::split_once(s, '=') {
+                Some((string::trim(key),string::trim(value)))
+            } else {
+                None
+            }
+        })
+);
+
+pub const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
+    konst::primitive::parse_bool(env!("RAR_ENV_OVERRIDE_BEHAVIOR")),
+    false
+);
+
+pub static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(ENV_KEEP_LIST_SLICE));
+
+pub static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(ENV_CHECK_LIST_SLICE));
+
+pub static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(ENV_DELETE_LIST_SLICE));
+
+pub static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(ENV_SET_LIST_SLICE));
+
+//=== STimeout ===
+
+pub const TIMEOUT_TYPE: TimestampType = result::unwrap_or!(
+    TimestampType::try_parse(env!("RAR_TIMEOUT_TYPE")),
+    TimestampType::PPID
+);
+
+pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
+    result::unwrap_or!(
+        convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")),
+        None
+    ),
+    Duration::seconds(5)
+);
+
+#[derive(Debug)]
+struct DurationParseError;
+impl std::fmt::Display for DurationParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid duration format")
+    }
+}
+
+const fn convert_string_to_duration(
+    s: &str,
+) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
+    let parts = string::split(s, ':');
+    let (hours, parts) = match parts.next() {
+        Some(h) => h,
+        None => return Err(DurationParseError),
+    };
+    let (minutes, parts) = match parts.next() {
+        Some(m) => m,
+        None => return Err(DurationParseError),
+    };
+    let (seconds, _) = match parts.next() {
+        Some(sec) => sec,
+        None => return Err(DurationParseError),
+    };
+
+    let hours: i64 = if let Ok(hours) = parse_i64(hours) {
+        hours
+    } else {
+        return Err(DurationParseError);
+    };
+    let minutes: i64 = if let Ok(minutes) = parse_i64(minutes) {
+        minutes
+    } else {
+        return Err(DurationParseError);
+    };
+    let seconds: i64 = if let Ok(seconds) = parse_i64(seconds) {
+        seconds
+    } else {
+        return Err(DurationParseError);
+    };
+    Ok(Some(Duration::seconds(
+        hours * 3600 + minutes * 60 + seconds,
+    )))
+}
+
+pub const TIMEOUT_MAX_USAGE: u64 = result::unwrap_or!(
+    konst::primitive::parse_u64(env!("RAR_TIMEOUT_MAX_USAGE")),
+    0
+);
+
+pub const BOUNDING: SBounding = result::unwrap_or!(
+    SBounding::try_parse(env!("RAR_BOUNDING")),
+    SBounding::Strict
+);
+
+pub const AUTHENTICATION: SAuthentication = result::unwrap_or!(
+    SAuthentication::try_parse(env!("RAR_AUTHENTICATION")),
+    SAuthentication::Perform
+);
+
+pub const PRIVILEGED: SPrivileged = result::unwrap_or!(
+    SPrivileged::try_parse(env!("RAR_USER_CONSIDERED")),
+    SPrivileged::User
+);
+
+pub const UMASK: SUMask = SUMask(result::unwrap_or!(
+    konst::primitive::parse_u16(env!("RAR_UMASK")),
+    0o022
+));
+
+pub const INFO: SInfo =
+    result::unwrap_or!(SInfo::try_parse(env!("RAR_EXEC_INFO_DISPLAY")), SInfo::Hide);
 
 #[macro_export]
 macro_rules! upweak {
@@ -568,5 +727,22 @@ mod test {
             })
         })
         .is_ok());
+    }
+
+    #[test]
+    fn test_convert_string_to_duration() {
+        let duration = convert_string_to_duration("01:30:00");
+        assert!(duration.is_ok());
+        assert_eq!(
+            duration.unwrap(),
+            Some(Duration::hours(1) + Duration::minutes(30))
+        );
+        let invalid_duration = convert_string_to_duration("invalid");
+        assert!(invalid_duration.is_err());
+        assert!(convert_string_to_duration("01").is_err());
+        assert!(convert_string_to_duration("01:30").is_err());
+        assert!(convert_string_to_duration("xx:30:00").is_err());
+        assert!(convert_string_to_duration("01:xx:00").is_err());
+        assert!(convert_string_to_duration("01:30:xx").is_err());
     }
 }

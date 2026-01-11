@@ -7,7 +7,7 @@ use bon::Builder;
 use capctl::CapSet;
 use derivative::Derivative;
 use log::{debug, info};
-use nix::unistd::Group;
+use nix::unistd::{Group, User};
 use rar_common::{
     database::{
         actor::{DActor, DGroupType, DGroups, DUserType},
@@ -82,14 +82,10 @@ pub struct DTaskFinder<'a> {
     pub id: IdTask<'a>,
     #[builder(default)]
     pub score: TaskScore,
-    pub setuid: Option<DUserType<'a>>,
-    pub setgroups: Option<DGroups<'a>>,
-    pub caps: Option<CapSet>,
+    pub cred: CredData<'a>,
     pub commands: Option<DCommandList<'a>>,
     pub options: Option<Opt<'a>>,
     pub final_path: Option<PathBuf>,
-    #[builder(default)]
-    pub _extra_values: HashMap<Cow<'a, str>, Value>,
 }
 
 #[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
@@ -558,13 +554,11 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                 // Use local temporaries for each field
                 let mut id = IdTask::Number(self.i);
                 let mut score = TaskScore::default();
-                let mut setuid = None;
-                let mut setgroups = None;
-                let mut caps = None;
                 let mut commands = None;
                 let mut options = None;
                 let mut final_path = None;
                 let mut extra_values = HashMap::new();
+                let mut cred = CredData::default();
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -613,17 +607,15 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                         }
                         Field::Cred => {
                             debug!("TaskFinderVisitor: cred");
-                            let (su, sg, ca, sc, ok) = map
+                            let result = map
                                 .next_value_seed(CredFinderDeserializerReturn { cli: self.cli })?;
-                            setuid = su;
-                            setgroups = sg;
-                            caps = ca;
-                            score.setuser_min = sc.setuser_min;
-                            score.caps_min = sc.caps_min;
-                            if !ok {
+                            if !result.ok {
                                 while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                                 return Ok(None);
                             }
+                            cred = result.cred;
+                            score.setuser_min = result.score.setuser_min;
+                            score.caps_min = result.score.caps_min;
                         }
                         Field::Commands => {
                             debug!("TaskFinderVisitor: commands");
@@ -653,13 +645,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                 Ok(Some(DTaskFinder {
                     id,
                     score,
-                    setuid,
-                    setgroups,
-                    caps,
+                    cred,
                     commands,
                     options,
                     final_path,
-                    _extra_values: extra_values,
                 }))
             }
         }
@@ -684,14 +673,33 @@ struct CredFinderDeserializerReturn<'a> {
     cli: &'a Cli,
 }
 
+#[derive(Debug, PartialEq, Eq, Default, Builder)]
+pub(crate) struct CredData<'a> {
+    pub(crate) setuid: Option<DUserType<'a>>,
+    pub(crate) setgroups: Option<DGroups<'a>>,
+    pub(crate) caps: Option<CapSet>,
+    #[builder(default)]
+    pub(crate) extra_values: HashMap<Cow<'a, str>, Value>,
+}
+
+#[derive(Debug, PartialEq, Eq, Default, Clone, Builder)]
+pub struct CredOwnedData {
+    pub setuid: Option<User>,
+    pub setgroups: Option<Vec<Group>>,
+    pub caps: Option<CapSet>,
+    #[builder(default)]
+    pub extra_values: HashMap<String, Value>,
+}
+
+#[derive(Debug)]
+struct CredResult<'a> {
+    cred: CredData<'a>,
+    score: TaskScore,
+    ok: bool,
+}
+
 impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
-    type Value = (
-        Option<DUserType<'a>>,
-        Option<DGroups<'a>>,
-        Option<CapSet>,
-        TaskScore,
-        bool,
-    );
+    type Value = CredResult<'a>;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -726,13 +734,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
         }
 
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for CredFinderVisitor<'a> {
-            type Value = (
-                Option<DUserType<'a>>,
-                Option<DGroups<'a>>,
-                Option<CapSet>,
-                TaskScore,
-                bool,
-            );
+            type Value = CredResult<'a>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("Cred structure")
@@ -746,6 +748,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                 let mut caps = None;
                 let mut score = TaskScore::default();
                 let mut ok = true;
+                let mut extra_values = HashMap::new();
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Setuid => {
@@ -776,21 +779,27 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                             caps = Some(capset);
                         }
                         Field::Other(n) => {
-                            return Err(serde::de::Error::custom(format!(
-                                "Unknown Cred field {}",
-                                n
-                            )));
+                            debug!("CredFinderVisitor: unknown {}", n);
+                            let v: Value = map.next_value()?;
+                            extra_values.insert(n, v);
                         }
                     }
                 }
                 debug!("CredFinderVisitor: end");
-                Ok((setuid, setgroups, caps, score, ok))
+                Ok(CredResult {
+                    cred: CredData {
+                        setuid,
+                        setgroups,
+                        caps,
+                        extra_values,
+                    },
+                    score,
+                    ok,
+                })
             }
         }
         const FIELDS: &[&str] = &["setuid", "setgroups", "capabilities", "0", "1", "2"];
-        let (setuid, setgroups, caps, score, ok) =
-            deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor { cli: self.cli })?;
-        Ok((setuid, setgroups, caps, score, ok))
+        Ok(deserializer.deserialize_struct("Cred", FIELDS, CredFinderVisitor { cli: self.cli })?)
     }
 }
 
@@ -2105,17 +2114,26 @@ mod tests {
         let deserializer = CredFinderDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
-        let (user, groups, caps, score, ok) = result.unwrap();
-        assert!(ok);
-        assert_eq!(user, Some("root".into()));
-        assert_eq!(groups, Some(DGroups::from(vec!["root".into()])));
-        assert_eq!(caps, Some(CapSet::from_iter(vec![Cap::SYS_ADMIN])));
-        assert_eq!(score.setuser_min.uid, Some(SetuidMin::from(&"root".into())));
+        let result = result.unwrap();
+        assert!(result.ok);
+        assert_eq!(result.cred.setuid, Some("root".into()));
         assert_eq!(
-            score.setuser_min.gid,
+            result.cred.setgroups,
+            Some(DGroups::from(vec!["root".into()]))
+        );
+        assert_eq!(
+            result.cred.caps,
+            Some(CapSet::from_iter(vec![Cap::SYS_ADMIN]))
+        );
+        assert_eq!(
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&"root".into()))
+        );
+        assert_eq!(
+            result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into("root")))
         );
-        assert_eq!(score.caps_min, CapsMin::CapsAdmin(1));
+        assert_eq!(result.score.caps_min, CapsMin::CapsAdmin(1));
 
         let uid = get_non_root_uid(0).unwrap();
         let gid = get_non_root_gid(0).unwrap();
@@ -2124,17 +2142,20 @@ mod tests {
         let deserializer = CredFinderDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
-        let (user, groups, caps, score, ok) = result.unwrap();
-        assert!(ok);
-        assert_eq!(user, Some(uid.into()));
-        assert_eq!(groups, Some(DGroups::from(vec![gid.into()])));
-        assert_eq!(caps, None);
-        assert_eq!(score.setuser_min.uid, Some(SetuidMin::from(&uid.into())));
+        let result = result.unwrap();
+        assert!(result.ok);
+        assert_eq!(result.cred.setuid, Some(uid.into()));
+        assert_eq!(result.cred.setgroups, Some(DGroups::from(vec![gid.into()])));
+        assert_eq!(result.cred.caps, None);
         assert_eq!(
-            score.setuser_min.gid,
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&uid.into()))
+        );
+        assert_eq!(
+            result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into(uid)))
         );
-        assert_eq!(score.caps_min, CapsMin::Undefined);
+        assert_eq!(result.score.caps_min, CapsMin::Undefined);
 
         let uid = get_non_root_uid(0).unwrap();
         let gid = get_non_root_gid(0).unwrap();
@@ -2143,17 +2164,20 @@ mod tests {
         let deserializer = CredFinderDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result);
-        let (user, groups, caps, score, ok) = result.unwrap();
-        assert!(ok);
-        assert_eq!(user, Some(uid.into()));
-        assert_eq!(groups, Some(DGroups::from(vec![gid.into()])));
-        assert_eq!(caps, None);
-        assert_eq!(score.setuser_min.uid, Some(SetuidMin::from(&uid.into())));
+        let result = result.unwrap();
+        assert!(result.ok);
+        assert_eq!(result.cred.setuid, Some(uid.into()));
+        assert_eq!(result.cred.setgroups, Some(DGroups::from(vec![gid.into()])));
+        assert_eq!(result.cred.caps, None);
         assert_eq!(
-            score.setuser_min.gid,
+            result.score.setuser_min.uid,
+            Some(SetuidMin::from(&uid.into()))
+        );
+        assert_eq!(
+            result.score.setuser_min.gid,
             Some(SetgidMin::from(&Into::<DGroupType<'_>>::into(uid)))
         );
-        assert_eq!(score.caps_min, CapsMin::Undefined);
+        assert_eq!(result.score.caps_min, CapsMin::Undefined);
     }
 
     #[test]
@@ -2878,9 +2902,5 @@ mod tests {
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Expected error, got: {:?}", result);
-
-        let deserializer = CredFinderDeserializerReturn { cli: &cli };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
-        assert!(result.is_err(), "Expected error, got: {:?}", result);
     }
 }
