@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     error::Error,
-    io::{Seek, Write},
+    io::{BufRead, Seek, Write},
     os::fd::FromRawFd,
     path::PathBuf,
     rc::Rc,
@@ -398,8 +398,25 @@ pub(crate) fn edit_config(
     folder: &PathBuf,
     config: Rc<RefCell<FullSettings>>,
 ) -> Result<bool, Box<dyn Error>> {
+    let stdin = stdin();
+    let mut input = stdin.lock();
+    let mut stdout = std::io::stdout();
+    edit_config_internal(folder, config, SYSTEM_EDITOR, &mut input, &mut stdout)
+}
+
+fn edit_config_internal<R, W>(
+    folder: &PathBuf,
+    config: Rc<RefCell<FullSettings>>,
+    editor: &str,
+    input: &mut R,
+    output: &mut W,
+) -> Result<bool, Box<dyn Error>>
+where
+    R: BufRead,
+    W: Write,
+{
     migrate_settings(&mut config.as_ref().borrow_mut())?;
-    debug!("Using editor: {}", SYSTEM_EDITOR);
+    debug!("Using editor: {}", editor);
 
     debug!("Created temporary folder: {:?}", folder);
     let (fd, path) = nix::unistd::mkstemp(&folder.join("config_XXXXXX"))?;
@@ -416,8 +433,9 @@ pub(crate) fn edit_config(
     debug!("Rewound temporary file");
 
     loop {
-        let status = Command::new(SYSTEM_EDITOR)
-            .arg("-u")
+        let mut cmd = Command::new(editor);
+        if editor == SYSTEM_EDITOR {
+            cmd.arg("-u")
             .arg("NONE")
             .arg("-U")
             .arg("NONE")
@@ -429,14 +447,17 @@ pub(crate) fn edit_config(
             .arg("syntax on")
             .arg("-c")
             .arg("set ft=json")
-            .arg("--")
+            .arg("--");
+        }
+
+        let status = cmd
             .arg(&path)
             .spawn()
             .map_err(|e| format!("Failed to launch editor: {}", e))?
             .wait_with_output()?;
         debug!("Editor exited with status: {:?}", status.status);
         if !status.status.success() {
-            eprintln!("Editor exited with an error.");
+            writeln!(output, "Editor exited with an error.")?;
             return Ok(false);
         }
         let seek_pos = file.stream_position()?;
@@ -448,26 +469,27 @@ pub(crate) fn edit_config(
                 warn_anomalies(&new_config);
                 debug!("config: {:#?}", new_config);
                 let after = serde_json::to_string_pretty(&new_config)?;
-                println!("Resulting confguration: {}", after);
+                writeln!(output, "Resulting confguration: {}", after)?;
                 let after = serde_json::from_str::<Versioning<FullSettings>>(&after)?;
                 debug!("re-serialised: {:#?}", after);
                 // Yes == save, No and edit again == continue loop, abort == return false
-                println!(
+                writeln!(output,
                     "Is this configuration valid? (the Deserializer might delete unknown fields)"
-                );
-                println!("  [Y]es to save and exit");
-                println!("  [N]o to continue editing");
-                println!("  [A]bort to exit without saving");
-                eprint!("Your choice [Y/n/a]: ");
-                std::io::stdout().flush()?;
-                let mut input = String::new();
-                stdin().read_line(&mut input)?;
-                let input = input.trim().to_lowercase();
-                if input == "n" || input == "no" {
+                )?;
+                writeln!(output, "  [Y]es to save and exit")?;
+                writeln!(output, "  [N]o to continue editing")?;
+                writeln!(output, "  [A]bort to exit without saving")?;
+                write!(output, "Your choice [Y/n/a]: ")?;
+                output.flush()?;
+
+                let mut line = String::new();
+                input.read_line(&mut line)?;
+                let choice = line.trim().to_lowercase();
+                if choice == "n" || choice == "no" {
                     // Replace the cursor position to the last position before reading
                     file.seek(std::io::SeekFrom::Start(seek_pos))?;
                     continue;
-                } else if input == "a" || input == "abort" {
+                } else if choice == "a" || choice == "abort" {
                     return Ok(false);
                 } else {
                     *config.as_ref().borrow_mut() = new_config.data;
@@ -475,16 +497,17 @@ pub(crate) fn edit_config(
                 }
             }
             Err(e) => {
-                eprintln!("Your modifications are invalid:\n{}", e);
-                println!("Do you want to continue editing?");
-                println!("  [Y]ontinue editing (Recommended)");
-                println!("  [A]bort to exit without saving");
-                eprint!("Your choice [Y/a]: ");
-                std::io::stdout().flush()?;
-                let mut input = String::new();
-                stdin().read_line(&mut input)?;
-                let input = input.trim().to_lowercase();
-                if input == "a" || input == "abort" {
+                writeln!(output, "Your modifications are invalid:\n{}", e)?;
+                writeln!(output, "Do you want to continue editing?")?;
+                writeln!(output, "  [Y]ontinue editing (Recommended)")?;
+                writeln!(output, "  [A]bort to exit without saving")?;
+                write!(output, "Your choice [Y/a]: ")?;
+                output.flush()?;
+
+                let mut line = String::new();
+                input.read_line(&mut line)?;
+                let choice = line.trim().to_lowercase();
+                if choice == "a" || choice == "abort" {
                     return Ok(false);
                 } else {
                     // Replace the cursor position to the last position before reading
@@ -493,5 +516,141 @@ pub(crate) fn edit_config(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rar_common::database::structs::{SCommand, SConfig, SetBehavior};
+    use rar_common::{RemoteStorageSettings, SettingsContent, StorageMethod};
+
+    use super::*;
+    use std::fs;
+    use std::io::Cursor;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn test_edit_config_success() {
+        // Setup a unique temp folder
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_{}", timestamp));
+        fs::create_dir_all(&temp_dir_path).unwrap();
+
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+
+        let config = Rc::new(RefCell::new(FullSettings::default()));
+
+        // Create a mock editor script
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        // We write valid JSON to the file passed as argument
+        // Versioning uses flattened data, so fields of FullSettings are at root
+        let script = format!(r#"#!/bin/sh
+for last; do true; done
+file="$last"
+echo '{}' > "$file"
+"#, serde_json::to_string_pretty(&Versioning::new(Rc::new(RefCell::new(
+            FullSettings::builder()
+                .storage(
+                    SettingsContent::builder()
+                        .method(StorageMethod::JSON)
+                        .settings(
+                            RemoteStorageSettings::builder()
+                                .path(mock_editor_path.clone())
+                                .not_immutable()
+                                .build(),
+                        )
+                        .build(),
+                )
+                .config(
+                    SConfig::builder()
+                        .role(
+                            SRole::builder("test_role")
+                                .actor(SActor::user(0).build())
+                                .task(
+                                    STask::builder("test_task")
+                                        .cred(SCredentials::builder().setuid(0).setgid(0).build())
+                                        .commands(
+                                            SCommands::builder(SetBehavior::None)
+                                                .add(vec![SCommand::Simple(
+                                                    "/usr/bin/true".to_string(),
+                                                )])
+                                                .build(),
+                                        )
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        )))).unwrap());
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Inputs/Outputs
+        let input_data = b"y\na\n";
+        let mut input = Cursor::new(input_data);
+        let mut output = Vec::new();
+
+        let result = edit_config_internal(
+            &temp_dir_path,
+            config.clone(),
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+        );
+
+        if let Err(e) = &result {
+             println!("Error: {}", e);
+             println!("Output: {}", String::from_utf8_lossy(&output));
+        }
+
+        let output_str = String::from_utf8(output.clone()).unwrap();
+        assert!(result.unwrap_or(false), "Result failed (or was false). Output:\n{}", output_str);
+
+        assert!(output_str.contains("Is this configuration valid?"));
+    }
+
+    #[test]
+    fn test_edit_config_abort() {
+        // Setup a unique temp folder
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{}", timestamp));
+        fs::create_dir_all(&temp_dir_path).unwrap();
+
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+           let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+
+        let config = Rc::new(RefCell::new(FullSettings::default()));
+
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = r#"#!/bin/sh
+for last; do true; done
+file="$last"
+echo '{ "version": "1.0.0", "storage": { "method": "json" }, "config": null }' > "$file"
+"#;
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let input_data = b"a\n";
+        let mut input = Cursor::new(input_data);
+        let mut output = Vec::new();
+
+        let result = edit_config_internal(
+            &temp_dir_path,
+            config.clone(),
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 }
