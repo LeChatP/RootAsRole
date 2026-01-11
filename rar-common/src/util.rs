@@ -727,5 +727,10 @@ mod test {
         );
         let invalid_duration = convert_string_to_duration("invalid");
         assert!(invalid_duration.is_err());
+        assert!(convert_string_to_duration("01").is_err());
+        assert!(convert_string_to_duration("01:30").is_err());
+        assert!(convert_string_to_duration("xx:30:00").is_err());
+        assert!(convert_string_to_duration("01:xx:00").is_err());
+        assert!(convert_string_to_duration("01:30:xx").is_err());
     }
 }

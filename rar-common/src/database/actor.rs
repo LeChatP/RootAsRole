@@ -19,6 +19,15 @@ pub enum SGenericActorType {
     Name(String),
 }
 
+impl SGenericActorType {
+    fn as_str(&self) -> Cow<'_, str> {
+        match self {
+            SGenericActorType::Id(id) => Cow::Owned(id.to_string()),
+            SGenericActorType::Name(name) => Cow::Borrowed(name),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SUserType(SGenericActorType);
 
@@ -56,6 +65,11 @@ impl SUserType {
             (Some(uid), Some(ouid)) => uid == ouid,
             _ => false,
         }
+    }
+    // Allowing dead code for RootAsRole-gensr project
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> Cow<'_, str> {
+        self.0.as_str()
     }
 }
 
