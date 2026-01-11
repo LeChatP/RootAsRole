@@ -83,7 +83,6 @@ derivative = { version = "2.2", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["now"] }
 const_format = { version = "0.2", default-features = false }
 bon = { version = "3", default-features = false }
-konst = { version = "0.3", default-features = false, features = ["parsing_proc", "iter"]}
 ## dosr
 nonstick = { version = "0.1.1", optional = true }
 libpam-sys = { version = "0.2.0", default-features = false, optional = true }
