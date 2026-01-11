@@ -436,18 +436,18 @@ where
         let mut cmd = Command::new(editor);
         if editor == SYSTEM_EDITOR {
             cmd.arg("-u")
-            .arg("NONE")
-            .arg("-U")
-            .arg("NONE")
-            .arg("-N")
-            .arg("-i")
-            .arg("NONE")
-            .arg("--noplugin")
-            .arg("-c")
-            .arg("syntax on")
-            .arg("-c")
-            .arg("set ft=json")
-            .arg("--");
+                .arg("NONE")
+                .arg("-U")
+                .arg("NONE")
+                .arg("-N")
+                .arg("-i")
+                .arg("NONE")
+                .arg("--noplugin")
+                .arg("-c")
+                .arg("syntax on")
+                .arg("-c")
+                .arg("set ft=json")
+                .arg("--");
         }
 
         let status = cmd
@@ -473,7 +473,8 @@ where
                 let after = serde_json::from_str::<Versioning<FullSettings>>(&after)?;
                 debug!("re-serialised: {:#?}", after);
                 // Yes == save, No and edit again == continue loop, abort == return false
-                writeln!(output,
+                writeln!(
+                    output,
                     "Is this configuration valid? (the Deserializer might delete unknown fields)"
                 )?;
                 writeln!(output, "  [Y]es to save and exit")?;
@@ -533,7 +534,10 @@ mod tests {
     #[test]
     fn test_edit_config_success() {
         // Setup a unique temp folder
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let temp_dir_path = std::env::temp_dir().join(format!("rar_test_{}", timestamp));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
@@ -548,46 +552,52 @@ mod tests {
         let mock_editor_path = temp_dir_path.join("mock_editor.sh");
         // We write valid JSON to the file passed as argument
         // Versioning uses flattened data, so fields of FullSettings are at root
-        let script = format!(r#"#!/bin/sh
+        let script = format!(
+            r#"#!/bin/sh
 for last; do true; done
 file="$last"
 echo '{}' > "$file"
-"#, serde_json::to_string_pretty(&Versioning::new(Rc::new(RefCell::new(
-            FullSettings::builder()
-                .storage(
-                    SettingsContent::builder()
-                        .method(StorageMethod::JSON)
-                        .settings(
-                            RemoteStorageSettings::builder()
-                                .path(mock_editor_path.clone())
-                                .not_immutable()
-                                .build(),
-                        )
-                        .build(),
-                )
-                .config(
-                    SConfig::builder()
-                        .role(
-                            SRole::builder("test_role")
-                                .actor(SActor::user(0).build())
-                                .task(
-                                    STask::builder("test_task")
-                                        .cred(SCredentials::builder().setuid(0).setgid(0).build())
-                                        .commands(
-                                            SCommands::builder(SetBehavior::None)
-                                                .add(vec![SCommand::Simple(
-                                                    "/usr/bin/true".to_string(),
-                                                )])
-                                                .build(),
-                                        )
-                                        .build(),
-                                )
-                                .build(),
-                        )
-                        .build(),
-                )
-                .build(),
-        )))).unwrap());
+"#,
+            serde_json::to_string_pretty(&Versioning::new(Rc::new(RefCell::new(
+                FullSettings::builder()
+                    .storage(
+                        SettingsContent::builder()
+                            .method(StorageMethod::JSON)
+                            .settings(
+                                RemoteStorageSettings::builder()
+                                    .path(mock_editor_path.clone())
+                                    .not_immutable()
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .config(
+                        SConfig::builder()
+                            .role(
+                                SRole::builder("test_role")
+                                    .actor(SActor::user(0).build())
+                                    .task(
+                                        STask::builder("test_task")
+                                            .cred(
+                                                SCredentials::builder().setuid(0).setgid(0).build()
+                                            )
+                                            .commands(
+                                                SCommands::builder(SetBehavior::None)
+                                                    .add(vec![SCommand::Simple(
+                                                        "/usr/bin/true".to_string(),
+                                                    )])
+                                                    .build(),
+                                            )
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            ))))
+            .unwrap()
+        );
         fs::write(&mock_editor_path, script).unwrap();
         fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -605,12 +615,16 @@ echo '{}' > "$file"
         );
 
         if let Err(e) = &result {
-             println!("Error: {}", e);
-             println!("Output: {}", String::from_utf8_lossy(&output));
+            println!("Error: {}", e);
+            println!("Output: {}", String::from_utf8_lossy(&output));
         }
 
         let output_str = String::from_utf8(output.clone()).unwrap();
-        assert!(result.unwrap_or(false), "Result failed (or was false). Output:\n{}", output_str);
+        assert!(
+            result.unwrap_or(false),
+            "Result failed (or was false). Output:\n{}",
+            output_str
+        );
 
         assert!(output_str.contains("Is this configuration valid?"));
     }
@@ -618,13 +632,16 @@ echo '{}' > "$file"
     #[test]
     fn test_edit_config_abort() {
         // Setup a unique temp folder
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{}", timestamp));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {
-           let _ = fs::remove_dir_all(&temp_dir_path_clone);
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
         });
 
         let config = Rc::new(RefCell::new(FullSettings::default()));
