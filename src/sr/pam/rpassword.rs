@@ -30,6 +30,7 @@ pub struct HiddenInput {
 }
 
 impl HiddenInput {
+    #[cfg_attr(tarpaulin, ignore)]
     fn new() -> io::Result<Option<HiddenInput>> {
         // control ourselves that we are really talking to a TTY
         // mitigates: https://marc.info/?l=oss-security&m=168164424404224
@@ -59,6 +60,7 @@ impl HiddenInput {
 }
 
 impl Drop for HiddenInput {
+    #[cfg_attr(tarpaulin, ignore)]
     fn drop(&mut self) {
         // Set the the mode back to normal
         unsafe {
@@ -67,6 +69,7 @@ impl Drop for HiddenInput {
     }
 }
 
+#[cfg_attr(tarpaulin, ignore)]
 fn safe_tcgetattr(fd: RawFd) -> io::Result<termios> {
     let mut term = mem::MaybeUninit::<termios>::uninit();
     cerr(unsafe { ::libc::tcgetattr(fd, term.as_mut_ptr()) })?;
@@ -110,6 +113,7 @@ pub enum Terminal<'a> {
 
 impl Terminal<'_> {
     /// Open the current TTY for user communication
+    #[cfg_attr(tarpaulin, ignore)]
     pub fn open_tty() -> io::Result<Self> {
         Ok(Terminal::Tty(
             fs::OpenOptions::new()
@@ -125,6 +129,7 @@ impl Terminal<'_> {
     }
 
     /// Reads input with TTY echo disabled
+    #[cfg_attr(tarpaulin, ignore)]
     pub fn read_password(&mut self) -> io::Result<PamBuffer> {
         let mut input = self.source();
         let _hide_input = HiddenInput::new()?;

@@ -420,6 +420,7 @@ where
 
 pub const SYSTEM_EDITOR: &str = env!("RAR_CHSR_EDITOR_PATH");
 
+#[cfg_attr(tarpaulin, ignore)]
 pub(crate) fn edit_config(
     folder: &PathBuf,
     config: Rc<RefCell<FullSettings>>,
