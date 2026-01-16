@@ -149,19 +149,19 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 })
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                let mut add = CapSet::default();
-                while let Some(cap) = seq.next_element::<String>()? {
-                    add.add(cap.parse().map_err(de::Error::custom)?);
+                let mut capset = CapSet::default();
+                let mut seq = seq;
+                while let Some(cap) = seq.next_element_seed(CapDeserializer)? {
+                    capset.add(cap);
                 }
-
                 Ok(SCapabilities {
                     default_behavior: SetBehavior::None,
-                    add,
-                    sub: CapSet::default(),
+                    add: capset,
+                    sub: CapSet::empty(),
                 })
             }
 
@@ -531,6 +531,13 @@ mod tests {
         let json_data = json!(["CAP_SYS_ADMIN", "CAP_NET_BIND_SERVICE", "CAP_CHOWN"]);
         let caps: SCapabilities = serde_json::from_value(json_data).unwrap();
 
+        assert!(caps.add.has(Cap::SYS_ADMIN));
+        assert!(caps.add.has(Cap::NET_BIND_SERVICE));
+        assert!(caps.add.has(Cap::CHOWN));
+        assert_eq!(caps.default_behavior, SetBehavior::None);
+
+        let json_data = json!(["SYS_ADMIN", "NET_BIND_SERVICE", "CHOWN"]);
+        let caps: SCapabilities = serde_json::from_value(json_data).unwrap();
         assert!(caps.add.has(Cap::SYS_ADMIN));
         assert!(caps.add.has(Cap::NET_BIND_SERVICE));
         assert!(caps.add.has(Cap::CHOWN));
