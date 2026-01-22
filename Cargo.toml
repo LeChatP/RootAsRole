@@ -3,7 +3,7 @@ members = ["xtask", "rar-common"]
 
 [package]
 name = "rootasrole"
-version = "3.3.1"
+version = "3.3.2"
 rust-version = "1.83.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2021"
@@ -59,7 +59,7 @@ hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
 hierarchy = []
 timeout = []
-landlock = ["dep:landlock", "dep:bitflags"]
+landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:linked_hash_set"]
 
 [lints.rust]
@@ -69,7 +69,7 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }
 toml = { version = "0.8", default-features = false, features = ["parse", "display", "preserve_order"] }
 
 [dependencies]
-rar-common = { path = "rar-common", version = "3.3.1", package = "rootasrole-core" }
+rar-common = { path = "rar-common", version = "3.3.2", package = "rootasrole-core" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
 strum = { version = "0.26", default-features = false, features = ["derive"] }
@@ -87,6 +87,7 @@ bon = { version = "3", default-features = false }
 nonstick = { version = "0.1.1", optional = true }
 libpam-sys = { version = "0.2.0", default-features = false, optional = true }
 pcre2 = { version = "0.2", default-features = false, optional = true }
+glob = { version = "0.3", default-features = false, optional = true }
 sha2 = { version = "0.10", default-features = false, optional = true }
 pty-process = { version = "0.4", default-features = false, optional = true }
 once_cell = { version = "1.20", default-features = false, optional = true, features = ["std"] }
