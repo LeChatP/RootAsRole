@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use bitflags::bitflags;
+use glob::glob;
 use landlock::{
     Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
 };
@@ -130,10 +131,25 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
 
             for (path, access) in whitelist.iter() {
                 let landlock_access = get_landlock_access(*access);
-                let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
-                ruleset = ruleset
-                    .add_rule(PathBeneath::new(path_fd, landlock_access))
-                    .map_err(|_| SrError::ConfigurationError)?;
+                match glob(&path.to_string_lossy()) {
+                    Ok(paths) => {
+                        for entry in paths {
+                            if let Ok(p) = entry {
+                                let path_fd =
+                                    PathFd::new(p).map_err(|_| SrError::ConfigurationError)?;
+                                ruleset = ruleset
+                                    .add_rule(PathBeneath::new(path_fd, landlock_access))
+                                    .map_err(|_| SrError::ConfigurationError)?;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
+                        ruleset = ruleset
+                            .add_rule(PathBeneath::new(path_fd, landlock_access))
+                            .map_err(|_| SrError::ConfigurationError)?;
+                    }
+                }
             }
 
             ruleset
