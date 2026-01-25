@@ -415,6 +415,7 @@ fn main_inner() -> SrResult<()> {
                     error!("Failed to notify pre-exec event: {}", e);
                     std::io::Error::new(std::io::ErrorKind::Other, "Failed to notify pre-exec")
                 })?;
+                close_restrictive_fds();
                 Ok(())
             })
             .args(cargs.iter())
@@ -501,6 +502,21 @@ fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
         error!("{}", cap_effective_error("setuid/setgid"));
         e.into()
     })
+}
+
+fn close_restrictive_fds() {
+    // Close all FDs > 2
+    if let Ok(read_dir) = std::fs::read_dir("/proc/self/fd") {
+        for entry in read_dir {
+            if let Ok(entry) = entry {
+                if let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() {
+                    if fd > 2 {
+                        let _ = nix::unistd::close(fd);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
