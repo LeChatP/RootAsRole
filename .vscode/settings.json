@@ -38,5 +38,6 @@
         "PROFILE" : "debug",
         "RUST_BACKTRACE" : "1",
     },
-    "rust-analyzer.checkOnSave": true
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.cargo.features": "all"
 }

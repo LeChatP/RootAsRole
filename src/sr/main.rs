@@ -265,7 +265,7 @@ fn main() {
 fn main_inner() -> SrResult<()> {
     use std::env;
 
-    use crate::{pam::check_auth, ROOTASROLE};
+    use crate::{pam::start_session, ROOTASROLE};
     use finder::find_best_exec_settings;
     use nix::sys::stat::umask;
 
@@ -314,7 +314,7 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Best exec settings: {:?}", execcfg);
 
-    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args)?;
+    let _session = start_session(&execcfg.auth, &execcfg.timeout, &user, &args)?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");

@@ -122,48 +122,79 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
-pub(super) fn check_auth(
+pub struct PamSession<T: Transaction> {
+    _txn: T,
+}
+
+impl<T: Transaction> Drop for PamSession<T> {
+    fn drop(&mut self) {
+        // TODO: Enable session closing when nonstick library support it
+        // if let Err(e) = self.txn.close_session(AuthnFlags::SILENT) {
+        //     error!("Failed to close PAM session: {}", e);
+        // }
+    }
+}
+
+pub(super) fn start_session<'a>(
     authentication: &SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
-    cli: &Cli,
-) -> SrResult<()> {
-    if authentication.is_skip() {
+    cli: & Cli,
+) -> SrResult<PamSession<impl Transaction + 'a>> {
+    let conv = SrConversationHandler::builder()
+        .maybe_prompt(cli.prompt.as_ref().map(|s| Cow::Owned(s.to_string())))
+        .use_stdin(cli.stdin.clone())
+        .build();
+    let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
+        .username(&user.user.name)
+        .build(conv.into_conversation())
+        .map_err(|e| {
+            error!("Failed to create PAM transaction: {}", e);
+            SrError::SystemError
+        })?;
+
+    let skip_auth = if authentication.is_skip() {
         warn!("Skipping authentication, this is a security risk!");
-        return Ok(());
-    }
-    #[cfg(feature = "timeout")]
-    let is_valid = timeout::is_valid(user, user, timeout);
-    #[cfg(not(feature = "timeout"))]
-    let is_valid = false;
-    debug!("need to re-authenticate : {}", !is_valid);
-    if !is_valid {
-        let conv = SrConversationHandler::builder()
-            .maybe_prompt(cli.prompt.as_ref().map(|s| Cow::Borrowed(s.as_str())))
-            .use_stdin(cli.stdin)
-            .build();
-        let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
-            .username(&user.user.name)
-            .build(conv.into_conversation())
-            .map_err(|e| {
-                error!("Failed to create PAM transaction: {}", e);
-                SrError::SystemError
-            })?;
+        true
+    } else {
+        #[cfg(feature = "timeout")]
+        {
+            timeout::is_valid(user, user, timeout)
+        }
+        #[cfg(not(feature = "timeout"))]
+        {
+            false
+        }
+    };
+    
+    debug!("need to re-authenticate : {}", !skip_auth);
+    if !skip_auth {
         txn.authenticate(AuthnFlags::SILENT).map_err(|e| {
             error!("Authentication failed: {}", e);
             SrError::AuthenticationFailed
         })?;
-        txn.account_management(AuthnFlags::SILENT).map_err(|e| {
-            error!("Account management failed: {}", e);
-            SrError::AuthenticationFailed
+    }
+
+    txn.account_management(AuthnFlags::SILENT).map_err(|e| {
+        error!("Account management failed: {}", e);
+        SrError::AuthenticationFailed
+    })?;
+
+    // TODO: Enable session opening when nonstick library support it
+    // txn.open_session(AuthnFlags::SILENT).map_err(|e| {
+    //     error!("Failed to open PAM session: {}", e);
+    //     SrError::SystemError
+    // })?;
+
+    if !authentication.is_skip() {
+        #[cfg(feature = "timeout")]
+        timeout::update_cookie(user, user, timeout).map_err(|e| {
+            error!("Failed to update timeout cookie: {}", e);
+            SrError::SystemError
         })?;
     }
-    #[cfg(feature = "timeout")]
-    timeout::update_cookie(user, user, timeout).map_err(|e| {
-        error!("Failed to update timeout cookie: {}", e);
-        SrError::SystemError
-    })?;
-    Ok(())
+    
+    Ok(PamSession { _txn: txn })
 }
 
 #[cfg(test)]
@@ -265,11 +296,12 @@ mod tests {
         let user = create_test_user();
 
         // When authentication is skipped, it should always succeed
-        let result = check_auth(
+        let cli = Cli::builder().prompt("Password: ").build();
+        let result = start_session(
             &authentication,
             &timeout,
             &user,
-            &Cli::builder().prompt("Password: ").build(),
+            &cli,
         );
         assert!(result.is_ok());
     }
@@ -284,11 +316,12 @@ mod tests {
         let timeout = create_test_timeout();
         let user = create_test_user();
 
-        let _ = check_auth(
+        let cli = Cli::builder().prompt("Password: ").build();
+        let _ = start_session(
             &authentication,
             &timeout,
             &user,
-            &Cli::builder().prompt("Password: ").build(),
+            &cli,
         );
     }
 
@@ -371,19 +404,20 @@ mod tests {
         let user = create_test_user();
         let auth = SAuthentication::Skip;
 
+        let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(check_auth(
+        assert!(start_session(
             &auth,
             &timeout_ppid,
             &user,
-            &Cli::builder().prompt("Password: ").build()
+            &cli
         )
         .is_ok());
-        assert!(check_auth(
+        assert!(start_session(
             &auth,
             &timeout_tty,
             &user,
-            &Cli::builder().prompt("Password: ").build()
+            &cli
         )
         .is_ok());
     }
