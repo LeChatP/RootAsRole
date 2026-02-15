@@ -14,7 +14,7 @@ pub fn cerr<Int: Copy + TryInto<libc::c_long>>(res: Int) -> std::io::Result<Int>
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     #[cfg_attr(
         any(target_os = "macos", target_os = "ios", target_os = "freebsd"),
         link_name = "__error"

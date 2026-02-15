@@ -782,10 +782,10 @@ fn calculate_combined_paths(
 ) {
     match default_behavior {
         PathBehavior::Inherit => {
-            if let Some(ref add_paths) = add {
+            if let Some(add_paths) = add {
                 combined_paths.extend(add_paths.clone().into_iter().map(|p| p.to_string()));
             }
-            if let Some(ref sub_paths) = sub {
+            if let Some(sub_paths) = sub {
                 // Avoid allocation by using retain and Cow::Borrowed
                 combined_paths.retain(|path| {
                     !sub_paths
@@ -797,7 +797,7 @@ fn calculate_combined_paths(
         }
         PathBehavior::Delete => {
             combined_paths.clear();
-            if let Some(ref add_paths) = add {
+            if let Some(add_paths) = add {
                 combined_paths.extend(add_paths.clone().into_iter().map(|p| p.to_string()));
             }
         }

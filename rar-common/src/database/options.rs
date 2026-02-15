@@ -148,7 +148,7 @@ pub enum EnvBehavior {
 }
 
 #[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
-enum EnvKeyType {
+pub enum EnvKeyType {
     Wildcarded,
     Normal,
 }

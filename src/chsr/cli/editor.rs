@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     error::Error,
     io::{BufRead, Seek, Write},
-    os::fd::FromRawFd,
+    os::fd::{AsRawFd, FromRawFd},
     path::PathBuf,
     rc::Rc,
 };
@@ -458,7 +458,7 @@ where
     let (fd, path) = nix::unistd::mkstemp(&folder.join("config_XXXXXX"))?;
     debug!("Created temporary file: {:?}", path);
 
-    let mut file = unsafe { File::from_raw_fd(fd) };
+    let mut file = unsafe { File::from_raw_fd(fd.as_raw_fd()) };
 
     // Write current config to temp file
     serde_json::to_writer_pretty(&mut file, &Versioning::new(config.clone()))?;

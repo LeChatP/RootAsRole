@@ -22,7 +22,7 @@ use rar_common::{
 use log::{debug, error};
 use pam::PAM_PROMPT;
 use pty_process::blocking::{Command, Pty};
-use std::{io::stdout, os::fd::AsRawFd, path::PathBuf};
+use std::{io::stdout, path::PathBuf};
 
 use rar_common::util::{activates_no_new_privs, drop_effective, subsribe, BOLD, RST, UNDERLINE};
 
@@ -338,10 +338,10 @@ fn main_inner() -> SrResult<()> {
         );
         println!(
             "Task: {}",
-            if execcfg.task.is_none() {
-                "None"
+            if let Some(task) = &execcfg.task {
+                task.as_str()
             } else {
-                &execcfg.task.as_ref().unwrap()
+                "None"
             }
         );
         print!(
@@ -439,8 +439,8 @@ fn main_inner() -> SrResult<()> {
 
 fn make_cred() -> Cred {
     Cred::builder()
-        .maybe_tty(stat::fstat(stdout().as_raw_fd()).ok().and_then(|s| {
-            if isatty(stdout().as_raw_fd()).ok().unwrap_or(false) {
+        .maybe_tty(stat::fstat(stdout()).ok().and_then(|s| {
+            if isatty(stdout()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
             } else {
                 None

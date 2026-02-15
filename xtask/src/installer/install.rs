@@ -9,7 +9,6 @@ use capctl::{Cap, CapSet};
 use log::{debug, error, info};
 use nix::sys::stat::{fchmod, Mode};
 use nix::unistd::{Gid, Uid};
-use nix::NixPath;
 use strum::EnumIs;
 
 use crate::installer::Profile;
@@ -92,7 +91,7 @@ fn copy_docs() -> Result<(), anyhow::Error> {
                 anyhow!("Failed to get the file name")
             })?;
         let lang = file.parent();
-        if lang.is_some_and(|p| !p.is_empty()) {
+        if lang.is_some_and(|p| !nix::NixPath::is_empty(p)) {
             let lang = lang.unwrap();
             //println!("lang: {:?}", lang);
             let lang = lang.file_name().ok_or_else(|| {
