@@ -66,7 +66,7 @@ pub(crate) fn full_program_lock(
 
 pub fn seccomp_lock() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the seccomp filter with the default action to kill the process
-    let mut ctx = ScmpFilterContext::new_filter(ScmpAction::KillProcess)?;
+    let mut ctx = ScmpFilterContext::new(ScmpAction::KillProcess)?;
 
     let syscalls = [
         "statx",

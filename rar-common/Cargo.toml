@@ -1,6 +1,6 @@
 [package]
 name = "rootasrole-core"
-version = "3.3.3"
+version = "3.3.4"
 edition = "2024"
 description = "This core crate for the RootAsRole project."
 license = "LGPL-3.0-or-later"
@@ -28,7 +28,7 @@ syslog = { version= "6.0", default-features = false }
 env_logger = { version= "0.11", default-features = false }
 bon = { version = "3", default-features = false, features = ["experimental-overwritable"] }
 cbor4ii = { version = "1.0", default-features = false, features = ["serde", "serde1", "use_std"] }
-konst = { version= "0.3", default-features = false, features = ["parsing_proc", "iter"] }
+konst = { version= "0.4", default-features = false, features = ["parsing_proc", "iter"] }
 
 [dev-dependencies]
 log = { version= "0.4", default-features = false }

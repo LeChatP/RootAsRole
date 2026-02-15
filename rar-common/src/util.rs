@@ -9,7 +9,7 @@ use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
 
 use chrono::Duration;
-use konst::{iter, option, primitive::parse_i64, result, slice, string, unwrap_ctx};
+use konst::{iter, option, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use nix::fcntl::{Flock, FlockArg};
@@ -44,12 +44,12 @@ pub const ENV_PATH_BEHAVIOR: PathBehavior = result::unwrap_or!(
 
 pub const ENV_PATH_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_PATH_ADD_LIST"), ":"),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_PATH_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_PATH_REMOVE_LIST"), ":"),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 //=== ENV ===
@@ -60,24 +60,24 @@ pub const ENV_DEFAULT_BEHAVIOR: EnvBehavior = result::unwrap_or!(
 
 pub const ENV_KEEP_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_KEEP_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_CHECK_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_CHECK_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_DELETE_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
     string::split(env!("RAR_ENV_SET_LIST"), "\n"),
         filter_map(|s| {
             if let Some((key,value)) = string::split_once(s, '=') {
-                Some((string::trim(key),string::trim(value)))
+                Some((str::trim_ascii(key),str::trim_ascii(value)))
             } else {
                 None
             }
@@ -90,16 +90,16 @@ pub const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
 );
 
 pub static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_KEEP_LIST_SLICE));
+    *result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
 
 pub static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_CHECK_LIST_SLICE));
+    *result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
 
 pub static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_DELETE_LIST_SLICE));
+    *result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
 
 pub static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_SET_LIST_SLICE));
+    *result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
 
 //=== STimeout ===
 
@@ -127,31 +127,31 @@ impl std::fmt::Display for DurationParseError {
 const fn convert_string_to_duration(
     s: &str,
 ) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
-    let parts = string::split(s, ':');
-    let (hours, parts) = match parts.next() {
+    let mut parts = string::split(s, ':');
+    let hours = match parts.next() {
         Some(h) => h,
         None => return Err(DurationParseError),
     };
-    let (minutes, parts) = match parts.next() {
+    let minutes = match parts.next() {
         Some(m) => m,
         None => return Err(DurationParseError),
     };
-    let (seconds, _) = match parts.next() {
+    let seconds = match parts.next() {
         Some(sec) => sec,
         None => return Err(DurationParseError),
     };
 
-    let hours: i64 = if let Ok(hours) = parse_i64(hours) {
+    let hours: i64 = if let Ok(hours) = i64::from_str_radix(hours,10) {
         hours
     } else {
         return Err(DurationParseError);
     };
-    let minutes: i64 = if let Ok(minutes) = parse_i64(minutes) {
+    let minutes: i64 = if let Ok(minutes) = i64::from_str_radix(minutes,10) {
         minutes
     } else {
         return Err(DurationParseError);
     };
-    let seconds: i64 = if let Ok(seconds) = parse_i64(seconds) {
+    let seconds: i64 = if let Ok(seconds) = i64::from_str_radix(seconds,10) {
         seconds
     } else {
         return Err(DurationParseError);
@@ -162,7 +162,7 @@ const fn convert_string_to_duration(
 }
 
 pub const TIMEOUT_MAX_USAGE: u64 = result::unwrap_or!(
-    konst::primitive::parse_u64(env!("RAR_TIMEOUT_MAX_USAGE")),
+    u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"),10),
     0
 );
 
@@ -182,7 +182,7 @@ pub const PRIVILEGED: SPrivileged = result::unwrap_or!(
 );
 
 pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    konst::primitive::parse_u16(env!("RAR_UMASK")),
+    u16::from_str_radix(env!("RAR_UMASK"),10),
     0o022
 ));
 
