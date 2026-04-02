@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::CStr, ops::Deref};
+use std::{borrow::Cow, ffi::CStr};
 
 use bon::Builder;
 use log::{debug, error, info, warn};
@@ -11,12 +11,12 @@ use pcre2::bytes::RegexBuilder;
 #[cfg(feature = "timeout")]
 use crate::timeout;
 use crate::{
-    error::{SrError, SrResult},
     Cli,
+    error::{SrError, SrResult},
 };
 use rar_common::{
-    database::options::{SAuthentication, STimeout},
     Cred,
+    database::options::{SAuthentication, STimeout},
 };
 
 use self::rpassword::Terminal;
@@ -46,7 +46,7 @@ struct SrConversationHandler<'a> {
 impl SrConversationHandler<'_> {
     fn open(&self) -> std::io::Result<Terminal<'_>> {
         if self.use_stdin {
-            Terminal::open_stdie()
+            Ok(Terminal::open_stdie())
         } else {
             Terminal::open_tty()
         }
@@ -55,13 +55,13 @@ impl SrConversationHandler<'_> {
         let pam_prompt = prompt.as_ref();
         RegexBuilder::new()
             .build("^Password: ?$")
-            .unwrap()
+            .expect("Invalid regex, implementation error")
             .is_match(pam_prompt.as_bytes())
             .is_ok_and(|f| f)
             || self.username.as_ref().is_some_and(|username| {
                 RegexBuilder::new()
-                    .build(&format!("^{}'s Password: ?$", username))
-                    .unwrap()
+                    .build(&format!("^{}'s Password: ?$", pcre2::escape(username)))
+                    .expect("invalid regex, username should be sanitized")
                     .is_match(pam_prompt.as_bytes())
                     .is_ok_and(|f| f)
             })
@@ -88,8 +88,9 @@ impl ConversationAdapter for SrConversationHandler<'_> {
         term.prompt(&prompt.as_ref().to_string_lossy().to_string())
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_cleartext().map_err(|_| ErrorCode::BufferError)?;
+        drop(term);
         Ok(std::ffi::OsString::from(
-            String::from_utf8_lossy(read.deref()).to_string(),
+            String::from_utf8_lossy(&read).to_string(),
         ))
     }
 
@@ -107,8 +108,12 @@ impl ConversationAdapter for SrConversationHandler<'_> {
         term.prompt(&pam_prompt)
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_password().map_err(|_| ErrorCode::BufferError)?;
-        let os_str = CStr::from_bytes_until_nul(read.deref()).unwrap();
-        Ok(std::ffi::OsString::from(os_str.to_str().unwrap()))
+        drop(term);
+        let os_str = CStr::from_bytes_until_nul(&read)
+            .map_err(|_| ErrorCode::BufferError)?
+            .to_str()
+            .map_err(|_| ErrorCode::BufferError)?;
+        Ok(std::ffi::OsString::from(os_str))
     }
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
@@ -139,17 +144,17 @@ pub(super) fn start_session<'a>(
     authentication: &SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
-    cli: & Cli,
+    cli: &Cli,
 ) -> SrResult<PamSession<impl Transaction + 'a>> {
     let conv = SrConversationHandler::builder()
-        .maybe_prompt(cli.prompt.as_ref().map(|s| Cow::Owned(s.to_string())))
-        .use_stdin(cli.stdin.clone())
+        .maybe_prompt(cli.prompt.as_ref().map(|s| Cow::Owned(s.clone())))
+        .use_stdin(cli.stdin)
         .build();
     let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
         .username(&user.user.name)
         .build(conv.into_conversation())
         .map_err(|e| {
-            error!("Failed to create PAM transaction: {}", e);
+            error!("Failed to create PAM transaction: {e}");
             SrError::SystemError
         })?;
 
@@ -166,17 +171,17 @@ pub(super) fn start_session<'a>(
             false
         }
     };
-    
+
     debug!("need to re-authenticate : {}", !skip_auth);
     if !skip_auth {
         txn.authenticate(AuthnFlags::SILENT).map_err(|e| {
-            error!("Authentication failed: {}", e);
+            error!("Authentication failed: {e}");
             SrError::AuthenticationFailed
         })?;
     }
 
     txn.account_management(AuthnFlags::SILENT).map_err(|e| {
-        error!("Account management failed: {}", e);
+        error!("Account management failed: {e}");
         SrError::AuthenticationFailed
     })?;
 
@@ -189,11 +194,11 @@ pub(super) fn start_session<'a>(
     if !authentication.is_skip() {
         #[cfg(feature = "timeout")]
         timeout::update_cookie(user, user, timeout).map_err(|e| {
-            error!("Failed to update timeout cookie: {}", e);
+            error!("Failed to update timeout cookie: {e}");
             SrError::SystemError
         })?;
     }
-    
+
     Ok(PamSession { _txn: txn })
 }
 
@@ -203,9 +208,10 @@ mod tests {
     use chrono::Duration;
     use nix::{libc::dev_t, unistd::Pid};
     use rar_common::{
-        database::options::{SAuthentication, STimeout, TimestampType},
         Cred,
+        database::options::{SAuthentication, STimeout, TimestampType},
     };
+    use serde_json::Map;
     use std::ffi::OsStr;
 
     // Helper function to create a test user
@@ -222,7 +228,7 @@ mod tests {
             type_field: Some(TimestampType::TTY),
             duration: Some(Duration::seconds(300)), // 5 minutes
             max_usage: Some(3),
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         }
     }
 
@@ -297,19 +303,16 @@ mod tests {
 
         // When authentication is skipped, it should always succeed
         let cli = Cli::builder().prompt("Password: ").build();
-        let result = start_session(
-            &authentication,
-            &timeout,
-            &user,
-            &cli,
-        );
+        let result = start_session(&authentication, &timeout, &user, &cli);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_check_auth_required_but_valid_timeout() {
         if env!("RAR_PAM_SERVICE") == "dosr" {
-            println!("Skipping test_check_auth_required_but_valid_timeout because RAR_PAM_SERVICE is set to original dosr");
+            println!(
+                "Skipping test_check_auth_required_but_valid_timeout because RAR_PAM_SERVICE is set to original dosr"
+            );
             return;
         }
         let authentication = SAuthentication::Perform;
@@ -317,12 +320,7 @@ mod tests {
         let user = create_test_user();
 
         let cli = Cli::builder().prompt("Password: ").build();
-        let _ = start_session(
-            &authentication,
-            &timeout,
-            &user,
-            &cli,
-        );
+        let _ = start_session(&authentication, &timeout, &user, &cli);
     }
 
     #[test]
@@ -391,14 +389,14 @@ mod tests {
             type_field: Some(TimestampType::PPID),
             duration: Some(Duration::seconds(300)),
             max_usage: Some(1),
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
 
         let timeout_tty = STimeout {
             type_field: Some(TimestampType::TTY),
             duration: Some(Duration::seconds(600)),
             max_usage: Some(5),
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
 
         let user = create_test_user();
@@ -406,19 +404,7 @@ mod tests {
 
         let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(start_session(
-            &auth,
-            &timeout_ppid,
-            &user,
-            &cli
-        )
-        .is_ok());
-        assert!(start_session(
-            &auth,
-            &timeout_tty,
-            &user,
-            &cli
-        )
-        .is_ok());
+        assert!(start_session(&auth, &timeout_ppid, &user, &cli).is_ok());
+        assert!(start_session(&auth, &timeout_tty, &user, &cli).is_ok());
     }
 }

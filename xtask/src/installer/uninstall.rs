@@ -2,9 +2,9 @@ use anyhow::Context;
 use log::warn;
 use std::fs;
 
-use crate::util::{files_are_equal, toggle_lock_config, ImmutableLock, ROOTASROLE};
+use crate::util::{ImmutableLock, ROOTASROLE, files_are_equal, toggle_lock_config};
 
-use super::{configure::config_state, UninstallOptions, CHSR_DEST, SR_DEST};
+use super::{CHSR_DEST, SR_DEST, UninstallOptions, configure::config_state};
 
 pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     let mut errors = vec![];
@@ -21,7 +21,7 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
         }
         if opts.clean_config || config_state()?.is_unchanged() {
             errors.push(
-                toggle_lock_config(&ROOTASROLE.to_string(), ImmutableLock::Unset)
+                toggle_lock_config(&ROOTASROLE.to_string(), &ImmutableLock::Unset)
                     .context("Error while removing lock from config file"),
             );
             errors.push(fs::remove_file(ROOTASROLE).context(ROOTASROLE));

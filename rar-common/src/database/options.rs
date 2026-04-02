@@ -1,3 +1,4 @@
+use core::panic;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::num::ParseIntError;
@@ -5,11 +6,11 @@ use std::result::Result;
 use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
-use bon::{bon, Builder};
+use bon::{Builder, bon};
 use chrono::Duration;
 
+use indexmap::IndexSet;
 use konst::eq_str;
-use linked_hash_set::LinkedHashSet;
 
 use nix::sys::stat::Mode;
 #[cfg(feature = "pcre2")]
@@ -28,7 +29,7 @@ use crate::util::{
     HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK,
 };
 
-use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
+use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -102,7 +103,7 @@ pub struct STimeout {
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
@@ -117,7 +118,7 @@ pub struct SPathOptions {
         serialize_with = "lhs_serialize"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
-    pub add: Option<LinkedHashSet<String>>,
+    pub add: Option<IndexSet<String>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -126,7 +127,7 @@ pub struct SPathOptions {
         alias = "del"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
-    pub sub: Option<LinkedHashSet<String>>,
+    pub sub: Option<IndexSet<String>>,
 }
 
 // ...existing code...
@@ -148,7 +149,7 @@ pub enum EnvBehavior {
 }
 
 #[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
-enum EnvKeyType {
+pub enum EnvKeyType {
     Wildcarded,
     Normal,
 }
@@ -167,6 +168,7 @@ impl std::fmt::Display for EnvKey {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
@@ -187,27 +189,27 @@ pub struct SEnvOptions {
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub keep: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub keep: Option<IndexSet<EnvKey>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub check: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub check: Option<IndexSet<EnvKey>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub delete: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub delete: Option<IndexSet<EnvKey>>,
     #[serde(default, flatten)]
     #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(
@@ -279,7 +281,7 @@ impl Default for SUMask {
 
 impl From<SUMask> for Mode {
     fn from(umask: SUMask) -> Self {
-        Mode::from_bits_truncate(umask.0 as u32)
+        Self::from_bits_truncate(u32::from(umask.0))
     }
 }
 
@@ -291,11 +293,12 @@ impl FromStr for SUMask {
     }
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // Function used by serde, must take a reference
 fn serialize_umask<S>(value: &u16, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(&format!("{:03o}", value))
+    serializer.serialize_str(&format!("{value:03o}"))
 }
 
 fn deserialize_umask<'de, D>(deserializer: D) -> Result<u16, D::Error>
@@ -316,7 +319,7 @@ impl From<SUMask> for u16 {
 
 impl From<u16> for SUMask {
     fn from(val: u16) -> Self {
-        SUMask(val)
+        Self(val)
     }
 }
 
@@ -355,13 +358,13 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[bon]
 impl Opt {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(start_fn)] level: Level,
         path: Option<SPathOptions>,
         env: Option<SEnvOptions>,
@@ -371,9 +374,9 @@ impl Opt {
         execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
-        #[builder(default)] _extra_fields: Map<String, Value>,
+        #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Self {
-        Opt {
+        Self {
             level,
             path,
             env,
@@ -383,10 +386,14 @@ impl Opt {
             execinfo,
             timeout,
             umask,
-            _extra_fields,
+            extra_fields,
         }
     }
 
+    /// # Panics
+    /// Panics if any of the default values defined in config.toml are invalid.
+    /// This should never happen, as the defaults are hardcoded and tested.
+    #[must_use]
     pub fn level_default() -> Self {
         Self::builder(Level::Default)
             .root(PRIVILEGED)
@@ -418,8 +425,9 @@ impl Opt {
 }
 
 impl SPathOptions {
+    #[must_use]
     pub fn level_default() -> Self {
-        SPathOptions::builder(ENV_PATH_BEHAVIOR)
+        Self::builder(ENV_PATH_BEHAVIOR)
             .add(ENV_PATH_ADD_LIST_SLICE)
             .sub(ENV_PATH_REMOVE_LIST_SLICE)
             .build()
@@ -444,7 +452,7 @@ fn is_valid_env_name(s: &str) -> bool {
 
 #[cfg(feature = "pcre2")]
 fn is_regex(s: &str) -> bool {
-    Regex::new(&format!("^{}$", s)).is_ok()
+    Regex::new(&format!("^{s}$")).is_ok()
 }
 
 #[cfg(not(feature = "pcre2"))]
@@ -453,22 +461,24 @@ fn is_regex(_s: &str) -> bool {
 }
 
 impl EnvKey {
+    /// # Errors
+    /// Returns an error if the provided string is not a valid environment variable name
+    /// or a valid regex (if regex support is enabled).
     pub fn new(s: String) -> Result<Self, String> {
         //debug!("Creating env key: {}", s);
         if is_valid_env_name(&s) {
-            Ok(EnvKey {
+            Ok(Self {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
         } else if is_regex(&s) {
-            Ok(EnvKey {
+            Ok(Self {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
             Err(format!(
-                "env key {}, must be a valid env, or a valid regex",
-                s
+                "env key {s}, must be a valid env, or a valid regex"
             ))
         }
     }
@@ -488,13 +498,13 @@ impl From<EnvKey> for String {
 
 impl From<String> for EnvKey {
     fn from(s: String) -> Self {
-        EnvKey::new(s).expect("Invalid env key")
+        Self::new(s).expect("Invalid env key")
     }
 }
 
 impl From<&str> for EnvKey {
     fn from(s: &str) -> Self {
-        EnvKey::new(s.into()).expect("Invalid env key")
+        Self::new(s.into()).expect("Invalid env key")
     }
 }
 
@@ -504,7 +514,7 @@ impl<'de> Deserialize<'de> for EnvKey {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        EnvKey::new(s).map_err(serde::de::Error::custom)
+        Self::new(s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -512,7 +522,7 @@ trait EnvSet {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool;
 }
 
-impl EnvSet for LinkedHashSet<EnvKey> {
+impl EnvSet for IndexSet<EnvKey> {
     fn env_matches(&self, needle: &EnvKey) -> bool {
         self.iter().any(|s| match s.env_type {
             EnvKeyType::Normal => s == needle,
@@ -521,7 +531,7 @@ impl EnvSet for LinkedHashSet<EnvKey> {
     }
 }
 
-impl EnvSet for Option<LinkedHashSet<EnvKey>> {
+impl EnvSet for Option<IndexSet<EnvKey>> {
     fn env_matches(&self, needle: &EnvKey) -> bool {
         self.as_ref().is_some_and(|set| set.env_matches(needle))
     }
@@ -540,7 +550,7 @@ fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
     true
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConstParseError(pub &'static str);
 use std::fmt::{self, Display};
 
@@ -553,82 +563,97 @@ impl Display for ConstParseError {
     }
 }
 
-impl ConstParseError {
-    const fn panic(&self) -> ! {
-        panic!("failed to parse a const")
-    }
-}
-
 impl PathBehavior {
-    pub const fn try_parse(input: &str) -> std::result::Result<PathBehavior, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "delete") => Ok(PathBehavior::Delete),
-            _ if eq_str(input, "keep_safe") => Ok(PathBehavior::KeepSafe),
-            _ if eq_str(input, "keep_unsafe") => Ok(PathBehavior::KeepUnsafe),
-            _ if eq_str(input, "inherit") => Ok(PathBehavior::Inherit),
-            _ => ConstParseError("PathBehavior").panic(),
+            _ if eq_str(input, "delete") => Self::Delete,
+            _ if eq_str(input, "keep_safe") => Self::KeepSafe,
+            _ if eq_str(input, "keep_unsafe") => Self::KeepUnsafe,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse PathBehavior"),
         }
     }
 }
 
 impl EnvBehavior {
-    pub const fn try_parse(input: &str) -> std::result::Result<EnvBehavior, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``EnvBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "delete") => Ok(EnvBehavior::Delete),
-            _ if eq_str(input, "keep") => Ok(EnvBehavior::Keep),
-            _ if eq_str(input, "inherit") => Ok(EnvBehavior::Inherit),
-            _ => ConstParseError("EnvBehavior").panic(),
+            _ if eq_str(input, "delete") => Self::Delete,
+            _ if eq_str(input, "keep") => Self::Keep,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse EnvBehavior"),
         }
     }
 }
 
 impl SPrivileged {
-    pub const fn try_parse(input: &str) -> std::result::Result<SPrivileged, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SPrivileged`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "user") => Ok(SPrivileged::User),
-            _ if eq_str(input, "privileged") => Ok(SPrivileged::Privileged),
-            _ => ConstParseError("SPrivileged").panic(),
+            _ if eq_str(input, "user") => Self::User,
+            _ if eq_str(input, "privileged") => Self::Privileged,
+            _ => panic!("fail to parse SPrivileged"),
         }
     }
 }
 
 impl SInfo {
-    pub const fn try_parse(input: &str) -> std::result::Result<SInfo, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SInfo`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "hide") => Ok(SInfo::Hide),
-            _ if eq_str(input, "show") => Ok(SInfo::Show),
-            _ => ConstParseError("SInfo").panic(),
+            _ if eq_str(input, "hide") => Self::Hide,
+            _ if eq_str(input, "show") => Self::Show,
+            _ => panic!("fail to parse SInfo"),
         }
     }
 }
 
 impl TimestampType {
-    pub const fn try_parse(input: &str) -> std::result::Result<TimestampType, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``TimestampType`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "ppid") => Ok(TimestampType::PPID),
-            _ if eq_str(input, "tty") => Ok(TimestampType::TTY),
-            _ if eq_str(input, "uid") => Ok(TimestampType::UID),
-            _ => ConstParseError("TimestampType").panic(),
+            _ if eq_str(input, "ppid") => Self::PPID,
+            _ if eq_str(input, "tty") => Self::TTY,
+            _ if eq_str(input, "uid") => Self::UID,
+            _ => panic!("fail to parse TimestampType"),
         }
     }
 }
 
 impl SBounding {
-    pub const fn try_parse(input: &str) -> std::result::Result<SBounding, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SBounding`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "strict") => Ok(SBounding::Strict),
-            _ if eq_str(input, "ignore") => Ok(SBounding::Ignore),
-            _ => ConstParseError("SBounding").panic(),
+            _ if eq_str(input, "strict") => Self::Strict,
+            _ if eq_str(input, "ignore") => Self::Ignore,
+            _ => panic!("fail to parse SBounding"),
         }
     }
 }
 
 impl SAuthentication {
-    pub const fn try_parse(input: &str) -> std::result::Result<SAuthentication, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SAuthentication`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "perform") => Ok(SAuthentication::Perform),
-            _ if eq_str(input, "skip") => Ok(SAuthentication::Skip),
-            _ => ConstParseError("SAuthentication").panic(),
+            _ if eq_str(input, "perform") => Self::Perform,
+            _ if eq_str(input, "skip") => Self::Skip,
+            _ => panic!("fail to parse SAuthentication"),
         }
     }
 }
@@ -636,9 +661,9 @@ impl SAuthentication {
 // === Defaults based on config.toml ===
 impl Default for Opt {
     fn default() -> Self {
-        Opt {
+        Self {
             level: Level::None,
-            ..Opt::level_default()
+            ..Self::level_default()
         }
     }
 }
@@ -661,7 +686,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     }
     fn with_task(
         self,
-        task: Rc<RefCell<STask>>,
+        task: &Rc<RefCell<STask>>,
     ) -> OptStackBuilder<
         opt_stack_builder::SetTask<opt_stack_builder::SetRole<opt_stack_builder::SetRoles<S>>>,
     >
@@ -671,48 +696,50 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         <S as opt_stack_builder::State>::Task: opt_stack_builder::IsUnset,
     {
         self.with_role(
-            task.as_ref()
+            &task
+                .as_ref()
                 .borrow()
-                ._role
+                .role
                 .as_ref()
                 .unwrap()
                 .upgrade()
                 .unwrap(),
         )
-        .task(task.to_owned())
-        .opt(task.as_ref().borrow().options.to_owned())
+        .task(task.clone())
+        .opt(task.as_ref().borrow().options.clone())
     }
     fn with_role(
         self,
-        role: Rc<RefCell<SRole>>,
+        role: &Rc<RefCell<SRole>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRole<opt_stack_builder::SetRoles<S>>>
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
         <S as opt_stack_builder::State>::Role: opt_stack_builder::IsUnset,
     {
         self.with_roles(
-            role.as_ref()
+            &role
+                .as_ref()
                 .borrow()
-                ._config
+                .config
                 .as_ref()
                 .unwrap()
                 .upgrade()
                 .unwrap(),
         )
-        .role(role.to_owned())
-        .opt(role.as_ref().borrow().options.to_owned())
+        .role(role.clone())
+        .opt(role.as_ref().borrow().options.clone())
     }
 
     fn with_roles(
         self,
-        roles: Rc<RefCell<SConfig>>,
+        roles: &Rc<RefCell<SConfig>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRoles<S>>
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
     {
         self.with_default()
-            .roles(roles.to_owned())
-            .opt(roles.as_ref().borrow().options.to_owned())
+            .roles(roles.clone())
+            .opt(roles.as_ref().borrow().options.clone())
     }
 
     fn with_default(self) -> Self {
@@ -723,35 +750,35 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
 #[bon]
 impl OptStack {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(field)] stack: [Option<Rc<RefCell<Opt>>>; 5],
         roles: Option<Rc<RefCell<SConfig>>>,
         role: Option<Rc<RefCell<SRole>>>,
         task: Option<Rc<RefCell<STask>>>,
     ) -> Self {
-        OptStack {
+        Self {
             stack,
             roles,
             role,
             task,
         }
     }
-    pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
-        OptStack::builder().with_task(task).build()
+    pub fn from_task(task: &Rc<RefCell<STask>>) -> Self {
+        Self::builder().with_task(task).build()
     }
-    pub fn from_role(role: Rc<RefCell<SRole>>) -> Self {
-        OptStack::builder().with_role(role).build()
+    pub fn from_role(role: &Rc<RefCell<SRole>>) -> Self {
+        Self::builder().with_role(role).build()
     }
-    pub fn from_roles(roles: Rc<RefCell<SConfig>>) -> Self {
-        OptStack::builder().with_roles(roles).build()
+    pub fn from_roles(roles: &Rc<RefCell<SConfig>>) -> Self {
+        Self::builder().with_roles(roles).build()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, V)>, V>(&self, f: F) -> Option<(Level, V)> {
         for opt in self.stack.iter().rev() {
             if let Some(opt) = opt.to_owned() {
                 let res = f(&opt.as_ref().borrow());
-                if res.is_some() {
-                    debug!("res: {:?}", res.as_ref().unwrap().0);
+                if let Some((lvl, _)) = res {
+                    debug!("res: {lvl:?}");
                     return res;
                 }
             }
@@ -760,7 +787,7 @@ impl OptStack {
     }
 
     fn iter_in_options<F: FnMut(&Opt)>(&self, mut f: F) {
-        for opt in self.stack.iter() {
+        for opt in &self.stack {
             if let Some(opt) = opt.to_owned() {
                 f(&opt.as_ref().borrow());
             }
@@ -769,10 +796,10 @@ impl OptStack {
 
     fn get_final_path(&self) -> SPathOptions {
         let mut final_behavior = PathBehavior::Delete;
-        let default = LinkedHashSet::new();
-        let final_add = rc_refcell!(LinkedHashSet::new());
+        let default = IndexSet::new();
+        let final_add = rc_refcell!(IndexSet::new());
         // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(LinkedHashSet::new());
+        let final_sub = rc_refcell!(IndexSet::new());
         self.iter_in_options(|opt| {
             let final_add_clone = Rc::clone(&final_add);
             let final_sub_clone = Rc::clone(&final_sub);
@@ -788,7 +815,7 @@ impl OptStack {
                     }
                     PathBehavior::Inherit => {
                         if final_behavior.is_delete() {
-                            let union: LinkedHashSet<String> = final_add_clone
+                            let union: IndexSet<String> = final_add_clone
                                 .as_ref()
                                 .borrow()
                                 .union(p.add.as_ref().unwrap_or(&default))
@@ -798,7 +825,7 @@ impl OptStack {
                             final_add_clone.as_ref().borrow_mut().extend(union);
                             debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
                         } else {
-                            let union: LinkedHashSet<String> = final_sub_clone
+                            let union: IndexSet<String> = final_sub_clone
                                 .as_ref()
                                 .borrow()
                                 .union(p.sub.as_ref().unwrap_or(&default))
@@ -817,7 +844,6 @@ impl OptStack {
         SPathOptions::builder(final_behavior)
             .add(
                 final_add
-                    .clone()
                     .as_ref()
                     .borrow()
                     .iter()
@@ -826,7 +852,6 @@ impl OptStack {
             )
             .sub(
                 final_sub
-                    .clone()
                     .as_ref()
                     .borrow()
                     .iter()
@@ -836,12 +861,12 @@ impl OptStack {
             .build()
     }
 
-    fn get_final_env(&self, cmd_filter: Option<FilterMatcher>) -> SEnvOptions {
+    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> SEnvOptions {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
-        let mut final_keep = LinkedHashSet::new();
-        let mut final_check = LinkedHashSet::new();
-        let mut final_delete = LinkedHashSet::new();
+        let mut final_keep = IndexSet::new();
+        let mut final_check = IndexSet::new();
+        let mut final_delete = IndexSet::new();
         let overriden_behavior = cmd_filter.as_ref().and_then(|f| f.env_behavior);
         self.iter_in_options(|opt| {
             if let Some(p) = opt.env.borrow().as_ref() {
@@ -851,61 +876,47 @@ impl OptStack {
                         final_keep = p
                             .keep
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
-
-                                !p.check.env_matches(e) || !p.delete.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e))
-                                //||
-                                !p.delete.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_delete = p
                             .delete
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
-                                !p.check.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.check.env_matches(e))
                             .cloned()
                             .collect();
                         if let Some(set) = &p.set {
-                            final_set = set.clone();
+                            final_set.clone_from(set);
                         }
-                        debug!("check: {:?}", final_check);
+                        debug!("check: {final_check:?}");
                         p.default_behavior
                     }
                     EnvBehavior::Inherit => {
-                        final_keep = final_keep
-                            .union(p.keep.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
-                        final_check = final_check
-                            .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
-                        final_delete = final_delete
-                            .union(p.delete.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
+                        if let Some(keep) = &p.keep {
+                            final_keep.extend(keep.iter().cloned());
+                        }
+                        if let Some(check) = &p.check {
+                            final_check.extend(check.iter().cloned());
+                        }
+                        if let Some(delete) = &p.delete {
+                            final_delete.extend(delete.iter().cloned());
+                        }
                         if let Some(set) = &p.set {
                             final_set.extend(set.clone());
                         }
-                        debug!("check: {:?}", final_check);
+                        debug!("check: {final_check:?}");
                         final_behavior
                     }
                 };
@@ -923,54 +934,60 @@ impl OptStack {
     }
 
     fn get_level(&self) -> Level {
-        let (level, _) = self
+        let (level, ()) = self
             .find_in_options(|opt| Some((opt.level, ())))
             .unwrap_or((Level::None, ()));
         level
     }
 
+    #[must_use]
     pub fn to_opt(&self) -> Rc<RefCell<Opt>> {
-        rc_refcell!(Opt::builder(self.get_level())
-            .path(self.get_final_path())
-            .env(self.get_final_env(None))
-            .maybe_root(
-                self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
-                    .map(|(_, root)| root),
-            )
-            .maybe_bounding(
-                self.find_in_options(|opt| opt.bounding.map(|bounding| (opt.level, bounding)))
-                    .map(|(_, bounding)| bounding),
-            )
-            .maybe_authentication(
-                self.find_in_options(|opt| {
-                    opt.authentication
-                        .map(|authentication| (opt.level, authentication))
-                })
-                .map(|(_, authentication)| authentication),
-            )
-            .maybe_timeout(
-                self.find_in_options(|opt| opt.timeout.clone().map(|timeout| (opt.level, timeout)))
-                    .map(|(_, timeout)| timeout),
-            )
-            .build())
+        rc_refcell!(
+            Opt::builder(self.get_level())
+                .path(self.get_final_path())
+                .env(self.get_final_env(None))
+                .maybe_root(
+                    self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
+                        .map(|(_, root)| root),
+                )
+                .maybe_bounding(
+                    self.find_in_options(|opt| opt.bounding.map(|bounding| (opt.level, bounding)))
+                        .map(|(_, bounding)| bounding),
+                )
+                .maybe_authentication(
+                    self.find_in_options(|opt| {
+                        opt.authentication
+                            .map(|authentication| (opt.level, authentication))
+                    })
+                    .map(|(_, authentication)| authentication),
+                )
+                .maybe_timeout(
+                    self.find_in_options(|opt| opt
+                        .timeout
+                        .clone()
+                        .map(|timeout| (opt.level, timeout)))
+                        .map(|(_, timeout)| timeout),
+                )
+                .build()
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use serde_test::Token;
     use serde_test::assert_de_tokens;
     use serde_test::assert_de_tokens_error;
     use serde_test::assert_tokens;
-    use serde_test::Token;
 
     use super::super::options::*;
     use super::super::structs::*;
 
-    fn env_key_set_equal<I, J>(a: I, b: J) -> bool
+    fn env_key_set_equal<'a, I, J>(a: I, b: J) -> bool
     where
-        I: IntoIterator<Item = EnvKey>,
-        J: IntoIterator<Item = EnvKey>,
+        I: IntoIterator<Item = &'a EnvKey>,
+        J: IntoIterator<Item = &'a EnvKey>,
     {
         let mut a_vec: Vec<_> = a.into_iter().collect();
         let mut b_vec: Vec<_> = b.into_iter().collect();
@@ -1017,7 +1034,7 @@ mod tests {
                 .build()
             })
             .build();
-        let options = OptStack::from_role(config.as_ref().borrow().roles[0].clone());
+        let options = OptStack::from_role(&config.as_ref().borrow().roles[0].clone());
         let res: Option<(Level, SPathOptions)> =
             options.find_in_options(|opt| opt.path.clone().map(|value| (opt.level, value)));
         assert_eq!(
@@ -1070,16 +1087,19 @@ mod tests {
                 .build()
             })
             .build();
-        let binding = OptStack::from_task(config.task("test", 1).unwrap()).to_opt();
+        let binding = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
         let options = binding.as_ref().borrow();
         let res = &options.env.as_ref().unwrap().keep;
-        assert!(res
-            .as_ref()
-            .unwrap_or(&LinkedHashSet::new())
-            .contains(&EnvKey::from("env1")));
+        assert!(
+            res.as_ref()
+                .into_iter()
+                .flatten()
+                .any(|x| x == &EnvKey::from("env1"))
+        );
     }
 
     // test to_opt() for OptStack
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_to_opt() {
         let config = SConfig::builder()
@@ -1161,8 +1181,8 @@ mod tests {
                 .build()
             })
             .build();
-        let default = LinkedHashSet::new();
-        let stack = OptStack::from_roles(config.clone());
+        let default = IndexSet::new();
+        let stack = OptStack::from_roles(&config);
         let opt = stack.to_opt();
         let global_options = opt.as_ref().borrow();
         assert_eq!(
@@ -1191,9 +1211,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env2")]
+            vec![&EnvKey::from("env2")]
         ));
         assert_eq!(
             global_options
@@ -1202,8 +1223,8 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
-                .iter()
+                .into_iter()
+                .flatten()
                 .map(|e| e.clone().into())
                 .collect::<Vec<String>>(),
             vec!["env2".to_string()]
@@ -1222,7 +1243,7 @@ mod tests {
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        let opt = OptStack::from_role(config.clone().role("test").unwrap()).to_opt();
+        let opt = OptStack::from_role(&config.role("test").unwrap()).to_opt();
         let role_options = opt.as_ref().borrow();
         assert_eq!(
             role_options.path.as_ref().unwrap().default_behavior,
@@ -1250,9 +1271,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env1")]
+            vec![&EnvKey::from("env1")]
         ));
         assert_eq!(role_options.root.unwrap(), SPrivileged::Privileged);
         assert_eq!(role_options.bounding.unwrap(), SBounding::Strict);
@@ -1265,7 +1287,7 @@ mod tests {
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::PPID
         );
-        let opt = OptStack::from_task(config.task("test", 1).unwrap()).to_opt();
+        let opt = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
         let task_options = opt.as_ref().borrow();
         assert_eq!(
             task_options.path.as_ref().unwrap().default_behavior,
@@ -1293,9 +1315,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env1"), EnvKey::from("env3")]
+            vec![&EnvKey::from("env1"), &EnvKey::from("env3")]
         ));
         assert_eq!(task_options.root.unwrap(), SPrivileged::User);
         assert_eq!(task_options.bounding.unwrap(), SBounding::Strict);
@@ -1360,7 +1383,7 @@ mod tests {
                 .build()
             })
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
         let opt = stack.to_opt();
         let options = opt.as_ref().borrow();
         assert_eq!(
@@ -1370,8 +1393,9 @@ mod tests {
                 .unwrap()
                 .set
                 .as_ref()
-                .unwrap_or(&HashMap::new())
-                .get("env1")
+                .into_iter()
+                .flatten()
+                .find_map(|(key, v)| if key == "env1" { Some(v) } else { None })
                 .unwrap(),
             "value3"
         );
@@ -1413,33 +1437,39 @@ mod tests {
                 .build()
             })
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
         let opt = stack.to_opt();
         let options = opt.as_ref().borrow();
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path1"));
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path2"));
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path3"));
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path1")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path2")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path3")
+        );
     }
 
     #[test]
@@ -1451,7 +1481,7 @@ mod tests {
                     .build(),
             )
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
         let res: Option<(Level, SPathOptions)> = stack.find_in_options(|_| None);
         assert_eq!(res, None);
     }
@@ -1463,10 +1493,7 @@ mod tests {
         assert!(env_key.is_err());
         assert_eq!(
             env_key.unwrap_err(),
-            format!(
-                "env key {}, must be a valid env, or a valid regex",
-                invalid_env
-            )
+            format!("env key {invalid_env}, must be a valid env, or a valid regex")
         );
     }
 
@@ -1575,18 +1602,8 @@ mod tests {
     #[test]
     fn test_sumask_debug() {
         let umask = SUMask(0o22);
-        let debug_str = format!("{:?}", umask);
+        let debug_str = format!("{umask:?}");
         assert_eq!(debug_str, "SUMask(18)"); // 0o22 = 18 in decimal
-    }
-
-    #[test]
-    fn test_sumask_copy_clone() {
-        let umask1 = SUMask(0o644);
-        let umask2 = umask1; // Copy
-        let umask3 = umask1.clone(); // Clone
-
-        assert_eq!(umask1, umask2);
-        assert_eq!(umask1, umask3);
     }
 
     #[test]

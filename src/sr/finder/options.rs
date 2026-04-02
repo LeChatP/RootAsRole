@@ -1,16 +1,16 @@
 use std::collections::HashSet;
 use std::{borrow::Cow, collections::HashMap};
 
-use bon::{bon, builder, Builder};
+use bon::{Builder, bon, builder};
 
 use libc::PATH_MAX;
 use nix::unistd::User;
+use rar_common::database::FilterMatcher;
 use rar_common::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
     STimeout, SUMask,
 };
 use rar_common::database::score::SecurityMin;
-use rar_common::database::FilterMatcher;
 use rar_common::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
@@ -25,8 +25,8 @@ use serde_json::{Map, Value};
 
 use log::{debug, error};
 
-use crate::error::{SrError, SrResult};
 use crate::Cred;
+use crate::error::{SrError, SrResult};
 
 use super::de::DLinkedTask;
 
@@ -36,7 +36,7 @@ pub struct DPathOptions<'a> {
     #[builder(start_fn)]
     pub default_behavior: PathBehavior,
     #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
-    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(|s| s.into()).collect() })]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub add: Option<Cow<'a, [Cow<'a, str>]>>,
     #[serde(
         borrow,
@@ -44,7 +44,7 @@ pub struct DPathOptions<'a> {
         skip_serializing_if = "Option::is_none",
         alias = "del"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(|s| s.into()).collect() })]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub sub: Option<Cow<'a, [Cow<'a, str>]>>,
 }
 
@@ -95,13 +95,13 @@ pub struct Opt<'a> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[bon]
 impl<'a> Opt<'a> {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(start_fn)] level: Level,
         path: Option<DPathOptions<'a>>,
         env: Option<DEnvOptions<'a>>,
@@ -111,7 +111,7 @@ impl<'a> Opt<'a> {
         execinfo: Option<SInfo>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
-        #[builder(default)] _extra_fields: Value,
+        #[builder(default)] extra_fields: Value,
     ) -> Self {
         Self {
             level,
@@ -123,7 +123,7 @@ impl<'a> Opt<'a> {
             execinfo,
             timeout,
             umask,
-            _extra_fields,
+            extra_fields,
         }
     }
 }
@@ -134,7 +134,7 @@ impl DEnvOptions<'_> {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: impl IntoIterator<Item = impl AsRef<str>>,
         current_user: &Cred,
-        target: &Option<User>,
+        target: Option<&User>,
         command: String,
     ) -> SrResult<HashMap<String, String>> {
         let mut final_set = match self.default_behavior {
@@ -181,7 +181,7 @@ impl DEnvOptions<'_> {
                 }
             }),
         );
-        let target_user = target.as_ref().unwrap_or_else(|| &current_user.user);
+        let target_user = target.unwrap_or(&current_user.user);
         final_set.insert("LOGNAME".into(), target_user.name.clone());
         final_set.insert("USER".into(), target_user.name.clone());
         final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
@@ -199,29 +199,30 @@ impl DEnvOptions<'_> {
         final_set.extend(
             self.set
                 .iter()
-                .map(|(key, value)| (key.to_string(), value.to_string()))
-                .collect::<HashMap<String, String>>(),
+                .map(|(key, value)| (key.to_string(), value.to_string())),
         );
         Ok(final_set)
     }
 }
 
+#[allow(clippy::fallible_impl_from)] // Not actually fallible, as long as the input is valid, which it should be since it's internal.
+#[allow(clippy::unwrap_used)] // Input is a mirror of the internal opt.
 impl From<Opt<'_>> for rar_common::database::options::Opt {
     fn from(val: Opt<'_>) -> Self {
-        rar_common::database::options::Opt::builder(val.level)
+        Self::builder(val.level)
             .maybe_path(if let Some(spath) = val.path {
                 Some(
                     rar_common::database::options::SPathOptions::builder(spath.default_behavior)
-                        .maybe_add(
-                            spath
-                                .add
-                                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
-                        )
-                        .maybe_sub(
-                            spath
-                                .sub
-                                .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
-                        )
+                        .maybe_add(spath.add.map(|v| {
+                            v.iter()
+                                .map(std::string::ToString::to_string)
+                                .collect::<Vec<_>>()
+                        }))
+                        .maybe_sub(spath.sub.map(|v| {
+                            v.iter()
+                                .map(std::string::ToString::to_string)
+                                .collect::<Vec<_>>()
+                        }))
                         .build(),
                 )
             } else {
@@ -234,29 +235,13 @@ impl From<Opt<'_>> for rar_common::database::options::Opt {
                         .set(
                             senv.set
                                 .into_iter()
-                                .map(|(k, v)| (k.to_string(), v.to_string()))
-                                .collect::<HashMap<_, _>>(),
+                                .map(|(k, v)| (k.to_string(), v.to_string())),
                         )
-                        .keep(
-                            senv.keep
-                                .into_iter()
-                                .map(|v| v.to_string())
-                                .collect::<Vec<_>>(),
-                        )
+                        .keep(senv.keep.into_iter().map(|v| v.to_string()))
                         .unwrap()
-                        .check(
-                            senv.check
-                                .into_iter()
-                                .map(|v| v.to_string())
-                                .collect::<Vec<_>>(),
-                        )
+                        .check(senv.check.into_iter().map(|v| v.to_string()))
                         .unwrap()
-                        .delete(
-                            senv.delete
-                                .into_iter()
-                                .map(|v| v.to_string())
-                                .collect::<Vec<_>>(),
-                        )
+                        .delete(senv.delete.into_iter().map(|v| v.to_string()))
                         .unwrap()
                         .build(),
                 )
@@ -273,15 +258,17 @@ impl From<Opt<'_>> for rar_common::database::options::Opt {
 
 impl From<DPathOptions<'_>> for SPathOptions {
     fn from(val: DPathOptions<'_>) -> Self {
-        SPathOptions::builder(val.default_behavior)
-            .maybe_add(
-                val.add
-                    .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
-            )
-            .maybe_sub(
-                val.sub
-                    .map(|v| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
-            )
+        Self::builder(val.default_behavior)
+            .maybe_add(val.add.map(|v| {
+                v.iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>()
+            }))
+            .maybe_sub(val.sub.map(|v| {
+                v.iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>()
+            }))
             .build()
     }
 }
@@ -294,18 +281,16 @@ impl DPathOptions<'_> {
             .build()
     }
     pub fn calc_path<'a>(&'a self, path_var: &'a [&'a str]) -> Vec<&'a str> {
-        let default = Default::default();
+        let default = Cow::default();
         match self.default_behavior {
             PathBehavior::Inherit | PathBehavior::Delete => {
-                if let Some(add) = &self.add {
+                self.add.as_ref().map_or_else(Vec::new, |add| {
                     let sub = self.sub.as_ref().unwrap_or(&default);
                     add.iter()
                         .filter(|item| !sub.contains(*item))
-                        .map(|s| s.as_ref())
+                        .map(std::convert::AsRef::as_ref)
                         .collect()
-                } else {
-                    Vec::new()
-                }
+                })
             }
             is_safe => {
                 let sub = self.sub.as_ref();
@@ -314,7 +299,7 @@ impl DPathOptions<'_> {
                     .map(|cow| cow.iter())
                     .into_iter()
                     .flatten()
-                    .map(|s| s.as_ref())
+                    .map(std::convert::AsRef::as_ref)
                     .chain(path_var.iter().copied())
                     .filter(move |s| {
                         let not_in_sub = !sub.is_some_and(|set| set.iter().any(|p| *s == p));
@@ -326,8 +311,8 @@ impl DPathOptions<'_> {
     }
 }
 
-impl<'a> DPathOptions<'a> {
-    pub fn union(&mut self, path_options: DPathOptions<'a>) {
+impl DPathOptions<'_> {
+    pub fn union(&mut self, path_options: &Self) {
         match path_options.default_behavior {
             PathBehavior::Inherit => {
                 if let Some(add) = &path_options.add {
@@ -344,8 +329,8 @@ impl<'a> DPathOptions<'a> {
                 }
             }
             behaviors => {
-                self.add = path_options.add.clone();
-                self.sub = path_options.sub.clone();
+                self.add.clone_from(&path_options.add);
+                self.sub.clone_from(&path_options.sub);
                 self.default_behavior = behaviors;
             }
         }
@@ -407,11 +392,7 @@ fn test_pattern(_: impl AsRef<str>, _: impl AsRef<str>) -> bool {
 
 fn tz_is_safe(tzval: &str) -> bool {
     // tzcode treats a value beginning with a ':' as a path.
-    let tzval = if let Some(val) = tzval.strip_prefix(':') {
-        val
-    } else {
-        tzval
-    };
+    let tzval = tzval.strip_prefix(':').map_or(tzval, |val| val);
 
     // Reject fully-qualified TZ that doesn't begin with the zoneinfo dir.
     if tzval.starts_with('/') {
@@ -427,17 +408,26 @@ fn tz_is_safe(tzval: &str) -> bool {
         }
         if lastch == '/'
             && cp == '.'
-            && tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 1)
-                == Some('.')
-            && (tzval
-                .chars()
-                .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
-                == Some('/')
+            && tzval.chars().nth({
+                let Some(pos) = tzval.chars().position(|c| c == '.') else {
+                    return false;
+                };
+                pos + 1
+            }) == Some('.')
+            && (tzval.chars().nth({
+                let Some(pos) = tzval.chars().position(|c| c == '.') else {
+                    return false;
+                };
+                pos + 2
+            }) == Some('/')
                 || tzval
                     .chars()
-                    .nth(tzval.chars().position(|c| c == '.').unwrap() + 2)
+                    .nth({
+                        let Some(pos) = tzval.chars().position(|c| c == '.') else {
+                            return false;
+                        };
+                        pos + 2
+                    })
                     .is_none())
         {
             return false;
@@ -446,7 +436,10 @@ fn tz_is_safe(tzval: &str) -> bool {
     }
 
     // Reject extra long TZ values (even if not a path).
-    if tzval.len() >= <i32 as TryInto<usize>>::try_into(PATH_MAX).unwrap() {
+    let Ok(path_max) = <i32 as TryInto<usize>>::try_into(PATH_MAX) else {
+        return false;
+    };
+    if tzval.len() >= path_max {
         return false;
     }
 
@@ -464,18 +457,12 @@ pub struct BorrowedOptStack<'a> {
 }
 
 impl<'a, 'c, 't> BorrowedOptStack<'a> {
-    pub fn new(config: Option<Opt<'a>>) -> Self {
+    pub const fn new(config: Option<Opt<'a>>) -> Self {
         Self {
             config,
             role: None,
             task: None,
         }
-    }
-    fn _set_role(&mut self, role: Option<Opt<'a>>) {
-        self.role = role;
-    }
-    fn _set_task(&mut self, task: Option<Opt<'a>>) {
-        self.task = task;
     }
     pub fn from_task(task: &DLinkedTask<'t, 'c, 'a>) -> Self {
         let config = task.role().config().options.clone();
@@ -488,10 +475,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         }
     }
     pub fn set_role(&mut self, role: &DLinkedTask<'t, 'c, 'a>) {
-        self.role = role.role().role().options.clone();
+        self.role.clone_from(&role.role().role().options);
     }
     pub fn set_task(&mut self, task: &DLinkedTask<'t, 'c, 'a>) {
-        self.task = task.task.options.clone();
+        self.task.clone_from(&task.task.options);
     }
     pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
         // Preallocate with a reasonable guess, but will only allocate once.
@@ -507,18 +494,18 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         calculate_combined_paths(
             path_var,
             &mut combined_paths,
-            &ENV_PATH_BEHAVIOR,
-            &Some(ENV_PATH_ADD_LIST_SLICE),
-            &Some(ENV_PATH_REMOVE_LIST_SLICE),
+            ENV_PATH_BEHAVIOR,
+            Some(ENV_PATH_ADD_LIST_SLICE),
+            Some(ENV_PATH_REMOVE_LIST_SLICE),
         );
 
         for path_opt in stack.iter().flatten() {
             calculate_combined_paths(
                 path_var,
                 &mut combined_paths,
-                &path_opt.default_behavior,
-                &path_opt.add.as_ref().map(|v| v.iter()),
-                &path_opt.sub.as_ref().map(|v| v.iter()),
+                path_opt.default_behavior,
+                path_opt.add.as_ref().map(|v| v.iter()),
+                path_opt.sub.as_ref().map(|v| v.iter()),
             );
         }
         combined_paths
@@ -529,22 +516,22 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         self.get_opt_iter_rev().for_each(|o| {
             update_security_min()
                 .security_min(&mut security_min)
-                .bounding(&o.bounding)
-                .root(&o.root)
-                .authentication(&o.authentication)
-                .env_behavior(&o.env.as_ref().map(|e| e.default_behavior))
-                .override_env(&o.env.as_ref().and_then(|e| e.override_behavior))
-                .path_behavior(&o.path.as_ref().map(|p| p.default_behavior))
+                .maybe_bounding(o.bounding.as_ref())
+                .maybe_root(o.root.as_ref())
+                .maybe_authentication(o.authentication.as_ref())
+                .maybe_env_behavior(o.env.as_ref().map(|e| e.default_behavior).as_ref())
+                .maybe_override_env(o.env.as_ref().and_then(|e| e.override_behavior).as_ref())
+                .maybe_path_behavior(o.path.as_ref().map(|p| p.default_behavior).as_ref())
                 .call();
         });
         update_security_min()
             .security_min(&mut security_min)
-            .bounding(&Some(BOUNDING))
-            .root(&Some(PRIVILEGED))
-            .authentication(&Some(AUTHENTICATION))
-            .env_behavior(&Some(ENV_DEFAULT_BEHAVIOR))
-            .override_env(&Some(ENV_OVERRIDE_BEHAVIOR))
-            .path_behavior(&Some(ENV_PATH_BEHAVIOR))
+            .bounding(&BOUNDING)
+            .root(&PRIVILEGED)
+            .authentication(&AUTHENTICATION)
+            .env_behavior(&ENV_DEFAULT_BEHAVIOR)
+            .override_env(&ENV_OVERRIDE_BEHAVIOR)
+            .path_behavior(&ENV_PATH_BEHAVIOR)
             .call();
         security_min
     }
@@ -555,21 +542,21 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .find_map(|o| o.override_behavior)
             .unwrap_or(ENV_OVERRIDE_BEHAVIOR)
     }
+    #[allow(clippy::too_many_lines)]
     pub fn calc_temp_env(
         &self,
         override_behavior: bool,
-        opt_filter: &Option<FilterMatcher>,
+        opt_filter: Option<&FilterMatcher>,
     ) -> DEnvOptions<'_> {
-        let mut result = DEnvOptions::default();
         fn determine_final_behavior(
             override_behavior: bool,
-            opt_filter: &Option<FilterMatcher>,
+            opt_filter: Option<&FilterMatcher>,
             final_behavior: &mut EnvBehavior,
             overriden: &mut bool,
-            env_behavior: &EnvBehavior,
+            env_behavior: EnvBehavior,
         ) {
-            if !*overriden {
-                if let Some(behavior) = opt_filter
+            if !*overriden
+                && let Some(behavior) = opt_filter
                     .as_ref()
                     .and_then(|f| {
                         if override_behavior {
@@ -583,21 +570,20 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                         if env_behavior.is_inherit() {
                             None
                         } else {
-                            Some(*env_behavior)
+                            Some(env_behavior)
                         }
                     })
-                {
-                    *final_behavior = behavior;
-                }
+            {
+                *final_behavior = behavior;
             }
         }
         #[builder]
         fn assign_env_settings(
             override_behavior: bool,
-            opt_filter: &Option<FilterMatcher>,
+            opt_filter: Option<&FilterMatcher>,
             result: &mut DEnvOptions<'_>,
             overriden: &mut bool,
-            default_behavior: &EnvBehavior,
+            default_behavior: EnvBehavior,
             keep: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
             delete: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
             check: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
@@ -643,13 +629,14 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                     .map(|k| k.as_ref().to_string().into()),
             );
         }
+        let mut result = DEnvOptions::default();
         let mut overriden = false;
         assign_env_settings()
             .override_behavior(override_behavior)
-            .opt_filter(opt_filter)
+            .maybe_opt_filter(opt_filter)
             .result(&mut result)
             .overriden(&mut overriden)
-            .default_behavior(&ENV_DEFAULT_BEHAVIOR)
+            .default_behavior(ENV_DEFAULT_BEHAVIOR)
             .keep(&ENV_KEEP_LIST)
             .check(&ENV_CHECK_LIST)
             .delete(&ENV_DELETE_LIST)
@@ -660,10 +647,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .for_each(|o| {
                 assign_env_settings()
                     .override_behavior(override_behavior)
-                    .opt_filter(opt_filter)
+                    .maybe_opt_filter(opt_filter)
                     .result(&mut result)
                     .overriden(&mut overriden)
-                    .default_behavior(&o.default_behavior)
+                    .default_behavior(o.default_behavior)
                     .keep(&o.keep)
                     .check(&o.check)
                     .delete(&o.delete)
@@ -675,8 +662,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
     pub fn calc_bounding(&self) -> SBounding {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.bounding)
-            .next()
+            .find_map(|o| o.bounding)
             .unwrap_or(BOUNDING)
     }
 
@@ -694,37 +680,32 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
     pub fn calc_timeout(&self) -> STimeout {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.timeout.clone())
-            .next()
-            .unwrap_or(STimeout {
+            .find_map(|o| o.timeout.clone())
+            .unwrap_or_else(|| STimeout {
                 type_field: Some(TIMEOUT_TYPE),
                 duration: Some(TIMEOUT_DURATION),
                 max_usage: Some(TIMEOUT_MAX_USAGE),
-                _extra_fields: Map::new(),
+                extra_fields: Map::new(),
             })
     }
     pub fn calc_info(&self) -> SInfo {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.execinfo)
-            .next()
+            .find_map(|o| o.execinfo)
             .unwrap_or(INFO)
     }
     pub fn calc_authentication(&self) -> SAuthentication {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.authentication)
-            .next()
+            .find_map(|o| o.authentication)
             .unwrap_or(AUTHENTICATION)
     }
     pub fn calc_privileged(&self) -> SPrivileged {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.root)
-            .next()
+            .find_map(|o| o.root)
             .unwrap_or(PRIVILEGED)
     }
     pub fn calc_umask(&self) -> SUMask {
         self.get_opt_iter_rev()
-            .filter_map(|o| o.umask)
-            .next()
+            .find_map(|o| o.umask)
             .unwrap_or(UMASK)
     }
 }
@@ -732,32 +713,32 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 #[bon::builder]
 fn update_security_min(
     security_min: &mut SecurityMin,
-    bounding: &Option<SBounding>,
-    root: &Option<SPrivileged>,
-    authentication: &Option<SAuthentication>,
-    env_behavior: &Option<EnvBehavior>,
-    override_env: &Option<bool>,
-    path_behavior: &Option<PathBehavior>,
+    bounding: Option<&SBounding>,
+    root: Option<&SPrivileged>,
+    authentication: Option<&SAuthentication>,
+    env_behavior: Option<&EnvBehavior>,
+    override_env: Option<&bool>,
+    path_behavior: Option<&PathBehavior>,
 ) {
     if !security_min.contains(SecurityMin::DisableBounding)
-        && bounding.is_some_and(|b| b.is_ignore())
+        && bounding.is_some_and(SBounding::is_ignore)
     {
         *security_min |= SecurityMin::DisableBounding;
     }
     if !security_min.contains(SecurityMin::EnableRoot)
-        && root.is_some_and(|r| r == SPrivileged::Privileged)
+        && root.is_some_and(|r| *r == SPrivileged::Privileged)
     {
         *security_min |= SecurityMin::EnableRoot;
     }
     if !security_min.contains(SecurityMin::SkipAuth)
-        && authentication.is_some_and(|a| a == SAuthentication::Skip)
+        && authentication.is_some_and(|a| *a == SAuthentication::Skip)
     {
         *security_min |= SecurityMin::SkipAuth;
     }
     if !security_min.contains(SecurityMin::KeepEnv)
         && env_behavior
             .as_ref()
-            .is_some_and(|e| e.is_keep() || override_env.as_ref().is_some_and(|o| *o))
+            .is_some_and(|e| e.is_keep() || override_env.as_ref().is_some_and(|o| **o))
     {
         *security_min |= SecurityMin::KeepEnv;
     }
@@ -776,16 +757,16 @@ fn update_security_min(
 fn calculate_combined_paths(
     path_var: &[&str],
     combined_paths: &mut Vec<String>,
-    default_behavior: &PathBehavior,
-    add: &Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
-    sub: &Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
+    default_behavior: PathBehavior,
+    add: Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
+    sub: Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
 ) {
     match default_behavior {
         PathBehavior::Inherit => {
-            if let Some(ref add_paths) = add {
-                combined_paths.extend(add_paths.clone().into_iter().map(|p| p.to_string()));
+            if let Some(add_paths) = add {
+                combined_paths.extend(add_paths.into_iter().map(|p| p.to_string()));
             }
-            if let Some(ref sub_paths) = sub {
+            if let Some(sub_paths) = sub {
                 // Avoid allocation by using retain and Cow::Borrowed
                 combined_paths.retain(|path| {
                     !sub_paths
@@ -797,8 +778,8 @@ fn calculate_combined_paths(
         }
         PathBehavior::Delete => {
             combined_paths.clear();
-            if let Some(ref add_paths) = add {
-                combined_paths.extend(add_paths.clone().into_iter().map(|p| p.to_string()));
+            if let Some(add_paths) = add {
+                combined_paths.extend(add_paths.into_iter().map(|p| p.to_string()));
             }
         }
         is_safe => {
@@ -806,7 +787,7 @@ fn calculate_combined_paths(
             combined_paths.extend(
                 path_var
                     .iter()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .filter(|path| is_safe.is_keep_unsafe() || path.starts_with('/')),
             );
         }
@@ -868,7 +849,10 @@ mod tests {
 
     #[test]
     fn test_env_matches() {
-        let set: HashSet<String> = ["VAR1", "VAR2"].iter().map(|s| s.to_string()).collect();
+        let set: HashSet<String> = ["VAR1", "VAR2"]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         assert!(env_matches(&set, &"VAR1".to_string()));
         assert!(!env_matches(&set, &"VAR3".to_string()));
     }
@@ -903,7 +887,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -944,7 +928,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
             "Failed to calculate final env {}",
@@ -986,7 +970,7 @@ mod tests {
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
         let target = Cred::builder().build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, &None, String::new());
+        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(result.is_err());
     }
 
@@ -1032,13 +1016,13 @@ mod tests {
                 .build(),
         );
         let mut stack = BorrowedOptStack::new(config);
-        stack._set_role(role);
-        stack._set_task(task);
+        stack.role = role;
+        stack.task = task;
         assert_eq!(
             stack.calc_path(&["/test"]),
             env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>()
         );
-        let env = stack.calc_temp_env(false, &None);
+        let env = stack.calc_temp_env(false, None);
         assert_eq!(env.delete, HashSet::from(["DELETEME".into()]));
         assert_eq!(env.keep, HashSet::from(["KEEPME".into()]));
         assert_eq!(env.check, HashSet::from(["CHECKME".into()]));

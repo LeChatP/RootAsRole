@@ -8,14 +8,14 @@ use std::{
     process::Command,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use capctl::Cap;
 use capctl::CapState;
 use chrono::Duration;
 use clap::ValueEnum;
 use log::debug;
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
-use serde::{de, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter, EnumString};
 
@@ -35,20 +35,23 @@ pub enum OsTarget {
 }
 
 impl OsTarget {
+    /// # Errors
+    ///
+    /// Will return an error if the OS cannot be detected or is unsupported
     pub fn detect() -> Result<Self, anyhow::Error> {
         for file in glob::glob("/etc/*-release")? {
             let file = file?;
             let os = std::fs::read_to_string(&file)?.to_ascii_lowercase();
             if os.contains("debian") {
-                return Ok(OsTarget::Debian);
+                return Ok(Self::Debian);
             } else if os.contains("ubuntu") {
-                return Ok(OsTarget::Ubuntu);
+                return Ok(Self::Ubuntu);
             } else if os.contains("fedora") {
-                return Ok(OsTarget::Fedora);
+                return Ok(Self::Fedora);
             } else if os.contains("arch") {
-                return Ok(OsTarget::ArchLinux);
+                return Ok(Self::ArchLinux);
             } else if os.contains("redhat") || os.contains("rhel") {
-                return Ok(OsTarget::RedHat);
+                return Ok(Self::RedHat);
             }
         }
         Err(anyhow!("Unsupported OS"))
@@ -65,7 +68,7 @@ pub struct SettingsFile {
     pub storage: Settings,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, EnumString)]
@@ -91,7 +94,7 @@ pub struct Settings {
     pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -102,7 +105,7 @@ pub struct RemoteStorageSettings {
     pub path: Option<String>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(
@@ -146,7 +149,7 @@ pub struct STimeout {
     pub max_usage: Option<u64>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -159,7 +162,7 @@ pub struct SPathOptions {
     pub sub: Option<Vec<String>>,
     #[serde(default)]
     #[serde(flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(
@@ -190,7 +193,7 @@ pub struct SEnvOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete: Option<Vec<String>>,
     #[serde(default, flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(
@@ -248,10 +251,10 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, flatten)]
-    pub _extra_fields: Value,
+    pub extra_fields: Value,
 }
 
-const FS_IMMUTABLE_FL: u32 = 0x00000010;
+const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
 pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
 
 #[derive(Debug, EnumIs)]
@@ -264,6 +267,7 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
+#[allow(clippy::ref_option)]
 fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -291,6 +295,9 @@ where
     }
 }
 
+/// # Errors
+///
+/// Will return an error if the duration string is not in the format hh:mm:ss or if the hours, minutes or seconds cannot be parsed as integers
 pub fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
@@ -322,24 +329,27 @@ fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), cap
     Ok(())
 }
 
+/// # Errors
+///
+/// Will return an error if capabilities about dac cannot be set due to permissions or system issue
 fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
-    match effective {
-        false => {
-            read_effective(false).and(dac_override_effective(false))?;
-        }
-        true => {
-            read_effective(true).or(dac_override_effective(true))?;
-        }
+    if effective {
+        read_effective(true).or_else(|_| dac_override_effective(true))?;
+    } else {
+        read_effective(false).and_then(|()| dac_override_effective(false))?;
     }
     Ok(())
 }
 
+/// # Errors
+///
+/// Will return an error if the current directory is not a git repository or if git command fails
 pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()?;
     let git_root = String::from_utf8(output.stdout)?.trim().to_string();
-    debug!("Changing directory to git root: {}", git_root);
+    debug!("Changing directory to git root: {git_root}");
     std::env::set_current_dir(git_root)?;
     Ok(())
 }
@@ -348,7 +358,9 @@ pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
 /// # Arguments
 /// * `file` - The file to set the immutable flag on
 /// * `lock` - Whether to set or unset the immutable flag
-pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::Result<()> {
+/// # Errors
+/// Will return an error if the file cannot be opened, if the immutable flag cannot be set
+pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: &ImmutableLock) -> io::Result<()> {
     let file = open_with_privileges(file)?;
     let mut val = 0;
     let fd = file.as_raw_fd();
@@ -369,31 +381,43 @@ pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: ImmutableLock) -> io::
     Ok(())
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn cap_effective(cap: Cap, enable: bool) -> Result<(), capctl::Error> {
     let mut current = CapState::get_current()?;
     current.effective.set_state(cap, enable);
     current.set_current()
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn fowner_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::FOWNER, enable)
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn read_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::DAC_READ_SEARCH, enable)
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn dac_override_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::DAC_OVERRIDE, enable)
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn immutable_effective(enable: bool) -> Result<(), capctl::Error> {
     cap_effective(Cap::LINUX_IMMUTABLE, enable)
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened or if the required capabilities cannot be set
 pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error> {
     std::fs::File::open(&p).or_else(|_| {
-        read_effective(true).or(dac_override_effective(true))?;
+        read_effective(true).or_else(|_| dac_override_effective(true))?;
         let res = std::fs::File::open(p);
         read_effective(false)?;
         dac_override_effective(false)?;
@@ -401,6 +425,8 @@ pub fn open_with_privileges<P: AsRef<Path>>(p: P) -> Result<File, std::io::Error
     })
 }
 
+/// # Errors
+/// Will return an error if the file cannot be opened
 pub fn files_are_equal(path1: &str, path2: &str) -> io::Result<bool> {
     let file1_content = fs::read(path1)?;
     let file2_content = fs::read(path2)?;
@@ -408,19 +434,22 @@ pub fn files_are_equal(path1: &str, path2: &str) -> io::Result<bool> {
     Ok(file1_content == file2_content)
 }
 
-pub fn get_os(os: Option<OsTarget>) -> Result<OsTarget, anyhow::Error> {
+/// # Errors
+/// Will return an error if the OS cannot be detected
+pub fn get_os(os: Option<&OsTarget>) -> Result<OsTarget, anyhow::Error> {
     Ok(if let Some(os) = os {
-        os
+        os.clone()
     } else {
         OsTarget::detect()
             .map(|t| {
-                debug!("Detected OS is : {}", t);
+                debug!("Detected OS is : {t}");
                 t
             })
             .context("Failed to detect the OS")?
     })
 }
 
+#[must_use]
 pub fn detect_priv_bin() -> Option<String> {
     // is /usr/bin/dosr exist ?
     if std::fs::metadata("/usr/bin/dosr").is_ok() {
@@ -434,6 +463,8 @@ pub fn detect_priv_bin() -> Option<String> {
     }
 }
 
+/// # Errors
+/// Will return an error if the capabilities cannot be altered due to permissions or system issues
 pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
     state.effective.clear();
     state.set_current()?;

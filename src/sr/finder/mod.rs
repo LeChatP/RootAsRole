@@ -7,31 +7,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use api::{register_plugins, Api, ApiEvent};
+use api::{Api, ApiEvent, register_plugins};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
+    Cred, StorageMethod,
     database::{
-        actor::DGroups,
+        actor::{DGroupType, DGroups},
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{CmdMin, CmdOrder, Score},
     },
     util::{all_paths_from_env, read_with_privileges},
-    Cred, StorageMethod,
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
+    Cli,
     error::{SrError, SrResult},
     finder::de::CredOwnedData,
-    Cli,
 };
 
-pub(crate) mod api;
+pub mod api;
 mod cmd;
-pub(crate) mod de;
+pub mod de;
 mod options;
 
 #[derive(Debug, Default, Clone, Builder)]
@@ -73,7 +73,7 @@ where
 {
     register_plugins();
     let settings_file = rar_common::get_settings(path).map_err(|e| {
-        debug!("Policy unreachable: {}", e);
+        debug!("Policy unreachable: {e}");
         SrError::ConfigurationError
     })?;
     let config_finder_deserializer = ConfigFinderDeserializer {
@@ -98,7 +98,7 @@ where
                 &config_finder_deserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
                     .map_err(|e| {
-                        debug!("Error deserializing CBOR: {}", e);
+                        debug!("Error deserializing CBOR: {e}");
                         SrError::ConfigurationError
                     })?,
                 env_vars,
@@ -121,7 +121,7 @@ where
                 &config_finder_deserializer
                     .deserialize(&mut serde_json::Deserializer::new(io_reader))
                     .map_err(|e| {
-                        debug!("Error deserializing JSON: {}", e);
+                        debug!("Error deserializing JSON: {e}");
                         SrError::ConfigurationError
                     })?,
                 env_vars,
@@ -157,17 +157,17 @@ impl BestExecSettings {
             return Err(SrError::PermissionDenied);
         }
         result.env = opt_stack
-            .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
+            .calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref())
             .calc_final_env(
                 env_vars,
                 opt_stack.calc_path(env_path),
                 cred,
-                &result.cred.setuid,
+                result.cred.setuid.as_ref(),
                 format!(
                     "{}{}",
                     cli.cmd_path.display(),
                     if cli.cmd_args.is_empty() {
-                        "".into()
+                        String::new()
                     } else {
                         format!(" {}", cli.cmd_args.join(" "))
                     }
@@ -205,6 +205,7 @@ impl BestExecSettings {
         Ok(res)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn task_settings<'t, 'a>(
         &mut self,
         cli: &'t Cli,
@@ -223,7 +224,9 @@ impl BestExecSettings {
             .as_ref()
             .is_some_and(|f| f.env_behavior.is_some() && !temp_opt_stack.calc_override_behavior())
         {
-            debug!("task_settings: deny task due to inherited from role or config env_override requirement");
+            debug!(
+                "task_settings: deny task due to inherited from role or config env_override requirement"
+            );
             return Ok(false);
         }
         if cli.info && temp_opt_stack.calc_info().is_hide() {
@@ -234,7 +237,10 @@ impl BestExecSettings {
             let t_env_path = opt_stack.calc_path(env_path);
             for command in commands.del() {
                 if self.command_settings(
-                    &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    &t_env_path
+                        .iter()
+                        .map(std::string::String::as_str)
+                        .collect::<Vec<_>>(),
                     cli,
                     &command,
                 )? {
@@ -245,17 +251,21 @@ impl BestExecSettings {
                 debug!("default behavior is all");
                 let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
-                debug!("{:?}", &cli.cmd_path);
+                debug!("{}", &cli.cmd_path.display());
                 if let Ok(path) = cli.cmd_path.canonicalize() {
                     self.final_path = path;
                 } else {
-                    self.final_path = all_paths_from_env(
-                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                        &cli.cmd_path,
-                    )
-                    .first()
-                    .ok_or(SrError::ExecutionFailed)?
-                    .to_path_buf();
+                    self.final_path.clone_from(
+                        all_paths_from_env(
+                            &t_env_path
+                                .iter()
+                                .map(std::string::String::as_str)
+                                .collect::<Vec<_>>(),
+                            &cli.cmd_path,
+                        )
+                        .first()
+                        .ok_or(SrError::ExecutionFailed)?,
+                    );
                 }
                 self.score.cmd_min = CmdMin::builder()
                     .matching()
@@ -264,7 +274,10 @@ impl BestExecSettings {
             } else {
                 for command in commands.add() {
                     if self.command_settings(
-                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        &t_env_path
+                            .iter()
+                            .map(std::string::String::as_str)
+                            .collect::<Vec<_>>(),
                         cli,
                         &command,
                     )? {
@@ -275,8 +288,8 @@ impl BestExecSettings {
             }
             f_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
-            debug!("final_path already found: {:?}", final_path);
-            found = self.update_command_score(final_path.to_path_buf(), data.score.cmd_min);
+            debug!("final_path already found: {}", final_path.display());
+            found = self.update_command_score(final_path.clone(), data.score.cmd_min);
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
         Api::notify(ApiEvent::BestTaskSettingsFound(
@@ -287,20 +300,20 @@ impl BestExecSettings {
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
             self.env_path = f_env_path
-                .unwrap_or(opt_stack.calc_path(env_path))
+                .unwrap_or_else(|| opt_stack.calc_path(env_path))
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
             self.score = score;
             self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
             self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
                 DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
-                DGroups::Multiple(g) => g.iter().filter_map(|g| g.fetch_group()).collect(),
+                DGroups::Multiple(g) => g.iter().filter_map(DGroupType::fetch_group).collect(),
             });
             self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
-            debug!("resulting settings: {:?}", self);
+            debug!("resulting settings: {self:?}");
         }
 
         Ok(found)
@@ -312,7 +325,7 @@ impl BestExecSettings {
         cli: &'d Cli,
         data: &DLinkedCommand<'d, '_, '_, '_, '_>,
     ) -> SrResult<bool> {
-        debug!("env_path: {:?}", env_path);
+        debug!("env_path: {env_path:?}");
         Ok(match &**data {
             de::DCommand::Simple(role_cmd) => {
                 let mut final_path = None;
@@ -321,14 +334,10 @@ impl BestExecSettings {
                     &cli.cmd_path,
                     &cli.cmd_args,
                     role_cmd,
-                    &self.score.cmd_min,
+                    self.score.cmd_min,
                     &mut final_path,
                 );
-                if let Some(final_path) = final_path {
-                    self.update_command_score(final_path, cmd_min)
-                } else {
-                    false
-                }
+                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
             }
             de::DCommand::Complex(value) => {
                 let mut cmd_min = CmdMin::empty();
@@ -341,11 +350,7 @@ impl BestExecSettings {
                     &mut cmd_min,
                     &mut final_path,
                 ))?;
-                if let Some(final_path) = final_path {
-                    self.update_command_score(final_path, cmd_min)
-                } else {
-                    false
-                }
+                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
             }
         })
     }
@@ -355,7 +360,7 @@ impl BestExecSettings {
             "update_command_score: current score {:?}, new score {:?}",
             self.score.cmd_min, res
         );
-        if res.better(&self.score.cmd_min) {
+        if res.better(self.score.cmd_min) {
             debug!("better");
             self.score.cmd_min = res;
             self.final_path = final_path;
@@ -372,16 +377,16 @@ mod tests {
     use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
     use capctl::CapSet;
+    use rar_common::database::FilterMatcher;
     use rar_common::database::options::{EnvBehavior, Level, SInfo};
     use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
     use rar_common::database::structs::SetBehavior;
-    use rar_common::database::FilterMatcher;
     use serde_json::Value;
     use std::path::PathBuf;
 
+    use crate::Cli;
     use crate::finder::de::CredData;
     use crate::finder::options::{DEnvOptions, Opt};
-    use crate::Cli;
     use rar_common::Cred;
 
     // Helper: Dummy implementations for required traits/structs
@@ -421,9 +426,11 @@ mod tests {
                                     .add(vec![
                                         DCommand::simple("/usr/bin/ls ^.*$"),
                                         DCommand::complex(Value::Object(
-                                            [("key".to_string(), Value::String("value".into()))]
-                                                .into_iter()
-                                                .collect::<serde_json::Map<String, Value>>(),
+                                            std::iter::once((
+                                                "key".to_string(),
+                                                Value::String("value".into()),
+                                            ))
+                                            .collect::<serde_json::Map<String, Value>>(),
                                         )),
                                     ])
                                     .build(),
@@ -545,7 +552,7 @@ mod tests {
         let env_path = &["/bin"];
         let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
         assert!(result.is_ok_and(|r| r));
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test");
         assert!(best.task == Some("0".to_string()));
         assert!(best.cred.caps.is_some());
@@ -671,7 +678,7 @@ mod tests {
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test", "role was {}", best.role);
         assert!(best.task == Some("1".to_string()));
     }
@@ -691,7 +698,7 @@ mod tests {
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }
@@ -764,7 +771,7 @@ mod tests {
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test", "role was {}", best.role);
         assert!(best.task == Some("1".to_string()));
     }
@@ -788,7 +795,7 @@ mod tests {
         let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }

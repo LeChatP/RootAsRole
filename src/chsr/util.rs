@@ -1,10 +1,10 @@
 use std::mem;
 
-use pest::{error::LineColLocation, RuleType};
+use pest::{RuleType, error::LineColLocation};
 
 use rar_common::util::escape_parser_string;
 
-fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
+const fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
 where
     R: RuleType,
 {
@@ -32,7 +32,7 @@ where
 
             Some(end)
         }
-        _ => None,
+        LineColLocation::Pos(_) => None,
     };
     let offset = start - 1;
     let line_chars = error.line().chars();
@@ -53,7 +53,7 @@ where
             underline.push('^');
         }
     } else {
-        underline.push_str("^---")
+        underline.push_str("^---");
     }
 
     underline

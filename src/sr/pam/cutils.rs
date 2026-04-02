@@ -1,6 +1,6 @@
 /// This file is part of sudo-rs.
 /// Licensed under the MIT License and Apache 2.0 License;
-/// Original source: https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs
+/// Original source: <https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs>
 /// Original authors: The sudo-rs developers (Ruben Nijveld et al.)
 use std::{
     ffi::{CStr, OsStr, OsString},
@@ -14,7 +14,7 @@ pub fn cerr<Int: Copy + TryInto<libc::c_long>>(res: Int) -> std::io::Result<Int>
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     #[cfg_attr(
         any(target_os = "macos", target_os = "ios", target_os = "freebsd"),
         link_name = "__error"
@@ -66,7 +66,7 @@ pub unsafe fn os_string_from_ptr(ptr: *const libc::c_char) -> OsString {
     }
 }
 
-/// Rust's standard library IsTerminal just directly calls isatty, which
+/// Rust's standard library ``IsTerminal`` just directly calls isatty, which
 /// we don't want since this performs IOCTL calls on them and file descriptors are under
 /// the control of the user; so this checks if they are a character device first.
 pub fn safe_isatty(fildes: libc::c_int) -> bool {
@@ -97,16 +97,16 @@ mod test {
     fn miri_test_str_to_ptr() {
         let strp = |ptr| unsafe { string_from_ptr(ptr) };
         assert_eq!(strp(std::ptr::null()), "");
-        assert_eq!(strp(c"".as_ptr() as *const libc::c_char), "");
-        assert_eq!(strp(c"hello".as_ptr() as *const libc::c_char), "hello");
+        assert_eq!(strp(c"".as_ptr().cast::<libc::c_char>()), "");
+        assert_eq!(strp(c"hello".as_ptr().cast::<libc::c_char>()), "hello");
     }
 
     #[test]
     fn miri_test_os_str_to_ptr() {
         let strp = |ptr| unsafe { os_string_from_ptr(ptr) };
         assert_eq!(strp(std::ptr::null()), "");
-        assert_eq!(strp(c"".as_ptr() as *const libc::c_char), "");
-        assert_eq!(strp(c"hello".as_ptr() as *const libc::c_char), "hello");
+        assert_eq!(strp(c"".as_ptr().cast::<libc::c_char>()), "");
+        assert_eq!(strp(c"hello".as_ptr().cast::<libc::c_char>()), "hello");
     }
 
     #[test]
@@ -116,13 +116,13 @@ mod test {
         assert!(!super::safe_isatty(
             File::open("/bin/sh").unwrap().as_raw_fd()
         ));
-        assert!(!super::safe_isatty(-837492));
+        assert!(!super::safe_isatty(-837_492));
         let (mut leader, mut follower) = Default::default();
         assert!(
             unsafe {
                 libc::openpty(
-                    &mut leader,
-                    &mut follower,
+                    &raw mut leader,
+                    &raw mut follower,
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),

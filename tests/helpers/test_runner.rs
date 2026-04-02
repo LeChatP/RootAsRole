@@ -1,6 +1,6 @@
 use std::env;
 use std::io::Result as IoResult;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use bon::bon;
@@ -23,15 +23,16 @@ pub struct TestRunner {
 }
 
 #[bon]
+#[allow(clippy::unwrap_used)]
 impl TestRunner {
-    /// Creates a new TestRunner instance and compiles the dosr binary
+    /// Creates a new ``TestRunner`` instance and compiles the dosr binary
     pub fn new(
         binary_path: PathBuf,
-        test_config_path: PathBuf,
+        test_config_path: &Path,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config_manager = ConfigManager::new(&test_config_path)?;
+        let config_manager = ConfigManager::new(test_config_path)?;
 
-        Ok(TestRunner {
+        Ok(Self {
             binary_path,
             config_manager,
         })
@@ -48,10 +49,10 @@ impl TestRunner {
         groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
         // If a fixture is specified, update the configuration
-        if let Some(fixture) = fixture_name {
-            if let Err(e) = self.config_manager.load_fixture(fixture.into()) {
-                eprintln!("Warning: Failed to load fixture '{}': {}", fixture, e);
-            }
+        if let Some(fixture) = fixture_name
+            && let Err(e) = self.config_manager.load_fixture(Path::new(fixture))
+        {
+            eprintln!("Warning: Failed to load fixture '{fixture}': {e}");
         }
         let mut added_users = Vec::new();
         let mut added_groups = Vec::new();
@@ -66,15 +67,15 @@ impl TestRunner {
                             // User does not exist, attempt to create
                             let create_status = Command::new("useradd").args(["-m", user]).status();
                             if let Err(e) = create_status {
-                                println!("Warning: Failed to create user '{}': {}", user, e);
+                                println!("Warning: Failed to create user '{user}': {e}");
                             }
-                            println!("Created user '{}' for testing purposes", user);
+                            println!("Created user '{user}' for testing purposes");
                             added_users.push(user.to_string());
                         }
-                        println!("User '{}' exists", user);
+                        println!("User '{user}' exists");
                     }
                     Err(e) => {
-                        println!("Warning: Failed to check user '{}': {}", user, e);
+                        println!("Warning: Failed to check user '{user}': {e}");
                     }
                 }
             }
@@ -89,20 +90,20 @@ impl TestRunner {
                             // Group does not exist, attempt to create
                             let create_status = Command::new("groupadd").args([group]).status();
                             if let Err(e) = create_status {
-                                println!("Warning: Failed to create group '{}': {}", group, e);
+                                println!("Warning: Failed to create group '{group}': {e}");
                             }
                             added_groups.push(group.to_string());
-                            println!("Created group '{}' for testing purposes", group);
+                            println!("Created group '{group}' for testing purposes");
                         }
                     }
                     Err(e) => {
-                        println!("Warning: Failed to check group '{}': {}", group, e);
+                        println!("Warning: Failed to check group '{group}': {e}");
                     }
                 }
             }
         }
         let mut command = Command::new(&self.binary_path);
-        println!("Running command: {:?} {:?}", command, args);
+        println!("Running command: {command:?} {args:?}");
         command
             .args(args)
             .envs(

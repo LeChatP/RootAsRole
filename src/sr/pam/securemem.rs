@@ -1,6 +1,6 @@
 /// This file is part of sudo-rs.
 /// Licensed under the MIT License and Apache 2.0 License;
-/// Original source: https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs
+/// Original source: <https://github.com/memorysafety/sudo-rs/blob/90e2385b866dde529837da9e059ec0f1e9cd83c6/src/cutils/mod.rs>
 /// Original authors: The sudo-rs developers (Ruben Nijveld et al.)
 // Routines for "secure" memory operations; i.e. data that we need to send to Linux-PAM and don't
 // want any copies to leak (that we would then need to zeroize).
@@ -17,6 +17,7 @@ const ALIGN: usize = mem::align_of::<u8>();
 pub struct PamBuffer(NonNull<[u8; SIZE]>);
 
 fn layout() -> Layout {
+    #[allow(clippy::unwrap_used)]
     // does not panic with the given arguments; also see unit test at the bottom
     Layout::from_size_align(SIZE, ALIGN).unwrap()
 }
@@ -24,7 +25,7 @@ fn layout() -> Layout {
 impl PamBuffer {
     // consume this buffer and return its internal pointer
     // (ending the type-level security, but guaranteeing you need unsafe code to access the data)
-    pub fn leak(self) -> NonNull<u8> {
+    pub const fn leak(self) -> NonNull<u8> {
         let result = self.0;
         std::mem::forget(self);
 
@@ -35,7 +36,7 @@ impl PamBuffer {
     // this is inferior than placing the data into the securebuffer directly
     #[cfg(test)]
     pub fn new(mut src: impl AsMut<[u8]>) -> Self {
-        let mut buffer = PamBuffer::default();
+        let mut buffer = Self::default();
         let src = src.as_mut();
         buffer[..src.len()].copy_from_slice(src);
         wipe_memory(src);
@@ -47,11 +48,7 @@ impl PamBuffer {
 impl Default for PamBuffer {
     fn default() -> Self {
         let res = unsafe { libc::calloc(1, SIZE) };
-        if let Some(nn) = NonNull::new(res) {
-            PamBuffer(nn.cast())
-        } else {
-            alloc::handle_alloc_error(layout())
-        }
+        NonNull::new(res).map_or_else(|| alloc::handle_alloc_error(layout()), |nn| Self(nn.cast()))
     }
 }
 
@@ -78,7 +75,7 @@ impl Drop for PamBuffer {
 }
 
 /// Used to zero out memory and protect sensitive data from leaking; inspired by Conrad Kleinespel's
-/// Rustatic rtoolbox::SafeString, <https://crates.io/crates/rtoolbox/0.0.1>
+/// Rustatic ``rtoolbox::SafeString``, <https://crates.io/crates/rtoolbox/0.0.1>
 fn wipe_memory(memory: &mut [u8]) {
     use std::sync::atomic;
 

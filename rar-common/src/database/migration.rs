@@ -24,12 +24,16 @@ pub enum ChangeResult {
 }
 
 impl<T> Migration<T> {
+    #[must_use]
     pub fn from(&self) -> Version {
         (self.from)()
     }
+    #[must_use]
     pub fn to(&self) -> Version {
         (self.to)()
     }
+    /// # Errors
+    /// Returns an error if the migration fails.
     pub fn change(
         &self,
         doc: &mut T,
@@ -78,6 +82,8 @@ impl<T> Migration<T> {
         }
     }
 
+    /// # Errors
+    /// Returns an error if the migration fails or if no migration path is found.
     pub fn migrate_from(
         from: &Version,
         to: &Version,
@@ -86,7 +92,7 @@ impl<T> Migration<T> {
     ) -> Result<bool, Box<dyn Error>> {
         let mut from = from.clone();
         let to = to.clone();
-        debug!("===== Migrating from {} to {} =====", from, to);
+        debug!("===== Migrating from {from} to {to} =====");
         if from != to {
             let mut migrated = ChangeResult::UpgradeIndirect;
             while migrated == ChangeResult::UpgradeIndirect
@@ -114,7 +120,7 @@ impl<T> Migration<T> {
                     }
                 }
                 if migrated == ChangeResult::None {
-                    return Err(format!("No migration from {} to {} found", from, to).into());
+                    return Err(format!("No migration from {from} to {to} found").into());
                 }
             }
         }
@@ -126,18 +132,16 @@ impl<T> Migration<T> {
     /// If the version is older, the database is upgraded.
     /// If the version is newer, the database is downgraded.
     /// Returns true if the database was migrated, false if it was already at the current version.
+    /// # Errors
+    /// Returns an error if the migration fails or if no migration path is found.
+    #[allow(clippy::missing_panics_doc)] // This function never panic because version 
     pub fn migrate(
         version: &Version,
         doc: &mut T,
         migrations: &[Self],
     ) -> Result<bool, Box<dyn Error>>
 where {
-        Self::migrate_from(
-            version,
-            &Version::parse(PACKAGE_VERSION).unwrap(),
-            doc,
-            migrations,
-        )
+        Self::migrate_from(version, &PACKAGE_VERSION, doc, migrations)
     }
 }
 
@@ -176,7 +180,7 @@ mod tests {
             },
             Migration {
                 from: || Version::parse("3.0.0-alpha.1").unwrap(),
-                to: || Version::parse(PACKAGE_VERSION).unwrap(),
+                to: || PACKAGE_VERSION,
                 up: |_, doc| {
                     *doc += 1;
                     Ok(())
@@ -187,7 +191,7 @@ mod tests {
                 },
             },
             Migration {
-                from: || Version::parse(PACKAGE_VERSION).unwrap(),
+                from: || PACKAGE_VERSION,
                 to: || Version::parse("4.0.0").unwrap(),
                 up: |_, doc| {
                     *doc += 1;
@@ -209,12 +213,14 @@ mod tests {
         );
         assert_eq!(doc, 2);
         doc = 0;
-        assert!(Migration::migrate(
-            &Version::parse("3.0.0-alpha.1").unwrap(),
-            &mut doc,
-            &migrations
-        )
-        .unwrap());
+        assert!(
+            Migration::migrate(
+                &Version::parse("3.0.0-alpha.1").unwrap(),
+                &mut doc,
+                &migrations
+            )
+            .unwrap()
+        );
         assert_eq!(doc, 1);
         doc = 0;
         assert!(
@@ -222,12 +228,7 @@ mod tests {
         );
         assert_eq!(doc, -1);
         doc = 0;
-        assert!(!Migration::migrate(
-            &Version::parse(PACKAGE_VERSION).unwrap(),
-            &mut doc,
-            &migrations
-        )
-        .unwrap());
+        assert!(!Migration::migrate(&PACKAGE_VERSION, &mut doc, &migrations).unwrap());
         assert_eq!(doc, 0);
     }
 }

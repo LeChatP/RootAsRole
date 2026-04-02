@@ -2,27 +2,27 @@ use std::{
     cell::RefCell,
     error::Error,
     io::{BufRead, Seek, Write},
-    os::fd::FromRawFd,
-    path::PathBuf,
+    path::Path,
     rc::Rc,
 };
 
 use log::{debug, warn};
 use rar_common::{
+    FullSettings,
     database::{
         actor::{SActor, SGroups},
         structs::{SCommands, SCredentials, SGroupsEither, SRole, STask},
         versionning::Versioning,
     },
-    migrate_settings, FullSettings,
+    migrate_settings,
 };
 use std::{fs::File, io::stdin, process::Command};
 
 pub struct Defer<F: FnOnce()>(Option<F>);
 
 impl<F: FnOnce()> Defer<F> {
-    pub fn new(f: F) -> Self {
-        Defer(Some(f))
+    pub const fn new(f: F) -> Self {
+        Self(Some(f))
     }
 }
 
@@ -34,7 +34,7 @@ impl<F: FnOnce()> Drop for Defer<F> {
     }
 }
 
-pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
+pub const fn defer<F: FnOnce()>(f: F) -> Defer<F> {
     Defer::new(f)
 }
 
@@ -44,11 +44,11 @@ where
 {
     let config = &full_settings.data.config;
     if let Some(config) = config {
-        for key in config.as_ref().borrow()._extra_fields.keys() {
-            warn(format!("Warning: Unknown configuration field '{}'", key));
+        for key in config.as_ref().borrow().extra_fields.keys() {
+            warn(format!("Warning: Unknown configuration field '{key}'"));
         }
         if let Some(opt) = &config.as_ref().borrow().options {
-            for key in opt.as_ref().borrow()._extra_fields.keys() {
+            for key in opt.as_ref().borrow().extra_fields.keys() {
                 warn(format!(
                     "Warning: Unknown options field at {:?} level '{}'",
                     opt.as_ref().borrow().level,
@@ -56,8 +56,8 @@ where
                 ));
             }
         }
-        for role in config.as_ref().borrow().roles.iter() {
-            for key in role.as_ref().borrow()._extra_fields.keys() {
+        for role in &config.as_ref().borrow().roles {
+            for key in role.as_ref().borrow().extra_fields.keys() {
                 warn(format!(
                     "Warning: Unknown role field in role '{}' : '{}'",
                     role.as_ref().borrow().name,
@@ -66,7 +66,7 @@ where
             }
             warn_actors(role, &mut warn);
             if let Some(opt) = &role.as_ref().borrow().options {
-                for key in opt.as_ref().borrow()._extra_fields.keys() {
+                for key in opt.as_ref().borrow().extra_fields.keys() {
                     warn(format!(
                         "Warning: Unknown options field at {:?} level in role '{}' : '{}'",
                         opt.as_ref().borrow().level,
@@ -75,8 +75,8 @@ where
                     ));
                 }
             }
-            for task in role.as_ref().borrow().tasks.iter() {
-                for key in task.as_ref().borrow()._extra_fields.keys() {
+            for task in &role.as_ref().borrow().tasks {
+                for key in task.as_ref().borrow().extra_fields.keys() {
                     warn(format!(
                         "Warning: Unknown task field in role '{}' task '{:?}' : '{}'",
                         role.as_ref().borrow().name,
@@ -84,21 +84,17 @@ where
                         key
                     ));
                 }
-                warn_cred(
-                    role.clone(),
-                    task.clone(),
-                    &task.as_ref().borrow().cred,
-                    &mut warn,
-                );
-                warn_cmds(
-                    role.clone(),
-                    task.clone(),
-                    &task.as_ref().borrow().commands,
-                    &mut warn,
-                );
+                warn_cred(role, task, &task.as_ref().borrow().cred, &mut warn);
+                warn_cmds(role, task, &task.as_ref().borrow().commands, &mut warn);
                 if let Some(opt) = &task.as_ref().borrow().options {
-                    for key in opt.as_ref().borrow()._extra_fields.keys() {
-                        warn(format!("Warning: Unknown options field at {:?} level in role '{}' task '{:?}' : '{}'", opt.as_ref().borrow().level, role.as_ref().borrow().name, task.as_ref().borrow().name, key));
+                    for key in opt.as_ref().borrow().extra_fields.keys() {
+                        warn(format!(
+                            "Warning: Unknown options field at {:?} level in role '{}' task '{:?}' : '{}'",
+                            opt.as_ref().borrow().level,
+                            role.as_ref().borrow().name,
+                            task.as_ref().borrow().name,
+                            key
+                        ));
                     }
                 }
             }
@@ -108,11 +104,15 @@ where
     }
 }
 
-fn warn_cmds<F>(role: Rc<RefCell<SRole>>, task: Rc<RefCell<STask>>, cmds: &SCommands, warn: &mut F)
-where
+fn warn_cmds<F>(
+    role: &Rc<RefCell<SRole>>,
+    task: &Rc<RefCell<STask>>,
+    cmds: &SCommands,
+    warn: &mut F,
+) where
     F: FnMut(String),
 {
-    cmds._extra_fields.keys().for_each(|key| {
+    cmds.extra_fields.keys().for_each(|key| {
         warn(format!(
             "Warning: Unknown commands field in role '{}' task '{:?}' : '{}'",
             role.as_ref().borrow().name,
@@ -180,15 +180,16 @@ where
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn warn_cred<F>(
-    role: Rc<RefCell<SRole>>,
-    task: Rc<RefCell<STask>>,
+    role: &Rc<RefCell<SRole>>,
+    task: &Rc<RefCell<STask>>,
     cred: &SCredentials,
     warn: &mut F,
 ) where
     F: FnMut(String),
 {
-    for key in cred._extra_fields.keys() {
+    for key in cred.extra_fields.keys() {
         warn(format!(
             "Warning: Unknown cred field in role '{}' task '{:?}' : '{}'",
             role.as_ref().borrow().name,
@@ -209,15 +210,15 @@ fn warn_cred<F>(
                 }
             }
             rar_common::database::structs::SUserEither::UserSelector(ssetuid_set) => {
-                if let Some(default) = &ssetuid_set.fallback {
-                    if default.fetch_user().is_none() {
-                        warn(format!(
-                            "Warning: Unknown user in role '{}' task '{:?}' setuid fallback: '{:?}'",
-                            role.as_ref().borrow().name,
-                            task.as_ref().borrow().name,
-                            default
-                        ));
-                    }
+                if let Some(default) = &ssetuid_set.fallback
+                    && default.fetch_user().is_none()
+                {
+                    warn(format!(
+                        "Warning: Unknown user in role '{}' task '{:?}' setuid fallback: '{:?}'",
+                        role.as_ref().borrow().name,
+                        task.as_ref().borrow().name,
+                        default
+                    ));
                 }
                 for add in &ssetuid_set.add {
                     if add.fetch_user().is_none() {
@@ -254,9 +255,19 @@ fn warn_cred<F>(
                     ));
                 }
             }
-            SGroupsEither::MandatoryGroups(sgroups) => {
-                match sgroups {
-                    SGroups::Single(sgroup_type) => {
+            SGroupsEither::MandatoryGroups(sgroups) => match sgroups {
+                SGroups::Single(sgroup_type) => {
+                    if sgroup_type.fetch_group().is_none() {
+                        warn(format!(
+                            "Warning: Unknown group in role '{}' task '{:?}' setgid: '{:?}'",
+                            role.as_ref().borrow().name,
+                            task.as_ref().borrow().name,
+                            sgroup_type
+                        ));
+                    }
+                }
+                SGroups::Multiple(sgroup_types) => {
+                    for sgroup_type in sgroup_types {
                         if sgroup_type.fetch_group().is_none() {
                             warn(format!(
                                 "Warning: Unknown group in role '{}' task '{:?}' setgid: '{:?}'",
@@ -266,15 +277,8 @@ fn warn_cred<F>(
                             ));
                         }
                     }
-                    SGroups::Multiple(sgroup_types) => {
-                        for sgroup_type in sgroup_types {
-                            if sgroup_type.fetch_group().is_none() {
-                                warn(format!("Warning: Unknown group in role '{}' task '{:?}' setgid: '{:?}'", role.as_ref().borrow().name, task.as_ref().borrow().name, sgroup_type));
-                            }
-                        }
-                    }
                 }
-            }
+            },
             SGroupsEither::GroupSelector(chooser) => {
                 match &chooser.fallback {
                     SGroups::Single(sgroup_type) => {
@@ -290,7 +294,12 @@ fn warn_cred<F>(
                     SGroups::Multiple(sgroup_types) => {
                         for sgroup_type in sgroup_types {
                             if sgroup_type.fetch_group().is_none() {
-                                warn(format!("Warning: Unknown group in role '{}' task '{:?}' setgid fallback: '{:?}'", role.as_ref().borrow().name, task.as_ref().borrow().name, sgroup_type));
+                                warn(format!(
+                                    "Warning: Unknown group in role '{}' task '{:?}' setgid fallback: '{:?}'",
+                                    role.as_ref().borrow().name,
+                                    task.as_ref().borrow().name,
+                                    sgroup_type
+                                ));
                             }
                         }
                     }
@@ -346,24 +355,24 @@ fn warn_actors<F>(role: &Rc<RefCell<rar_common::database::structs::SRole>>, warn
 where
     F: FnMut(String),
 {
-    for actor in role.as_ref().borrow().actors.iter() {
+    for actor in &role.as_ref().borrow().actors {
         if actor.is_unknown() {
             warn(format!(
                 "Warning: Unknown actor type in role '{}' : '{:?}'",
                 role.as_ref().borrow().name,
                 actor
             ));
-        } else if let SActor::User { id, _extra_fields } = actor {
-            if let Some(id) = id {
-                if id.fetch_user().is_none() {
-                    warn(format!(
-                        "Warning: Unknown user in role '{}' : '{}'",
-                        role.as_ref().borrow().name,
-                        id
-                    ));
-                }
+        } else if let SActor::User { id, extra_fields } = actor {
+            if let Some(id) = id
+                && id.fetch_user().is_none()
+            {
+                warn(format!(
+                    "Warning: Unknown user in role '{}' : '{}'",
+                    role.as_ref().borrow().name,
+                    id
+                ));
             }
-            for key in _extra_fields.keys() {
+            for key in extra_fields.keys() {
                 warn(format!(
                     "Warning: Unknown user field in role '{}' for user '{:?}' : '{}'",
                     role.as_ref().borrow().name,
@@ -373,10 +382,10 @@ where
             }
         } else if let SActor::Group {
             groups,
-            _extra_fields,
+            extra_fields,
         } = actor
         {
-            for key in _extra_fields.keys() {
+            for key in extra_fields.keys() {
                 warn(format!(
                     "Warning: Unknown group field in role '{}' for group '{:?}' : '{}'",
                     role.as_ref().borrow().name,
@@ -421,9 +430,9 @@ where
 pub const SYSTEM_EDITOR: &str = env!("RAR_CHSR_EDITOR_PATH");
 
 #[cfg_attr(tarpaulin, ignore)]
-pub(crate) fn edit_config(
-    folder: &PathBuf,
-    config: Rc<RefCell<FullSettings>>,
+pub fn edit_config(
+    folder: &Path,
+    config: &Rc<RefCell<FullSettings>>,
 ) -> Result<bool, Box<dyn Error>> {
     let stdin = stdin();
     let mut input = stdin.lock();
@@ -434,13 +443,13 @@ pub(crate) fn edit_config(
         SYSTEM_EDITOR,
         &mut input,
         &mut stdout,
-        |msg| warn!("{}", msg),
+        |msg| warn!("{msg}"),
     )
 }
 
 fn edit_config_internal<R, W, F>(
-    folder: &PathBuf,
-    config: Rc<RefCell<FullSettings>>,
+    folder: &Path,
+    config: &Rc<RefCell<FullSettings>>,
     editor: &str,
     input: &mut R,
     output: &mut W,
@@ -452,13 +461,13 @@ where
     F: FnMut(String),
 {
     migrate_settings(&mut config.as_ref().borrow_mut())?;
-    debug!("Using editor: {}", editor);
+    debug!("Using editor: {editor}");
 
-    debug!("Created temporary folder: {:?}", folder);
+    debug!("Created temporary folder: {}", folder.display());
     let (fd, path) = nix::unistd::mkstemp(&folder.join("config_XXXXXX"))?;
-    debug!("Created temporary file: {:?}", path);
+    debug!("Created temporary file: {}", path.display());
 
-    let mut file = unsafe { File::from_raw_fd(fd) };
+    let mut file = File::from(fd);
 
     // Write current config to temp file
     serde_json::to_writer_pretty(&mut file, &Versioning::new(config.clone()))?;
@@ -489,7 +498,7 @@ where
         let status = cmd
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to launch editor: {}", e))?
+            .map_err(|e| format!("Failed to launch editor: {e}"))?
             .wait_with_output()?;
         debug!("Editor exited with status: {:?}", status.status);
         if !status.status.success() {
@@ -497,17 +506,17 @@ where
             return Ok(false);
         }
         let seek_pos = file.stream_position()?;
-        debug!("Current file position: {}", seek_pos);
+        debug!("Current file position: {seek_pos}");
         file.rewind()?;
         debug!("Rewound temporary file for reading");
         match serde_json::from_reader::<_, Versioning<FullSettings>>(&mut file) {
             Ok(new_config) => {
                 warn_anomalies(&new_config, &mut warn_handler);
-                debug!("config: {:#?}", new_config);
+                debug!("config: {new_config:#?}");
                 let after = serde_json::to_string_pretty(&new_config)?;
-                writeln!(output, "Resulting confguration: {}", after)?;
+                writeln!(output, "Resulting confguration: {after}")?;
                 let after = serde_json::from_str::<Versioning<FullSettings>>(&after)?;
-                debug!("re-serialised: {:#?}", after);
+                debug!("re-serialised: {after:#?}");
                 // Yes == save, No and edit again == continue loop, abort == return false
                 writeln!(
                     output,
@@ -528,13 +537,13 @@ where
                     continue;
                 } else if choice == "a" || choice == "abort" {
                     return Ok(false);
-                } else {
-                    *config.as_ref().borrow_mut() = new_config.data;
-                    return Ok(true);
                 }
+                // else save and exit
+                *config.as_ref().borrow_mut() = new_config.data;
+                return Ok(true);
             }
             Err(e) => {
-                writeln!(output, "Your modifications are invalid:\n{}", e)?;
+                writeln!(output, "Your modifications are invalid:\n{e}")?;
                 writeln!(output, "Do you want to continue editing?")?;
                 writeln!(output, "  [Y]ontinue editing (Recommended)")?;
                 writeln!(output, "  [A]bort to exit without saving")?;
@@ -546,11 +555,9 @@ where
                 let choice = line.trim().to_lowercase();
                 if choice == "a" || choice == "abort" {
                     return Ok(false);
-                } else {
-                    // Replace the cursor position to the last position before reading
-                    file.seek(std::io::SeekFrom::Start(seek_pos))?;
-                    continue;
                 }
+                // else Replace the cursor position to the last position before reading
+                file.seek(std::io::SeekFrom::Start(seek_pos))?;
             }
         }
     }
@@ -574,7 +581,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_{}", timestamp));
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_{timestamp}"));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
@@ -645,7 +652,7 @@ echo '{}' > "$file"
 
         let result = edit_config_internal(
             &temp_dir_path,
-            config.clone(),
+            &config,
             mock_editor_path.to_str().unwrap(),
             &mut input,
             &mut output,
@@ -653,15 +660,14 @@ echo '{}' > "$file"
         );
 
         if let Err(e) = &result {
-            println!("Error: {}", e);
+            println!("Error: {e}");
             println!("Output: {}", String::from_utf8_lossy(&output));
         }
 
         let output_str = String::from_utf8(output.clone()).unwrap();
         assert!(
             result.unwrap_or(false),
-            "Result failed (or was false). Output:\n{}",
-            output_str
+            "Result failed (or was false). Output:\n{output_str}"
         );
 
         assert!(output_str.contains("Is this configuration valid?"));
@@ -675,7 +681,7 @@ echo '{}' > "$file"
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{}", timestamp));
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{timestamp}"));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
@@ -700,7 +706,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
 
         let result = edit_config_internal(
             &temp_dir_path,
-            config.clone(),
+            &config,
             mock_editor_path.to_str().unwrap(),
             &mut input,
             &mut output,
@@ -718,7 +724,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{}", timestamp));
+        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{timestamp}"));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
@@ -743,7 +749,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$fil
 
         let result = edit_config_internal(
             &temp_dir_path,
-            config.clone(),
+            &config,
             mock_editor_path.to_str().unwrap(),
             &mut input,
             &mut output,
@@ -761,7 +767,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$fil
             .unwrap()
             .as_nanos();
         let temp_dir_path =
-            std::env::temp_dir().join(format!("rar_test_warn_no_config_{}", timestamp));
+            std::env::temp_dir().join(format!("rar_test_warn_no_config_{timestamp}"));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
@@ -787,7 +793,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" } }' > "$file"
 
         let result = edit_config_internal(
             &temp_dir_path,
-            config.clone(),
+            &config,
             mock_editor_path.to_str().unwrap(),
             &mut input,
             &mut output,
@@ -795,19 +801,22 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" } }' > "$file"
         );
 
         assert!(result.unwrap());
-        assert!(warnings
-            .iter()
-            .any(|w| w.contains("No configuration section found")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("No configuration section found"))
+        );
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_warn_anomalies() {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let temp_dir_path =
-            std::env::temp_dir().join(format!("rar_test_warn_anomalies_{}", timestamp));
+            std::env::temp_dir().join(format!("rar_test_warn_anomalies_{timestamp}"));
         fs::create_dir_all(&temp_dir_path).unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
@@ -905,10 +914,9 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" } }' > "$file"
 for last; do true; done
 file="$last"
 cat > "$file" <<EOF
-{}
+{json_content}
 EOF
-"#,
-            json_content
+"#
         );
 
         fs::write(&mock_editor_path, script).unwrap();
@@ -921,7 +929,7 @@ EOF
 
         let result = edit_config_internal(
             &temp_dir_path,
-            config.clone(),
+            &config,
             mock_editor_path.to_str().unwrap(),
             &mut input,
             &mut output,
@@ -929,7 +937,7 @@ EOF
         );
 
         if let Err(e) = &result {
-            println!("Error: {}", e);
+            println!("Error: {e}");
             println!("Output: {}", String::from_utf8_lossy(&output));
         }
 

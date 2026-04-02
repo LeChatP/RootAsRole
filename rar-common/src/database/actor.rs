@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Display, Formatter, Write},
 };
 
 use bon::bon;
@@ -22,8 +22,8 @@ pub enum SGenericActorType {
 impl SGenericActorType {
     fn as_str(&self) -> Cow<'_, str> {
         match self {
-            SGenericActorType::Id(id) => Cow::Owned(id.to_string()),
-            SGenericActorType::Name(name) => Cow::Borrowed(name),
+            Self::Id(id) => Cow::Owned(id.to_string()),
+            Self::Name(name) => Cow::Borrowed(name),
         }
     }
 }
@@ -43,6 +43,7 @@ pub enum DGenericActorType<'a> {
 pub struct DUserType<'a>(#[serde(borrow)] DGenericActorType<'a>);
 
 impl SUserType {
+    #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             SGenericActorType::Id(id) => Some(*id),
@@ -52,12 +53,14 @@ impl SUserType {
             },
         }
     }
+    #[must_use]
     pub fn fetch_user(&self) -> Option<User> {
         match &self.0 {
             SGenericActorType::Id(id) => User::from_uid((*id).into()).ok().flatten(),
             SGenericActorType::Name(name) => User::from_name(name).ok().flatten(),
         }
     }
+    #[must_use]
     pub fn fetch_eq(&self, other: &Self) -> bool {
         let uid = self.fetch_id();
         let ouid = other.fetch_id();
@@ -68,12 +71,14 @@ impl SUserType {
     }
     // Allowing dead code for RootAsRole-gensr project
     #[allow(dead_code)]
+    #[must_use]
     pub fn as_str(&self) -> Cow<'_, str> {
         self.0.as_str()
     }
 }
 
 impl DUserType<'_> {
+    #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             DGenericActorType::Id(id) => Some(*id),
@@ -83,6 +88,7 @@ impl DUserType<'_> {
             },
         }
     }
+    #[must_use]
     pub fn fetch_user(&self) -> Option<User> {
         match &self.0 {
             DGenericActorType::Id(id) => User::from_uid((*id).into()).ok().flatten(),
@@ -94,8 +100,8 @@ impl DUserType<'_> {
 impl fmt::Display for SUserType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.0 {
-            SGenericActorType::Id(id) => write!(f, "{}", id),
-            SGenericActorType::Name(name) => write!(f, "{}", name),
+            SGenericActorType::Id(id) => write!(f, "{id}"),
+            SGenericActorType::Name(name) => write!(f, "{name}"),
         }
     }
 }
@@ -109,13 +115,14 @@ pub struct DGroupType<'a>(#[serde(borrow)] DGenericActorType<'a>);
 impl fmt::Display for SGroupType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.0 {
-            SGenericActorType::Id(id) => write!(f, "{}", id),
-            SGenericActorType::Name(name) => write!(f, "{}", name),
+            SGenericActorType::Id(id) => write!(f, "{id}"),
+            SGenericActorType::Name(name) => write!(f, "{name}"),
         }
     }
 }
 
 impl SGroupType {
+    #[must_use]
     pub fn fetch_eq(&self, other: &Self) -> bool {
         let uid = self.fetch_id();
         let ouid = other.fetch_id();
@@ -133,18 +140,21 @@ impl SGroupType {
             },
         }
     }
+    #[must_use]
     pub fn fetch_group(&self) -> Option<Group> {
         match &self.0 {
             SGenericActorType::Id(id) => Group::from_gid((*id).into()).ok().flatten(),
             SGenericActorType::Name(name) => Group::from_name(name).ok().flatten(),
         }
     }
+    #[must_use]
     pub fn as_str(&self) -> Cow<'_, str> {
         self.0.as_str()
     }
 }
 
 impl DGroupType<'_> {
+    #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
             DGenericActorType::Id(id) => Some(*id),
@@ -154,6 +164,7 @@ impl DGroupType<'_> {
             },
         }
     }
+    #[must_use]
     pub fn fetch_group(&self) -> Option<Group> {
         match &self.0 {
             DGenericActorType::Id(id) => Group::from_gid((*id).into()).ok().flatten(),
@@ -165,16 +176,16 @@ impl DGroupType<'_> {
 impl Display for DGroupType<'_> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.0 {
-            DGenericActorType::Id(id) => write!(f, "{}", id),
-            DGenericActorType::Name(name) => write!(f, "{}", name),
+            DGenericActorType::Id(id) => write!(f, "{id}"),
+            DGenericActorType::Name(name) => write!(f, "{name}"),
         }
     }
 }
 impl Display for DUserType<'_> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self.0 {
-            DGenericActorType::Id(id) => write!(f, "{}", id),
-            DGenericActorType::Name(name) => write!(f, "{}", name),
+            DGenericActorType::Id(id) => write!(f, "{id}"),
+            DGenericActorType::Name(name) => write!(f, "{name}"),
         }
     }
 }
@@ -190,15 +201,15 @@ pub enum SGroups {
 impl Display for SGroups {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            SGroups::Single(group) => write!(f, "[{}]", group),
-            SGroups::Multiple(groups) => {
+            Self::Single(group) => write!(f, "[{group}]"),
+            Self::Multiple(groups) => {
                 let mut result = String::new();
                 for group in groups {
-                    result.push_str(&format!("{}, ", group));
+                    let _ = write!(result, "{group}, ");
                 }
                 result.pop(); // Remove last comma
                 result.pop(); // Remove last space
-                write!(f, "[{}]", result)
+                write!(f, "[{result}]")
             }
         }
     }
@@ -212,20 +223,23 @@ pub enum DGroups<'a> {
 }
 
 impl SGroups {
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         match self {
-            SGroups::Single(_) => 1,
-            SGroups::Multiple(groups) => groups.len(),
+            Self::Single(_) => 1,
+            Self::Multiple(groups) => groups.len(),
         }
     }
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    #[must_use]
     pub fn fetch_eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (SGroups::Single(group), SGroups::Single(ogroup)) => group.fetch_eq(ogroup),
-            (SGroups::Multiple(groups), SGroups::Multiple(ogroups)) => groups
+            (Self::Single(group), Self::Single(ogroup)) => group.fetch_eq(ogroup),
+            (Self::Multiple(groups), Self::Multiple(ogroups)) => groups
                 .iter()
                 .all(|group| ogroups.iter().any(|ogroup| group.fetch_eq(ogroup))),
             _ => false,
@@ -234,12 +248,14 @@ impl SGroups {
 }
 
 impl DGroups<'_> {
+    #[must_use]
     pub fn len(&self) -> usize {
         match self {
             DGroups::Single(_) => 1,
             DGroups::Multiple(groups) => groups.len(),
         }
     }
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -264,50 +280,50 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
             where
                 E: serde::de::Error,
             {
-                if let Ok(group) = v.parse() {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
-                } else {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                        Cow::Borrowed(v),
-                    ))))
-                }
+                v.parse().map_or_else(
+                    |_| {
+                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                            Cow::Borrowed(v),
+                        ))))
+                    },
+                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                if let Ok(group) = v.parse() {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
-                } else {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                        Cow::Owned(v.to_string()),
-                    ))))
-                }
+                v.parse().map_or_else(
+                    |_| {
+                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                            Cow::Owned(v.to_string()),
+                        ))))
+                    },
+                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                if let Ok(group) = v.parse() {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group))))
-                } else {
-                    Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                        v.into(),
-                    ))))
-                }
+                v.parse().map_or_else(
+                    |_| {
+                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
+                            v.into(),
+                        ))))
+                    },
+                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                if value > u32::MAX as u64 {
-                    return Err(E::custom("value is too large"));
-                }
                 Ok(DGroups::Single(DGroupType(DGenericActorType::Id(
-                    value as u32,
+                    u32::try_from(value).map_err(|_| E::custom("value is too large"))?,
                 ))))
             }
 
@@ -356,52 +372,50 @@ impl<'de> Deserialize<'de> for SGroups {
             where
                 E: serde::de::Error,
             {
-                debug!("SGroups: visit_borrowed_str: {}", v);
-                if let Ok(group) = v.parse() {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
-                } else {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
-                        v.to_string(),
-                    ))))
-                }
+                debug!("SGroups: visit_borrowed_str: {v}");
+                v.parse().map_or_else(
+                    |_| {
+                        Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                            v.to_string(),
+                        ))))
+                    },
+                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                debug!("SGroups: visit_str: {}", v);
-                if let Ok(group) = v.parse() {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
-                } else {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
-                        v.into(),
-                    ))))
-                }
+                debug!("SGroups: visit_str: {v}");
+                v.parse().map_or_else(
+                    |_| {
+                        Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
+                            v.into(),
+                        ))))
+                    },
+                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                debug!("SGroups: visit_string: {}", v);
-                if let Ok(group) = v.parse() {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group))))
-                } else {
-                    Ok(SGroups::Single(SGroupType(SGenericActorType::Name(v))))
-                }
+                debug!("SGroups: visit_string: {v}");
+                v.parse().map_or_else(
+                    |_| Ok(SGroups::Single(SGroupType(SGenericActorType::Name(v)))),
+                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
+                )
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                debug!("SGroups: visit_u64: {}", value);
-                if value > u32::MAX as u64 {
-                    return Err(E::custom("value is too large"));
-                }
+                debug!("SGroups: visit_u64: {value}");
                 Ok(SGroups::Single(SGroupType(SGenericActorType::Id(
-                    value as u32,
+                    u32::try_from(value).map_err(|_| E::custom("value is too large"))?,
                 ))))
             }
 
@@ -427,19 +441,19 @@ impl<'de> Deserialize<'de> for SGroups {
 
 impl From<u32> for SUserType {
     fn from(id: u32) -> Self {
-        SUserType(id.into())
+        Self(id.into())
     }
 }
 
 impl From<u32> for SGroupType {
     fn from(id: u32) -> Self {
-        SGroupType(id.into())
+        Self(id.into())
     }
 }
 
 impl From<&str> for SUserType {
     fn from(name: &str) -> Self {
-        SUserType(name.into())
+        Self(name.into())
     }
 }
 
@@ -475,7 +489,7 @@ impl From<u32> for DGroupType<'_> {
 
 impl From<&str> for SGroupType {
     fn from(name: &str) -> Self {
-        SGroupType(name.into())
+        Self(name.into())
     }
 }
 
@@ -487,23 +501,22 @@ impl<'a> From<Cow<'a, str>> for DGroupType<'a> {
 
 impl From<Group> for SGroupType {
     fn from(group: Group) -> Self {
-        SGroupType(SGenericActorType::Id(group.gid.as_raw()))
+        Self(SGenericActorType::Id(group.gid.as_raw()))
     }
 }
 
 impl From<&str> for SGenericActorType {
     fn from(name: &str) -> Self {
-        SGenericActorType::Name(name.into())
+        Self::Name(name.into())
     }
 }
 
 impl<'a> From<&'a str> for DGenericActorType<'a> {
     fn from(name: &'a str) -> Self {
-        if name.parse::<u32>().is_ok() {
-            DGenericActorType::Id(name.parse().unwrap())
-        } else {
-            DGenericActorType::Name(Cow::Borrowed(name))
-        }
+        name.parse::<u32>().map_or(
+            DGenericActorType::Name(Cow::Borrowed(name)),
+            DGenericActorType::Id,
+        )
     }
 }
 
@@ -515,45 +528,39 @@ impl From<u32> for DGenericActorType<'_> {
 
 impl From<u32> for SGenericActorType {
     fn from(id: u32) -> Self {
-        SGenericActorType::Id(id)
+        Self::Id(id)
     }
 }
 
 impl PartialEq<User> for SUserType {
     fn eq(&self, other: &User) -> bool {
         let uid = self.fetch_id();
-        match uid {
-            Some(uid) => uid == other.uid.as_raw(),
-            None => false,
-        }
+        uid.is_some_and(|uid| uid == other.uid.as_raw())
     }
 }
 
 impl PartialEq<User> for DUserType<'_> {
     fn eq(&self, other: &User) -> bool {
         let uid = self.fetch_id();
-        match uid {
-            Some(uid) => uid == other.uid.as_raw(),
-            None => false,
-        }
+        uid.is_some_and(|uid| uid == other.uid.as_raw())
     }
 }
 
 impl PartialEq<str> for SUserType {
     fn eq(&self, other: &str) -> bool {
-        self.eq(&SUserType::from(other))
+        self.eq(&Self::from(other))
     }
 }
 
 impl PartialEq<str> for SGroupType {
     fn eq(&self, other: &str) -> bool {
-        self.eq(&SGroupType::from(other))
+        self.eq(&Self::from(other))
     }
 }
 
 impl PartialEq<u32> for SUserType {
     fn eq(&self, other: &u32) -> bool {
-        self.eq(&SUserType::from(*other))
+        self.eq(&Self::from(*other))
     }
 }
 
@@ -565,36 +572,30 @@ impl PartialEq<u32> for DUserType<'_> {
 
 impl PartialEq<u32> for SGroupType {
     fn eq(&self, other: &u32) -> bool {
-        self.eq(&SGroupType::from(*other))
+        self.eq(&Self::from(*other))
     }
 }
 
 impl PartialEq<Group> for SGroupType {
     fn eq(&self, other: &Group) -> bool {
         let gid = self.fetch_id();
-        match gid {
-            Some(gid) => gid == other.gid.as_raw(),
-            None => false,
-        }
+        gid.is_some_and(|gid| gid == other.gid.as_raw())
     }
 }
 
 impl PartialEq<Group> for DGroupType<'_> {
     fn eq(&self, other: &Group) -> bool {
         let gid = self.fetch_id();
-        match gid {
-            Some(gid) => gid == other.gid.as_raw(),
-            None => false,
-        }
+        gid.is_some_and(|gid| gid == other.gid.as_raw())
     }
 }
 
 impl<const N: usize> From<[SGroupType; N]> for SGroups {
     fn from(groups: [SGroupType; N]) -> Self {
         if N == 1 {
-            SGroups::Single(groups[0].to_owned())
+            Self::Single(groups[0].clone())
         } else {
-            SGroups::Multiple(groups.iter().map(|x| x.to_owned()).collect())
+            Self::Multiple(groups.iter().map(std::borrow::ToOwned::to_owned).collect())
         }
     }
 }
@@ -604,16 +605,18 @@ impl TryInto<Vec<u32>> for &DGroups<'_> {
 
     fn try_into(self) -> Result<Vec<u32>, Self::Error> {
         match self {
-            DGroups::Single(group) => Ok(vec![group
-                .fetch_id()
-                .ok_or(format!("{} group does not exist", group))?]),
+            DGroups::Single(group) => Ok(vec![
+                group
+                    .fetch_id()
+                    .ok_or_else(|| format!("{group} group does not exist"))?,
+            ]),
             DGroups::Multiple(groups) => {
                 let mut ids = Vec::new();
                 for group in groups.iter() {
                     ids.push(
                         group
                             .fetch_id()
-                            .ok_or(format!("{} group does not exist", group))?,
+                            .ok_or_else(|| format!("{group} group does not exist"))?,
                     );
                 }
                 Ok(ids)
@@ -627,16 +630,18 @@ impl TryInto<Vec<u32>> for SGroups {
 
     fn try_into(self) -> Result<Vec<u32>, Self::Error> {
         match self {
-            SGroups::Single(group) => Ok(vec![group
-                .fetch_id()
-                .ok_or(format!("{} group does not exist", group))?]),
-            SGroups::Multiple(groups) => {
+            Self::Single(group) => Ok(vec![
+                group
+                    .fetch_id()
+                    .ok_or_else(|| format!("{group} group does not exist"))?,
+            ]),
+            Self::Multiple(groups) => {
                 let mut ids = Vec::new();
                 for group in groups {
                     ids.push(
                         group
                             .fetch_id()
-                            .ok_or(format!("{} group does not exist", group))?,
+                            .ok_or_else(|| format!("{group} group does not exist"))?,
                     );
                 }
                 Ok(ids)
@@ -648,9 +653,9 @@ impl TryInto<Vec<u32>> for SGroups {
 impl<const N: usize> From<[&str; N]> for SGroups {
     fn from(groups: [&str; N]) -> Self {
         if N == 1 {
-            SGroups::Single(groups[0].into())
+            Self::Single(groups[0].into())
         } else {
-            SGroups::Multiple(groups.iter().map(|&x| x.into()).collect())
+            Self::Multiple(groups.iter().map(|&x| x.into()).collect())
         }
     }
 }
@@ -658,9 +663,9 @@ impl<const N: usize> From<[&str; N]> for SGroups {
 impl From<Vec<u32>> for SGroups {
     fn from(groups: Vec<u32>) -> Self {
         if groups.len() == 1 {
-            SGroups::Single(groups[0].into())
+            Self::Single(groups[0].into())
         } else {
-            SGroups::Multiple(groups.into_iter().map(|x| x.into()).collect())
+            Self::Multiple(groups.into_iter().map(std::convert::Into::into).collect())
         }
     }
 }
@@ -668,9 +673,9 @@ impl From<Vec<u32>> for SGroups {
 impl From<Vec<SGroupType>> for SGroups {
     fn from(groups: Vec<SGroupType>) -> Self {
         if groups.len() == 1 {
-            SGroups::Single(groups[0].clone())
+            Self::Single(groups[0].clone())
         } else {
-            SGroups::Multiple(groups)
+            Self::Multiple(groups)
         }
     }
 }
@@ -693,25 +698,25 @@ impl<'a> From<DGroupType<'a>> for DGroups<'a> {
 
 impl From<u32> for SGroups {
     fn from(group: u32) -> Self {
-        SGroups::Single(group.into())
+        Self::Single(group.into())
     }
 }
 
 impl From<&str> for SGroups {
     fn from(group: &str) -> Self {
-        SGroups::Single(group.into())
+        Self::Single(group.into())
     }
 }
 
 impl PartialEq<Vec<SGroupType>> for SGroups {
     fn eq(&self, other: &Vec<SGroupType>) -> bool {
         match self {
-            SGroups::Single(actor) => {
+            Self::Single(actor) => {
                 if other.len() == 1 {
                     return actor == &other[0];
                 }
             }
-            SGroups::Multiple(actors) => {
+            Self::Multiple(actors) => {
                 if actors.len() == other.len() {
                     return actors.iter().all(|actor| other.iter().any(|x| actor == x));
                 }
@@ -729,7 +734,7 @@ pub enum SActor {
         #[serde(alias = "name", skip_serializing_if = "Option::is_none")]
         id: Option<SUserType>,
         #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
-        _extra_fields: Map<String, Value>,
+        extra_fields: Map<String, Value>,
     },
     #[serde(rename = "group")]
     Group {
@@ -740,7 +745,7 @@ pub enum SActor {
         )]
         groups: Option<SGroups>,
         #[serde(default, flatten)]
-        _extra_fields: Map<String, Value>,
+        extra_fields: Map<String, Value>,
     },
     #[serde(untagged)]
     Unknown(Value),
@@ -768,23 +773,23 @@ pub enum DActor<'a> {
 #[bon]
 impl SActor {
     #[builder(finish_fn = build)]
-    pub fn user(
+    pub const fn user(
         #[builder(start_fn, into)] id: SUserType,
-        #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
+        #[builder(default, with = <_>::from_iter)] extra_fields: Map<String, Value>,
     ) -> Self {
-        SActor::User {
+        Self::User {
             id: Some(id),
-            _extra_fields,
+            extra_fields,
         }
     }
     #[builder(finish_fn = build)]
-    pub fn group(
+    pub const fn group(
         #[builder(start_fn, into)] groups: SGroups,
-        #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
+        #[builder(default, with = <_>::from_iter)] extra_fields: Map<String, Value>,
     ) -> Self {
-        SActor::Group {
+        Self::Group {
             groups: Some(groups),
-            _extra_fields,
+            extra_fields,
         }
     }
 }
@@ -792,17 +797,14 @@ impl SActor {
 impl core::fmt::Display for SActor {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SActor::User { id, _extra_fields } => {
+            Self::User { id, .. } => {
                 write!(f, "User: {}", id.as_ref().unwrap())
             }
-            SActor::Group {
-                groups,
-                _extra_fields,
-            } => {
+            Self::Group { groups, .. } => {
                 write!(f, "Group: {}", groups.as_ref().unwrap())
             }
-            SActor::Unknown(unknown) => {
-                write!(f, "Unknown: {}", unknown)
+            Self::Unknown(unknown) => {
+                write!(f, "Unknown: {unknown}")
             }
         }
     }
@@ -949,11 +951,11 @@ mod tests {
     fn test_sactor_display() {
         let user = SActor::User {
             id: Some(SUserType::from(0)),
-            _extra_fields: Map::new(),
+            extra_fields: Map::new(),
         };
         let group = SActor::Group {
             groups: Some(SGroups::from(vec![SGroupType::from(0)])),
-            _extra_fields: Map::new(),
+            extra_fields: Map::new(),
         };
         assert_eq!(user.to_string(), "User: 0");
         assert_eq!(group.to_string(), "Group: [0]");
@@ -962,7 +964,7 @@ mod tests {
                 SGroupType::from(0),
                 SGroupType::from("test"),
             ])),
-            _extra_fields: Map::new(),
+            extra_fields: Map::new(),
         };
         assert_eq!(group.to_string(), "Group: [0, test]");
         let unknown = SActor::Unknown(Value::String("unknown".to_string()));

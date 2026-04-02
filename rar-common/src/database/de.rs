@@ -2,7 +2,7 @@ use core::fmt;
 use std::str::FromStr;
 
 use log::debug;
-use serde::{de::DeserializeSeed, Deserialize};
+use serde::{Deserialize, de::DeserializeSeed};
 
 use crate::database::{
     actor::SGroups,
@@ -15,8 +15,8 @@ use super::{
 };
 use capctl::{Cap, CapSet};
 use serde::{
-    de::{self, MapAccess, SeqAccess, Visitor},
     Deserializer,
+    de::{self, MapAccess, SeqAccess, Visitor},
 };
 use serde_json::Map;
 use strum::Display;
@@ -47,64 +47,54 @@ impl<'de> Deserialize<'de> for SetBehavior {
                 E: de::Error,
             {
                 debug!("de_setbehavior: visit_i32");
-                SetBehavior::from_repr(v as u32).ok_or(de::Error::custom(format!(
-                    "Invalid value for SetBehavior: {}",
-                    v
-                )))
+                SetBehavior::from_repr(v.cast_unsigned())
+                    .ok_or_else(|| de::Error::custom(format!("Invalid value for SetBehavior: {v}")))
             }
             fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::from(v))
             }
             fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::from(v))
             }
             fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                self.visit_i32(v as i32)
+                self.visit_i32(v.cast_signed())
             }
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                if v > i32::MAX as u64 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::try_from(v).map_err(|_| {
+                    de::Error::custom(format!("Invalid value for SetBehavior: {v}"))
+                })?)
             }
             fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::from(v))
             }
             fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::from(v))
             }
             fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                if v > i32::MAX as i64 {
-                    return Err(de::Error::custom(format!(
-                        "Invalid value for SetBehavior: {}",
-                        v
-                    )));
-                }
-                self.visit_i32(v as i32)
+                self.visit_i32(i32::try_from(v).map_err(|_| {
+                    de::Error::custom(format!("Invalid value for SetBehavior: {v}"))
+                })?)
             }
         }
         debug!("de_setbehavior: deserialize");
@@ -172,7 +162,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 let mut default_behavior = SetBehavior::None;
                 let mut add = CapSet::default();
                 let mut sub = CapSet::default();
-                let mut _extra_fields = Map::new();
+                let _extra_fields = Map::new();
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -253,7 +243,7 @@ impl<'de> DeserializeSeed<'de> for CapDeserializer {
     {
         struct CapVisitor;
 
-        impl<'de> Visitor<'de> for CapVisitor {
+        impl Visitor<'_> for CapVisitor {
             type Value = Cap;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -268,7 +258,7 @@ impl<'de> DeserializeSeed<'de> for CapDeserializer {
                 if v.starts_with("CAP_") {
                     v.parse().map_err(de::Error::custom)
                 } else {
-                    format!("CAP_{}", v).parse().map_err(de::Error::custom)
+                    format!("CAP_{v}").parse().map_err(de::Error::custom)
                 }
             }
         }
@@ -360,16 +350,19 @@ impl<'de> Deserialize<'de> for SGenericActorType {
     {
         let raw: serde_json::Value = Deserialize::deserialize(deserializer)?;
         match raw {
-            serde_json::Value::Number(num) if num.is_u64() => {
-                Ok(SGenericActorType::Id(num.as_u64().unwrap() as u32))
-            }
-            serde_json::Value::String(ref s) => {
-                if let Ok(num) = s.parse() {
-                    Ok(SGenericActorType::Id(num))
-                } else {
-                    Ok(SGenericActorType::Name(s.clone()))
+            serde_json::Value::Number(num) if num.is_u64() => match num.as_u64() {
+                Some(val) => {
+                    let id = u32::try_from(val)
+                        .map_err(|_| serde::de::Error::custom("Value out of range for u32"))?;
+                    Ok(Self::Id(id))
                 }
-            }
+                None => Err(serde::de::Error::custom(
+                    "Invalid number value for SGenericActorType",
+                )),
+            },
+            serde_json::Value::String(ref s) => s
+                .parse()
+                .map_or_else(|_| Ok(Self::Name(s.clone())), |num| Ok(Self::Id(num))),
             _ => Err(serde::de::Error::custom(
                 "Invalid input for SGenericActorType",
             )),
@@ -411,7 +404,7 @@ impl<'de> Deserialize<'de> for SCommands {
                     default: Some(set),
                     add: Vec::new(),
                     sub: Vec::new(),
-                    _extra_fields: Map::new(),
+                    extra_fields: Map::new(),
                 })
             }
 
@@ -424,7 +417,7 @@ impl<'de> Deserialize<'de> for SCommands {
                     default: Some(set),
                     add: Vec::new(),
                     sub: Vec::new(),
-                    _extra_fields: Map::new(),
+                    extra_fields: Map::new(),
                 })
             }
 
@@ -440,7 +433,7 @@ impl<'de> Deserialize<'de> for SCommands {
                     default: Some(SetBehavior::None),
                     add,
                     sub: Vec::new(),
-                    _extra_fields: Map::new(),
+                    extra_fields: Map::new(),
                 })
             }
 
@@ -451,7 +444,7 @@ impl<'de> Deserialize<'de> for SCommands {
                 let mut default_behavior = None;
                 let mut add = Vec::new();
                 let mut sub = Vec::new();
-                let mut _extra_fields = Map::new();
+                let mut extra_fields = Map::new();
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -472,7 +465,7 @@ impl<'de> Deserialize<'de> for SCommands {
                             sub.extend(values);
                         }
                         Fields::Other(other) => {
-                            _extra_fields.insert(other.to_string(), map.next_value()?);
+                            extra_fields.insert(other.clone(), map.next_value()?);
                         }
                     }
                 }
@@ -481,7 +474,7 @@ impl<'de> Deserialize<'de> for SCommands {
                     default: default_behavior,
                     add,
                     sub,
-                    _extra_fields,
+                    extra_fields,
                 })
             }
         }

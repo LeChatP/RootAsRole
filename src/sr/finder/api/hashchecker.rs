@@ -3,7 +3,7 @@ use std::{fs::File, io::Read, os::fd::AsRawFd, path::PathBuf};
 use ::serde::{Deserialize, Serialize};
 use libc::FS_IOC_GETFLAGS;
 use log::{debug, warn};
-use nix::unistd::{access, AccessFlags};
+use nix::unistd::{AccessFlags, access};
 use rar_common::{
     database::score::{CmdMin, CmdOrder},
     util::{all_paths_from_env, match_single_path, read_with_privileges},
@@ -58,7 +58,7 @@ fn new_complex_command(event: &mut ApiEvent) -> SrResult<()> {
     {
         let hash_checker: HashChecker = serde_json::from_value(to_value(value)?)?;
         process_hash_check(
-            hash_checker,
+            &hash_checker,
             env_path,
             cmd_path,
             cmd_args,
@@ -74,27 +74,27 @@ fn evaluate_hash(hashtype: &HashElement, hash: &[u8]) -> bool {
         HashElement::SHA224 { sha224 } => {
             let mut hasher = sha2::Sha224::new();
             hasher.update(hash);
-            hasher.finalize().to_vec() == hex::decode(sha224).unwrap()
+            hasher.finalize().to_vec() == hex::decode(sha224).unwrap_or_default()
         }
         HashElement::SHA256 { sha256 } => {
             let mut hasher = sha2::Sha256::new();
             hasher.update(hash);
-            hasher.finalize().to_vec() == hex::decode(sha256).unwrap()
+            hasher.finalize().to_vec() == hex::decode(sha256).unwrap_or_default()
         }
         HashElement::SHA384 { sha384 } => {
             let mut hasher = sha2::Sha384::new();
             hasher.update(hash);
-            hasher.finalize().to_vec() == hex::decode(sha384).unwrap()
+            hasher.finalize().to_vec() == hex::decode(sha384).unwrap_or_default()
         }
         HashElement::SHA512 { sha512 } => {
             let mut hasher = sha2::Sha512::new();
             hasher.update(hash);
-            hasher.finalize().to_vec() == hex::decode(sha512).unwrap()
+            hasher.finalize().to_vec() == hex::decode(sha512).unwrap_or_default()
         }
     }
 }
 
-const FS_IMMUTABLE_FL: u32 = 0x00000010;
+const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
 
 fn is_immutable(file: &File) -> Result<bool, Box<dyn std::error::Error>> {
     let mut val = 0;
@@ -144,19 +144,21 @@ fn verify_executable_conditions(
                 warn!("File should be read only but has write access");
                 return None;
             }
-            warn!("Executor has write access to the executable, this could lead to a race condition vulnerability");
+            warn!(
+                "Executor has write access to the executable, this could lead to a race condition vulnerability"
+            );
         }
         let open = read_with_privileges(cmd_path);
         if open.is_err() {
             return None;
         }
-        let mut open = open.unwrap();
+        let mut open = open.expect("File should be accessible");
         if checker.immutable.is_some_and(|immutable| immutable) {
             let is_immutable = is_immutable(&open);
             if is_immutable.is_err() {
                 return None;
             }
-            if !is_immutable.unwrap() {
+            if !is_immutable.expect("File should be accessible") {
                 warn!("File should be immutable but is not");
                 return None;
             }
@@ -165,7 +167,7 @@ fn verify_executable_conditions(
             let mut buf = Vec::new();
             let res = open.read_to_end(&mut buf);
             if res.is_err() {
-                warn!("Error reading file {:?}", res);
+                warn!("Error reading file {res:?}");
                 return None;
             }
             if !evaluate_hash(hash_element, &buf) {
@@ -198,7 +200,7 @@ fn match_command_line(
     match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
         Ok(args_result) => result = args_result,
         Err(err) => {
-            debug!("Error: {}", err);
+            debug!("Error: {err}");
             return;
         }
     }
@@ -206,7 +208,7 @@ fn match_command_line(
 }
 
 fn process_hash_check(
-    checker: HashChecker,
+    checker: &HashChecker,
     env_path: &[&str],
     cmd_path: &PathBuf,
     cmd_args: &[String],
@@ -216,11 +218,11 @@ fn process_hash_check(
     match shell_words::split(&checker.command).map_err(Into::<Box<dyn std::error::Error>>::into) {
         Ok(command) => {
             match_command_line(
-                &checker, env_path, cmd_path, cmd_args, &command, min_score, final_path,
+                checker, env_path, cmd_path, cmd_args, &command, min_score, final_path,
             );
         }
         Err(err) => {
-            warn!("Error: {}", err);
+            warn!("Error: {err}");
         }
     }
 }
@@ -241,7 +243,10 @@ mod tests {
     use capctl::{Cap, CapSet, CapState};
     use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
     use log::debug;
-    use nix::sys::stat::{fchmodat, Mode};
+    use nix::{
+        fcntl::AT_FDCWD,
+        sys::stat::{Mode, fchmodat},
+    };
     use rar_common::{
         database::score::CmdMin,
         util::{has_privileges, immutable_required_privileges},
@@ -250,14 +255,14 @@ mod tests {
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
     use crate::finder::{
-        api::hashchecker::{register, FS_IMMUTABLE_FL},
+        api::hashchecker::{FS_IMMUTABLE_FL, register},
         de::DCommandDeserializer,
     };
     pub struct Defer<F: FnOnce()>(Option<F>);
 
     impl<F: FnOnce()> Defer<F> {
         pub fn new(f: F) -> Self {
-            Defer(Some(f))
+            Self(Some(f))
         }
     }
 
@@ -276,7 +281,7 @@ mod tests {
     fn set_read_only(path: &Path) -> nix::Result<()> {
         // Set permissions to read-only for owner, group, and others
         fchmodat(
-            None, // Relative to the current directory
+            AT_FDCWD, // Relative to the current directory
             path,
             Mode::S_IRUSR        // Owner read
                 | Mode::S_IRGRP  // Group read
@@ -293,7 +298,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(filename)
                 .canonicalize()
-                .unwrap_or(filename.into());
+                .unwrap_or_else(|_| filename.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -399,6 +404,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_read_only_immutable() {
         register();
         // remove root privileges
@@ -412,7 +418,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(filename)
                 .canonicalize()
-                .unwrap_or(filename.into());
+                .unwrap_or_else(|_| filename.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -421,217 +427,124 @@ mod tests {
         File::create(filename).unwrap();
 
         let filename = PathBuf::from(filename).canonicalize().unwrap();
-        //call sha256sum on the file
 
-        let json = format!(
-            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
-            &filename.display()
-        );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
+        // Just learnt that we can do this in Rust, neat!
+        let check_config = |json: &str, expected_path: Option<PathBuf>, expected_min: CmdMin| {
+            debug!("json: {json}");
+            let mut final_path = None;
+            let mut cmd_min = CmdMin::default();
+            let deserializer = DCommandDeserializer {
+                env_path: &["/usr/bin"],
+                cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
+                cmd_args: &["-l".to_string()],
+                final_path: &mut final_path,
+                cmd_min: &mut cmd_min,
+            };
+            let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+            if let Err(e) = &result {
+                debug!("Error: {e}");
+            }
+            assert!(result.is_ok());
+            assert_eq!(final_path, expected_path);
+            assert_eq!(cmd_min, expected_min);
         };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, None);
-        assert_eq!(cmd_min, CmdMin::empty());
 
-        let json = format!(
-            r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            None,
+            CmdMin::empty(),
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, None);
-        assert_eq!(cmd_min, CmdMin::empty());
-
-        let json = format!(
-            r#"{{"read-only": false, "immutable": true, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            None,
+            CmdMin::empty(),
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, None);
-        assert_eq!(cmd_min, CmdMin::empty());
-
-        let json = format!(
-            r#"{{"read-only": false, "immutable": false, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": false, "immutable": true, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            None,
+            CmdMin::empty(),
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
+        check_config(
+            &format!(
+                r#"{{"read-only": false, "immutable": false, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            PathBuf::from(&filename).canonicalize().ok(),
+            CmdMin::MATCH,
+        );
 
         set_read_only(filename.as_path()).unwrap();
 
-        let json = format!(
-            r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": false, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            PathBuf::from(&filename).canonicalize().ok(),
+            CmdMin::MATCH,
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
-
-        let json = format!(
-            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            None,
+            CmdMin::empty(),
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, None);
-        assert_eq!(cmd_min, CmdMin::empty());
-
-        let json = format!(
-            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
-            &filename.display()
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+                &filename.display()
+            ),
+            None,
+            CmdMin::empty(),
         );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, None);
-        assert_eq!(cmd_min, CmdMin::empty());
 
-        let mut immutable = false;
-        if has_privileges(&[Cap::LINUX_IMMUTABLE]).is_ok_and(|b| b) {
+        let immutable = if has_privileges(&[Cap::LINUX_IMMUTABLE]).is_ok_and(|b| b) {
             toggle_immutable_config(&filename, false).unwrap();
-            immutable = true;
-        }
-        let json = format!(
-            r#"{{"read-only": true, "immutable": {}, "command": "{}"}}"#,
-            immutable,
-            &filename.display()
-        );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-        assert_eq!(cmd_min, CmdMin::MATCH);
-
-        let json = format!(
-            r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
-            &filename.display()
-        );
-        debug!("json: {}", json);
-        let mut final_path = None;
-        let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        if let Err(e) = &result {
-            debug!("Error: {}", e);
-        }
-        assert!(result.is_ok());
-        if immutable {
-            assert_eq!(final_path, PathBuf::from(&filename).canonicalize().ok());
-            assert_eq!(cmd_min, CmdMin::MATCH);
+            true
         } else {
-            assert_eq!(final_path, None);
-            assert_eq!(cmd_min, CmdMin::empty());
+            debug!("No privileges to set immutable flag, skipping immutable tests");
+            false
+        };
+
+        check_config(
+            &format!(
+                r#"{{"read-only": true, "immutable": {}, "command": "{}"}}"#,
+                immutable,
+                &filename.display()
+            ),
+            PathBuf::from(&filename).canonicalize().ok(),
+            CmdMin::MATCH,
+        );
+
+        if immutable {
+            check_config(
+                &format!(
+                    r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+                    &filename.display()
+                ),
+                PathBuf::from(&filename).canonicalize().ok(),
+                CmdMin::MATCH,
+            );
+        } else {
+            check_config(
+                &format!(
+                    r#"{{"read-only": true, "immutable": true, "command": "{}"}}"#,
+                    &filename.display()
+                ),
+                None,
+                CmdMin::empty(),
+            );
         }
     }
 

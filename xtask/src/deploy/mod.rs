@@ -40,8 +40,12 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
 
     for target in targets {
         match target {
-            OsTarget::Debian => debian::make_deb(opts.os.clone(), opts.profile, &opts.priv_bin)?,
-            OsTarget::RedHat => redhat::make_rpm(opts.os.clone(), opts.profile, &opts.priv_bin)?,
+            OsTarget::Debian => {
+                debian::make_deb(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+            }
+            OsTarget::RedHat => {
+                redhat::make_rpm(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+            }
             _ => anyhow::bail!("Unsupported OS target"),
         }
     }

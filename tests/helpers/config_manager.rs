@@ -11,9 +11,9 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
-    /// Creates a new ConfigManager instance
+    /// Creates a new ``ConfigManager`` instance
     pub fn new(config_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let manager = ConfigManager {
+        let manager = Self {
             config_file_path: config_path.to_path_buf(),
         };
 
@@ -38,7 +38,7 @@ impl ConfigManager {
     }
 
     /// Load a specific policy fixture by updating the configuration
-    pub fn load_fixture(&self, fixture_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_fixture(&self, fixture_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         // Create a configuration that points to the fixture file
         let settings = FullSettings::builder()
             .storage(
@@ -66,14 +66,14 @@ impl ConfigManager {
                 "Unable to create file {} : {}",
                 self.config_file_path.display(),
                 e
-            )
+            );
         })?;
         let json = serde_json::to_string_pretty(&Versioning::new(settings))
-            .inspect_err(|e| eprintln!("serializing error : {}", e))?;
+            .inspect_err(|e| eprintln!("serializing error : {e}"))?;
         file.write_all(json.as_bytes())
-            .inspect_err(|e| eprintln!("unable to write config : {}", e))?;
+            .inspect_err(|e| eprintln!("unable to write config : {e}"))?;
         file.flush()
-            .inspect_err(|e| eprintln!("Unable to flush data : {}", e))?;
+            .inspect_err(|e| eprintln!("Unable to flush data : {e}"))?;
         Ok(())
     }
 }
@@ -81,14 +81,14 @@ impl ConfigManager {
 impl Drop for ConfigManager {
     fn drop(&mut self) {
         // Clean up the configuration file
-        if self.config_file_path.exists() {
-            if let Err(e) = fs::remove_file(&self.config_file_path) {
-                eprintln!(
-                    "Warning: Failed to clean up config file {}: {}",
-                    self.config_file_path.display(),
-                    e
-                );
-            }
+        if self.config_file_path.exists()
+            && let Err(e) = fs::remove_file(&self.config_file_path)
+        {
+            eprintln!(
+                "Warning: Failed to clean up config file {}: {}",
+                self.config_file_path.display(),
+                e
+            );
         }
     }
 }

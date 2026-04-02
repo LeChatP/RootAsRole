@@ -147,15 +147,14 @@ Supported types: json, cbor
     BOLD = BOLD,
     RST = RST);
 
-pub fn help() -> Result<bool, Box<dyn Error>> {
+pub fn help() {
     debug!("chsr help");
-    println!("{}", LONG_ABOUT);
-    println!("{}", RAR_USAGE_GENERAL);
-    Ok(false)
+    println!("{LONG_ABOUT}");
+    println!("{RAR_USAGE_GENERAL}");
 }
 
-fn rule_to_string(rule: &Rule) -> String {
-    match *rule {
+fn rule_to_string(rule: Rule) -> String {
+    match rule {
         Rule::EOI => "no more input",
         Rule::args => "role, options, timeout or --help",
         Rule::opt_timeout_operations => "timeout set/unset operations",
@@ -172,12 +171,11 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::credentials_operations => "cred",
         Rule::cmd_checklisting => "whitelist, blacklist",
         Rule::cmd_policy => "allow-all or deny-all",
-        Rule::cmd => "a command line",
+        Rule::cmd | Rule::cli => "a command line",
         Rule::cred_c => "--caps \"cap_net_raw, cap_sys_admin, ...\"",
         Rule::cred_g => "--group \"g1,g2\"",
         Rule::cred_u => "--user \"u1\"",
         Rule::cred_caps_operations => "caps",
-        Rule::cli => "a command line",
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
         Rule::opt_path => "path",
@@ -195,7 +193,7 @@ fn rule_to_string(rule: &Rule) -> String {
         Rule::to => "[to_type] [to_file]",
         Rule::from => "[from_type] [from_file]",
         _ => {
-            println!("{:?}", rule);
+            println!("{rule:?}");
             "unknown rule"
         }
     }
@@ -219,7 +217,7 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
         RAR_USAGE_CRED,
         RAR_CONVERT,
     ]);
-    let e = e.clone().renamed_rules(|rule| {
+    let e = e.renamed_rules(|rule| {
         match rule {
             Rule::options_operations
             | Rule::opt_args
@@ -263,10 +261,10 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
                 usage = usage_concat(&[RAR_CONVERT]);
             }
             _ => {}
-        };
-        rule_to_string(rule)
+        }
+        rule_to_string(*rule)
     });
-    println!("{}", usage);
+    println!("{usage}");
     println!(
         "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
         e.line(),

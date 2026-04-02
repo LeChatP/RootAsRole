@@ -30,12 +30,14 @@ pub enum HardenedBool {
 
 impl ActorMatchMin {
     #[inline]
+    #[must_use]
     pub fn better(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Less
     }
     #[inline]
+    #[must_use]
     pub fn matching(&self) -> bool {
-        *self != ActorMatchMin::NoMatch
+        *self != Self::NoMatch
     }
 }
 
@@ -48,7 +50,7 @@ pub struct SetuidMin {
 
 impl From<SUserType> for SetuidMin {
     fn from(s: SUserType) -> Self {
-        SetuidMin {
+        Self {
             is_root: user_is_root(&s),
         }
     }
@@ -56,7 +58,7 @@ impl From<SUserType> for SetuidMin {
 
 impl From<&DUserType<'_>> for SetuidMin {
     fn from(s: &DUserType) -> Self {
-        SetuidMin {
+        Self {
             is_root: duser_is_root(s),
         }
     }
@@ -64,7 +66,7 @@ impl From<&DUserType<'_>> for SetuidMin {
 
 impl From<u32> for SetuidMin {
     fn from(s: u32) -> Self {
-        SetuidMin { is_root: s == 0 }
+        Self { is_root: s == 0 }
     }
 }
 
@@ -76,7 +78,7 @@ pub struct SetgidMin {
 
 impl From<SGroups> for SetgidMin {
     fn from(s: SGroups) -> Self {
-        SetgidMin {
+        Self {
             is_root: groups_contains_root(Some(&s)),
             nb_groups: groups_len(Some(&s)),
         }
@@ -85,7 +87,7 @@ impl From<SGroups> for SetgidMin {
 
 impl From<&DGroups<'_>> for SetgidMin {
     fn from(s: &DGroups<'_>) -> Self {
-        SetgidMin {
+        Self {
             is_root: dgroups_contains_root(Some(s)),
             nb_groups: dgroups_len(Some(s)),
         }
@@ -94,7 +96,7 @@ impl From<&DGroups<'_>> for SetgidMin {
 
 impl From<&DGroupType<'_>> for SetgidMin {
     fn from(s: &DGroupType<'_>) -> Self {
-        SetgidMin {
+        Self {
             is_root: dgroup_is_root(s),
             nb_groups: 1,
         }
@@ -103,7 +105,7 @@ impl From<&DGroupType<'_>> for SetgidMin {
 
 impl From<&Vec<u32>> for SetgidMin {
     fn from(s: &Vec<u32>) -> Self {
-        SetgidMin {
+        Self {
             is_root: s.contains(&0),
             nb_groups: s.len(),
         }
@@ -164,25 +166,29 @@ bitflags::bitflags! {
 }
 
 impl CmdMin {
-    pub const MATCH: CmdMin = CmdMin::builder().matching().build();
+    pub const MATCH: Self = Self::builder().matching().build();
 
+    #[must_use]
     pub const fn empty() -> Self {
-        CmdMin::builder().build()
+        Self::builder().build()
     }
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.status == HardenedBool::False && self.order.is_empty()
     }
     #[inline]
-    pub fn better(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn better(&self, other: Self) -> bool {
         (self.matching() && !other.matching())
             || (self.matching() && self.order.cmp(&other.order) == Ordering::Less)
     }
     #[inline]
+    #[must_use]
     pub fn matching(&self) -> bool {
         self.status == HardenedBool::True
     }
 
-    pub fn set_matching(&mut self) {
+    pub const fn set_matching(&mut self) {
         self.status = HardenedBool::True;
     }
 
@@ -208,12 +214,12 @@ pub struct SecurityMin(u32);
 bitflags::bitflags! {
 
     impl SecurityMin: u32 {
-        const DisableBounding   = 0b000001;
-        const EnableRoot        = 0b000010;
-        const KeepEnv           = 0b000100;
-        const KeepPath          = 0b001000;
-        const KeepUnsafePath    = 0b010000;
-        const SkipAuth          = 0b100000;
+        const DisableBounding   = 0b00_0001;
+        const EnableRoot        = 0b00_0010;
+        const KeepEnv           = 0b00_0100;
+        const KeepPath          = 0b00_1000;
+        const KeepUnsafePath    = 0b01_0000;
+        const SkipAuth          = 0b10_0000;
     }
 }
 
@@ -242,17 +248,18 @@ pub struct Score {
 }
 
 impl Score {
-    pub fn set_cmd_score(&mut self, cmd_min: CmdMin) {
+    pub const fn set_cmd_score(&mut self, cmd_min: CmdMin) {
         self.cmd_min = cmd_min;
     }
-    pub fn set_task_score(&mut self, task_score: &TaskScore) {
+    pub const fn set_task_score(&mut self, task_score: &TaskScore) {
         self.cmd_min = task_score.cmd_min;
         self.caps_min = task_score.caps_min;
         self.setuser_min = task_score.setuser_min;
     }
-    pub fn set_role_score(&mut self, role_score: &ActorMatchMin) {
+    pub const fn set_role_score(&mut self, role_score: &ActorMatchMin) {
         self.user_min = *role_score;
     }
+    #[must_use]
     pub fn prettyprint(&self) -> String {
         format!(
             "{:?}, {:?}, {:?}, {:?}, {:?}",
@@ -260,13 +267,15 @@ impl Score {
         )
     }
 
-    pub fn user_cmp(&self, other: &Score) -> Ordering {
+    #[must_use]
+    pub fn user_cmp(&self, other: &Self) -> Ordering {
         self.user_min.cmp(&other.user_min)
     }
 
     /// Compare the score of tasks results
     #[inline]
-    pub fn cmd_cmp(&self, other: &Score) -> Ordering {
+    #[must_use]
+    pub fn cmd_cmp(&self, other: &Self) -> Ordering {
         self.cmd_min
             .order
             .cmp(&other.cmd_min.order)
@@ -276,35 +285,41 @@ impl Score {
     }
 
     #[inline]
+    #[must_use]
     pub fn user_matching(&self) -> bool {
         self.user_min != ActorMatchMin::NoMatch
     }
 
     #[inline]
+    #[must_use]
     pub fn command_matching(&self) -> bool {
         self.cmd_min.matching()
     }
 
     #[inline]
+    #[must_use]
     pub fn fully_matching(&self) -> bool {
         self.user_matching() && self.command_matching()
     }
 
     /// Return true if the score is better than the other
     #[inline]
-    pub fn better_command(&self, other: &Score) -> bool {
+    #[must_use]
+    pub fn better_command(&self, other: &Self) -> bool {
         (self.command_matching() && !other.command_matching())
             || (self.command_matching() && self.cmd_cmp(other) == Ordering::Less)
     }
 
     #[inline]
-    pub fn better_user(&self, other: &Score) -> bool {
+    #[must_use]
+    pub fn better_user(&self, other: &Self) -> bool {
         (self.user_matching() && !other.user_matching())
             || (self.user_matching() && self.user_cmp(other) == Ordering::Less)
     }
 
     #[inline]
-    pub fn better_fully(&self, other: &Score) -> bool {
+    #[must_use]
+    pub fn better_fully(&self, other: &Self) -> bool {
         (self.fully_matching() && !other.fully_matching())
             || (self.fully_matching() && self.cmp(other) == Ordering::Less)
     }
@@ -356,42 +371,28 @@ fn duser_is_root(actortype: &DUserType<'_>) -> bool {
 
 #[inline]
 fn groups_contains_root(list: Option<&SGroups>) -> bool {
-    if let Some(list) = list {
-        match list {
-            SGroups::Single(group) => group_is_root(group),
-            SGroups::Multiple(groups) => groups.iter().any(group_is_root),
-        }
-    } else {
-        false
-    }
+    list.is_some_and(|list| match list {
+        SGroups::Single(group) => group_is_root(group),
+        SGroups::Multiple(groups) => groups.iter().any(group_is_root),
+    })
 }
 
 #[inline]
 fn dgroups_contains_root(list: Option<&DGroups<'_>>) -> bool {
-    if let Some(list) = list {
-        match list {
-            DGroups::Single(group) => dgroup_is_root(group),
-            DGroups::Multiple(groups) => groups.iter().any(dgroup_is_root),
-        }
-    } else {
-        false
-    }
+    list.is_some_and(|list| match list {
+        DGroups::Single(group) => dgroup_is_root(group),
+        DGroups::Multiple(groups) => groups.iter().any(dgroup_is_root),
+    })
 }
 
 #[inline]
 fn groups_len(groups: Option<&SGroups>) -> usize {
-    match groups {
-        Some(groups) => groups.len(),
-        None => 0,
-    }
+    groups.map_or(0, super::actor::SGroups::len)
 }
 
 #[inline]
 fn dgroups_len(groups: Option<&DGroups<'_>>) -> usize {
-    match groups {
-        Some(groups) => groups.len(),
-        None => 0,
-    }
+    groups.map_or(0, super::actor::DGroups::len)
 }
 
 #[cfg(test)]
@@ -437,7 +438,7 @@ mod tests {
         let root_group = SGroupType::from(0);
         let non_root_group = SGroupType::from(1);
         let single = SGroups::Single(root_group.clone());
-        let multiple = SGroups::from(vec![non_root_group.clone(), root_group.clone()]);
+        let multiple = SGroups::from(vec![non_root_group.clone(), root_group]);
         let none = None;
         assert!(groups_contains_root(Some(&single)));
         assert!(groups_contains_root(Some(&multiple)));
@@ -567,8 +568,8 @@ mod tests {
         let b = CmdMin::builder().build();
         assert!(a.matching());
         assert!(!b.matching());
-        assert!(!b.better(&a));
-        assert!(a.better(&b));
+        assert!(!b.better(a));
+        assert!(a.better(b));
     }
 
     #[test]

@@ -16,12 +16,12 @@ use nix::{
 use serde::{Deserialize, Serialize};
 
 use rar_common::{
+    Cred,
     database::options::{STimeout, TimestampType},
     util::{
         create_dir_all_with_privileges, create_with_privileges, read_with_privileges,
         remove_with_privileges,
     },
-    Cred,
 };
 
 /// This module checks the validity of a user's credentials
@@ -51,7 +51,7 @@ impl Default for ParentRecord {
 }
 
 impl ParentRecord {
-    fn new(ttype: &TimestampType, user: &Cred) -> Self {
+    const fn new(ttype: TimestampType, user: &Cred) -> Self {
         match ttype {
             TimestampType::TTY => {
                 if let Some(tty) = user.tty {
@@ -107,29 +107,33 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
             let mut be: [u8; 4] = [u8::MAX; 4];
             if lockfile.read_exact(&mut be).is_err() {
                 debug!(
-                    "Lockfile located at {:?} is empty, continuing...",
-                    lockfile_path
+                    "Lockfile located at {} is empty, continuing...",
+                    lockfile_path.display()
                 );
                 remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
                 return Ok(());
             }
             pid_contents = i32::from_be_bytes(be);
             if kill(nix::unistd::Pid::from_raw(pid_contents), None).is_err() {
-                debug!("Lockfile located at {:?} was owned by process {:?}, but not released, remove it, and continuing...", lockfile_path, pid_contents.to_string());
+                debug!(
+                    "Lockfile located at {} was owned by process {:?}, but not released, remove it, and continuing...",
+                    lockfile_path.display(),
+                    pid_contents.to_string()
+                );
                 remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
                 return Ok(());
             }
         } else {
             debug!(
-                "Lockfile located at {:?} was not found, continuing...",
-                lockfile_path
+                "Lockfile located at {} was not found, continuing...",
+                lockfile_path.display()
             );
             return Ok(());
         }
     } else {
         debug!(
-            "Lockfile located at {:?} was not found, continuing...",
-            lockfile_path
+            "Lockfile located at {} was not found, continuing...",
+            lockfile_path.display()
         );
         return Ok(());
     }
@@ -151,8 +155,8 @@ fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
         }
     }
     debug!(
-        "Lockfile located at {:?} is owned by process {:?}, and not released, failing",
-        lockfile_path,
+        "Lockfile located at {} is owned by process {:?}, and not released, failing",
+        lockfile_path.display(),
         pid_contents.to_string()
     );
     Err("Lockfile was not released".into())
@@ -188,16 +192,16 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 }
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
-    debug!("Saving cookies: {:?}", cookies);
+    debug!("Saving cookies: {cookies:?}");
     let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
-    create_dir_all_with_privileges(path.parent().unwrap())?;
+    create_dir_all_with_privileges(path.parent().expect("Failed to get parent directory"))?;
     let lockpath = Path::new(TS_LOCATION)
         .join(user.user.uid.as_raw().to_string())
         .with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     cbor4ii::serde::to_writer(&mut file, &cookies)?;
     if let Err(err) = remove_with_privileges(lockpath) {
-        debug!("Failed to remove lockfile: {}", err);
+        debug!("Failed to remove lockfile: {err}");
     }
     Ok(())
 }
@@ -218,19 +222,27 @@ fn find_valid_cookie(
     for (a, cookiev) in cookies.iter_mut().enumerate() {
         match cookiev {
             CookieVersion::V1(cookie) => {
-                debug!("Checking cookie: {:?}", cookie);
+                debug!("Checking cookie: {cookie:?}");
                 if cookie.auth_uid != cred_asked.user.uid.as_raw()
                     || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
                 {
                     continue;
                 }
-                let max_usage_ok =
-                    constraint.max_usage.is_none() || cookie.usage < constraint.max_usage.unwrap();
-                debug!("timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}", cookie.timestamp, Utc::now().timestamp(), constraint.duration.unwrap_or_default().num_seconds(), Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds(), cookie.timestamp - Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds());
+                let max_usage_ok = constraint.max_usage.is_none()
+                    || cookie.usage < constraint.max_usage.unwrap_or(u64::MAX);
+                debug!(
+                    "timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}",
+                    cookie.timestamp,
+                    Utc::now().timestamp(),
+                    constraint.duration.unwrap_or_default().num_seconds(),
+                    Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds(),
+                    cookie.timestamp - Utc::now().timestamp()
+                        + constraint.duration.unwrap_or_default().num_seconds()
+                );
                 let timeofuse: bool = cookie.timestamp - Utc::now().timestamp()
                     + constraint.duration.unwrap_or_default().num_seconds()
                     > 0;
-                debug!("Time of use: {}, max_usage : {}", timeofuse, max_usage_ok);
+                debug!("Time of use: {timeofuse}, max_usage : {max_usage_ok}");
                 if timeofuse && max_usage_ok && res.is_none() {
                     editcookie(cookiev);
                     res = Some(cookiev.clone());
@@ -244,17 +256,17 @@ fn find_valid_cookie(
         cookies.remove(a);
     }
     if let Err(e) = save_cookies(from, &cookies) {
-        debug!("Failed to save cookies {:?}", e);
+        debug!("Failed to save cookies {e:?}");
     }
     res
 }
 
 /// Check if the credentials are valid
 /// @param from: the credentials of the user that want to execute a command
-/// @param cred_asked: the credentials of the user that is asked to execute a command
-/// @param max_offset: the maximum offset between the current time and the time of the credentials, including the type of the offset
+/// @param ``cred_asked``: the credentials of the user that is asked to execute a command
+/// @param ``max_offset``: the maximum offset between the current time and the time of the credentials, including the type of the offset
 /// @return true if the credentials are valid, false otherwise
-pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
+pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
     find_valid_cookie(from, cred_asked, constraint, |_c| {
         debug!("Found valid cookie ");
     })
@@ -262,7 +274,7 @@ pub(crate) fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) ->
 }
 
 /// Add a cookie to the user's cookie file
-pub(crate) fn update_cookie(
+pub fn update_cookie(
     from: &Cred,
     cred_asked: &Cred,
     constraint: &STimeout,
@@ -271,12 +283,12 @@ pub(crate) fn update_cookie(
         CookieVersion::V1(cookie) => {
             cookie.usage += 1;
             cookie.timestamp = Utc::now().timestamp();
-            debug!("Updating cookie: {:?}", cookie);
+            debug!("Updating cookie: {cookie:?}");
         }
     });
     if res.is_none() {
         let mut cookies = read_cookies(from).unwrap_or_default();
-        let parent_record = ParentRecord::new(&constraint.type_field.unwrap_or_default(), from);
+        let parent_record = ParentRecord::new(constraint.type_field.unwrap_or_default(), from);
         let cookie = CookieVersion::V1(Cookiev1 {
             auth_uid: cred_asked.user.uid.as_raw(),
             timestamp_type: constraint.type_field.unwrap_or_default(),
@@ -291,7 +303,7 @@ pub(crate) fn update_cookie(
     Ok(())
 }
 
-pub(crate) fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
+pub fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
     let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
     if path.exists() {
         remove_with_privileges(&path)?;
@@ -302,6 +314,7 @@ pub(crate) fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod test {
     use nix::unistd::{Pid, User};
+    use serde_json::Map;
     use test_log::test;
 
     use super::*;
@@ -329,7 +342,7 @@ mod test {
             type_field: Some(TimestampType::TTY),
             duration: Some(chrono::Duration::seconds(10)),
             max_usage: Some(1),
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
         assert!(!is_valid(&cred, &cred, &constraint));
         assert!(update_cookie(&cred, &cred, &constraint).is_ok());

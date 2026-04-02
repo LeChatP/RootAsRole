@@ -47,29 +47,32 @@
 //     }
 //   }
 
-const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const PACKAGE_VERSION: semver::Version = semver::Version::new(
+    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_MAJOR"))),
+    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_MINOR"))),
+    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_PATCH"))),
+);
 
 use std::{
     cell::RefCell,
     error::Error,
     fs::{File, Permissions},
     io::{BufReader, Seek},
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     rc::Rc,
 };
 
-use bon::{builder, Builder};
+use bon::{Builder, builder};
 use capctl::Cap;
 use libc::dev_t;
 use log::{debug, warn};
 use nix::{
     fcntl::Flock,
-    unistd::{getgroups, Gid, Group, Pid, Uid, User},
+    unistd::{Gid, Group, Pid, Uid, User, getgroups},
 };
-use semver::Version;
-use serde::{ser::SerializeMap, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeMap};
 
 //pub mod api;
 pub mod database;
@@ -82,7 +85,7 @@ use util::{read_with_privileges, write_cbor_config, write_json_config};
 use database::{
     migration::Migration,
     structs::SConfig,
-    versionning::{Versioning, SETTINGS_MIGRATIONS},
+    versionning::{SETTINGS_MIGRATIONS, Versioning},
 };
 
 use crate::util::{
@@ -279,14 +282,14 @@ impl<'de> Deserialize<'de> for FullSettings {
                 let storage = storage.ok_or_else(|| serde::de::Error::missing_field("storage"))?;
 
                 // If we have config fields, deserialize them into SConfig
-                let config = if !config_fields.is_empty() {
+                let config = if config_fields.is_empty() {
+                    None
+                } else {
                     let config_value =
                         serde_json::Value::Object(config_fields.into_iter().collect());
                     Some(Rc::new(RefCell::new(
                         SConfig::deserialize(config_value).map_err(serde::de::Error::custom)?,
                     )))
-                } else {
-                    None
                 };
 
                 Ok(FullSettings { storage, config })
@@ -310,9 +313,9 @@ impl Default for SettingsContent {
 
 pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
     for role in &config.as_ref().borrow().roles {
-        role.as_ref().borrow_mut()._config = Some(Rc::downgrade(config));
+        role.as_ref().borrow_mut().config = Some(Rc::downgrade(config));
         for task in &role.as_ref().borrow().tasks {
-            task.as_ref().borrow_mut()._role = Some(Rc::downgrade(role));
+            task.as_ref().borrow_mut().role = Some(Rc::downgrade(role));
         }
     }
 }
@@ -320,7 +323,9 @@ pub fn make_weak_config(config: &Rc<RefCell<SConfig>>) {
 /// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
 /// it allows to save the settings file later
 impl LockedSettingsFile {
-    pub fn open<S>(path: S, options: std::fs::OpenOptions, write: bool) -> std::io::Result<Self>
+    /// # Errors
+    /// Returns an error if the file cannot be opened, deserialized or locked
+    pub fn open<S>(path: S, options: &std::fs::OpenOptions, write: bool) -> std::io::Result<Self>
     where
         S: AsRef<Path>,
     {
@@ -334,10 +339,10 @@ impl LockedSettingsFile {
                         nix::fcntl::FlockArg::LockExclusive,
                     )?;
 
-                    Ok(LockedSettingsFile {
+                    Ok(Self {
                         path: path.as_ref().to_path_buf(),
-                        data: load_full_settings(&path, file.deref())
-                            .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
+                        data: load_full_settings(&path, &file)
+                            .unwrap_or_else(|_| Rc::new(RefCell::new(FullSettings::default()))),
                         fd: file,
                     })
                 });
@@ -347,46 +352,49 @@ impl LockedSettingsFile {
         let file =
             open_lock_with_privileges(path.as_ref(), options, nix::fcntl::FlockArg::LockExclusive)?;
 
-        Ok(LockedSettingsFile {
+        Ok(Self {
             path: path.as_ref().to_path_buf(),
-            data: load_full_settings(&path, file.deref())
-                .unwrap_or(Rc::new(RefCell::new(FullSettings::default()))),
+            data: load_full_settings(&path, &file)
+                .unwrap_or_else(|_| Rc::new(RefCell::new(FullSettings::default()))),
             fd: file,
         })
     }
 
+    /// # Errors
+    /// Returns an error if the file cannot be written
+    /// due to a lock, permission error or writing error
     pub fn save(&mut self) -> Result<(), Box<dyn Error>> {
         debug!("Saving settings file: {}", self.path.display());
         Migration::migrate(
-            &Version::parse(PACKAGE_VERSION).unwrap(),
+            &PACKAGE_VERSION,
             &mut *self.data.as_ref().borrow_mut(),
             SETTINGS_MIGRATIONS,
         )?;
-        debug!("Migrated settings to version {}", PACKAGE_VERSION);
+        debug!("Migrated settings to version {PACKAGE_VERSION}");
         let immuable = self
             .data
             .as_ref()
             .borrow()
             .storage
             .settings
-            .as_ref()
-            .unwrap_or(&RemoteStorageSettings::default())
+            .clone()
+            .unwrap_or_default()
             .immutable
             .unwrap_or(env!("RAR_CFG_IMMUTABLE") == "true")
             && has_privileges(&[Cap::LINUX_IMMUTABLE])?;
-        debug!("Settings file immutable: {}", immuable);
+        debug!("Settings file immutable: {immuable}");
         let separate = if let Some(rss) = &self.data.as_ref().borrow().storage.settings {
             let default_data_path = env!("RAR_CFG_DATA_PATH").to_string().into();
             let data_path = rss.path.as_ref().unwrap_or(&default_data_path);
-            if *data_path != self.path {
-                Some(data_path.clone())
-            } else {
+            if *data_path == self.path {
                 None
+            } else {
+                Some(data_path.clone())
             }
         } else {
             None
         };
-        debug!("Settings file separate: {:?}", separate);
+        debug!("Settings file separate: {separate:?}");
         if let Some(data_path) = separate {
             debug!("Saving settings in separate file");
             return self.separate_save(&data_path, immuable);
@@ -394,14 +402,14 @@ impl LockedSettingsFile {
         let versionned: Versioning<Rc<RefCell<FullSettings>>> = Versioning::new(self.data.clone());
         if immuable {
             debug!("Toggling immutable off for config file");
-            with_mutable_config(self.fd.deref_mut(), |file| {
+            with_mutable_config(&mut self.fd, |file| {
                 debug!("Toggled immutable off for config file");
                 file.rewind()?;
                 file.set_len(0)?;
                 write_json_config(&versionned, file)
             })?;
         } else {
-            let file = self.fd.deref_mut();
+            let file = &mut *self.fd;
             debug!("Writing config file");
             file.rewind()?;
             debug!("Rewound config file for writing");
@@ -414,6 +422,9 @@ impl LockedSettingsFile {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error if the separate file cannot be written
+    /// due to a lock, permission error or writing error
     fn separate_save<T>(&mut self, data_path: &T, immutable: bool) -> Result<(), Box<dyn Error>>
     where
         T: AsRef<Path>,
@@ -426,7 +437,7 @@ impl LockedSettingsFile {
                 Versioning::new(config.clone());
             let mut file = open_lock_with_privileges(
                 data_path.as_ref(),
-                std::fs::OpenOptions::new()
+                &std::fs::OpenOptions::new()
                     .truncate(true)
                     .write(true)
                     .create(true)
@@ -434,7 +445,7 @@ impl LockedSettingsFile {
                 nix::fcntl::FlockArg::LockExclusive,
             )?;
             if immutable {
-                with_mutable_config(file.deref_mut(), |file| {
+                with_mutable_config(&mut file, |file| {
                     write_storage_settings()
                         .path(data_path.as_ref())
                         .fd(file)
@@ -465,7 +476,7 @@ impl LockedSettingsFile {
                 write_json_config(&versioned_settings, file)
             })?;
         } else {
-            write_json_config(&versioned_settings, self.fd.deref_mut())?;
+            write_json_config(&versioned_settings, &mut *self.fd)?;
         }
         Ok(())
     }
@@ -516,6 +527,8 @@ where
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened or deserialized
 pub fn read_full_settings<S>(path: &S) -> Result<Rc<RefCell<FullSettings>>, Box<dyn Error>>
 where
     S: AsRef<Path>,
@@ -525,15 +538,17 @@ where
     load_full_settings(path, &file)
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened or deserialized
 fn load_full_settings<S: AsRef<Path>>(
     path: &S,
     file: &File,
 ) -> Result<Rc<RefCell<FullSettings>>, Box<dyn Error>> {
     let value: Versioning<FullSettings> = serde_json::from_reader(file).inspect_err(|e| {
-        debug!("Error reading file: {}", e);
+        debug!("Error reading file: {e}");
     })?;
     let settingsfile = rc_refcell!(value.data);
-    debug!("settingsfile: {:?}", settingsfile);
+    debug!("settingsfile: {settingsfile:?}");
     let default_remote = RemoteStorageSettings::default();
     let into = env!("RAR_CFG_DATA_PATH").to_string().into();
     {
@@ -555,6 +570,8 @@ fn load_full_settings<S: AsRef<Path>>(
     Ok(settingsfile)
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened or deserialized
 pub fn retrieve_sconfig(
     file_type: &StorageMethod,
     path: &PathBuf,
@@ -571,15 +588,15 @@ pub fn retrieve_sconfig(
     Ok(value.data)
 }
 
+/// # Errors
+/// Returns an error if the migration fails
 pub fn migrate_settings(settings: &mut FullSettings) -> Result<(), Box<dyn Error>> {
-    Migration::migrate(
-        &Version::parse(PACKAGE_VERSION).unwrap(),
-        settings,
-        SETTINGS_MIGRATIONS,
-    )?;
+    Migration::migrate(&PACKAGE_VERSION, settings, SETTINGS_MIGRATIONS)?;
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened
 pub fn get_settings<S>(path: &S) -> Result<Settings, Box<dyn Error>>
 where
     S: AsRef<Path>,
@@ -588,11 +605,11 @@ where
     let file = read_with_privileges(path.as_ref())?;
     let value: Versioning<Settings> = serde_json::from_reader(file)
         .inspect_err(|e| {
-            debug!("Error reading file: {}", e);
+            debug!("Error reading file: {e}");
         })
         .unwrap_or_else(|_| {
             warn!("Using default settings file!!");
-            Default::default()
+            Versioning::default()
         });
     //read_effective(false).or(dac_override_effective(false))?;
     debug!("{}", serde_json::to_string_pretty(&value)?);
@@ -614,7 +631,7 @@ mod tests {
 
     impl<F: FnOnce()> Defer<F> {
         pub fn new(f: F) -> Self {
-            Defer(Some(f))
+            Self(Some(f))
         }
     }
 
@@ -635,7 +652,9 @@ mod tests {
         // Create a test JSON file
         let value = "/tmp/test_get_settings_same_file.json";
         let _cleanup = defer(|| {
-            let filename = PathBuf::from(value).canonicalize().unwrap_or(value.into());
+            let filename = PathBuf::from(value)
+                .canonicalize()
+                .unwrap_or_else(|_| value.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -691,7 +710,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file_path)
                 .canonicalize()
-                .unwrap_or(test_file_path.into());
+                .unwrap_or_else(|_| test_file_path.into());
             if std::fs::remove_file(test_file_path).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -699,7 +718,7 @@ mod tests {
         let _cleanup2 = defer(|| {
             let filename = PathBuf::from(external_file_path)
                 .canonicalize()
-                .unwrap_or(external_file_path.into());
+                .unwrap_or_else(|_| external_file_path.into());
             if std::fs::remove_file(external_file_path).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -760,7 +779,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -822,7 +841,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -830,7 +849,7 @@ mod tests {
         let _cleanup2 = defer(|| {
             let filename = PathBuf::from(external_file)
                 .canonicalize()
-                .unwrap_or(external_file.into());
+                .unwrap_or_else(|_| external_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -906,7 +925,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -914,7 +933,7 @@ mod tests {
         let _cleanup2 = defer(|| {
             let filename = PathBuf::from(external_file)
                 .canonicalize()
-                .unwrap_or(external_file.into());
+                .unwrap_or_else(|_| external_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -949,7 +968,7 @@ mod tests {
                         )
                         .build(),
                 )
-                .config(sconfig.clone())
+                .config(sconfig)
                 .build(),
         ));
         let file = File::create(test_file).unwrap();
@@ -957,7 +976,7 @@ mod tests {
         let mut settingsfile = LockedSettingsFile {
             path: PathBuf::from(test_file),
             fd: file,
-            data: settings.clone(),
+            data: settings,
         };
         settingsfile.save().unwrap();
         //asset that external_file is a binary file
@@ -967,7 +986,7 @@ mod tests {
         file.read_to_end(&mut content).unwrap();
         let deserialized: Versioning<Rc<RefCell<SConfig>>> =
             cbor4ii::serde::from_reader(&content[..]).unwrap();
-        assert_eq!(deserialized.version.to_string(), PACKAGE_VERSION);
+        assert_eq!(deserialized.version, PACKAGE_VERSION);
         fs::remove_file(test_file).unwrap();
         fs::remove_file(external_file).unwrap();
     }
@@ -978,7 +997,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -987,7 +1006,7 @@ mod tests {
         // Test opening a non-existent file with write=false
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
@@ -1007,7 +1026,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1058,7 +1077,7 @@ mod tests {
         // Test opening existing file
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .to_owned(),
@@ -1077,7 +1096,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1107,7 +1126,7 @@ mod tests {
         // Test opening existing file with write=true - should work normally for non-immutable files
         let result = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .to_owned(),
@@ -1136,7 +1155,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1144,7 +1163,7 @@ mod tests {
         let _cleanup2 = defer(|| {
             let filename = PathBuf::from(external_file)
                 .canonicalize()
-                .unwrap_or(external_file.into());
+                .unwrap_or_else(|_| external_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1195,7 +1214,7 @@ mod tests {
         // Test opening file with separate config
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .to_owned(),
@@ -1221,7 +1240,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1235,7 +1254,7 @@ mod tests {
         // Test opening file with invalid JSON
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .to_owned(),
@@ -1254,7 +1273,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1278,7 +1297,7 @@ mod tests {
         // Test opening file in read-only mode
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new().read(true).to_owned(),
+            &std::fs::OpenOptions::new().read(true).to_owned(),
             false, // not write mode
         )
         .unwrap();
@@ -1307,7 +1326,7 @@ mod tests {
         // Test opening non-existent file without create option - should fail
         let result = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new().read(true).to_owned(), // No create flag
+            &std::fs::OpenOptions::new().read(true).to_owned(), // No create flag
             false,
         );
 
@@ -1321,7 +1340,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1333,7 +1352,7 @@ mod tests {
         // Test creating a new file
         let locked_file = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
@@ -1358,7 +1377,7 @@ mod tests {
         let _cleanup = defer(|| {
             let filename = PathBuf::from(test_file)
                 .canonicalize()
-                .unwrap_or(test_file.into());
+                .unwrap_or_else(|_| test_file.into());
             if std::fs::remove_file(&filename).is_err() {
                 debug!("Failed to delete the file: {}", filename.display());
             }
@@ -1405,7 +1424,7 @@ mod tests {
         // Open the file using LockedSettingsFile
         let mut locked = LockedSettingsFile::open(
             test_file,
-            std::fs::OpenOptions::new()
+            &std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .to_owned(),
