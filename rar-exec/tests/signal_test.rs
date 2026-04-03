@@ -32,17 +32,17 @@ fn test_signals_combined() {
     assert!(found, "Failed to receive SIGUSR1");
 
     // Verification that we can handle multiple different signals
-    signal::register_signal_handler(libc::SIGTRAP).expect("Failed to register SIGTRAP");
+    signal::register_signal_handler(libc::SIGUSR2).expect("Failed to register SIGTRAP");
 
     unsafe {
-        libc::kill(libc::getpid(), libc::SIGTRAP);
+        libc::kill(libc::getpid(), libc::SIGUSR2);
     }
 
     found = false;
     for _ in 0..50 {
         match stream.recv() {
             Ok(info) => {
-                if info.signal == libc::SIGTRAP {
+                if info.signal == libc::SIGUSR2 {
                     found = true;
                     break;
                 }
@@ -50,8 +50,8 @@ fn test_signals_combined() {
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
             }
-            Err(e) => panic!("Error receiving SIGTRAP: {e}"),
+            Err(e) => panic!("Error receiving SIGUSR2: {e}"),
         }
     }
-    assert!(found, "Failed to receive SIGTRAP");
+    assert!(found, "Failed to receive SIGUSR2");
 }
