@@ -139,8 +139,7 @@ impl<T> Migration<T> {
         version: &Version,
         doc: &mut T,
         migrations: &[Self],
-    ) -> Result<bool, Box<dyn Error>>
-    {
+    ) -> Result<bool, Box<dyn Error>> {
         Self::migrate_from(version, &PACKAGE_VERSION, doc, migrations)
     }
 }
