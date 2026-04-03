@@ -3,7 +3,7 @@ members = ["xtask", "rar-common", "rar-exec"]
 
 [package]
 name = "rootasrole"
-version = "3.4.0"
+version = "4.0.0"
 rust-version = "1.88.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2024"
@@ -79,8 +79,8 @@ allow-unwrap-in-tests = true
 toml = { version = "0.9", default-features = false, features = ["serde","parse", "display", "preserve_order"] }
 
 [dependencies]
-rar-common = { path = "rar-common", version = "3.4.0", package = "rootasrole-core" }
-rar-exec = { path = "rar-exec", version = "3.4.0", package = "rootasrole-exec" }
+rar-common = { path = "rar-common", version = "4.0.0", package = "rootasrole-core" }
+rar-exec = { path = "rar-exec", version = "4.0.0", package = "rootasrole-exec" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
 strum = { version = "0.26", default-features = false, features = ["derive"] }
