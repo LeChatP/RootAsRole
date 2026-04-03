@@ -140,7 +140,7 @@ impl<T> Migration<T> {
         doc: &mut T,
         migrations: &[Self],
     ) -> Result<bool, Box<dyn Error>>
-where {
+    {
         Self::migrate_from(version, &PACKAGE_VERSION, doc, migrations)
     }
 }
@@ -192,7 +192,7 @@ mod tests {
             },
             Migration {
                 from: || PACKAGE_VERSION,
-                to: || Version::parse("4.0.0").unwrap(),
+                to: || Version::parse("99.0.0").unwrap(),
                 up: |_, doc| {
                     *doc += 1;
                     Ok(())
@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(doc, 1);
         doc = 0;
         assert!(
-            Migration::migrate(&Version::parse("4.0.0").unwrap(), &mut doc, &migrations).unwrap()
+            Migration::migrate(&Version::parse("99.0.0").unwrap(), &mut doc, &migrations).unwrap()
         );
         assert_eq!(doc, -1);
         doc = 0;
