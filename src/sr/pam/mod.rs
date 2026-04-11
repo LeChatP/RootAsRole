@@ -232,12 +232,11 @@ mod tests {
     fn pam_ready(user: &Cred) -> bool {
         let conv = SrConversationHandler::builder().no_interact(true).build();
 
-        let mut txn = match TransactionBuilder::new_with_service(PAM_SERVICE)
+        let Ok(mut txn) = TransactionBuilder::new_with_service(PAM_SERVICE)
             .username(&user.user.name)
             .build(conv.into_conversation())
-        {
-            Ok(txn) => txn,
-            Err(_) => return false,
+        else {
+            return false;
         };
 
         txn.account_management(AuthnFlags::SILENT).is_ok()
