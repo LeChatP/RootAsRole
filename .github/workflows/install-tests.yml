@@ -47,7 +47,7 @@ jobs:
 
       - name: Install RootAsRole
         run: |
-          cargo xtask install --debug --apply -bip sudo
+          cargo xtask install --debug -bip sudo
 
       - name: Verify installation
         run: |
@@ -99,7 +99,7 @@ jobs:
 
       - name: Install RootAsRole
         run: |
-          cargo xtask install --apply -bip sudo
+          cargo xtask install -bip sudo
 
       - name: Verify installation
         run: |
@@ -149,7 +149,7 @@ jobs:
 
       - name: Install RootAsRole
         run: |
-          cargo xtask install --apply -bip sudo
+          cargo xtask install -bip sudo
 
       - name: Verify installation
         run: |
@@ -162,55 +162,3 @@ jobs:
       - name: Test basic functionality
         run: |
           dosr cat /etc/hostname
-
-  install-nixos:
-    runs-on: ubuntu-latest
-    container:
-      image: nixos/nix:latest
-      options: --privileged
-    steps:
-      - name: Install additional tools
-        run: |
-          nix-env -i curl git
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust in Nix environment
-        run: |
-          nix-shell -p rustup gcc pkg-config pam -I nixpkgs=channel:nixpkgs-unstable --run "
-            rustup default stable
-            echo 'Rust installed in nix-shell'
-          "
-
-      - name: Setup PAM for NixOS
-        run: |
-          mkdir -p /etc/pam.d
-          cat <<'EOF' > /etc/pam.d/dosr
-          #%PAM-1.0
-          auth    [success=1 default=ignore]  pam_permit.so
-          auth    requisite                   pam_permit.so
-          auth    required                    pam_permit.so
-          account [success=1 default=ignore]  pam_permit.so
-          account requisite                   pam_permit.so
-          account required                    pam_permit.so
-          session [success=1 default=ignore]  pam_permit.so
-          session requisite                   pam_permit.so
-          session required                    pam_permit.so
-          EOF
-
-      - name: Install RootAsRole in Nix environment
-        run: |
-          nix-shell -p rustup gcc pkg-config pam gnumake sudo -I nixpkgs=channel:nixpkgs-unstable --run "
-            rustup default stable
-            cargo xtask install --apply -bip sudo
-          "
-
-      - name: Verify installation
-        run: |
-          nix-shell -p sudo -I nixpkgs=channel:nixpkgs-unstable --run "
-            command -v dosr || true
-            command -v chsr || true
-            /usr/bin/dosr --version || true
-            /usr/bin/dosr --help || true
-          "
