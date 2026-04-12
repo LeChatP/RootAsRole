@@ -55,7 +55,7 @@ jobs:
           command -v chsr
           dosr --version
           dosr --help
-          sudo /usr/bin/chsr --help
+          dosr /usr/bin/chsr --help
           dosr cat /etc/hostname
 
   install-rocky:
@@ -107,7 +107,7 @@ jobs:
           command -v chsr
           dosr --version
           dosr --help
-          sudo /usr/bin/chsr --help
+          dosr /usr/bin/chsr --help
 
       - name: Test basic functionality
         run: |
@@ -161,7 +161,7 @@ jobs:
           command -v chsr
           dosr --version
           dosr --help
-          sudo /usr/bin/chsr --help
+          dosr /usr/bin/chsr --help
 
       - name: Test basic functionality
         run: |
