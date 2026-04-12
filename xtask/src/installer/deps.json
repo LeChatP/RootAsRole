@@ -1,0 +1,76 @@
+{
+  "targets": {
+    "debian": {
+      "aliases": ["ubuntu"],
+      "package_manager": {
+        "refresh": ["apt-get", "update"],
+        "install": ["apt-get", "install", "-y"]
+      },
+      "runtime": ["libpam0g", "libpcre2-8-0", "libseccomp-dev"],
+      "development": [
+        "libpam0g-dev",
+        "libpcre2-dev",
+        "libclang-dev",
+        "pandoc",
+        "libseccomp-dev"
+      ]
+    },
+    "redhat": {
+      "aliases": ["centos", "almalinux", "rhel"],
+      "package_manager": {
+        "refresh": ["yum", "update", "-y"],
+        "install": ["yum", "install", "-y"]
+      },
+      "runtime": ["pcre2", "libseccomp"],
+      "development": [
+        "pcre2-devel",
+        "clang-devel",
+        "openssl-devel",
+        "pam-devel",
+        "pandoc",
+        "libseccomp-devel"
+      ]
+    },
+    "fedora": {
+      "aliases": ["rockylinux", "rocky"],
+      "package_manager": {
+        "refresh": ["dnf", "update", "-y"],
+        "install": ["dnf", "install", "-y"]
+      },
+      "runtime": ["pam", "pcre2", "libseccomp"],
+      "development": [
+        "pcre2-devel",
+        "clang-devel",
+        "openssl-devel",
+        "pam-devel",
+        "pandoc",
+        "libseccomp-devel"
+      ]
+    },
+    "opensuse": {
+      "aliases": ["suse"],
+      "package_manager": {
+        "refresh": ["zypper", "refresh"],
+        "install": ["zypper", "install", "-y"]
+      },
+      "runtime": ["pam", "pcre2", "libseccomp"],
+      "development": [
+        "pcre2-devel",
+        "clang-devel",
+        "libopenssl-devel",
+        "pam-devel",
+        "pandoc",
+        "libseccomp-devel"
+      ]
+    },
+    "archlinux": {
+      "aliases": ["arch"],
+      "package_manager": {
+        "refresh": ["pacman", "-Syu"],
+        "install": ["pacman", "-Syu", "--noconfirm"]
+      },
+      "runtime": ["pam", "pcre2", "libseccomp"],
+      "development": ["clang", "pkg-config", "pandoc", "libseccomp"]
+    }
+  }
+}

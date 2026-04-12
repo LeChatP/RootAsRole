@@ -13,11 +13,28 @@ use nix::unistd::{Gid, Uid};
 use strum::EnumIs;
 
 use crate::installer::Profile;
-use crate::util::{BOLD, RED, RST, change_dir_to_git_root, detect_priv_bin, run_checked};
+use crate::util::{BOLD, RED, RST, change_dir_to_project_root, detect_priv_bin, run_checked};
 use anyhow::{Context, anyhow};
 
 use super::{CHSR_DEST, RAR_BIN_PATH, SR_DEST};
 use crate::util::cap_clear;
+
+fn is_su_command(priv_bin: &str) -> bool {
+    Path::new(priv_bin)
+        .file_name()
+        .is_some_and(|name| name == "su")
+}
+
+fn shell_quote(arg: &str) -> String {
+    if arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "@%_+=:,./-".contains(c))
+    {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
 
 fn copy_executables(profile: Profile) -> Result<(), anyhow::Error> {
     let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
@@ -233,18 +250,31 @@ pub fn install(
                         .expect("Failed to convert current exe path to string")
                 ))
             })?;
-        change_dir_to_git_root()?; // change to the root of the project before elevating privileges
+        change_dir_to_project_root()?; // change to the root of the project before elevating privileges
         unsafe { env::set_var("ROOTASROLE_INSTALLER_NESTED", "1") };
         log::warn!("Elevating privileges...");
-        run_checked(
-            std::process::Command::new(priv_exe)
-                .arg(
-                    current_exe()?
-                        .to_str()
-                        .context("Failed to get current exe path")?,
-                )
+        let current_exe_path = current_exe()?;
+        let current_exe_str = current_exe_path
+            .to_str()
+            .context("Failed to get current exe path")?
+            .to_string();
+        let mut command = std::process::Command::new(priv_exe);
+        if is_su_command(priv_exe) {
+            let shell_cmd = [
+                shell_quote(&current_exe_str),
+                "install".to_string(),
+                "--nested-install".to_string(),
+            ]
+            .join(" ");
+            command.arg("-c").arg(shell_cmd);
+        } else {
+            command
+                .arg(&current_exe_str)
                 .arg("install")
-                .arg("--nested-install"),
+                .arg("--nested-install");
+        }
+        run_checked(
+            &mut command,
             "run privileged installer",
         )
         .context("Failed to run privileged binary")

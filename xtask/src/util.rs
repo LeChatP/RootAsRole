@@ -38,25 +38,42 @@ pub enum OsTarget {
 }
 
 impl OsTarget {
+    fn os_release_identifiers(content: &str) -> Vec<String> {
+        content
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .filter_map(|(key, value)| {
+                if key == "ID" || key == "ID_LIKE" {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .flat_map(|value| value.trim_matches('"').split_whitespace())
+            .map(str::to_ascii_lowercase)
+            .collect()
+    }
+
     /// # Errors
     ///
     /// Will return an error if the OS cannot be detected or is unsupported
     pub fn detect() -> Result<Self, anyhow::Error> {
+        if let Ok(os_release) = std::fs::read_to_string("/etc/os-release") {
+            let identifiers = Self::os_release_identifiers(&os_release);
+            if let Some(target) = crate::installer::dependencies::os_target_from_identifiers(
+                identifiers.iter().map(std::string::String::as_str),
+            )? {
+                return Ok(target);
+            }
+        }
+
         for file in glob::glob("/etc/*-release")? {
             let file = file?;
             let os = std::fs::read_to_string(&file)?.to_ascii_lowercase();
-            if os.contains("debian") {
-                return Ok(Self::Debian);
-            } else if os.contains("ubuntu") {
-                return Ok(Self::Ubuntu);
-            } else if os.contains("opensuse") || os.contains("suse") {
-                return Ok(Self::OpenSUSE);
-            } else if os.contains("fedora") {
-                return Ok(Self::Fedora);
-            } else if os.contains("arch") {
-                return Ok(Self::ArchLinux);
-            } else if os.contains("redhat") || os.contains("rhel") {
-                return Ok(Self::RedHat);
+            if let Some(target) = crate::installer::dependencies::os_target_from_identifiers(
+                os.split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_'),
+            )? {
+                return Ok(target);
             }
         }
         Err(anyhow!("Unsupported OS"))
@@ -349,15 +366,27 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
 
 /// # Errors
 ///
-/// Will return an error if the current directory is not a git repository or if git command fails
-pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
+/// Will return an error if the current directory is not a cargo project or if cargo command fails
+pub fn change_dir_to_project_root() -> Result<(), anyhow::Error> {
+    // check if current directory is our code repo by looking for the Cargo.toml file
     let output = output_checked(
-        Command::new("git").args(["rev-parse", "--show-toplevel"]),
-        "detect git repository root",
+        Command::new("cargo").args(["locate-project", "--workspace"]),
+        "check if current directory is a cargo workspace",
     )?;
-    let git_root = String::from_utf8(output.stdout)?.trim().to_string();
-    debug!("Changing directory to git root: {git_root}");
-    std::env::set_current_dir(git_root)?;
+    let json = String::from_utf8(output.stdout)?;
+    let value: Value = serde_json::from_str(&json)?;
+    let manifest_path = Path::new(
+        value
+            .get("root")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("Failed to parse cargo locate-project output"))?,
+    );
+
+    std::env::set_current_dir(
+        manifest_path
+            .parent()
+            .ok_or_else(|| anyhow!("Failed to get parent directory of Cargo.toml"))?,
+    )?;
     Ok(())
 }
 

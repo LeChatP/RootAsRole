@@ -118,11 +118,15 @@ jobs:
     container:
       image: opensuse/tumbleweed:latest
       options: --privileged
+    env:
+      HOME: /root
+      CARGO_HOME: /root/.cargo
+      RUSTUP_HOME: /root/.rustup
     steps:
       - name: Install git and build dependencies
         run: |
           zypper refresh
-          zypper install -y git curl gcc pkg-config pam-devel
+          zypper install -y bash git curl gcc pkg-config pam-devel
           zypper install -y sudo
 
       - name: Checkout code

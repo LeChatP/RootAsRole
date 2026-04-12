@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     installer::Toolchain,
-    util::{change_dir_to_git_root, run_checked},
+    util::{change_dir_to_project_root, run_checked},
 };
 
 use super::BuildOptions;
@@ -33,7 +33,7 @@ fn build_binary(
 }
 
 pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
-    change_dir_to_git_root()?;
+    change_dir_to_project_root()?;
     if options.clean_before {
         run_checked(Command::new("cargo").arg("clean"), "clean build artifacts")?;
     }
