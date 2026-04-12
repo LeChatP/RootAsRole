@@ -126,14 +126,13 @@ jobs:
       - name: Install git and build dependencies
         run: |
           zypper refresh
-          zypper install -y bash git curl gcc pkg-config pam-devel
+          zypper install -y bash rustup git curl gcc pkg-config pam-devel
           zypper install -y sudo
+          rustup toolchain install stable
+          rustup update
 
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Configure PAM
         run: |
