@@ -1,8 +1,10 @@
 mod configure;
 mod deploy;
+mod doctor;
 mod installer;
 pub mod util;
 
+use Command::{Build, Configure, Dependencies, Deploy, Doctor, Install, Uninstall};
 use std::process::exit;
 
 use clap::Parser;
@@ -11,6 +13,10 @@ use util::OsTarget;
 
 #[derive(Debug, Parser)]
 pub struct Options {
+    /// Print planned actions without executing mutating steps
+    #[clap(long, global = true)]
+    dry_run: bool,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -32,6 +38,7 @@ enum Command {
     Uninstall(installer::UninstallOptions),
     #[cfg(feature = "deploy")]
     Deploy(deploy::MakeOptions),
+    Doctor(doctor::DoctorOptions),
 }
 
 fn main() {
@@ -40,14 +47,15 @@ fn main() {
         .format_module_path(true)
         .init();
     let opts = Options::parse();
-    use Command::*;
+    util::set_dry_run(opts.dry_run);
     let ret = match opts.command {
-        Dependencies(opts) => installer::dependencies(opts),
+        Dependencies(opts) => installer::dependencies(&opts),
         Build(opts) => installer::build(&opts),
         Install(opts) => installer::install(&opts),
         Configure { os } => installer::configure(os),
         Uninstall(opts) => installer::uninstall(&opts),
         Deploy(opts) => deploy::deploy(&opts),
+        Doctor(opts) => doctor::doctor(&opts),
     };
 
     if let Err(e) = ret {

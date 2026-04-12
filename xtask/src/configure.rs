@@ -12,8 +12,8 @@ use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config, ImmutableLock,
-    Opt, OsTarget, SEnvOptions, SPathOptions, STimeout, SettingsFile, ROOTASROLE,
+    ImmutableLock, Opt, OsTarget, ROOTASROLE, SEnvOptions, SPathOptions, STimeout, SettingsFile,
+    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config,
 };
 
 const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
@@ -22,17 +22,17 @@ pub const PAM_CONFIG_SERVICE: &str = env!("RAR_PAM_SERVICE");
 fn is_running_in_container() -> bool {
     // Check for environment files that might indicate a container
     let container_env_files = ["/run/.containerenv", "/.dockerenv", "/run/container_type"];
-    for file in container_env_files.iter() {
+    for file in container_env_files.iter().as_slice() {
         if fs::metadata(file).is_ok() {
             return true;
         }
     }
 
     // Check for the "container" environment variable
-    if let Ok(val) = env::var("container") {
-        if val == "docker" || val == "lxc" {
-            return true;
-        }
+    if let Ok(val) = env::var("container")
+        && (val == "docker" || val == "lxc")
+    {
+        return true;
     }
 
     // Check cgroups for container-specific patterns
@@ -61,18 +61,12 @@ pub fn check_filesystem() -> io::Result<()> {
         if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
             match fs_type.as_str() {
                 "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
-                    info!(
-                        "{} is compatble for immutability, setting immutable flag",
-                        fs_type
-                    );
+                    info!("{fs_type} is compatble for immutability, setting immutable flag");
                     set_immutable(&mut config, true);
-                    toggle_lock_config(&ROOTASROLE.to_string(), ImmutableLock::Set)?;
+                    toggle_lock_config(&ROOTASROLE.to_string(), &ImmutableLock::Set)?;
                     return Ok(());
                 }
-                _ => info!(
-                    "{} is not compatible for immutability, removing immutable flag",
-                    fs_type
-                ),
+                _ => info!("{fs_type} is not compatible for immutability, removing immutable flag"),
             }
         } else {
             info!("Failed to get filesystem type, removing immutable flag");
@@ -84,130 +78,181 @@ pub fn check_filesystem() -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn set_options(content: &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
-    config.storage.method = env!("RAR_CFG_TYPE").parse().unwrap();
+    config.storage.method = env!("RAR_CFG_TYPE")
+        .parse()
+        .expect("Check RAR_CFG_TYPE in .cargo/config.toml");
     if let Some(settings) = &mut config.storage.settings {
         if let Some(path) = &mut settings.path {
             *path = env!("RAR_CFG_DATA_PATH").to_string();
         }
         if let Some(immutable) = &mut settings.immutable {
-            *immutable = env!("RAR_CFG_IMMUTABLE").parse().unwrap();
+            *immutable = env!("RAR_CFG_IMMUTABLE")
+                .parse()
+                .expect("Check RAR_CFG_IMMUTABLE in .cargo/config.toml");
         }
     }
     config.storage.options = Some(Opt {
         timeout: Some(STimeout {
-            type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
-            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")).unwrap(),
-            max_usage: if !env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
-                Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
-            } else {
+            type_field: Some(
+                env!("RAR_TIMEOUT_TYPE")
+                    .parse()
+                    .expect("Check RAR_TIMEOUT_TYPE in .cargo/config.toml"),
+            ),
+            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
+                .expect("Check RAR_TIMEOUT_DURATION in .cargo/config.toml"),
+            max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
                 None
+            } else {
+                Some(
+                    env!("RAR_TIMEOUT_MAX_USAGE")
+                        .parse()
+                        .expect("Check RAR_TIMEOUT_MAX_USAGE in .cargo/config.toml"),
+                )
             },
-            _extra_fields: Value::Null,
+            extra_fields: Value::Null,
         }),
         path: Some(SPathOptions {
-            default_behavior: env!("RAR_PATH_DEFAULT").parse().unwrap(),
+            default_behavior: env!("RAR_PATH_DEFAULT")
+                .parse()
+                .expect("Check RAR_PATH_DEFAULT in .cargo/config.toml"),
             add: Some(
                 env!("RAR_PATH_ADD_LIST")
-                    .split(":")
-                    .map(|s| s.to_string())
+                    .split(':')
+                    .map(std::string::ToString::to_string)
                     .collect(),
             ),
-            sub: if !env!("RAR_PATH_REMOVE_LIST").is_empty() {
+            sub: if env!("RAR_PATH_REMOVE_LIST").is_empty() {
+                None
+            } else {
                 Some(
                     env!("RAR_PATH_REMOVE_LIST")
-                        .split(":")
-                        .map(|s| s.to_string())
+                        .split(':')
+                        .map(std::string::ToString::to_string)
                         .collect(),
                 )
-            } else {
-                None
             },
-            _extra_fields: Value::Null,
+            extra_fields: Value::Null,
         }),
         env: Some(SEnvOptions {
-            default_behavior: env!("RAR_ENV_DEFAULT").parse().unwrap(),
-            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap() {
-                Some(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap())
+            default_behavior: env!("RAR_ENV_DEFAULT")
+                .parse()
+                .expect("Check RAR_ENV_DEFAULT in .cargo/config.toml"),
+            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR")
+                .parse()
+                .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml")
+            {
+                Some(
+                    env!("RAR_ENV_OVERRIDE_BEHAVIOR")
+                        .parse()
+                        .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml"),
+                )
             } else {
                 None
             },
             keep: Some(
                 env!("RAR_ENV_KEEP_LIST")
-                    .split(",")
-                    .map(|s| s.to_string())
+                    .split(',')
+                    .map(std::string::ToString::to_string)
                     .collect(),
             ),
             check: Some(
                 env!("RAR_ENV_CHECK_LIST")
-                    .split(",")
-                    .map(|s| s.to_string())
+                    .split(',')
+                    .map(std::string::ToString::to_string)
                     .collect(),
             ),
             delete: Some(
                 env!("RAR_ENV_DELETE_LIST")
-                    .split(",")
-                    .map(|s| s.to_string())
+                    .split(',')
+                    .map(std::string::ToString::to_string)
                     .collect(),
             ),
-            set: if !env!("RAR_ENV_SET_LIST").is_empty() {
-                serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()
-            } else {
+            set: if env!("RAR_ENV_SET_LIST").is_empty() {
                 HashMap::new()
+            } else {
+                serde_json::from_str(env!("RAR_ENV_SET_LIST"))
+                    .expect("Check RAR_ENV_SET_LIST in .cargo/config.toml")
             },
-            _extra_fields: Value::Null,
+            extra_fields: Value::Null,
         }),
-        root: Some(env!("RAR_USER_CONSIDERED").parse().unwrap()),
-        bounding: Some(env!("RAR_BOUNDING").parse().unwrap()),
-        authentication: Some(env!("RAR_AUTHENTICATION").parse().unwrap()),
-        _extra_fields: Value::Null,
+        root: Some(
+            env!("RAR_USER_CONSIDERED")
+                .parse()
+                .expect("Check RAR_USER_CONSIDERED in .cargo/config.toml"),
+        ),
+        bounding: Some(
+            env!("RAR_BOUNDING")
+                .parse()
+                .expect("Check RAR_BOUNDING in .cargo/config.toml"),
+        ),
+        authentication: Some(
+            env!("RAR_AUTHENTICATION")
+                .parse()
+                .expect("Check RAR_AUTHENTICATION in .cargo/config.toml"),
+        ),
+        extra_fields: Value::Null,
     });
     *content = serde_json::to_string_pretty(&config)?;
     Ok(())
 }
 
 fn set_immutable(config: &mut SettingsFile, value: bool) {
-    if let Some(settings) = config.storage.settings.as_mut() {
-        if let Some(mut _immutable) = settings.immutable {
-            _immutable = value;
-        }
+    if let Some(settings) = config.storage.settings.as_mut()
+        && let Some(mut _immutable) = settings.immutable
+    {
+        _immutable = value;
     }
 
     if !value {
         let roles = config
-            ._extra_fields
+            .extra_fields
             .as_object_mut()
-            .unwrap()
+            .expect("Config extra fields should be a JSON object")
             .get_mut("roles")
-            .unwrap()
+            .expect("Config should have roles field")
             .as_array_mut()
-            .unwrap();
+            .expect("Roles field should be an array");
         for role in roles {
-            let tasks = role.as_object_mut().unwrap().get_mut("tasks");
+            let tasks = role
+                .as_object_mut()
+                .expect("Role should be a JSON object")
+                .get_mut("tasks");
             if let Some(tasks) = tasks {
-                for task in tasks.as_array_mut().unwrap() {
+                for task in tasks
+                    .as_array_mut()
+                    .expect("Tasks field should be an array")
+                {
                     let cred = task
                         .as_object_mut()
-                        .unwrap()
+                        .expect("Task shoudl be a JSON object")
                         .get_mut("cred")
-                        .unwrap()
+                        .expect("Task should have cred field")
                         .as_object_mut()
-                        .unwrap();
+                        .expect("Cred field should be a JSON object");
                     let caps = cred
                         .get_mut("capabilities")
-                        .unwrap()
-                        .as_object_mut()
-                        .unwrap();
-                    if let Some(add) = caps.get_mut("add") {
-                        add.as_array_mut()
-                            .unwrap()
-                            .retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
-                    }
-                    if let Some(sub) = caps.get_mut("sub") {
-                        sub.as_array_mut()
-                            .unwrap()
-                            .retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
+                        .expect("Cred should have capabilities field");
+
+                    if let Some(caps_obj) = caps.as_object_mut() {
+                        if let Some(add) = caps_obj.get_mut("add") {
+                            add.as_array_mut()
+                                .expect("Add field should be an array")
+                                .retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                        }
+                        if let Some(sub) = caps_obj.get_mut("sub") {
+                            sub.as_array_mut()
+                                .expect("Sub field should be an array")
+                                .retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                        }
+                    } else if let Some(caps_arr) = caps.as_array_mut() {
+                        caps_arr.retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                    } else {
+                        warn!(
+                            "Unsupported capabilities format in config, expected object or array"
+                        );
                     }
                 }
             }
@@ -223,18 +268,15 @@ fn get_filesystem_type<P: AsRef<Path>>(path: P) -> io::Result<Option<String>> {
     let mut filesystem_type = None;
 
     for line_result in reader.lines() {
-        if let Ok(line_result) = line_result {
-            let fields: Vec<&str> = line_result.split_whitespace().collect();
-            if fields.len() > 2 {
-                let mount_point = fields[1];
-                let fs_type = fields[2];
-                if path.starts_with(mount_point) && mount_point.len() > longest_mount_point.len() {
-                    longest_mount_point = mount_point.to_string();
-                    filesystem_type = Some(fs_type.to_string());
-                }
+        let line = line_result?;
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() > 2 {
+            let mount_point = fields[1];
+            let fs_type = fields[2];
+            if path.starts_with(mount_point) && mount_point.len() > longest_mount_point.len() {
+                longest_mount_point = mount_point.to_string();
+                filesystem_type = Some(fs_type.to_string());
             }
-        } else {
-            return Err(line_result.unwrap_err());
         }
     }
 
@@ -248,20 +290,16 @@ pub enum ConfigState {
 }
 
 fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
-    let mut status = ConfigState::Unchanged;
-    // Check if the target file exists
-    if !Path::new(ROOTASROLE).exists() {
-        info!(
-            "Config file {} does not exist, deploying default file",
-            ROOTASROLE
-        );
+    let status = if Path::new(ROOTASROLE).exists() {
+        config_state()?
+    } else {
+        info!("Config file {ROOTASROLE} does not exist, deploying default file");
         // If the target file does not exist, copy the default file
         cap_effective(Cap::DAC_OVERRIDE, true).context("Failed to raise DAC_OVERRIDE")?;
         deploy_config(ROOTASROLE)?;
         cap_effective(Cap::DAC_OVERRIDE, false).context("Failed to raise DAC_OVERRIDE")?;
-    } else {
-        status = config_state()?;
-    }
+        ConfigState::Unchanged
+    };
 
     match status {
         ConfigState::Unchanged => {
@@ -296,19 +334,13 @@ pub fn config_state() -> Result<ConfigState, anyhow::Error> {
 }
 
 fn deploy_config<P: AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
-    let mut content = TEMPLATE.to_string();
-
     let user = retrieve_real_user()?;
-    // Replace the placeholder with the current user, which will act as the main administrator
-    match user {
-        Some(user) => {
-            content = content.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name));
-        }
-        None => {
-            warn!("Failed to get the current user from passwd file, using UID instead");
-            content = content.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()));
-        }
-    }
+    let mut content = if let Some(user) = user {
+        TEMPLATE.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name))
+    } else {
+        warn!("Failed to get the current user from passwd file, using UID instead");
+        TEMPLATE.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()))
+    };
     // deploy execution options on the config file defined in the compilation environment variables
     set_options(&mut content)?;
     // Write the config file
@@ -331,12 +363,14 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     }
 }
 
-pub fn pam_config(os: &OsTarget) -> &'static str {
+pub const fn pam_config(os: &OsTarget) -> &'static str {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
             include_str!("../../resources/debian/deb_sr_pam.conf")
         }
-        OsTarget::RedHat | OsTarget::Fedora => include_str!("../../resources/rh/rh_sr_pam.conf"),
+        OsTarget::RedHat | OsTarget::Fedora | OsTarget::OpenSUSE => {
+            include_str!("../../resources/rh/rh_sr_pam.conf")
+        }
         OsTarget::ArchLinux => include_str!("../../resources/arch/arch_sr_pam.conf"),
     }
 }
@@ -357,7 +391,7 @@ pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     } else {
         OsTarget::detect()
             .map(|t| {
-                info!("Detected OS is : {}", t);
+                info!("Detected OS is : {t}");
                 t
             })
             .context("Failed to detect the OS")?

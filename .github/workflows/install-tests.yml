@@ -1,0 +1,216 @@
+name: Xtask Tests
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  install-debian:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:stable
+      options: --privileged
+    steps:
+      - name: Install git and build dependencies
+        run: |
+          apt update -y
+          apt install -y git curl build-essential pkg-config libpam0g-dev
+          apt install -y sudo ca-certificates
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure PAM
+        run: |
+          mkdir -p /etc/pam.d
+          cat <<'EOF' > /etc/pam.d/dosr
+          #%PAM-1.0
+          auth    [success=1 default=ignore]  pam_permit.so
+          auth    requisite                   pam_permit.so
+          auth    required                    pam_permit.so
+          account [success=1 default=ignore]  pam_permit.so
+          account requisite                   pam_permit.so
+          account required                    pam_permit.so
+          session [success=1 default=ignore]  pam_permit.so
+          session requisite                   pam_permit.so
+          session required                    pam_permit.so
+          EOF
+
+      - name: Install RootAsRole
+        run: |
+          cargo xtask install --debug --apply -bip sudo
+
+      - name: Verify installation
+        run: |
+          command -v dosr
+          command -v chsr
+          dosr --version
+          dosr --help
+          sudo /usr/bin/chsr --help
+          dosr cat /etc/hostname
+
+  install-rocky:
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+      options: --privileged
+    steps:
+      - name: Install git and build dependencies
+        run: |
+          dnf update -y
+          dnf install -y 'dnf-command(config-manager)' || true
+          dnf config-manager --set-enabled crb || true
+          dnf install -y epel-release || true
+          dnf makecache -y
+          dnf install -y pandoc || true
+          dnf install -y git gcc pkg-config pam-devel
+          dnf install -y sudo ca-certificates
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure PAM
+        run: |
+          mkdir -p /etc/pam.d
+          cat <<'EOF' > /etc/pam.d/dosr
+          #%PAM-1.0
+          auth    [success=1 default=ignore]  pam_permit.so
+          auth    requisite                   pam_permit.so
+          auth    required                    pam_permit.so
+          account [success=1 default=ignore]  pam_permit.so
+          account requisite                   pam_permit.so
+          account required                    pam_permit.so
+          session [success=1 default=ignore]  pam_permit.so
+          session requisite                   pam_permit.so
+          session required                    pam_permit.so
+          EOF
+
+      - name: Install RootAsRole
+        run: |
+          cargo xtask install --apply -bip sudo
+
+      - name: Verify installation
+        run: |
+          command -v dosr
+          command -v chsr
+          dosr --version
+          dosr --help
+          sudo /usr/bin/chsr --help
+
+      - name: Test basic functionality
+        run: |
+          dosr cat /etc/hostname
+
+  install-opensuse:
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/tumbleweed:latest
+      options: --privileged
+    steps:
+      - name: Install git and build dependencies
+        run: |
+          zypper refresh
+          zypper install -y git curl gcc pkg-config pam-devel
+          zypper install -y sudo
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure PAM
+        run: |
+          mkdir -p /etc/pam.d
+          cat <<'EOF' > /etc/pam.d/dosr
+          #%PAM-1.0
+          auth    [success=1 default=ignore]  pam_permit.so
+          auth    requisite                   pam_permit.so
+          auth    required                    pam_permit.so
+          account [success=1 default=ignore]  pam_permit.so
+          account requisite                   pam_permit.so
+          account required                    pam_permit.so
+          session [success=1 default=ignore]  pam_permit.so
+          session requisite                   pam_permit.so
+          session required                    pam_permit.so
+          EOF
+
+      - name: Install RootAsRole
+        run: |
+          cargo xtask install --apply -bip sudo
+
+      - name: Verify installation
+        run: |
+          command -v dosr
+          command -v chsr
+          dosr --version
+          dosr --help
+          sudo /usr/bin/chsr --help
+
+      - name: Test basic functionality
+        run: |
+          dosr cat /etc/hostname
+
+  install-nixos:
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix:latest
+      options: --privileged
+    steps:
+      - name: Install additional tools
+        run: |
+          nix-env -i curl git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust in Nix environment
+        run: |
+          nix-shell -p rustup gcc pkg-config pam -I nixpkgs=channel:nixpkgs-unstable --run "
+            rustup default stable
+            echo 'Rust installed in nix-shell'
+          "
+
+      - name: Setup PAM for NixOS
+        run: |
+          mkdir -p /etc/pam.d
+          cat <<'EOF' > /etc/pam.d/dosr
+          #%PAM-1.0
+          auth    [success=1 default=ignore]  pam_permit.so
+          auth    requisite                   pam_permit.so
+          auth    required                    pam_permit.so
+          account [success=1 default=ignore]  pam_permit.so
+          account requisite                   pam_permit.so
+          account required                    pam_permit.so
+          session [success=1 default=ignore]  pam_permit.so
+          session requisite                   pam_permit.so
+          session required                    pam_permit.so
+          EOF
+
+      - name: Install RootAsRole in Nix environment
+        run: |
+          nix-shell -p rustup gcc pkg-config pam gnumake sudo -I nixpkgs=channel:nixpkgs-unstable --run "
+            rustup default stable
+            cargo xtask install --apply -bip sudo
+          "
+
+      - name: Verify installation
+        run: |
+          nix-shell -p sudo -I nixpkgs=channel:nixpkgs-unstable --run "
+            command -v dosr || true
+            command -v chsr || true
+            /usr/bin/dosr --version || true
+            /usr/bin/dosr --help || true
+          "

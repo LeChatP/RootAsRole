@@ -2,27 +2,29 @@ use std::process::Command;
 
 use crate::{
     installer::{self, InstallDependenciesOptions, Profile},
-    util::{detect_priv_bin, get_os, OsTarget},
+    util::{OsTarget, detect_priv_bin, get_os, run_checked},
 };
 
 fn install_dependencies() -> Result<(), anyhow::Error> {
-    Command::new("cargo")
-        .arg("install")
-        .arg("cargo-generate-rpm")
-        .status()?;
+    run_checked(
+        Command::new("cargo")
+            .arg("install")
+            .arg("cargo-generate-rpm"),
+        "install cargo-generate-rpm",
+    )?;
     Ok(())
 }
 
 pub fn make_rpm(
-    os: Option<OsTarget>,
+    os: Option<&OsTarget>,
     profile: Profile,
-    exe: &Option<String>,
+    exe: Option<&String>,
 ) -> Result<(), anyhow::Error> {
     install_dependencies()?;
     let os = get_os(os)?;
-    let exe: Option<String> = exe.clone().or(detect_priv_bin());
+    let exe: Option<String> = exe.cloned().or_else(detect_priv_bin);
 
-    installer::dependencies(InstallDependenciesOptions {
+    installer::dependencies(&InstallDependenciesOptions {
         os: Some(os),
         install_dependencies: true,
         dev: true,
@@ -32,9 +34,12 @@ pub fn make_rpm(
         profile,
         toolchain: installer::Toolchain::default(),
         clean_before: false,
-        privbin: exe.clone(),
+        priv_bin: exe,
     })?;
 
-    Command::new("cargo").arg("generate-rpm").status()?;
+    run_checked(
+        Command::new("cargo").arg("generate-rpm"),
+        "generate rpm package",
+    )?;
     Ok(())
 }

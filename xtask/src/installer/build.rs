@@ -2,7 +2,10 @@ use std::{fs, process::Command};
 
 use log::debug;
 
-use crate::{installer::Toolchain, util::change_dir_to_git_root};
+use crate::{
+    installer::Toolchain,
+    util::{change_dir_to_git_root, run_checked},
+};
 
 use super::BuildOptions;
 
@@ -21,18 +24,18 @@ fn build_binary(
         args.push("--release");
     }
     args.extend(additionnal_args);
-    debug!("Building {} binary with args: {:?}", name, args);
-    Command::new("cargo").args(args).status()?;
+    debug!("Building {name} binary with args: {args:?}");
+    run_checked(
+        Command::new("cargo").args(args),
+        &format!("build {name} binary"),
+    )?;
     Ok(())
 }
 
 pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
     change_dir_to_git_root()?;
     if options.clean_before {
-        Command::new("cargo")
-            .arg("clean")
-            .status()
-            .expect("failed to clean");
+        run_checked(Command::new("cargo").arg("clean"), "clean build artifacts")?;
     }
     build_binary("dosr", options, vec!["--features", "finder"])?;
     build_binary("chsr", options, vec!["--features", "editor"])?;
@@ -46,31 +49,34 @@ fn build_manpages() -> Result<(), anyhow::Error> {
     debug!("Building manpages");
     let _ = fs::remove_dir_all("target/man/");
     fs::create_dir_all("target/man/")?;
-    Command::new("pandoc")
-        .args([
+    run_checked(
+        Command::new("pandoc").args([
             "-s",
             "-t",
             "man",
             "resources/man/en_US.md",
             "-o",
             "target/man/dosr.8",
-        ])
-        .status()?;
+        ]),
+        "generate English manpage",
+    )?;
     fs::create_dir_all("target/man/fr")?;
-    Command::new("pandoc")
-        .args([
+    run_checked(
+        Command::new("pandoc").args([
             "-s",
             "-t",
             "man",
             "resources/man/fr_FR.md",
             "-o",
             "target/man/fr/dosr.8",
-        ])
-        .status()?;
+        ]),
+        "generate French manpage",
+    )?;
     debug!("Compressing manpages");
-    Command::new("gzip")
-        .args(["target/man/dosr.8", "target/man/fr/dosr.8"])
-        .status()?;
+    run_checked(
+        Command::new("gzip").args(["target/man/dosr.8", "target/man/fr/dosr.8"]),
+        "compress manpages",
+    )?;
     debug!("Manpages built");
     Ok(())
 }

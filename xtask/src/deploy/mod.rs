@@ -2,6 +2,7 @@ use std::{collections::HashSet, process::Command};
 
 use clap::Parser;
 
+use crate::util::{is_dry_run, run_checked};
 use crate::{installer::Profile, util::OsTarget};
 
 mod debian;
@@ -21,7 +22,7 @@ pub struct MakeOptions {
     pub target: Vec<OsTarget>,
 
     /// The binary to elevate privileges
-    #[clap(long, short = 'p')]
+    #[clap(long, short = 'p', visible_alias = "privbin")]
     pub priv_bin: Option<String>,
 }
 
@@ -32,6 +33,11 @@ fn all() -> HashSet<OsTarget> {
 }
 
 pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
+    if is_dry_run() {
+        log::debug!("Dry-run mode: skipping deploy changes");
+        return Ok(());
+    }
+
     let targets = if opts.target.is_empty() {
         all()
     } else {
@@ -40,8 +46,12 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
 
     for target in targets {
         match target {
-            OsTarget::Debian => debian::make_deb(opts.os.clone(), opts.profile, &opts.priv_bin)?,
-            OsTarget::RedHat => redhat::make_rpm(opts.os.clone(), opts.profile, &opts.priv_bin)?,
+            OsTarget::Debian => {
+                debian::make_deb(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+            }
+            OsTarget::RedHat => {
+                redhat::make_rpm(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+            }
             _ => anyhow::bail!("Unsupported OS target"),
         }
     }
@@ -50,26 +60,27 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
 }
 
 pub fn setup_maint_scripts() -> Result<(), anyhow::Error> {
-    Command::new("cargo")
-        .arg("build")
-        .arg("--package")
-        .arg("xtask")
-        .arg("--no-default-features")
-        .arg("--release")
-        .arg("--bin")
-        .arg("postinst")
-        .arg("--bin")
-        .arg("prerm")
-        .status()?;
+    run_checked(
+        Command::new("cargo")
+            .arg("build")
+            .arg("--package")
+            .arg("xtask")
+            .arg("--no-default-features")
+            .arg("--release")
+            .arg("--bin")
+            .arg("postinst")
+            .arg("--bin")
+            .arg("prerm"),
+        "build maintenance scripts",
+    )?;
     compress("target/release/postinst")?;
     compress("target/release/prerm")
 }
 
 fn compress(script: &str) -> Result<(), anyhow::Error> {
-    Command::new("upx")
-        .arg("--best")
-        .arg("--lzma")
-        .arg(script)
-        .status()?;
+    run_checked(
+        Command::new("upx").arg("--best").arg("--lzma").arg(script),
+        &format!("compress script {script}"),
+    )?;
     Ok(())
 }

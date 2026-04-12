@@ -1,27 +1,27 @@
 use std::{
     fs::File,
     io::{BufRead, Write},
-    process::{Command, ExitStatus},
+    process::Command,
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use log::debug;
 
 use crate::{
-    installer::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},
-    util::{detect_priv_bin, get_os, OsTarget},
+    installer::{self, InstallDependenciesOptions, Profile, dependencies::install_dependencies},
+    util::{OsTarget, detect_priv_bin, get_os, output_checked, run_checked},
 };
 
 use super::setup_maint_scripts;
 
-fn dependencies(os: &OsTarget, priv_bin: Option<String>) -> Result<ExitStatus, anyhow::Error> {
+fn dependencies(os: &OsTarget, priv_bin: Option<&String>) -> Result<(), anyhow::Error> {
     install_dependencies(os, &["upx"], priv_bin)
         .context("failed to install packaging dependencies")?;
-    Command::new("cargo")
-        .arg("install")
-        .arg("cargo-deb")
-        .status()
-        .context("failed to install cargo-deb")
+    run_checked(
+        Command::new("cargo").arg("install").arg("cargo-deb"),
+        "install cargo-deb",
+    )
+    .context("failed to install cargo-deb")
 }
 
 fn generate_changelog() -> Result<(), anyhow::Error> {
@@ -29,38 +29,42 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
     if std::path::Path::new(changelog_path).exists() {
         return Ok(());
     }
-    let binding = Command::new("git")
-        .args(["tag", "--sort=-creatordate"])
-        .output()?;
+    let binding = output_checked(
+        Command::new("git").args(["tag", "--sort=-creatordate"]),
+        "list git tags",
+    )?;
     let mut ordered_tags = binding.stdout.lines();
 
     let from = ordered_tags
         .next()
-        .expect("Are you in the git repository ?")?;
+        .ok_or_else(|| anyhow!("No git tag found for changelog generation"))??;
 
     let to = ordered_tags
         .next()
-        .expect("Are you in the git repository ?")?;
+        .ok_or_else(|| anyhow!("At least two git tags are required for changelog generation"))??;
 
-    debug!("Generating changelog from {} to {}", from, to);
+    debug!("Generating changelog from {from} to {to}");
 
-    let changes = Command::new("git")
-        .args(["log", "--pretty=format:  %s", &format!("{}..{}", to, from)])
-        .output()?;
+    let changes = output_checked(
+        Command::new("git").args(["log", "--pretty=format:  %s", &format!("{to}..{from}")]),
+        "collect changelog entries",
+    )?;
     debug!(
         "Changes: {}",
-        String::from_utf8(changes.stdout.clone()).unwrap()
+        String::from_utf8(changes.stdout.clone())
+            .expect("Failed to convert git log output to string")
     );
     let changelog = format!(
-        r#"rootasrole ({version}) {dist}; urgency={urgency}
+        r"rootasrole ({version}) {dist}; urgency={urgency}
 {changes}
 
  -- Eddie Billoir <lechatp@outlook.fr>  {date}
-"#,
+",
         version = env!("CARGO_PKG_VERSION"),
         dist = "unstable",
         urgency = "low",
-        changes = String::from_utf8(changes.stdout).unwrap(),
+        changes =
+            String::from_utf8(changes.stdout).expect("Failed to convert git log output to string"),
         date = chrono::Local::now().format("%a, %d %b %Y %T %z")
     );
     File::create(changelog_path)?.write_all(changelog.as_bytes())?;
@@ -69,15 +73,15 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
 }
 
 pub fn make_deb(
-    os: Option<OsTarget>,
+    os: Option<&OsTarget>,
     profile: Profile,
-    priv_bin: &Option<String>,
+    priv_bin: Option<&String>,
 ) -> Result<(), anyhow::Error> {
     let os = get_os(os)?;
-    let priv_bin = priv_bin.clone().or(detect_priv_bin());
-    dependencies(&os, priv_bin.clone())?;
+    let priv_bin = priv_bin.cloned().or_else(detect_priv_bin);
+    dependencies(&os, priv_bin.as_ref())?;
 
-    installer::dependencies(InstallDependenciesOptions {
+    installer::dependencies(&InstallDependenciesOptions {
         os: Some(os),
         install_dependencies: true,
         dev: true,
@@ -87,14 +91,14 @@ pub fn make_deb(
         profile,
         toolchain: installer::Toolchain::default(),
         clean_before: false,
-        privbin: priv_bin,
+        priv_bin,
     })?;
     setup_maint_scripts()?;
     generate_changelog()?;
 
-    Command::new("cargo")
-        .arg("deb")
-        .arg("--no-build")
-        .status()?;
+    run_checked(
+        Command::new("cargo").arg("deb").arg("--no-build"),
+        "generate deb package",
+    )?;
     Ok(())
 }
