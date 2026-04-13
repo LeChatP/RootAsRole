@@ -363,15 +363,16 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     }
 }
 
-pub const fn pam_config(os: &OsTarget) -> &'static str {
+pub fn pam_config(os: &OsTarget) -> std::io::Result<String> {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
-            include_str!("../../resources/debian/deb_sr_pam.conf")
+            std::fs::read_to_string("../../resources/debian/deb_sr_pam.conf")
         }
-        OsTarget::RedHat | OsTarget::Fedora | OsTarget::OpenSUSE => {
-            include_str!("../../resources/rh/rh_sr_pam.conf")
+        OsTarget::RedHat | OsTarget::Fedora => {
+            std::fs::read_to_string("../../resources/rh/rh_sr_pam.conf")
         }
-        OsTarget::ArchLinux => include_str!("../../resources/arch/arch_sr_pam.conf"),
+        OsTarget::OpenSUSE => std::fs::read_to_string("../../resources/opensuse/opensuse.conf"),
+        OsTarget::ArchLinux => std::fs::read_to_string("../../resources/arch/arch_sr_pam.conf"),
     }
 }
 
@@ -379,7 +380,7 @@ fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
     if fs::metadata(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE)).is_err() {
         info!("Deploying PAM configuration file");
         let mut pam_conf = File::create(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE))?;
-        pam_conf.write_all(pam_config(os).as_bytes())?;
+        pam_conf.write_all(pam_config(os)?.as_bytes())?;
         pam_conf.sync_all()?;
     }
     Ok(0)
