@@ -13,17 +13,12 @@ use nix::unistd::{Gid, Uid};
 use strum::EnumIs;
 
 use crate::installer::Profile;
-use crate::util::{BOLD, RED, RST, change_dir_to_project_root, detect_priv_bin, run_checked};
+use crate::util::{BOLD, RED, RST, change_dir_to_project_root, detect_priv_bin, is_run0_command, is_su_command, run_checked};
 use anyhow::{Context, anyhow};
 
 use super::{CHSR_DEST, RAR_BIN_PATH, SR_DEST};
 use crate::util::cap_clear;
 
-fn is_su_command(priv_bin: &str) -> bool {
-    Path::new(priv_bin)
-        .file_name()
-        .is_some_and(|name| name == "su")
-}
 
 fn shell_quote(arg: &str) -> String {
     if arg
@@ -209,8 +204,9 @@ fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyhow::E
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn install(
-    priv_exe: Option<&String>,
+    priv_exe: Option<&Path>,
     profile: Profile,
     clean_after: bool,
     copy: bool,
@@ -239,7 +235,7 @@ pub fn install(
 
         let priv_bin = detect_priv_bin();
         let priv_exe = priv_exe
-            .or(priv_bin.as_ref())
+            .or(priv_bin.as_deref())
             .context("Privileged binary is required")
             .map_err(|_| {
                 anyhow::Error::msg(format!(
@@ -267,6 +263,13 @@ pub fn install(
             ]
             .join(" ");
             command.arg("-c").arg(shell_cmd);
+        } else if is_run0_command(priv_exe) {
+            let shell_cmd = [
+                shell_quote(&current_exe_str),
+                "install".to_string(),
+                "--nested-install".to_string(),
+            ].join(" ");
+            command.arg("--pipe").arg("sh").arg("-c").arg(shell_cmd);
         } else {
             command
                 .arg(&current_exe_str)

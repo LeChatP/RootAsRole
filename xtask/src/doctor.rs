@@ -53,7 +53,7 @@ pub fn doctor(opts: &DoctorOptions) -> Result<(), anyhow::Error> {
     info!("Detected target OS: {os}");
 
     if let Some(priv_bin) = detect_priv_bin() {
-        info!("Privilege escalator: {priv_bin}");
+        info!("Privilege escalator: {}", priv_bin.display());
     } else {
         warn!("No privilege escalator detected (dosr/sudo/doas)");
     }

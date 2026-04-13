@@ -8,7 +8,7 @@ use Command::{Build, Configure, Dependencies, Deploy, Doctor, Install, Uninstall
 use std::process::exit;
 
 use clap::Parser;
-use log::error;
+use log::{debug, error};
 use util::OsTarget;
 
 #[derive(Debug, Parser)]
@@ -46,6 +46,10 @@ fn main() {
         .default_format()
         .format_module_path(true)
         .init();
+    debug!("Starting xtask with arguments: {:?}", std::env::args().collect::<Vec<_>>());
+    if std::env::var_os("ROOTASROLE_INSTALLER_NESTED").is_some() {
+        println!("nested install is enabled");
+    }
     let opts = Options::parse();
     util::set_dry_run(opts.dry_run);
     let ret = match opts.command {

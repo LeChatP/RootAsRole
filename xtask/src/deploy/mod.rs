@@ -1,4 +1,4 @@
-use std::{collections::HashSet, process::Command};
+use std::{collections::HashSet, path::PathBuf, process::Command};
 
 use clap::Parser;
 
@@ -23,7 +23,7 @@ pub struct MakeOptions {
 
     /// The binary to elevate privileges
     #[clap(long, short = 'p', visible_alias = "privbin")]
-    pub priv_bin: Option<String>,
+    pub priv_bin: Option<PathBuf>,
 }
 
 fn all() -> HashSet<OsTarget> {
@@ -47,10 +47,10 @@ pub fn deploy(opts: &MakeOptions) -> Result<(), anyhow::Error> {
     for target in targets {
         match target {
             OsTarget::Debian => {
-                debian::make_deb(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+                debian::make_deb(opts.os.as_ref(), opts.profile, opts.priv_bin.as_deref())?;
             }
             OsTarget::RedHat => {
-                redhat::make_rpm(opts.os.as_ref(), opts.profile, opts.priv_bin.as_ref())?;
+                redhat::make_rpm(opts.os.as_ref(), opts.profile, opts.priv_bin.as_deref())?;
             }
             _ => anyhow::bail!("Unsupported OS target"),
         }

@@ -15,24 +15,8 @@
         "libseccomp-dev"
       ]
     },
-    "redhat": {
-      "aliases": ["centos", "almalinux", "rhel"],
-      "package_manager": {
-        "refresh": ["yum", "update", "-y"],
-        "install": ["yum", "install", "-y"]
-      },
-      "runtime": ["pcre2", "libseccomp"],
-      "development": [
-        "pcre2-devel",
-        "clang-devel",
-        "openssl-devel",
-        "pam-devel",
-        "pandoc",
-        "libseccomp-devel"
-      ]
-    },
     "fedora": {
-      "aliases": ["rockylinux", "rocky"],
+      "aliases": ["rockylinux", "rocky", "centos", "almalinux", "rhel", "redhat"],
       "package_manager": {
         "refresh": ["dnf", "update", "-y"],
         "install": ["dnf", "install", "-y"]

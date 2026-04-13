@@ -1,6 +1,7 @@
 use std::{
     fs::File,
     io::{BufRead, Write},
+    path::Path,
     process::Command,
 };
 
@@ -14,7 +15,7 @@ use crate::{
 
 use super::setup_maint_scripts;
 
-fn dependencies(os: &OsTarget, priv_bin: Option<&String>) -> Result<(), anyhow::Error> {
+fn dependencies(os: &OsTarget, priv_bin: Option<&Path>) -> Result<(), anyhow::Error> {
     install_dependencies(os, &["upx"], priv_bin)
         .context("failed to install packaging dependencies")?;
     run_checked(
@@ -75,11 +76,11 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
 pub fn make_deb(
     os: Option<&OsTarget>,
     profile: Profile,
-    priv_bin: Option<&String>,
+    priv_bin: Option<&Path>,
 ) -> Result<(), anyhow::Error> {
     let os = get_os(os)?;
-    let priv_bin = priv_bin.cloned().or_else(detect_priv_bin);
-    dependencies(&os, priv_bin.as_ref())?;
+    let priv_bin = priv_bin.map(Path::to_path_buf).or_else(detect_priv_bin);
+    dependencies(&os, priv_bin.as_deref())?;
 
     installer::dependencies(&InstallDependenciesOptions {
         os: Some(os),

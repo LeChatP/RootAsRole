@@ -4,6 +4,7 @@ pub mod install;
 mod uninstall;
 
 use std::fmt::Write;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::VecDeque, fmt::Display};
 
@@ -15,6 +16,7 @@ use strum::{Display, EnumIs, EnumString};
 use anyhow::anyhow;
 use log::debug;
 
+use crate::util::path_exe_from_env;
 use crate::{
     configure,
     util::{OsTarget, detect_priv_bin, get_os, is_dry_run},
@@ -68,7 +70,7 @@ pub struct InstallDependenciesOptions {
 
     /// The binary to elevate privileges
     #[clap(long, short = 'p', visible_alias = "privbin")]
-    pub priv_bin: Option<String>,
+    pub priv_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Parser)]
@@ -103,7 +105,7 @@ pub enum Profile {
 pub struct BuildOptions {
     /// The binary to elevate privileges
     #[clap(long, short = 'p', visible_alias = "privbin")]
-    pub priv_bin: Option<String>,
+    pub priv_bin: Option<PathBuf>,
 
     /// Build the target with debug profile (default is release)
     #[clap(short = 'd', long = "debug", default_value_t = Profile::Release, default_missing_value = "debug", num_args = 0)]
@@ -260,7 +262,21 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         unsafe { std::env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
     }
     let os = get_os(opts.os.as_ref())?;
-    let priv_bin = opts.build_opts.priv_bin.clone().or_else(detect_priv_bin);
+    let priv_bin = opts
+        .build_opts
+        .priv_bin
+        .clone()
+        .or_else(detect_priv_bin)
+        .and_then(|bin| {
+            path_exe_from_env(
+                &std::env::var_os("PATH")
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .split(':')
+                    .collect::<Vec<_>>(),
+                bin,
+            )
+        });
     if opts.install_dependencies {
         debug!("Installing dependencies");
         dependencies(&InstallDependenciesOptions {
@@ -274,12 +290,7 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         debug!("Building sr and chsr");
         build(&opts.build_opts)?;
     }
-    if install::install(
-        priv_bin.as_ref(),
-        opts.build_opts.profile,
-        opts.clean_after,
-        true,
-    )?
+    if install::install(priv_bin.as_deref(), opts.build_opts.profile, opts.clean_after, true)?
     .is_yes()
     {
         Ok(())

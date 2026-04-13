@@ -4,7 +4,7 @@ use std::{
     fs::{self, File},
     io,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, ExitStatus, Output},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -84,6 +84,7 @@ pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
 pub const UNDERLINE: &str = "\x1B[4m";
 pub const RED: &str = "\x1B[31m";
+pub const GREEN: &str = "\x1B[32m";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SettingsFile {
@@ -412,12 +413,38 @@ pub fn status_checked(command: &mut Command, action: &str) -> Result<ExitStatus,
     Ok(status)
 }
 
+fn shell_quote(arg: &str) -> String {
+    if arg.is_empty() {
+        "''".to_string()
+    } else if !arg.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"') {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+fn shell_quote_command(command: &Command) -> String {
+    format!("{} {}",
+        command.get_program().to_string_lossy(),
+        command
+        .get_args()
+        .map(|arg| shell_quote(arg.to_string_lossy().as_ref()))
+        .collect::<Vec<_>>()
+        .join(" ")
+    )
+}
+
 /// # Errors
 ///
 /// Will return an error if the command fails to execute or exits with a non-zero code
 pub fn run_checked(command: &mut Command, action: &str) -> Result<(), anyhow::Error> {
+    log_command_execution(command, action);
     let _ = status_checked(command, action)?;
     Ok(())
+}
+
+fn log_command_execution(command: & Command, action: &str) {
+    println!("{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}", shell_quote_command(command), action);
 }
 
 /// # Errors
@@ -532,16 +559,16 @@ pub fn get_os(os: Option<&OsTarget>) -> Result<OsTarget, anyhow::Error> {
 }
 
 #[must_use]
-pub fn detect_priv_bin() -> Option<String> {
+pub fn detect_priv_bin() -> Option<PathBuf> {
     // is /usr/bin/dosr exist ?
     if std::fs::metadata("/usr/bin/dosr").is_ok() {
-        Some("/usr/bin/dosr".to_string())
+        Some("/usr/bin/dosr".into())
     } else if std::fs::metadata("/usr/bin/sudo").is_ok() {
-        Some("/usr/bin/sudo".to_string())
+        Some("/usr/bin/sudo".into())
     } else if std::fs::metadata("/usr/bin/doas").is_ok() {
-        Some("/usr/bin/doas".to_string())
+        Some("/usr/bin/doas".into())
     } else if std::fs::metadata("/usr/bin/please").is_ok() {
-        Some("/usr/bin/please".to_string())
+        Some("/usr/bin/please".into())
     } else {
         None
     }
@@ -553,4 +580,31 @@ pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
     state.effective.clear();
     state.set_current()?;
     Ok(())
+}
+
+#[must_use]
+pub fn is_su_command(priv_bin: &Path) -> bool {
+    priv_bin.file_name().is_some_and(|name| name == "su")
+}
+
+#[must_use]
+pub fn is_run0_command(priv_bin: &Path) -> bool {
+    priv_bin.file_name().is_some_and(|name| name == "run0")
+}
+
+pub fn path_exe_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Option<PathBuf> {
+    env_path
+        .iter()
+        .find_map(|dir| {
+            let full_path = Path::new(dir).join(&exe_name);
+            debug!("Checking path: {}", full_path.display());
+            full_path.is_file().then_some(full_path).and_then(|path| {
+                if path.is_symlink() {
+                    fs::read_link(path)
+                    .ok()
+                } else {
+                    path.canonicalize().ok()
+                }
+            })
+        })
 }

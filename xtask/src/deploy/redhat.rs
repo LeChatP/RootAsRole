@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::path::Path;
 
 use crate::{
     installer::{self, InstallDependenciesOptions, Profile},
@@ -18,11 +19,11 @@ fn install_dependencies() -> Result<(), anyhow::Error> {
 pub fn make_rpm(
     os: Option<&OsTarget>,
     profile: Profile,
-    exe: Option<&String>,
+    exe: Option<&Path>,
 ) -> Result<(), anyhow::Error> {
     install_dependencies()?;
     let os = get_os(os)?;
-    let exe: Option<String> = exe.cloned().or_else(detect_priv_bin);
+    let exe = exe.map(Path::to_path_buf).or_else(detect_priv_bin);
 
     installer::dependencies(&InstallDependenciesOptions {
         os: Some(os),

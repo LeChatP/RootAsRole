@@ -1,4 +1,10 @@
-use std::{borrow::Cow, collections::HashMap, process::ExitStatus, sync::OnceLock};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    path::Path,
+    process::ExitStatus,
+    sync::OnceLock,
+};
 
 use anyhow::Context;
 use capctl::CapState;
@@ -8,7 +14,7 @@ use serde::Deserialize;
 
 use crate::{
     installer::OsTarget,
-    util::{get_os, run_checked, status_checked},
+    util::{self, detect_priv_bin, get_os, path_exe_from_env, run_checked, status_checked},
 };
 
 use super::InstallDependenciesOptions;
@@ -123,7 +129,7 @@ fn resolve_target<'a>(
 }
 
 fn compose_command(
-    priv_bin: Option<&String>,
+    priv_bin: Option<&Path>,
     base: &[Cow<'_, str>],
 ) -> Result<Vec<String>, anyhow::Error> {
     if base.is_empty() {
@@ -133,30 +139,30 @@ fn compose_command(
     let mut command = Vec::new();
     if is_priv_bin_necessary()? {
         if let Some(priv_bin) = priv_bin {
-            if is_su_command(priv_bin) {
+            if util::is_su_command(priv_bin) {
                 let shell_command = base
                     .iter()
                     .map(|arg| shell_quote(arg.as_ref()))
                     .collect::<Vec<String>>()
                     .join(" ");
-                command.push(priv_bin.clone());
+                command.push(priv_bin.to_string_lossy().into_owned());
                 command.push("-c".to_string());
                 command.push(shell_command);
                 return Ok(command);
+            } else if util::is_run0_command(priv_bin) {
+                command.push(priv_bin.to_string_lossy().into_owned());
+                command.push("--pipe".to_string());
+                command.extend(base.iter().map(|s| s.as_ref().to_string()));
+                return Ok(command);
             }
-            command.push(priv_bin.clone());
+            command.push(priv_bin.to_string_lossy().into_owned());
+            
         } else {
             return Err(anyhow::anyhow!("Privileged binary is required"));
         }
     }
     command.extend(base.iter().map(|s| s.as_ref().to_string()));
     Ok(command)
-}
-
-fn is_su_command(priv_bin: &str) -> bool {
-    std::path::Path::new(priv_bin)
-        .file_name()
-        .is_some_and(|name| name == "su")
 }
 
 fn shell_quote(arg: &str) -> String {
@@ -170,7 +176,7 @@ fn shell_quote(arg: &str) -> String {
     }
 }
 
-fn update_package_manager(os: &OsTarget, priv_bin: Option<&String>) -> Result<(), anyhow::Error> {
+fn update_package_manager(os: &OsTarget, priv_bin: Option<&Path>) -> Result<(), anyhow::Error> {
     let manifest = dependencies_manifest()?;
     let target = resolve_target(manifest, os)?;
     let command = compose_command(priv_bin, target.package_manager.refresh.as_slice())?;
@@ -216,7 +222,7 @@ fn is_priv_bin_necessary() -> Result<bool, anyhow::Error> {
 pub fn install_dependencies(
     os: &OsTarget,
     deps: &[&str],
-    priv_bin: Option<&String>,
+    priv_bin: Option<&Path>,
 ) -> Result<ExitStatus, anyhow::Error> {
     let manifest = dependencies_manifest()?;
     let target = resolve_target(manifest, os)?;
@@ -232,14 +238,28 @@ pub fn install_dependencies(
 
 pub fn install(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
     let os = get_os(opts.os.as_ref())?;
-    update_package_manager(&os, opts.priv_bin.as_ref())?;
+    let priv_bin = opts
+        .priv_bin
+        .clone()
+        .or_else(detect_priv_bin)
+        .and_then(|bin| {
+            path_exe_from_env(
+                &std::env::var_os("PATH")
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .split(':')
+                    .collect::<Vec<_>>(),
+                bin,
+            )
+        });
+    update_package_manager(&os, priv_bin.as_deref())?;
     // dependencies are : libpam and libpcre2
     info!("Installing dependencies: libpam.so and libpcre2.so for running the application");
 
     let manifest = dependencies_manifest()?;
     let deps = get_dependencies(manifest, &os, opts.dev)?;
     let deps: Vec<&str> = deps.iter().map(std::convert::AsRef::as_ref).collect();
-    install_dependencies(&os, &deps, opts.priv_bin.as_ref())?;
+    install_dependencies(&os, &deps, priv_bin.as_deref())?;
 
     info!("Dependencies installed successfully");
     Ok(())
