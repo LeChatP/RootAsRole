@@ -14,7 +14,7 @@ use capctl::Cap;
 use capctl::CapState;
 use chrono::Duration;
 use clap::ValueEnum;
-use log::debug;
+use log::{debug, info};
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
@@ -444,7 +444,7 @@ pub fn run_checked(command: &mut Command, action: &str) -> Result<(), anyhow::Er
 }
 
 fn log_command_execution(command: & Command, action: &str) {
-    println!("{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}", shell_quote_command(command), action);
+    info!("{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}", shell_quote_command(command), action);
 }
 
 /// # Errors

@@ -256,25 +256,35 @@ pub fn install(
             .to_string();
         let mut command = std::process::Command::new(priv_exe);
         if is_su_command(priv_exe) {
-            let shell_cmd = [
+            let mut shell_cmd_args = vec![
                 shell_quote(&current_exe_str),
                 "install".to_string(),
                 "--nested-install".to_string(),
-            ]
-            .join(" ");
+            ];
+            if profile.is_debug() {
+                shell_cmd_args.push("--debug".to_string());
+            }
+            let shell_cmd = shell_cmd_args.join(" ");
             command.arg("-c").arg(shell_cmd);
         } else if is_run0_command(priv_exe) {
-            let shell_cmd = [
+            let mut shell_cmd_args = vec![
                 shell_quote(&current_exe_str),
                 "install".to_string(),
                 "--nested-install".to_string(),
-            ].join(" ");
+            ];
+            if profile.is_debug() {
+                shell_cmd_args.push("--debug".to_string());
+            }
+            let shell_cmd = shell_cmd_args.join(" ");
             command.arg("--pipe").arg("sh").arg("-c").arg(shell_cmd);
         } else {
             command
                 .arg(&current_exe_str)
                 .arg("install")
                 .arg("--nested-install");
+            if profile.is_debug() {
+                command.arg("--debug");
+            }
         }
         run_checked(
             &mut command,

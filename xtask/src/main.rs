@@ -8,7 +8,7 @@ use Command::{Build, Configure, Dependencies, Deploy, Doctor, Install, Uninstall
 use std::process::exit;
 
 use clap::Parser;
-use log::{debug, error};
+use log::{debug, error, info};
 use util::OsTarget;
 
 #[derive(Debug, Parser)]
@@ -43,12 +43,15 @@ enum Command {
 
 fn main() {
     env_logger::builder()
-        .default_format()
-        .format_module_path(true)
+        .filter_level(log::LevelFilter::Info)
+        .format_module_path(false)
+        .format_file(false)
+        .format_source_path(false)
+        .format_target(false)
         .init();
     debug!("Starting xtask with arguments: {:?}", std::env::args().collect::<Vec<_>>());
     if std::env::var_os("ROOTASROLE_INSTALLER_NESTED").is_some() {
-        println!("nested install is enabled");
+        info!("nested install is enabled");
     }
     let opts = Options::parse();
     util::set_dry_run(opts.dry_run);
