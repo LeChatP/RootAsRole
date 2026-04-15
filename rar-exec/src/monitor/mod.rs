@@ -6,8 +6,8 @@ use std::process::Command;
 use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
-use crate::terminal::TerminalExt;
 use crate::signal::{SignalStream, register_signal_handler};
+use crate::terminal::TerminalExt;
 use libc::{SIGCHLD, SIGKILL};
 
 pub mod backchannel;
