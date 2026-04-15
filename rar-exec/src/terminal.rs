@@ -127,79 +127,83 @@ pub mod sealed {
     pub trait Sealed {}
 
     impl<F: AsFd> Sealed for F {}
-
-    /// Real TTY
-    pub trait SafeTty {}
-
-    impl<T: SafeTty> SafeTty for &mut T {}
-    impl SafeTty for super::UserTerm {}
 }
 
-pub trait Terminal: sealed::Sealed {
+pub struct TtyFd<'a, F: AsFd + ?Sized> {
+    fd: &'a F,
+}
+
+impl<F: AsFd + ?Sized> TtyFd<'_, F> {
+    /// # Errors
+    /// Returns an error if system call fails.
+    pub fn tcgetpgrp(&self) -> io::Result<ProcessId> {
+        // SAFETY: valid tty
+        let id = cerr(unsafe { libc::tcgetpgrp(self.fd.as_fd().as_raw_fd()) })?;
+        Ok(ProcessId::new(id))
+    }
+
+    /// # Errors
+    /// Returns an error if system call fails.
+    pub fn tcsetpgrp(&self, pgrp: ProcessId) -> io::Result<()> {
+        // SAFETY: valid tty
+        cerr(unsafe { libc::tcsetpgrp(self.fd.as_fd().as_raw_fd(), pgrp.inner()) }).map(|_| ())
+    }
+
+    /// # Errors
+    /// Returns an error if system call fails.
+    pub fn make_controlling_terminal(&self) -> io::Result<()> {
+        // SAFETY: valid tty
+        cerr(unsafe { libc::ioctl(self.fd.as_fd().as_raw_fd(), libc::TIOCSCTTY, 0) })?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// Returns an error if system call fails.
+    pub fn tcgetsid(&self) -> io::Result<ProcessId> {
+        // SAFETY: valid tty
+        let id = cerr(unsafe { libc::tcgetsid(self.fd.as_fd().as_raw_fd()) })?;
+        Ok(ProcessId::new(id))
+    }
+}
+
+pub trait TerminalExt: sealed::Sealed + AsFd {
+    /// # Errors
+    /// Returns [`io::ErrorKind::Unsupported`] when the file descriptor is not a TTY.
+    fn as_tty(&self) -> io::Result<TtyFd<'_, Self>>
+    where
+        Self: Sized,
+    {
+        if safe_isatty(self.as_fd()) {
+            Ok(TtyFd { fd: self })
+        } else {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+
     #[must_use]
     fn is_terminal_for_pgrp(&self, pgrp: ProcessId) -> bool;
-    /// # Errors
-    /// Returns an error if system call fails.
-    fn tcgetpgrp(&self) -> io::Result<ProcessId>
-    where
-        Self: sealed::SafeTty;
-    /// # Errors
-    /// Returns an error if system call fails.
-    fn tcsetpgrp(&self, pgrp: ProcessId) -> io::Result<()>
-    where
-        Self: sealed::SafeTty;
-    /// # Errors
-    /// Returns an error if system call fails.
-    fn make_controlling_terminal(&self) -> io::Result<()>
-    where
-        Self: sealed::SafeTty;
     /// # Errors
     /// Returns an error if system call fails.
     fn ttyname(&self) -> io::Result<OsString>;
     #[must_use]
     fn is_pipe_or_socket(&self) -> bool;
-    /// # Errors
-    /// Returns an error if system call fails.
-    fn tcgetsid(&self) -> io::Result<ProcessId>
-    where
-        Self: sealed::SafeTty;
 }
 
-impl<F: AsFd> Terminal for F {
+impl<F: AsFd> TerminalExt for F {
     fn is_terminal_for_pgrp(&self, pgrp: ProcessId) -> bool {
-        if !safe_isatty(self.as_fd()) {
-            return false;
-        }
-        // SAFETY: valid tty
-        let Ok(id) = cerr(unsafe { libc::tcgetpgrp(self.as_fd().as_raw_fd()) }) else {
+        let Ok(tty) = self.as_tty() else {
             return false;
         };
-        ProcessId::new(id) == pgrp
-    }
-
-    fn tcgetpgrp(&self) -> io::Result<ProcessId> {
-        // SAFETY: valid tty
-        let id = cerr(unsafe { libc::tcgetpgrp(self.as_fd().as_raw_fd()) })?;
-        Ok(ProcessId::new(id))
-    }
-
-    fn tcsetpgrp(&self, pgrp: ProcessId) -> io::Result<()> {
-        // SAFETY: valid tty
-        cerr(unsafe { libc::tcsetpgrp(self.as_fd().as_raw_fd(), pgrp.inner()) }).map(|_| ())
-    }
-
-    fn make_controlling_terminal(&self) -> io::Result<()> {
-        // SAFETY: valid tty
-        cerr(unsafe { libc::ioctl(self.as_fd().as_raw_fd(), libc::TIOCSCTTY, 0) })?;
-        Ok(())
+        let Ok(id) = tty.tcgetpgrp() else {
+            return false;
+        };
+        id == pgrp
     }
 
     fn ttyname(&self) -> io::Result<OsString> {
         let mut buf: [c_char; 1024] = [0; 1024];
 
-        if !safe_isatty(self.as_fd()) {
-            return Err(io::ErrorKind::Unsupported.into());
-        }
+        self.as_tty()?;
 
         // SAFETY: buffer size OK
         cerr(unsafe { libc::ttyname_r(self.as_fd().as_raw_fd(), buf.as_mut_ptr(), buf.len()) })?;
@@ -208,12 +212,6 @@ impl<F: AsFd> Terminal for F {
 
     fn is_pipe_or_socket(&self) -> bool {
         is_fifo_or_sock(self.as_fd())
-    }
-
-    fn tcgetsid(&self) -> io::Result<ProcessId> {
-        // SAFETY: valid tty
-        let id = cerr(unsafe { libc::tcgetsid(self.as_fd().as_raw_fd()) })?;
-        Ok(ProcessId::new(id))
     }
 }
 
@@ -428,7 +426,7 @@ impl UserTerm {
     /// # Errors
     /// Returns an error if system call fails or if the process is put in background and receives `SIGTTOU`.
     pub fn tcsetpgrp_nobg(&self, pgrp: ProcessId) -> io::Result<()> {
-        catching_sigttou(|| self.tcsetpgrp(pgrp))
+        catching_sigttou(|| self.as_tty().and_then(|tty| tty.tcsetpgrp(pgrp)))
     }
 }
 
@@ -460,32 +458,9 @@ impl Drop for UserTerm {
     }
 }
 
-pub mod steps {
-    use super::io;
-    use crate::orchestrator::{PreExecContext, PreExecStep, Stage};
-    use libc::{TIOCSCTTY, ioctl};
-
-    /// # Errors
-    /// Returns an error if system call fails.
-    /// # Safety
-    /// It can cause undefined behavior if the provided file descriptor is not a valid TTY.
-    pub unsafe fn set_controlling_terminal(ctx: PreExecContext) -> io::Result<()> {
-        let fd = ctx.tty_fd.unwrap_or(0); // Default to stdin if not provided
-        if unsafe { ioctl(fd, TIOCSCTTY, 0) } == -1 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    }
-
-    pub const SET_CTTY: PreExecStep = PreExecStep {
-        stage: Stage::PTY,
-        run: set_controlling_terminal,
-    };
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::terminal::{self, ProcessId, TermSize, Terminal, UserTerm};
+    use crate::terminal::{self, ProcessId, TermSize, TerminalExt, UserTerm};
     use std::fs::File;
 
     #[test]

@@ -7,7 +7,7 @@ use std::{
 
 use libc::{TIOCSWINSZ, ioctl};
 
-use super::terminal::{self, TermSize};
+use super::terminal::TermSize;
 
 // duplicated helper
 #[inline]
@@ -128,8 +128,6 @@ impl AsFd for PtyLeader {
     }
 }
 
-impl terminal::sealed::SafeTty for PtyLeader {}
-
 pub struct PtyFollower {
     file: File,
 }
@@ -147,8 +145,6 @@ impl AsFd for PtyFollower {
         self.file.as_fd()
     }
 }
-
-impl terminal::sealed::SafeTty for PtyFollower {}
 
 impl From<PtyFollower> for std::process::Stdio {
     fn from(follower: PtyFollower) -> Self {

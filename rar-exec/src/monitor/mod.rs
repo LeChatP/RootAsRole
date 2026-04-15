@@ -6,6 +6,7 @@ use std::process::Command;
 use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
+use crate::terminal::TerminalExt;
 use crate::signal::{SignalStream, register_signal_handler};
 use libc::{SIGCHLD, SIGKILL};
 
@@ -144,7 +145,7 @@ pub fn exec_monitor_process(
         return Err(io::Error::last_os_error());
     }
 
-    let _ = unsafe { libc::ioctl(pty_follower.as_fd().as_raw_fd(), libc::TIOCSCTTY, 0) };
+    pty_follower.as_tty()?.make_controlling_terminal()?;
 
     let f_fd = pty_follower.as_fd().as_raw_fd();
     unsafe {

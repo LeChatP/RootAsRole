@@ -112,7 +112,9 @@ pub fn with_pre_exec_orchestrator(
 
 pub mod steps {
     use super::{PreExecContext, PreExecStep, Stage, io};
-    use libc::{TIOCSCTTY, ioctl, setsid};
+    use crate::terminal::TerminalExt;
+    use libc::setsid;
+    use std::os::fd::BorrowedFd;
 
     /// # Errors
     /// Returns an error if the setsid system call fails.
@@ -126,15 +128,14 @@ pub mod steps {
     }
 
     /// # Errors
-    /// Returns an error if the ioctl system call fails.
+    /// Returns an error if the file descriptor is not a TTY or if the controlling-terminal setup fails.
     /// # Safety
     /// The caller must ensure that the provided file descriptor is valid and refers to a terminal.
     pub unsafe fn set_controlling_terminal(ctx: PreExecContext) -> io::Result<()> {
-        let fd = ctx.tty_fd.unwrap_or(0); // Default to stdin if not provided
-        if unsafe { ioctl(fd, TIOCSCTTY, 1) } == -1 {
-            // ignore
-        }
-        Ok(())
+        let fd = ctx.tty_fd.unwrap_or(0);
+        // SAFETY: the caller promises the raw fd is valid for the duration of this call.
+        let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+        borrowed.as_tty()?.make_controlling_terminal()
     }
 
     pub const SESSION: PreExecStep = PreExecStep {
