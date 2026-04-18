@@ -150,34 +150,210 @@ pub mod steps {
 }
 
 #[cfg(test)]
-mod example {
+#[allow(clippy::unnecessary_wraps)]
+mod tests {
     use super::*;
-    use libc::*;
+    use crate::pty::Pty;
+    use std::os::fd::{AsFd, AsRawFd};
+    use std::process::Stdio;
+    use std::os::unix::net::UnixStream;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    unsafe fn _create_session(_: PreExecContext) -> io::Result<()> {
-        if unsafe { setsid() } == -1 {
-            return Err(io::Error::last_os_error());
+    static STATE: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe fn step_first(ctx: PreExecContext) -> io::Result<()> {
+        assert_eq!(ctx.tty_fd, Some(42));
+        assert_eq!(STATE.load(Ordering::SeqCst), 0);
+        STATE.store(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn step_second(ctx: PreExecContext) -> io::Result<()> {
+        assert_eq!(ctx.tty_fd, Some(42));
+        assert_eq!(STATE.load(Ordering::SeqCst), 1);
+        STATE.store(2, Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn step_ok(_: PreExecContext) -> io::Result<()> {
+        STATE.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn step_err(_: PreExecContext) -> io::Result<()> {
+        STATE.fetch_add(1, Ordering::SeqCst);
+        Err(io::Error::other("failing step"))
+    }
+
+    unsafe fn step_never(_: PreExecContext) -> io::Result<()> {
+        STATE.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    unsafe fn ensure_ctx_none(ctx: PreExecContext) -> io::Result<()> {
+        if ctx.tty_fd.is_some() {
+            return Err(io::Error::other("tty fd should not be set"));
         }
         Ok(())
     }
 
-    unsafe fn _drop_privileges(_: PreExecContext) -> io::Result<()> {
-        if unsafe { setuid(1000) } == -1 {
-            return Err(io::Error::last_os_error());
+    unsafe fn ensure_ctx_7(ctx: PreExecContext) -> io::Result<()> {
+        if ctx.tty_fd != Some(7) {
+            return Err(io::Error::other("tty fd should be set to 7"));
         }
         Ok(())
     }
 
-    pub static _STEPS: &[PreExecStep] = &[
+    static ORDERED_STEPS: &[PreExecStep] = &[
         PreExecStep {
             stage: Stage::SESSION,
-            run: _create_session,
+            run: step_first,
         },
         PreExecStep {
             stage: Stage::PRIV_DROP,
-            run: _drop_privileges,
+            run: step_second,
         },
     ];
 
-    pub static _ORCH: Orchestrator = Orchestrator::new(_STEPS);
+    static FAILING_STEPS: &[PreExecStep] = &[
+        PreExecStep {
+            stage: Stage::SESSION,
+            run: step_ok,
+        },
+        PreExecStep {
+            stage: Stage::PRIV_DROP,
+            run: step_err,
+        },
+        PreExecStep {
+            stage: Stage::LOCKDOWN,
+            run: step_never,
+        },
+    ];
+
+    static UNSORTED_STEPS: &[PreExecStep] = &[
+        PreExecStep {
+            stage: Stage::PRIV_DROP,
+            run: step_ok,
+        },
+        PreExecStep {
+            stage: Stage::SESSION,
+            run: step_ok,
+        },
+    ];
+
+    static NONE_CTX_STEP: &[PreExecStep] = &[PreExecStep {
+        stage: Stage::SESSION,
+        run: ensure_ctx_none,
+    }];
+
+    static SOME_CTX_STEP: &[PreExecStep] = &[PreExecStep {
+        stage: Stage::SESSION,
+        run: ensure_ctx_7,
+    }];
+
+    #[test]
+    fn stage_and_context_helpers() {
+        assert_eq!(Stage::custom(9).order(), 9);
+        assert_eq!(PreExecContext::empty().tty_fd, None);
+        assert_eq!(PreExecContext::with_tty(99).tty_fd, Some(99));
+    }
+
+    #[test]
+    fn orchestrator_runs_steps_in_order() {
+        STATE.store(0, Ordering::SeqCst);
+        let orch = Orchestrator::new(ORDERED_STEPS);
+        let ctx = PreExecContext::with_tty(42);
+        unsafe {
+            orch.run(&ctx).expect("ordered steps should succeed");
+        }
+        assert_eq!(STATE.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn orchestrator_stops_on_first_error() {
+        STATE.store(0, Ordering::SeqCst);
+        let orch = Orchestrator::new(FAILING_STEPS);
+        let ctx = PreExecContext::empty();
+        let res = unsafe { orch.run(&ctx) };
+        assert!(res.is_err());
+        assert_eq!(STATE.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "PreExecSteps must be ordered by stage")]
+    fn orchestrator_rejects_unsorted_steps() {
+        let _ = Orchestrator::new(UNSORTED_STEPS);
+    }
+
+    #[test]
+    fn with_pre_exec_orchestrator_uses_default_context() {
+        let orch = Box::leak(Box::new(Orchestrator::new(NONE_CTX_STEP)));
+        let cmd = Command::new("true");
+        let mut cmd = with_pre_exec_orchestrator(cmd, orch, None);
+        let status = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("child should start and exit successfully");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn with_pre_exec_orchestrator_uses_provided_context() {
+        let orch = Box::leak(Box::new(Orchestrator::new(SOME_CTX_STEP)));
+        let cmd = Command::new("true");
+        let mut cmd = with_pre_exec_orchestrator(cmd, orch, Some(PreExecContext::with_tty(7)));
+        let status = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("child should start and exit successfully");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn set_controlling_terminal_rejects_non_tty_fd() {
+        let (sock_a, _sock_b) = UnixStream::pair().expect("socket pair should be created");
+        let ctx = PreExecContext::with_tty(sock_a.as_raw_fd());
+        let res = unsafe { steps::set_controlling_terminal(ctx) };
+        assert!(res.is_err());
+        assert_eq!(
+            res.expect_err("must fail on non-tty fd").kind(),
+            io::ErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn set_controlling_terminal_accepts_pty_in_child_session() {
+        let pty = Pty::open().expect("pty should open");
+        let follower_fd = pty.follower.as_fd().as_raw_fd();
+
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork must succeed");
+
+        if pid == 0 {
+            if unsafe { libc::setsid() } == -1 {
+                unsafe { libc::_exit(2) };
+            }
+            let ctx = PreExecContext::with_tty(follower_fd);
+            let code = if unsafe { steps::set_controlling_terminal(ctx) }.is_ok() {
+                0
+            } else {
+                3
+            };
+            unsafe { libc::_exit(code) };
+        }
+
+        let mut status = 0;
+        let waited = unsafe { libc::waitpid(pid, &raw mut status, 0) };
+        assert_eq!(waited, pid, "waitpid should return the child pid");
+        assert!(libc::WIFEXITED(status), "child should exit normally");
+        assert_eq!(
+            libc::WEXITSTATUS(status),
+            0,
+            "child should successfully set controlling terminal"
+        );
+    }
 }
