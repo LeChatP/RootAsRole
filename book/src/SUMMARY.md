@@ -1,14 +1,38 @@
 # Summary
 
 [Introduction](README.md)
-[History](HISTORY.md)
 
-# User Guide
+# Getting Started
 
 - [Installation](guide/installation.md)
-- [`dosr` Command Line Tool](dosr/README.md)
-- [`chsr` Command Line Tool](chsr/README.md)
-- [`capable` Command Line Tool](capable/README.md)
+- [First Policy in 10 Minutes](getting-started/quickstart.md)
+
+# CLI Reference
+
+- [`dosr`](dosr/README.md)
+- [`chsr`](chsr/README.md)
+- [`capable`](capable/README.md)
+
+# Policy Reference
+
+- [Policy Model and Inheritance](policy/model.md)
+- [Configuration File Format](chsr/file-config.md)
+- [File Format Conversion (JSON/CBOR)](chsr/convert.md)
+
+# Operations
+
+- [Security Model](operations/security.md)
+- [FAQ](faq.md)
+
+# Developer Guide
+
+- [Architecture Overview](architecture/overview.md)
+- [How to contribute](dev/CONTRIBUTE.md)
+- [Code of Conduct](dev/CODE_OF_CONDUCT.md)
+
+# Appendix
+
+- [History](HISTORY.md)
 
 # Knowledge Guide
 
@@ -21,14 +45,5 @@
 - [Is a Linux system without root user possible ?](knowledge/no-root.md)
 
 # Reference Guide
-
-- [Configure RootAsRole](chsr/file-config.md)
-- [File Config Conversion](chsr/convert.md)
-- [Continuous Integration](continuous-integration.md)
-- [How to contribute](dev/CONTRIBUTE.md)
-- [FAQ](faq.md)
-- [Code of Conduct](dev/CODE_OF_CONDUCT.md)
-
------------
 
 [Contributors](misc/contributors.md)

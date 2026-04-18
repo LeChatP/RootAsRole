@@ -1,15 +1,47 @@
-# File Config Conversion
+# File Format Conversion
 
-## Converting JSON to CBOR and vice versa
+`chsr convert` converts RootAsRole policy storage between JSON and CBOR.
 
-Converting the `/etc/security/rootasrole.json` file to CBOR format (and configure the policy to the new location with `-r` option) :
+## Supported formats
 
-`chsr convert -r cbor /etc/security/rootasrole.bin`
+- `json`
+- `cbor`
 
-This command will read the JSON file, convert it to CBOR format, and save it to `/etc/security/rootasrole.bin`. The `-r` option changes the file `/etc/security/rootasrole.json` to specify the new location in `path` field of the configuration file.
+## Command forms
 
-To convert the CBOR file back to JSON format, you can use the following command:
+```text
+chsr convert [--from <from_type> <from_file>] <to_type> <to_file>
+chsr convert -r [--from <from_type> <from_file>] <to_type> <to_file>
+```
 
-`chsr convert -r json /etc/security/rootasrole.json`
+- `--from`: explicitly select source format and source file.
+- `-r` / `--reconfigure`: update `/etc/security/rootasrole.json` so storage points to the new file.
 
-This command will read the CBOR file, convert it back to JSON format, and save it to `/etc/security/rootasrole.json`. The `-r` option changes the file `/etc/security/rootasrole.json` to specify the new location in `path` field of the configuration file.
+## Common examples
+
+Convert current policy storage to CBOR and reconfigure runtime:
+
+```bash
+chsr convert -r cbor /etc/security/rootasrole.bin
+```
+
+Convert back to JSON and reconfigure runtime:
+
+```bash
+chsr convert -r json /etc/security/rootasrole.json
+```
+
+Explicit source/target conversion:
+
+```bash
+chsr convert --from json /etc/security/rootasrole.json cbor /etc/security/rootasrole.bin
+```
+
+## Operational notes
+
+- Keep target files in protected system paths.
+- If policy content changes during migration prep, prefer `chsr editor` to catch invalid policies before write.
+- Validate policy execution after conversion with `dosr -i <command>`.
+- Use version control and backups before large migrations.
+
+For policy field details, see [Configuration File Format](file-config.md).

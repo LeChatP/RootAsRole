@@ -1,15 +1,13 @@
 [book]
 authors = ["LeChatP"]
 language = "en"
-multilingual = false
 src = "src"
-title = "RootAsRole Guide Book"
-description = "A Book for understanding RootAsRole concepts and how to use it"
+title = "RootAsRole Documentation"
+description = "Practical documentation for RootAsRole"
 
 [output.html]
-git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/master/book"
-edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{path}"
-
+git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/main/book"
+edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/main/book/{path}"
 
 [preprocessor.graphviz]
 command = "mdbook-graphviz"

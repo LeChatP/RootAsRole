@@ -1,9 +1,24 @@
-# Why you need to use Linux Capabilities
+# Linux capabilities and RootAsRole
 
-Linux capabilities are a way to give specific privileges to a process without giving it full root access. This is useful when you want to give a process the ability to do something that requires root privileges, but you don't want to change user. For example, you might want to give a process the ability to bind to a privileged port (ports below 1024), but you don't want become root user or get other privileges.
+Linux capabilities split superuser privileges into explicit units. This is the technical basis that allows RootAsRole to enforce least privilege during command execution @@wazanRootAsRoleSecurityModule2022 @@billoirImplementingPrincipleLeast2023.
 
-## How Linux Capabilities work
+## Why this is central to the project
 
-Linux capabilities are a way to split the privileges of the root user into a set of distinct capabilities. Each capability is a specific privilege that can be granted to a process. For example, the `CAP_NET_BIND_SERVICE` capability allows a process to bind to a privileged port.
+RootAsRole does not only decide *who* can run a command; it also controls *which privileges* are granted at execution time (`cred.capabilities`, `setuid`, `setgid`).
 
-You can find more information about Linux capabilities in the [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html)
+In practice, this enables:
+
+- privilege minimization per task
+- reduction of full-root execution paths
+- auditable privilege intent in policy
+
+## Operational guidance
+
+1. Start from minimal capability sets.
+2. Prefer command-scoped tasks over broad command wildcards.
+3. Review tasks that grant `all` capabilities as high risk.
+4. Periodically validate real needs with `capable` and execution tests.
+
+This is the core operational idea behind RootAsRole: keep privileges narrow and visible in policy @@billoirImplementingPrincipleLeast2024.
+
+For kernel-level capability semantics, see [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html).
