@@ -233,11 +233,11 @@ where
 #[cfg(not(tarpaulin_include))]
 fn main() {
     if let Err(e) = subsribe("sr") {
-        eprintln!("sr: Failed to initialize logging: {e}");
+        eprintln!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
     if let Err(e) = main_inner() {
-        eprintln!("sr: {e}");
+        eprintln!("dosr: {e}");
         if e == SrError::InsufficientPrivileges {
             error!("Insufficient privileges to run sr. {CAPABILITIES_ERROR}");
         } else if e == SrError::AuthenticationFailed {
@@ -420,7 +420,7 @@ fn main_inner() -> SrResult<()> {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
-            eprintln!("sr: {} : {}", cfinal_path.display(), e);
+            eprintln!("dosr: {} : {}", cfinal_path.display(), e);
             std::process::exit(1);
         }
     };
