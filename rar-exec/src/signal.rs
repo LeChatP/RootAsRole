@@ -94,6 +94,13 @@ pub struct SignalStream {
     tx: OwnedFd,
 }
 
+impl Drop for SignalStream {
+    fn drop(&mut self) {
+        // Mark write_fd as invalid before dropping to prevent use-after-free in signal handlers
+        WRITE_FD.store(-1, Ordering::Release);
+    }
+}
+
 impl SignalStream {
     /// # Errors
     /// Returns an error if the signal stream cannot be initialized, which can happen due to failure
@@ -171,7 +178,8 @@ impl AsFd for SignalStream {
 // - Event loop is blocked processing other events
 // - The receiver (SignalStream::recv) isn't called frequently enough
 extern "C" fn handler(signal: SignalNumber) {
-    let fd = WRITE_FD.load(Ordering::Relaxed);
+    // Use Acquire ordering to ensure we see the most recent value written by init()
+    let fd = WRITE_FD.load(Ordering::Acquire);
     if fd < 0 {
         return;
     }
@@ -189,17 +197,19 @@ extern "C" fn handler(signal: SignalNumber) {
 /// Returns an error if :
 /// - invalid signal number is provided
 /// - system call to set signal handler fails
-/// - the signal handler is called but writing to the signal stream fails (e.g., if the pipe buffer is full)
 pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
     sa.sa_sigaction = handler as *const () as usize;
+    // Use SA_RESTART to avoid interrupting system calls
     sa.sa_flags = libc::SA_RESTART;
+    
+    // Block all signals during signal handler execution to prevent re-entrancy issues
     // SAFETY: valid sigset pointer.
     unsafe {
-        libc::sigemptyset(&raw mut sa.sa_mask);
+        libc::sigfillset(&raw mut sa.sa_mask);
     }
 
-    // SAFETY: sigaction
+    // SAFETY: valid sigaction call with initialized struct
     unsafe {
         if libc::sigaction(signal, &raw const sa, std::ptr::null_mut()) == -1 {
             return Err(io::Error::last_os_error());
