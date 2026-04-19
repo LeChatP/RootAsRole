@@ -11,10 +11,20 @@ use ringbuf::traits::{Consumer, Observer, Producer, Split};
 
 pub const BUFFER_LEN: usize = 8 * 1024;
 
-pub trait IoLogger {
-    fn log_input(&mut self, data: &[u8]);
-    fn log_output(&mut self, data: &[u8]);
+// Let's seal the IoLogger trait
+pub mod io_logger_sealed {
+    pub trait Sealed {
+        fn log_input(&mut self, data: &[u8]);
+        fn log_output(&mut self, data: &[u8]);
+    }
 }
+
+pub trait IoLogger: io_logger_sealed::Sealed {}
+
+impl<T: io_logger_sealed::Sealed> IoLogger for T {}
+
+// Type alias for a boxed ``IoLogger`` trait object
+pub type BoxedLogger = Box<dyn IoLogger>;
 
 // A pipe able to stream data bidirectionally between two read-write types.
 pub struct Pipe<L, R> {
@@ -23,7 +33,7 @@ pub struct Pipe<L, R> {
     buffer_lr: Buffer<L, R>,
     buffer_rl: Buffer<R, L>,
     background: bool,
-    logger: Option<Box<dyn IoLogger>>,
+    logger: Option<BoxedLogger>,
 }
 
 impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
@@ -34,7 +44,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
         registry: &mut EventRegistry<T>,
         f_left: fn(PollEvent) -> T::Event,
         f_right: fn(PollEvent) -> T::Event,
-        logger: Option<Box<dyn IoLogger>>,
+        logger: Option<BoxedLogger>,
     ) -> Self {
         Self {
             buffer_lr: Buffer::new(
@@ -102,10 +112,10 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 } else if let Some(logger) = &mut self.logger {
                     let (s1, s2) = self.buffer_lr.get_last_n_bytes(bytes_read);
                     if !s1.is_empty() {
-                        logger.log_input(s1);
+                        io_logger_sealed::Sealed::log_input(logger.as_mut(), s1);
                     }
                     if !s2.is_empty() {
-                        logger.log_input(s2);
+                        io_logger_sealed::Sealed::log_input(logger.as_mut(), s2);
                     }
                 }
                 Ok(())
@@ -134,10 +144,10 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 } else if let Some(logger) = &mut self.logger {
                     let (s1, s2) = self.buffer_rl.get_last_n_bytes(bytes_read);
                     if !s1.is_empty() {
-                        logger.log_output(s1);
+                        io_logger_sealed::Sealed::log_output(logger.as_mut(), s1);
                     }
                     if !s2.is_empty() {
-                        logger.log_output(s2);
+                        io_logger_sealed::Sealed::log_output(logger.as_mut(), s2);
                     }
                 }
                 Ok(())
@@ -181,7 +191,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 match source.read(&mut buf) {
                     Ok(read_bytes) => {
                         if let Some(logger) = &mut self.logger {
-                            logger.log_output(&buf[..read_bytes]);
+                            io_logger_sealed::Sealed::log_output(logger.as_mut(), &buf[..read_bytes]);
                         }
                         sink.write_all(&buf[..read_bytes])?;
                     }
@@ -310,7 +320,7 @@ impl<R: Read, W: Write> Buffer<R, W> {
 #[cfg(test)]
 mod tests {
     use crate::event::{EventRegistry, PollEvent, Process};
-    use crate::pipe::{IoLogger, Pipe};
+    use crate::pipe::Pipe;
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
@@ -329,7 +339,7 @@ mod tests {
         output_log: Arc<Mutex<Vec<u8>>>,
     }
 
-    impl IoLogger for MockLogger {
+    impl super::io_logger_sealed::Sealed for MockLogger {
         fn log_input(&mut self, data: &[u8]) {
             self.input_log.lock().unwrap().extend_from_slice(data);
         }

@@ -12,6 +12,60 @@ static WRITE_FD: AtomicI32 = AtomicI32::new(-1);
 
 pub type SignalNumber = libc::c_int;
 
+/// RAII wrapper for creating pipes with specified flags.
+///
+/// This struct ensures that file descriptors are properly managed and cleaned up via RAII.
+pub struct PipeFactory {
+    reader: OwnedFd,
+    writer: OwnedFd,
+}
+
+impl PipeFactory {
+    /// Creates a new pipe with the specified flags.
+    ///
+    /// # Errors
+    /// Returns an IO error if pipe creation fails.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let pipe = PipeFactory::new(libc::O_CLOEXEC | libc::O_NONBLOCK)?;
+    /// let (reader, writer) = pipe.split();
+    /// ```
+    pub fn new(flags: i32) -> io::Result<Self> {
+        let mut fds = [-1; 2];
+        // SAFETY: valid pointer to 2 fds, libc::pipe2 is safe to call here
+        let ret = unsafe { libc::pipe2(fds.as_mut_ptr(), flags) };
+
+        if ret == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(Self {
+            // SAFETY: pipe2 succeeded, fds[0] and fds[1] are valid file descriptors
+            reader: unsafe { OwnedFd::from_raw_fd(fds[0]) },
+            writer: unsafe { OwnedFd::from_raw_fd(fds[1]) },
+        })
+    }
+
+    /// Consumes the pipe and returns the reader and writer file descriptors.
+    #[must_use]
+    pub fn split(self) -> (OwnedFd, OwnedFd) {
+        (self.reader, self.writer)
+    }
+
+    /// Returns a reference to the reader file descriptor.
+    #[must_use]
+    pub const fn reader(&self) -> &OwnedFd {
+        &self.reader
+    }
+
+    /// Returns a reference to the writer file descriptor.
+    #[must_use]
+    pub const fn writer(&self) -> &OwnedFd {
+        &self.writer
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SignalInfo {
@@ -56,16 +110,9 @@ impl SignalStream {
             return Ok(s);
         }
 
-        let mut fds = [-1; 2];
-        // SAFETY: valid pointer to 2 fds.
-        let ret = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) };
-        if ret == -1 {
-            return Err(io::Error::last_os_error());
-        }
-
-        // SAFETY: pipe2 returned valid owned descriptors.
-        let rx = unsafe { OwnedFd::from_raw_fd(fds[0]) };
-        let tx = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+        // Use RAII PipeFactory to safely create pipe
+        let pipe = PipeFactory::new(libc::O_CLOEXEC | libc::O_NONBLOCK)?;
+        let (rx, tx) = pipe.split();
 
         let stream = Self { rx, tx };
         let _ = STREAM.set(stream);

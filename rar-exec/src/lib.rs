@@ -6,3 +6,4 @@ pub mod pty;
 pub mod runner;
 pub mod signal;
 pub mod terminal;
+pub mod types;

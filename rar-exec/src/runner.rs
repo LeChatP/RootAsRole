@@ -11,7 +11,7 @@ use crate::monitor::backchannel::{
 use crate::orchestrator::{Orchestrator, PreExecContext};
 
 use super::event::{EventRegistry, PollEvent, Process, StopReason};
-use super::pipe::{IoLogger, Pipe};
+use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
 use super::signal::{SignalStream, register_signal_handler};
 use super::terminal::UserTerm;
@@ -33,7 +33,7 @@ impl SimpleFileLogger {
     }
 }
 
-impl IoLogger for SimpleFileLogger {
+impl io_logger_sealed::Sealed for SimpleFileLogger {
     fn log_input(&mut self, data: &[u8]) {
         use std::io::Write;
         if let Err(e) = write!(self.file, "IN {}: ", data.len()) {
@@ -399,7 +399,8 @@ pub fn run_with_pty(
 
 #[cfg(test)]
 mod tests {
-    use super::{IoLogger, SimpleFileLogger, run_no_pty};
+    use super::{SimpleFileLogger, run_no_pty};
+    use crate::pipe::io_logger_sealed::Sealed;
     use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
     use serial_test::serial;
     use std::fs;

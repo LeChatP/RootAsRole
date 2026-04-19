@@ -349,9 +349,10 @@ mod tests {
         s1.write_all(b"B").unwrap();
 
         let reason = registry.event_loop(&mut process);
-        match reason {
-            StopReason::Break(s) => assert_eq!(s, "stopped"),
-            StopReason::Exit(()) => panic!("Expected Break"),
+        if let StopReason::Break(msg) = reason {
+            assert_eq!(msg, "stopped");
+        } else {
+            panic!("Unexpected stop reason");
         }
     }
 }
