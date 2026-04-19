@@ -163,6 +163,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::process::Stdio;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use serial_test::serial;
 
     static STATE: AtomicUsize = AtomicUsize::new(0);
 
@@ -264,6 +265,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn orchestrator_runs_steps_in_order() {
         STATE.store(0, Ordering::SeqCst);
         let orch = Orchestrator::new(ORDERED_STEPS);
@@ -275,6 +277,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn orchestrator_stops_on_first_error() {
         STATE.store(0, Ordering::SeqCst);
         let orch = Orchestrator::new(FAILING_STEPS);
