@@ -203,6 +203,10 @@ pub fn run_no_pty(
 
     // event loop for signals
     loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+
         match signal_stream.recv() {
             Ok(info) => {
                 match info.signal {
@@ -219,7 +223,7 @@ pub fn run_no_pty(
                     }
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
         }
     }
@@ -368,5 +372,170 @@ pub fn run_with_pty(
             Ok(status)
         }
         StopReason::Break(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IoLogger, SimpleFileLogger, run_no_pty};
+    use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
+    use serial_test::serial;
+    use std::fs;
+    use std::io;
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::thread;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[allow(clippy::unnecessary_wraps)]
+    unsafe fn pre_exec_noop(_: PreExecContext) -> io::Result<()> {
+        Ok(())
+    }
+
+    unsafe fn pre_exec_set_test_env(_: PreExecContext) -> io::Result<()> {
+        let key = b"RAR_EXEC_TEST_FLAG\0";
+        let value = b"1\0";
+        let rc = unsafe { libc::setenv(key.as_ptr().cast(), value.as_ptr().cast(), 1) };
+        if rc == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    unsafe fn pre_exec_fail(_: PreExecContext) -> io::Result<()> {
+        Err(io::Error::other("pre-exec failure"))
+    }
+
+    static NOOP_STEPS: &[PreExecStep] = &[PreExecStep {
+        stage: Stage::SESSION,
+        run: pre_exec_noop,
+    }];
+
+    static SET_ENV_STEPS: &[PreExecStep] = &[PreExecStep {
+        stage: Stage::SESSION,
+        run: pre_exec_set_test_env,
+    }];
+
+    static FAIL_STEPS: &[PreExecStep] = &[PreExecStep {
+        stage: Stage::SESSION,
+        run: pre_exec_fail,
+    }];
+
+    fn unique_log_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos();
+        std::env::temp_dir().join(format!("rar_exec_runner_{name}_{}_{}.log", std::process::id(), nanos))
+    }
+
+    #[test]
+    fn simple_file_logger_writes_expected_prefixes() {
+        let path = unique_log_path("prefixes");
+        let mut logger =
+            SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
+                .expect("create logger");
+
+        logger.log_input(b"hello");
+        logger.log_output(b"world");
+
+        let content = fs::read_to_string(&path).expect("read log file");
+        assert!(content.contains("IN 5: hello\n"));
+        assert!(content.contains("OUT 5: world\n"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn simple_file_logger_appends_across_instances() {
+        let path = unique_log_path("append");
+
+        {
+            let mut first =
+                SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
+                    .expect("create first logger");
+            first.log_input(b"one");
+        }
+
+        {
+            let mut second =
+                SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
+                    .expect("create second logger");
+            second.log_output(b"two");
+        }
+
+        let content = fs::read_to_string(&path).expect("read log file");
+        assert!(content.contains("IN 3: one\n"));
+        assert!(content.contains("OUT 3: two\n"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn simple_file_logger_supports_empty_payloads() {
+        let path = unique_log_path("empty");
+        let mut logger =
+            SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
+                .expect("create logger");
+
+        logger.log_input(&[]);
+        logger.log_output(&[]);
+
+        let content = fs::read_to_string(&path).expect("read log file");
+        assert!(content.contains("IN 0: \n"));
+        assert!(content.contains("OUT 0: \n"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn run_no_pty_returns_command_exit_code() {
+        let mut command = Command::new("sh");
+        command.arg("-c").arg("exit 7");
+
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        assert_eq!(status.code(), Some(7));
+    }
+
+    #[serial]
+    #[test]
+    fn run_no_pty_applies_pre_exec_orchestrator() {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("test \"$RAR_EXEC_TEST_FLAG\" = \"1\"");
+
+        let status =
+            run_no_pty(command, Orchestrator::new(SET_ENV_STEPS)).expect("run command");
+        assert!(status.success());
+    }
+
+    #[serial]
+    #[test]
+    fn run_no_pty_propagates_pre_exec_failure() {
+        let command = Command::new("/usr/bin/true");
+        let error = run_no_pty(command, Orchestrator::new(FAIL_STEPS));
+        assert!(error.is_err());
+    }
+
+    #[serial]
+    #[test]
+    fn run_no_pty_forwards_signals_to_child() {
+        let sender = thread::spawn(|| {
+            thread::sleep(std::time::Duration::from_millis(250));
+            unsafe {
+                libc::kill(libc::getpid(), libc::SIGHUP);
+            }
+        });
+
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("trap 'exit 42' HUP; while :; do sleep 1; done");
+
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        sender.join().expect("signal sender thread joined");
+
+        assert_eq!(status.code(), Some(42));
     }
 }

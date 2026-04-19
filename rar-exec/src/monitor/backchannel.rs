@@ -157,3 +157,56 @@ impl std::os::fd::AsFd for Backchannel {
         self.stream.as_fd()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn backchannel_roundtrips_messages() {
+        let (mut parent, mut monitor) = Backchannel::pair().expect("create backchannel pair");
+
+        parent
+            .send_monitor_message(&MonitorMessage::Signal(libc::SIGUSR1))
+            .expect("send monitor message");
+        match monitor.recv_monitor_message().expect("receive monitor message") {
+            MonitorMessage::Signal(signal) => assert_eq!(signal, libc::SIGUSR1),
+            MonitorMessage::Edge => panic!("unexpected monitor message"),
+        }
+
+        monitor
+            .send_parent_message(&ParentMessage::CommandPid(4242))
+            .expect("send parent message");
+        match parent.recv_parent_message().expect("receive parent message") {
+            ParentMessage::CommandPid(pid) => assert_eq!(pid, 4242),
+            ParentMessage::ExitStatus(_) | ParentMessage::Error(_) => {
+                panic!("unexpected parent message")
+            }
+        }
+
+        parent.set_nonblocking(true).expect("keep nonblocking mode configurable");
+    }
+
+    #[test]
+    fn backchannel_rejects_oversized_frames() {
+        let (mut parent, _) = Backchannel::pair().expect("create backchannel pair");
+        let payload = vec![0u8; MAX_BACKCHANNEL_MESSAGE_SIZE + 1];
+
+        let error = parent.write_frame(&payload).expect_err("oversized frame must fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn backchannel_rejects_invalid_frame_size() {
+        let (mut sender, mut receiver) = Backchannel::pair().expect("create backchannel pair");
+
+        sender
+            .get_mut()
+            .write_all(&0u32.to_le_bytes())
+            .expect("write invalid frame header");
+
+        let error = receiver.read_frame().expect_err("zero-sized frame must fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+}

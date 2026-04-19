@@ -118,3 +118,30 @@ pub static PRE_EXEC_STEPS: &[PreExecStep] = &[
 ];
 
 pub static PRE_EXEC_ORCHESTRATOR: Orchestrator = Orchestrator::new(PRE_EXEC_STEPS);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::finder::de::CredOwnedData;
+    use rar_common::database::options::SBounding;
+
+    #[test]
+    fn pre_exec_steps_are_ordered_and_stable() {
+        configure_pre_exec(0o022, CredOwnedData::default(), SBounding::Ignore, false);
+
+        assert_eq!(SET_UMASK_STEP.stage, Stage::UMASK);
+        assert_eq!(SET_CREDENTIALS_STEP.stage, Stage::PRIV_DROP);
+        assert_eq!(SET_CAPABILITIES_STEP.stage, Stage::CAPS);
+        assert_eq!(CLOSE_FDS_STEP.stage, Stage::FD_CLEANUP);
+        assert_eq!(SET_NO_NEW_PRIVS_STEP.stage, Stage::LOCKDOWN);
+
+        let stages: Vec<_> = PRE_EXEC_STEPS.iter().map(|step| step.stage.order()).collect();
+        assert!(stages.windows(2).all(|pair| pair[0] <= pair[1]));
+
+        #[cfg(feature = "landlock")]
+        assert_eq!(stages.last().copied(), Some(Stage::LOCKDOWN.order()));
+
+        #[cfg(not(feature = "landlock"))]
+        assert_eq!(stages, vec![45, 50, 55, 65, 70]);
+    }
+}

@@ -299,6 +299,7 @@ mod tests {
     use crate::event::{EventRegistry, PollEvent, Process};
     use crate::pipe::{IoLogger, Pipe};
     use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -688,5 +689,46 @@ mod tests {
             process.received_data_at_r, data_to_send,
             "Carriage return skipping suspected: data mismatch"
         );
+    }
+
+    #[test]
+    fn test_pipe_helpers_and_last_bytes() {
+        let (l_local, _l_remote) = UnixStream::pair().unwrap();
+        let (r_local, mut r_remote) = UnixStream::pair().unwrap();
+
+        l_local.set_nonblocking(true).unwrap();
+        r_local.set_nonblocking(true).unwrap();
+
+        let mut registry = EventRegistry::<TestProcess>::new();
+        let mut pipe = Pipe::new(
+            l_local,
+            r_local,
+            &mut registry,
+            TestEvent::PipeLeft,
+            TestEvent::PipeRight,
+            None,
+        );
+
+        assert!(pipe.left().as_raw_fd() >= 0);
+        assert!(pipe.right().as_raw_fd() >= 0);
+
+        pipe.ignore_events(&mut registry);
+        pipe.resume_events(&mut registry);
+        pipe.disable_input(&mut registry);
+        pipe.resume_events(&mut registry);
+
+        assert_eq!(pipe.buffer_rl.get_last_n_bytes(0), (&[] as &[u8], &[] as &[u8]));
+
+        r_remote.write_all(b"abcdef").unwrap();
+        pipe.on_right_event(PollEvent::Readable, &mut registry)
+            .unwrap();
+
+        let (last_two, remainder) = pipe.buffer_rl.get_last_n_bytes(2);
+        assert_eq!(last_two, b"ef");
+        assert_eq!(remainder, &[]);
+
+        let (all_bytes, remainder) = pipe.buffer_rl.get_last_n_bytes(64);
+        assert_eq!(all_bytes, b"abcdef");
+        assert_eq!(remainder, &[]);
     }
 }

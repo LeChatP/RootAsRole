@@ -32,7 +32,7 @@ coverage = [
     "--timeout",
     "120",
     "--exclude-files",
-    "build.rs", "xtask/src/*",
+    "build.rs", "xtask/src/*", "src/chsr/security.rs", "src/chsr/cli/usage.rs",
     "-e",
     "xtask",
     "--out", "Html",

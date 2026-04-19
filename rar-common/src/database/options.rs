@@ -1498,6 +1498,26 @@ mod tests {
     }
 
     #[test]
+    fn test_envkey_parsing_and_display() {
+        let env_key = EnvKey::new("TEST_VALUE".to_string()).expect("valid environment key");
+        assert_eq!(env_key.to_string(), "TEST_VALUE");
+        assert_eq!(EnvKey::from("TEST_VALUE"), env_key);
+        assert_eq!(String::from(env_key), "TEST_VALUE");
+    }
+
+    #[test]
+    fn test_const_parse_helpers() {
+        assert_eq!(PathBehavior::const_parse("delete"), PathBehavior::Delete);
+        assert_eq!(PathBehavior::const_parse("keep_safe"), PathBehavior::KeepSafe);
+        assert_eq!(EnvBehavior::const_parse("keep"), EnvBehavior::Keep);
+        assert_eq!(SPrivileged::const_parse("user"), SPrivileged::User);
+        assert_eq!(SInfo::const_parse("show"), SInfo::Show);
+        assert_eq!(TimestampType::const_parse("tty"), TimestampType::TTY);
+        assert_eq!(SBounding::const_parse("strict"), SBounding::Strict);
+        assert_eq!(SAuthentication::const_parse("skip"), SAuthentication::Skip);
+    }
+
+    #[test]
     fn test_sumask_from_u16() {
         let umask = SUMask::from(0o755);
         assert_eq!(umask.0, 0o755);

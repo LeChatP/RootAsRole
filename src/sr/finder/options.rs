@@ -1036,6 +1036,40 @@ mod tests {
     }
 
     #[test]
+    fn test_calc_temp_env_override_behavior() {
+        let config = Some(
+            Opt::builder(Level::Global)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Delete)
+                        .set([("GLOBAL", "one")])
+                        .build(),
+                )
+                .build(),
+        );
+        let task = Some(
+            Opt::builder(Level::Task)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Inherit)
+                        .set([("TASK", "two")])
+                        .build(),
+                )
+                .build(),
+        );
+
+        let mut stack = BorrowedOptStack::new(config);
+        stack.task = task;
+        let filter = FilterMatcher::builder().env_behavior(EnvBehavior::Keep).build();
+
+        let overridden = stack.calc_temp_env(true, Some(&filter));
+        assert_eq!(overridden.default_behavior, EnvBehavior::Keep);
+        assert!(overridden.set.contains_key("GLOBAL"));
+        assert!(overridden.set.contains_key("TASK"));
+
+        let not_overridden = stack.calc_temp_env(false, Some(&filter));
+        assert_eq!(not_overridden.default_behavior, EnvBehavior::Delete);
+    }
+
+    #[test]
     fn test_opt_into_opt() {
         let opt = Opt::builder(Level::Default)
             .path(
