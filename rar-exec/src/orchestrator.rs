@@ -159,11 +159,11 @@ pub mod steps {
 mod tests {
     use super::*;
     use crate::pty::Pty;
+    use serial_test::serial;
     use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::net::UnixStream;
     use std::process::Stdio;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use serial_test::serial;
 
     static STATE: AtomicUsize = AtomicUsize::new(0);
 
