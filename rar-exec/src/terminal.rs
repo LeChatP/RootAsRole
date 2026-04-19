@@ -460,6 +460,8 @@ impl Drop for UserTerm {
 
 #[cfg(test)]
 mod tests {
+    use log::warn;
+
     use crate::terminal::{self, ProcessId, TermSize, TerminalExt, UserTerm};
     use std::fs::File;
 
@@ -515,7 +517,7 @@ mod tests {
                 assert!(res.is_ok());
             }
             Err(e) => {
-                println!("Skipping UserTerm test as /dev/tty cannot be opened: {e}");
+                warn!("Skipping UserTerm test as /dev/tty cannot be opened: {e}");
             }
         }
     }

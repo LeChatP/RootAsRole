@@ -11,6 +11,7 @@ rkyv = { version = "0.8" }
 libc = "0.2"
 ringbuf = "0.4"
 serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
 
 [dev-dependencies]
 serial_test = "3.2.0"

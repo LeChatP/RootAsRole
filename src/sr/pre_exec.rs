@@ -135,7 +135,10 @@ mod tests {
         assert_eq!(CLOSE_FDS_STEP.stage, Stage::FD_CLEANUP);
         assert_eq!(SET_NO_NEW_PRIVS_STEP.stage, Stage::LOCKDOWN);
 
-        let stages: Vec<_> = PRE_EXEC_STEPS.iter().map(|step| step.stage.order()).collect();
+        let stages: Vec<_> = PRE_EXEC_STEPS
+            .iter()
+            .map(|step| step.stage.order())
+            .collect();
         assert!(stages.windows(2).all(|pair| pair[0] <= pair[1]));
 
         #[cfg(feature = "landlock")]

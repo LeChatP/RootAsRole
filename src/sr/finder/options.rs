@@ -1058,7 +1058,9 @@ mod tests {
 
         let mut stack = BorrowedOptStack::new(config);
         stack.task = task;
-        let filter = FilterMatcher::builder().env_behavior(EnvBehavior::Keep).build();
+        let filter = FilterMatcher::builder()
+            .env_behavior(EnvBehavior::Keep)
+            .build();
 
         let overridden = stack.calc_temp_env(true, Some(&filter));
         assert_eq!(overridden.default_behavior, EnvBehavior::Keep);

@@ -2,6 +2,8 @@ use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
 
+use log::error;
+
 use crate::monitor::backchannel::{
     Backchannel, MonitorMessage, ParentMessage, RUNNER_SIGNALS_NO_PTY, RUNNER_SIGNALS_WITH_PTY,
     is_forward_signal_allowed,
@@ -34,16 +36,32 @@ impl SimpleFileLogger {
 impl IoLogger for SimpleFileLogger {
     fn log_input(&mut self, data: &[u8]) {
         use std::io::Write;
-        let _ = write!(self.file, "IN {}: ", data.len());
-        let _ = self.file.write_all(data);
-        let _ = self.file.write_all(b"\n");
+        if let Err(e) = write!(self.file, "IN {}: ", data.len()) {
+            error!("Logger: failed to write input prefix: {e}");
+            return;
+        }
+        if let Err(e) = self.file.write_all(data) {
+            error!("Logger: failed to write input data: {e}");
+            return;
+        }
+        if let Err(e) = self.file.write_all(b"\n") {
+            error!("Logger: failed to write input newline: {e}");
+        }
     }
 
     fn log_output(&mut self, data: &[u8]) {
         use std::io::Write;
-        let _ = write!(self.file, "OUT {}: ", data.len());
-        let _ = self.file.write_all(data);
-        let _ = self.file.write_all(b"\n");
+        if let Err(e) = write!(self.file, "OUT {}: ", data.len()) {
+            error!("Logger: failed to write output prefix: {e}");
+            return;
+        }
+        if let Err(e) = self.file.write_all(data) {
+            error!("Logger: failed to write output data: {e}");
+            return;
+        }
+        if let Err(e) = self.file.write_all(b"\n") {
+            error!("Logger: failed to write output newline: {e}");
+        }
     }
 }
 
@@ -187,13 +205,13 @@ pub fn run_no_pty(
     mut command: Command,
     orchestrator: Orchestrator,
 ) -> io::Result<std::process::ExitStatus> {
-    // initialize signals
+    // initialize signals BEFORE spawning child to minimize race window
     let signal_stream = SignalStream::init()?;
     for &sig in RUNNER_SIGNALS_NO_PTY {
         register_signal_handler(sig)?;
     }
 
-    // orchestration
+    // orchestration: set up pre_exec hooks before spawning
     unsafe {
         let ctx = PreExecContext::empty();
         command.pre_exec(move || orchestrator.run(&ctx));
@@ -295,6 +313,7 @@ pub fn run_with_pty(
         // --- MONITOR PROCESS ---
         // Close parent execution resources
         drop(pty.leader);
+        drop(parent_channel); // Explicitly drop parent's communication channel
         // signal_stream is static reference, no drop needed
 
         // Execute Monitor Logic
@@ -307,10 +326,13 @@ pub fn run_with_pty(
         );
 
         if let Err(e) = res {
-            eprintln!("Monitor failed: {e}");
+            error!("Monitor failed: {e}");
             unsafe { libc::_exit(1) };
         }
-        unsafe { libc::_exit(0) }; // Should not be reached if exec works? No, exec is inside exec_monitor
+        // SAFETY: exec_monitor_process should have replaced the process image via exec().
+        // If we reach this point, exec() failed and we already exited above with code 1.
+        // This line is unreachable in normal execution.
+        unreachable!("exec_monitor_process must either exec or exit");
     }
 
     // --- PARENT PROCESS ---
@@ -426,7 +448,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time before UNIX_EPOCH")
             .as_nanos();
-        std::env::temp_dir().join(format!("rar_exec_runner_{name}_{}_{}.log", std::process::id(), nanos))
+        std::env::temp_dir().join(format!(
+            "rar_exec_runner_{name}_{}_{}.log",
+            std::process::id(),
+            nanos
+        ))
     }
 
     #[test]
@@ -505,8 +531,7 @@ mod tests {
             .arg("-c")
             .arg("test \"$RAR_EXEC_TEST_FLAG\" = \"1\"");
 
-        let status =
-            run_no_pty(command, Orchestrator::new(SET_ENV_STEPS)).expect("run command");
+        let status = run_no_pty(command, Orchestrator::new(SET_ENV_STEPS)).expect("run command");
         assert!(status.success());
     }
 

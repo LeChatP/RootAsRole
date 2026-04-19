@@ -154,6 +154,8 @@ impl From<PtyFollower> for std::process::Stdio {
 
 #[cfg(test)]
 mod tests {
+    use log::info;
+
     use crate::pty::Pty;
     use crate::terminal;
     use std::fs::File;
@@ -164,7 +166,7 @@ mod tests {
     fn test_pty_open_basic() {
         let pty = Pty::open().expect("Failed to open PTY");
 
-        println!("Pty path: {:?}", pty.path);
+        info!("Pty path: {:?}", pty.path);
         assert!(!pty.path.as_bytes().is_empty());
 
         assert!(terminal::safe_isatty(&pty.leader));

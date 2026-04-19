@@ -143,10 +143,23 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 Ok(())
             }
             PollEvent::Writable => {
-                if self.buffer_lr.write(&mut self.right, registry)? && !self.background {
-                    self.buffer_lr.read_handle.resume(registry);
+                match self.buffer_lr.write(&mut self.right, registry) {
+                    Ok(did_write) => {
+                        if did_write && !self.background {
+                            self.buffer_lr.read_handle.resume(registry);
+                        }
+                        Ok(())
+                    }
+                    Err(e)
+                        if e.kind() == io::ErrorKind::BrokenPipe
+                            || e.kind() == io::ErrorKind::UnexpectedEof =>
+                    {
+                        // PTY closed on write side; gracefully ignore and let event loop handle closure
+                        self.buffer_lr.read_handle.ignore(registry);
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
                 }
-                Ok(())
             }
         }
     }
@@ -717,7 +730,10 @@ mod tests {
         pipe.disable_input(&mut registry);
         pipe.resume_events(&mut registry);
 
-        assert_eq!(pipe.buffer_rl.get_last_n_bytes(0), (&[] as &[u8], &[] as &[u8]));
+        assert_eq!(
+            pipe.buffer_rl.get_last_n_bytes(0),
+            (&[] as &[u8], &[] as &[u8])
+        );
 
         r_remote.write_all(b"abcdef").unwrap();
         pipe.on_right_event(PollEvent::Readable, &mut registry)

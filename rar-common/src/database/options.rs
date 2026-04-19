@@ -1508,7 +1508,10 @@ mod tests {
     #[test]
     fn test_const_parse_helpers() {
         assert_eq!(PathBehavior::const_parse("delete"), PathBehavior::Delete);
-        assert_eq!(PathBehavior::const_parse("keep_safe"), PathBehavior::KeepSafe);
+        assert_eq!(
+            PathBehavior::const_parse("keep_safe"),
+            PathBehavior::KeepSafe
+        );
         assert_eq!(EnvBehavior::const_parse("keep"), EnvBehavior::Keep);
         assert_eq!(SPrivileged::const_parse("user"), SPrivileged::User);
         assert_eq!(SInfo::const_parse("show"), SInfo::Show);

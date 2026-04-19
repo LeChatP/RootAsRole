@@ -9,6 +9,7 @@ use crate::pty::PtyFollower;
 use crate::signal::{SignalStream, register_signal_handler};
 use crate::terminal::TerminalExt;
 use libc::{SIGCHLD, SIGKILL};
+use log::error;
 
 pub mod backchannel;
 use self::backchannel::{
@@ -44,9 +45,13 @@ impl Process for MonitorClosure {
                     Ok(0) => {} // EOF, no error
                     Ok(n) => {
                         let err_msg = String::from_utf8_lossy(&buf[..n]).to_string();
-                        let _ = self
+                        if let Err(e) = self
                             .backchannel
-                            .send_parent_message(&ParentMessage::Error(err_msg));
+                            .send_parent_message(&ParentMessage::Error(err_msg.clone()))
+                        {
+                            // Backchannel failure suggests parent is gone; log and continue
+                            error!("Failed to send error message to parent: {e}");
+                        }
 
                         if let Some(pid) = self.command_pid {
                             let mut status = 0;
@@ -57,7 +62,8 @@ impl Process for MonitorClosure {
                             self.command_pid = None;
                         }
 
-                        registry.set_break(io::Error::from_raw_os_error(0));
+                        registry
+                            .set_break(io::Error::other(format!("Child process error: {err_msg}")));
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => registry.set_break(e),

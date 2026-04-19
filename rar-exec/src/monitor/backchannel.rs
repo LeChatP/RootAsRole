@@ -170,7 +170,10 @@ mod tests {
         parent
             .send_monitor_message(&MonitorMessage::Signal(libc::SIGUSR1))
             .expect("send monitor message");
-        match monitor.recv_monitor_message().expect("receive monitor message") {
+        match monitor
+            .recv_monitor_message()
+            .expect("receive monitor message")
+        {
             MonitorMessage::Signal(signal) => assert_eq!(signal, libc::SIGUSR1),
             MonitorMessage::Edge => panic!("unexpected monitor message"),
         }
@@ -178,14 +181,19 @@ mod tests {
         monitor
             .send_parent_message(&ParentMessage::CommandPid(4242))
             .expect("send parent message");
-        match parent.recv_parent_message().expect("receive parent message") {
+        match parent
+            .recv_parent_message()
+            .expect("receive parent message")
+        {
             ParentMessage::CommandPid(pid) => assert_eq!(pid, 4242),
             ParentMessage::ExitStatus(_) | ParentMessage::Error(_) => {
                 panic!("unexpected parent message")
             }
         }
 
-        parent.set_nonblocking(true).expect("keep nonblocking mode configurable");
+        parent
+            .set_nonblocking(true)
+            .expect("keep nonblocking mode configurable");
     }
 
     #[test]
@@ -193,7 +201,9 @@ mod tests {
         let (mut parent, _) = Backchannel::pair().expect("create backchannel pair");
         let payload = vec![0u8; MAX_BACKCHANNEL_MESSAGE_SIZE + 1];
 
-        let error = parent.write_frame(&payload).expect_err("oversized frame must fail");
+        let error = parent
+            .write_frame(&payload)
+            .expect_err("oversized frame must fail");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
@@ -206,7 +216,9 @@ mod tests {
             .write_all(&0u32.to_le_bytes())
             .expect("write invalid frame header");
 
-        let error = receiver.read_frame().expect_err("zero-sized frame must fail");
+        let error = receiver
+            .read_frame()
+            .expect_err("zero-sized frame must fail");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }

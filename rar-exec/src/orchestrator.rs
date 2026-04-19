@@ -128,11 +128,16 @@ pub mod steps {
     }
 
     /// # Errors
-    /// Returns an error if the file descriptor is not a TTY or if the controlling-terminal setup fails.
+    /// Returns an error if the file descriptor is not a TTY, if the TTY fd is not provided, or if the controlling-terminal setup fails.
     /// # Safety
     /// The caller must ensure that the provided file descriptor is valid and refers to a terminal.
     pub unsafe fn set_controlling_terminal(ctx: PreExecContext) -> io::Result<()> {
-        let fd = ctx.tty_fd.unwrap_or(0);
+        let fd = ctx.tty_fd.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tty_fd must be provided for set_controlling_terminal",
+            )
+        })?;
         // SAFETY: the caller promises the raw fd is valid for the duration of this call.
         let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
         borrowed.as_tty()?.make_controlling_terminal()
@@ -155,8 +160,8 @@ mod tests {
     use super::*;
     use crate::pty::Pty;
     use std::os::fd::{AsFd, AsRawFd};
-    use std::process::Stdio;
     use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static STATE: AtomicUsize = AtomicUsize::new(0);

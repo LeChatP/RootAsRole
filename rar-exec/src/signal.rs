@@ -118,6 +118,11 @@ impl AsFd for SignalStream {
 }
 
 // C handler
+// IMPORTANT: This handler writes signal numbers to a pipe. If the pipe buffer fills up (typically 64KB),
+// subsequent writes will fail silently. This could lead to signal loss if:
+// - Multiple signals arrive faster than they can be consumed by event loop
+// - Event loop is blocked processing other events
+// - The receiver (SignalStream::recv) isn't called frequently enough
 extern "C" fn handler(signal: SignalNumber) {
     let fd = WRITE_FD.load(Ordering::Relaxed);
     if fd < 0 {
@@ -126,6 +131,8 @@ extern "C" fn handler(signal: SignalNumber) {
 
     let value = signal;
     // SAFETY: `write(2)` is async-signal-safe and the pointer is valid for `SignalInfo::SIZE` bytes.
+    // Note to myself in the future: Errors (including EAGAIN if buffer full) are silently ignored.
+    // This is acceptable since the kernel queues pending signals and re-notifies when the queue is consumed.
     unsafe {
         let _ = libc::write(fd, (&raw const value).cast(), SignalInfo::SIZE);
     }
