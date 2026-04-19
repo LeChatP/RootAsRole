@@ -3,16 +3,22 @@ mod json;
 
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use json::*;
+use json::{
+    cmd_setpolicy, cmd_whitelist_action, cred_caps, cred_set, cred_setpolicy, cred_unset,
+    env_set_policylist, env_setlist_add, env_setpolicy, env_whitelist_set, grant_revoke,
+    path_purge, path_set, path_setlist2, path_setpolicy, role_add_del, set_authentication,
+    set_bounding, set_execinfo, set_privileged, set_timeout, set_umask, task_add_del,
+    unset_timeout,
+};
 
 use log::debug;
 
 use rar_common::{
+    FullSettings,
     database::{
         options::{Opt, OptType},
         structs::{IdTask, RoleGetter},
     },
-    FullSettings,
 };
 
 use super::{
@@ -20,6 +26,7 @@ use super::{
     usage,
 };
 
+#[allow(clippy::too_many_lines)]
 pub fn process_input(
     storage: &Rc<RefCell<FullSettings>>,
     inputs: Inputs,
@@ -35,12 +42,15 @@ pub fn process_input(
         );
     }
     let binding = storage.as_ref().borrow();
-    let rconfig = binding.config.as_ref().unwrap();
+    let rconfig = binding.config.as_ref().ok_or("No configuration loaded")?;
     match inputs {
         Inputs {
             action: InputAction::Help,
             ..
-        } => usage::help(),
+        } => {
+            usage::help();
+            Ok(false)
+        }
         Inputs {
             action: InputAction::List,
             options, // show options ?
@@ -54,19 +64,19 @@ pub fn process_input(
             debug!("chsr list");
             match json::list_json(
                 rconfig,
-                role_id,
+                role_id.as_ref(),
                 task_id,
                 options,
                 options_type,
                 task_type,
                 role_type,
             ) {
-                Ok(_) => {
+                Ok(()) => {
                     debug!("chsr list ok");
                     Ok(false)
                 }
                 Err(e) => {
-                    debug!("chsr list err {:?}", e);
+                    debug!("chsr list err {e:?}");
                     Err(e)
                 }
             }
@@ -90,7 +100,7 @@ pub fn process_input(
             actors: Some(actors),
             options: false,
             ..
-        } => grant_revoke(rconfig, role_id, action, actors),
+        } => grant_revoke(rconfig, &role_id, action, actors),
 
         Inputs {
             // chsr role r1 task t1 add|del
@@ -107,7 +117,7 @@ pub fn process_input(
             cmd_policy: None,
             cred_policy: None,
             ..
-        } => task_add_del(rconfig, role_id, action, task_id, task_type),
+        } => task_add_del(rconfig, &role_id, action, task_id, task_type),
 
         Inputs {
             //chsr role r1 task t1 cred set --caps "cap_net_raw,cap_sys_admin"
@@ -124,7 +134,7 @@ pub fn process_input(
             ..
         } => cred_set(
             rconfig,
-            role_id,
+            &role_id,
             task_id,
             cred_caps,
             cred_setuid,
@@ -146,11 +156,11 @@ pub fn process_input(
             ..
         } => cred_unset(
             rconfig,
-            role_id,
+            &role_id,
             task_id,
             cred_caps,
-            cred_setuid,
-            cred_setgid,
+            cred_setuid.as_ref(),
+            cred_setgid.as_ref(),
         ),
 
         Inputs {
@@ -162,14 +172,14 @@ pub fn process_input(
             cmd_policy: None,
             options: false,
             ..
-        } => cred_caps(rconfig, role_id, task_id, setlist_type, action, pcred_caps),
+        } => cred_caps(rconfig, &role_id, task_id, setlist_type, action, pcred_caps),
         Inputs {
             role_id: Some(role_id),
             task_id: Some(task_id),
             cred_policy: Some(cred_policy),
             options: false,
             ..
-        } => cred_setpolicy(rconfig, role_id, task_id, cred_policy),
+        } => cred_setpolicy(rconfig, &role_id, task_id, cred_policy),
 
         Inputs {
             // chsr role r1 task t1 command whitelist add c1
@@ -179,13 +189,13 @@ pub fn process_input(
             cmd_id: Some(cmd_id),
             setlist_type: Some(setlist_type),
             ..
-        } => cmd_whitelist_action(rconfig, role_id, task_id, cmd_id, setlist_type, action),
+        } => cmd_whitelist_action(rconfig, &role_id, task_id, cmd_id, setlist_type, action),
         Inputs {
             role_id: Some(role_id),
             task_id: Some(task_id),
             cmd_policy: Some(cmd_policy),
             ..
-        } => cmd_setpolicy(rconfig, role_id, task_id, cmd_policy),
+        } => cmd_setpolicy(rconfig, &role_id, task_id, cmd_policy),
 
         // Set options
         Inputs {
@@ -197,7 +207,13 @@ pub fn process_input(
             options_env_policy: Some(options_env_policy),
             options_key_env: Some(options_env),
             ..
-        } => env_set_policylist(rconfig, role_id, task_id, options_env, options_env_policy),
+        } => env_set_policylist(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            &options_env,
+            options_env_policy,
+        ),
         Inputs {
             // chsr o root set privileged
             action: InputAction::Set,
@@ -205,7 +221,7 @@ pub fn process_input(
             task_id,
             options_root: Some(options_root),
             ..
-        } => set_privileged(rconfig, role_id, task_id, Some(options_root)),
+        } => set_privileged(rconfig, role_id.as_ref(), task_id, Some(options_root)),
 
         Inputs {
             // chsr o root del
@@ -214,7 +230,7 @@ pub fn process_input(
             task_id,
             options_root: Some(_),
             ..
-        } => set_privileged(rconfig, role_id, task_id, None),
+        } => set_privileged(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o bounding set strict
@@ -223,7 +239,7 @@ pub fn process_input(
             task_id,
             options_bounding: Some(options_bounding),
             ..
-        } => set_bounding(rconfig, role_id, task_id, Some(options_bounding)),
+        } => set_bounding(rconfig, role_id.as_ref(), task_id, Some(options_bounding)),
 
         Inputs {
             // chsr o bounding del
@@ -232,7 +248,7 @@ pub fn process_input(
             task_id,
             options_bounding: Some(_),
             ..
-        } => set_bounding(rconfig, role_id, task_id, None),
+        } => set_bounding(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o authentication perform
@@ -241,7 +257,7 @@ pub fn process_input(
             task_id,
             options_auth: Some(options_auth),
             ..
-        } => set_authentication(rconfig, role_id, task_id, Some(options_auth)),
+        } => set_authentication(rconfig, role_id.as_ref(), task_id, Some(options_auth)),
 
         Inputs {
             // chsr o authentication del
@@ -250,7 +266,7 @@ pub fn process_input(
             task_id,
             options_auth: Some(_),
             ..
-        } => set_authentication(rconfig, role_id, task_id, None),
+        } => set_authentication(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o execinfo hide|show
@@ -259,7 +275,7 @@ pub fn process_input(
             task_id,
             options_execinfo: Some(options_execinfo),
             ..
-        } => set_execinfo(rconfig, role_id, task_id, Some(options_execinfo)),
+        } => set_execinfo(rconfig, role_id.as_ref(), task_id, Some(options_execinfo)),
 
         Inputs {
             // chsr o execinfo del
@@ -268,7 +284,7 @@ pub fn process_input(
             task_id,
             options_execinfo: Some(_),
             ..
-        } => set_execinfo(rconfig, role_id, task_id, None),
+        } => set_execinfo(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             action: InputAction::Set,
@@ -276,7 +292,7 @@ pub fn process_input(
             task_id,
             options_umask: Some(options_umask),
             ..
-        } => set_umask(rconfig, role_id, task_id, Some(options_umask)),
+        } => set_umask(rconfig, role_id.as_ref(), task_id, Some(options_umask)),
 
         Inputs {
             action: InputAction::Del,
@@ -284,7 +300,7 @@ pub fn process_input(
             task_id,
             options_umask: Some(_),
             ..
-        } => set_umask(rconfig, role_id, task_id, None),
+        } => set_umask(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o path whitelist set a:b:c
@@ -295,7 +311,13 @@ pub fn process_input(
             options_type: Some(OptType::Path),
             setlist_type,
             ..
-        } => path_set(rconfig, role_id, task_id, setlist_type, options_path),
+        } => path_set(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            setlist_type,
+            &options_path,
+        ),
         Inputs {
             // chsr o path whitelist set a:b:c
             action: InputAction::Purge,
@@ -305,7 +327,7 @@ pub fn process_input(
             options_type: Some(OptType::Path),
             setlist_type,
             ..
-        } => path_purge(rconfig, role_id, task_id, setlist_type),
+        } => path_purge(rconfig, role_id.as_ref(), task_id, setlist_type),
 
         Inputs {
             // chsr o env whitelist set A,B,C
@@ -318,7 +340,13 @@ pub fn process_input(
             options_env_values: None,
             options_env_policy: None,
             ..
-        } => env_whitelist_set(rconfig, role_id, task_id, setlist_type, options_env),
+        } => env_whitelist_set(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            setlist_type.as_ref(),
+            &options_env,
+        ),
         Inputs {
             // chsr o timeout unset --type  --duration  --max-usage
             action: InputAction::Del,
@@ -328,7 +356,7 @@ pub fn process_input(
             timeout_arg: Some(timeout_arg),
             setlist_type: None,
             ..
-        } => unset_timeout(rconfig, role_id, task_id, timeout_arg),
+        } => unset_timeout(rconfig, role_id.as_ref(), task_id, timeout_arg),
 
         Inputs {
             // chsr o timeout set --type tty --duration 00:00:00 --max-usage 1
@@ -343,7 +371,7 @@ pub fn process_input(
             ..
         } => set_timeout(
             rconfig,
-            role_id,
+            role_id.as_ref(),
             task_id,
             timeout_type,
             timeout_duration,
@@ -358,7 +386,7 @@ pub fn process_input(
             options_type: Some(OptType::Path),
             options_path_policy: Some(options_path_policy),
             ..
-        } => path_setpolicy(rconfig, role_id, task_id, options_path_policy),
+        } => path_setpolicy(rconfig, role_id.as_ref(), task_id, options_path_policy),
         Inputs {
             // chsr o path whitelist add path1:path2:path3
             action,
@@ -372,7 +400,7 @@ pub fn process_input(
             ..
         } => env_setlist_add(
             rconfig,
-            role_id,
+            role_id.as_ref(),
             task_id,
             setlist_type,
             action,
@@ -391,11 +419,11 @@ pub fn process_input(
             ..
         } => path_setlist2(
             rconfig,
-            role_id,
+            role_id.as_ref(),
             task_id,
             setlist_type,
             action,
-            options_path,
+            &options_path,
         ),
 
         Inputs {
@@ -406,13 +434,13 @@ pub fn process_input(
             options_env_policy: Some(options_env_policy),
             options_key_env: None,
             ..
-        } => env_setpolicy(rconfig, role_id, task_id, options_env_policy),
+        } => env_setpolicy(rconfig, role_id.as_ref(), task_id, options_env_policy),
         _ => Err("Unknown Input".into()),
     }
 }
 pub fn perform_on_target_opt(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
-    role_id: Option<String>,
+    role_id: Option<&String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -433,7 +461,7 @@ pub fn perform_on_target_opt(
 
     // If role_id is provided, find the role
     if let Some(role_id) = role_id {
-        let role = rconfig.role(&role_id).ok_or("Role not found")?;
+        let role = rconfig.role(role_id).ok_or("Role not found")?;
         let mut role_borrowed = role.as_ref().borrow_mut();
 
         // If task_id is provided, find the task

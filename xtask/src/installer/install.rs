@@ -7,26 +7,26 @@ use std::str::FromStr;
 
 use capctl::{Cap, CapSet};
 use log::{debug, error, info};
-use nix::sys::stat::{fchmod, Mode};
-use nix::unistd::{Gid, Uid};
 use nix::NixPath;
+use nix::sys::stat::{Mode, fchmod};
+use nix::unistd::{Gid, Uid};
 use strum::EnumIs;
 
 use crate::installer::Profile;
-use crate::util::{change_dir_to_git_root, detect_priv_bin, BOLD, RED, RST};
-use anyhow::{anyhow, Context};
+use crate::util::{BOLD, RED, RST, change_dir_to_git_root, detect_priv_bin};
+use anyhow::{Context, anyhow};
 
 use super::{CHSR_DEST, RAR_BIN_PATH, SR_DEST};
 use crate::util::cap_clear;
 
-fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
+fn copy_executables(profile: Profile) -> Result<(), anyhow::Error> {
     let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
     let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
     let binding = std::env::current_dir()?;
     let cwd = binding
         .to_str()
         .context("unable to get current dir as string")?;
-    info!("Current working directory: {}", cwd);
+    info!("Current working directory: {cwd}");
     info!(
         "Copying files {}/target/{}/dosr to {} and {}",
         cwd,
@@ -34,28 +34,28 @@ fn copy_executables(profile: &Profile) -> Result<(), anyhow::Error> {
         sr_dest.to_str().unwrap(),
         chsr_dest.to_str().unwrap()
     );
-    let s_sr = format!("{}/target/{}/dosr", cwd, profile);
+    let s_sr = format!("{cwd}/target/{profile}/dosr");
     let sr = Path::new(&s_sr);
-    let s_chsr = format!("{}/target/{}/chsr", cwd, profile);
+    let s_chsr = format!("{cwd}/target/{profile}/chsr");
     let chsr = Path::new(&s_chsr);
     if !sr.exists() || !chsr.exists() {
         return Err(anyhow!("sr or chsr does not exist in the target directory.
-        \nYou may need first to do `sudo cargo clean`.\n{}{}Please build the project first using `cargo xtask build`{}", BOLD, RED, RST));
+        \nYou may need first to do `sudo cargo clean`.\n{BOLD}{RED}Please build the project first using `cargo xtask build`{RST}"));
     }
     // We can't use fs::copy directly because it will overwrite the destination file
     // and it is possible that the destination file is currently under execution.
     debug!("Copying sr to sr.tmp");
-    fs::copy(sr, format!("{}.tmp", s_sr))?;
+    fs::copy(sr, format!("{s_sr}.tmp"))?;
     debug!("Copying chsr to chsr.tmp");
-    fs::copy(chsr, format!("{}.tmp", s_chsr))?;
+    fs::copy(chsr, format!("{s_chsr}.tmp"))?;
     debug!("Renaming sr to /usr/bin/dosr");
     fs::rename(sr, sr_dest)?;
     debug!("Renaming chsr to /usr/bin/chsr");
     fs::rename(chsr, chsr_dest)?;
     debug!("Renaming sr.tmp to sr");
-    fs::rename(format!("{}.tmp", s_sr), sr)?;
+    fs::rename(format!("{s_sr}.tmp"), sr)?;
     debug!("Renaming chsr.tmp to chsr");
-    fs::rename(format!("{}.tmp", s_chsr), chsr)?;
+    fs::rename(format!("{s_chsr}.tmp"), chsr)?;
 
     Ok(())
 }
@@ -92,7 +92,7 @@ fn copy_docs() -> Result<(), anyhow::Error> {
                 anyhow!("Failed to get the file name")
             })?;
         let lang = file.parent();
-        if lang.is_some_and(|p| !p.is_empty()) {
+        if lang.is_some_and(|p| !NixPath::is_empty(p)) {
             let lang = lang.unwrap();
             //println!("lang: {:?}", lang);
             let lang = lang.file_name().ok_or_else(|| {
@@ -103,14 +103,14 @@ fn copy_docs() -> Result<(), anyhow::Error> {
                 exit_directory().expect("Failed to exit directory");
                 anyhow!("Failed to get the language")
             })?;
-            let dest = format!("/usr/share/man/{}/man8/{}", lang, file_name);
-            debug!("Copying file: {:?} to {}", &file, dest);
+            let dest = format!("/usr/share/man/{lang}/man8/{file_name}");
+            debug!("Copying file: {} to {dest}", file.display());
             fs::copy(&file, &dest).inspect_err(|_| {
                 exit_directory().expect("Failed to exit directory");
             })?;
         } else {
-            let dest = format!("/usr/share/man/man8/{}", file_name);
-            debug!("Copying file: {:?} to {}", &file, dest);
+            let dest = format!("/usr/share/man/man8/{file_name}");
+            debug!("Copying file: {} to {}", file.display(), dest);
             fs::copy(&file, &dest).inspect_err(|_| {
                 exit_directory().expect("Failed to exit directory");
             })?;
@@ -165,7 +165,7 @@ fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyhow::E
 }
 
 pub fn install(
-    priv_exe: &Option<String>,
+    priv_exe: Option<&String>,
     profile: Profile,
     clean_after: bool,
     copy: bool,
@@ -186,7 +186,7 @@ pub fn install(
                 "The bounding set misses DAC_OVERRIDE, CHOWN or SETFCAP capabilities"
             ));
         } else if env::var("ROOTASROLE_INSTALLER_NESTED").is_ok_and(|v| v == "1") {
-            env::remove_var("ROOTASROLE_INSTALLER_NESTED");
+            unsafe { env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
             return Err(anyhow!(
                 "Unable to elevate required capabilities, is LSM blocking installation?"
             ));
@@ -194,20 +194,19 @@ pub fn install(
 
         let priv_bin = detect_priv_bin();
         let priv_exe = priv_exe
-            .as_ref()
             .or(priv_bin.as_ref())
             .context("Privileged binary is required")
             .map_err(|_| {
                 anyhow::Error::msg(format!(
                     "Please run {} as an administrator.",
                     current_exe()
-                        .unwrap_or(PathBuf::from_str("the command").unwrap())
+                        .unwrap_or_else(|_| PathBuf::from_str("the command").unwrap())
                         .to_str()
                         .unwrap()
                 ))
             })?;
         change_dir_to_git_root()?; // change to the root of the project before elevating privileges
-        env::set_var("ROOTASROLE_INSTALLER_NESTED", "1");
+        unsafe { env::set_var("ROOTASROLE_INSTALLER_NESTED", "1") };
         log::warn!("Elevating privileges...");
         std::process::Command::new(priv_exe)
             .arg("-E")
@@ -220,24 +219,24 @@ pub fn install(
             .status()
             .context("Failed to run privileged binary")
             .map_err(|e| {
-                error!("{}", e);
+                error!("{e}");
                 anyhow::Error::msg(format!(
                     "Failed to run privileged binary. Please run {} as an administrator.",
                     current_exe()
-                        .unwrap_or(PathBuf::from_str("the command").unwrap())
+                        .unwrap_or_else(|_| PathBuf::from_str("the command").unwrap())
                         .to_str()
                         .unwrap()
                 ))
             })?;
         return Ok(Elevated::Yes);
     }
-    env::remove_var("ROOTASROLE_INSTALLER_NESTED");
+    unsafe { env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
     if copy {
         //raise dac_override to copy files
         cap_effective(&mut state, Cap::DAC_OVERRIDE).context("Failed to raise DAC_OVERRIDE")?;
 
         // cp target/{release}/dosr,chsr,capable /usr/bin
-        copy_executables(&profile).context("Failed to copy sr and chsr files")?;
+        copy_executables(profile).context("Failed to copy sr and chsr files")?;
 
         copy_docs().context("Failed to copy documentation files")?;
 

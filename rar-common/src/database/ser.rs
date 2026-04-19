@@ -1,11 +1,17 @@
 use serde::{
-    ser::{SerializeMap, SerializeSeq},
     Serialize,
+    ser::{SerializeMap, SerializeSeq},
 };
 
 use crate::util::optimized_serialize_capset;
 
-use super::{is_default, structs::*};
+use super::{
+    is_default,
+    structs::{
+        SCapabilities, SCommands, SConfig, SCredentials, SRole, SSetgidSet, SSetuidSet, STask,
+        SetBehavior, cmds_is_default,
+    },
+};
 
 impl Serialize for SConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -20,7 +26,7 @@ impl Serialize for SConfig {
             if !self.roles.is_empty() {
                 map.serialize_entry("roles", &self.roles)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -32,7 +38,7 @@ impl Serialize for SConfig {
             if !self.roles.is_empty() {
                 map.serialize_entry("r", &self.roles)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -57,7 +63,7 @@ impl Serialize for SRole {
             if !self.tasks.is_empty() {
                 map.serialize_entry("tasks", &self.tasks)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -73,7 +79,7 @@ impl Serialize for SRole {
             if !self.tasks.is_empty() {
                 map.serialize_entry("t", &self.tasks)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -232,7 +238,7 @@ impl Serialize for SCredentials {
             if self.capabilities.is_some() {
                 map.serialize_entry("capabilities", &self.capabilities)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -247,7 +253,7 @@ impl Serialize for SCredentials {
             if self.capabilities.is_some() {
                 map.serialize_entry("c", &self.capabilities)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -275,7 +281,7 @@ impl Serialize for STask {
             if !cmds_is_default(&self.commands) {
                 map.serialize_entry("commands", &self.commands)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -294,7 +300,7 @@ impl Serialize for STask {
             if !cmds_is_default(&self.commands) {
                 map.serialize_entry("c", &self.commands)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -307,7 +313,7 @@ impl Serialize for SCommands {
     where
         S: serde::Serializer,
     {
-        if self.sub.is_empty() && self._extra_fields.is_empty() {
+        if self.sub.is_empty() && self.extra_fields.is_empty() {
             if self.add.is_empty() {
                 if let Some(variant) = &self.default {
                     return serializer.serialize_unit_variant(
@@ -315,9 +321,8 @@ impl Serialize for SCommands {
                         *variant as u32,
                         if variant.is_all() { "all" } else { "none" },
                     );
-                } else {
-                    return serializer.serialize_none();
                 }
+                return serializer.serialize_none();
             } else if !self.add.is_empty()
                 && self
                     .default
@@ -342,7 +347,7 @@ impl Serialize for SCommands {
             if !self.sub.is_empty() {
                 map.serialize_entry("del", &self.sub)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -357,7 +362,7 @@ impl Serialize for SCommands {
             if !self.sub.is_empty() {
                 map.serialize_entry("s", &self.sub)?;
             }
-            for (key, value) in &self._extra_fields {
+            for (key, value) in &self.extra_fields {
                 map.serialize_entry(key, value)?;
             }
             map.end()
@@ -367,19 +372,24 @@ impl Serialize for SCommands {
 
 #[cfg(test)]
 mod tests {
-    use capctl::Cap;
-    use serde_json::{json, to_value};
+    use std::rc::Rc;
 
-    use crate::database::actor::{SActor, SGroups};
+    use capctl::Cap;
+    use serde_json::{Map, json, to_value};
+
+    use crate::database::{
+        actor::{SActor, SGroups},
+        structs::SGroupsEither,
+    };
 
     use super::*;
 
     #[test]
     fn test_sconfig_human_readable() {
         let config = SConfig {
-            options: Some(Default::default()),
+            options: Some(Rc::default()),
             roles: vec![],
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
         let value = to_value(&config).unwrap();
         assert!(value.get("options").is_some());
@@ -401,22 +411,30 @@ mod tests {
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         role.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        assert!(!writer
-            .buffer()
-            .windows("tasks".len())
-            .any(|window| window == "tasks".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("name".len())
-            .any(|window| window == "name".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("options".len())
-            .any(|window| window == "options".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("actors".len())
-            .any(|window| window == "actors".as_bytes()));
+        assert!(
+            !writer
+                .buffer()
+                .windows("tasks".len())
+                .any(|window| window == b"tasks")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("name".len())
+                .any(|window| window == b"name")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("options".len())
+                .any(|window| window == b"options")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("actors".len())
+                .any(|window| window == b"actors")
+        );
     }
 
     #[test]
@@ -433,7 +451,7 @@ mod tests {
         // split HARDENED_ENUM_VALUE_0 to an array of bytes
         // cbor4ii add 0x1A prefix to the value
         let splitted = [0x1A, 0x05, 0x2A, 0x29, 0x25];
-        println!("splitted: {:?}", splitted);
+        println!("splitted: {splitted:?}");
         println!("buffer: {:?}", writer.buffer());
         assert!(writer.buffer() == splitted);
         // test serialization of SetBehavior::All
@@ -446,7 +464,7 @@ mod tests {
         // split HARDENED_ENUM_VALUE_0 to an array of bytes
         // cbor4ii add 0x1A prefix to the value
         let splitted = [0x1A, 0x0A, 0xD5, 0xD6, 0xDA];
-        println!("splitted: {:?}", splitted);
+        println!("splitted: {splitted:?}");
         println!("buffer: {:?}", writer.buffer());
         assert!(writer.buffer() == splitted);
     }
@@ -509,26 +527,36 @@ mod tests {
         let mut serializer = cbor4ii::serde::Serializer::new(&mut writer);
         task.serialize(&mut serializer).unwrap();
         assert!(!writer.buffer().is_empty());
-        assert!(!writer
-            .buffer()
-            .windows("name".len())
-            .any(|window| window == "name".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("options".len())
-            .any(|window| window == "options".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("cred".len())
-            .any(|window| window == "cred".as_bytes()));
-        assert!(!writer
-            .buffer()
-            .windows("commands".len())
-            .any(|window| window == "commands".as_bytes()));
-        assert!(writer
-            .buffer()
-            .windows("test".len())
-            .any(|window| window == "test".as_bytes()));
+        assert!(
+            !writer
+                .buffer()
+                .windows("name".len())
+                .any(|window| window == b"name")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("options".len())
+                .any(|window| window == b"options")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("cred".len())
+                .any(|window| window == b"cred")
+        );
+        assert!(
+            !writer
+                .buffer()
+                .windows("commands".len())
+                .any(|window| window == b"commands")
+        );
+        assert!(
+            writer
+                .buffer()
+                .windows("test".len())
+                .any(|window| window == b"test")
+        );
     }
 
     #[test]
@@ -537,7 +565,7 @@ mod tests {
             default: Some(SetBehavior::All),
             add: vec![],
             sub: vec![],
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
         let value = to_value(&cmds).unwrap();
         assert!(value.is_string());
@@ -546,7 +574,7 @@ mod tests {
             default: Some(SetBehavior::None),
             add: vec![],
             sub: vec![],
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
         let value = to_value(&cmds).unwrap();
         assert!(value.is_string());
@@ -569,12 +597,12 @@ mod tests {
         let behaviors = vec![SetBehavior::None, SetBehavior::All];
 
         for behavior in behaviors {
-            println!("Testing SetBehavior: {:?}", behavior);
+            println!("Testing SetBehavior: {behavior:?}");
 
             // Serialize to CBOR
             let mut cbor_data = Vec::new();
             cbor4ii::serde::to_writer(&mut cbor_data, &behavior).unwrap();
-            println!("CBOR data: {:02x?}", cbor_data);
+            println!("CBOR data: {cbor_data:02x?}");
 
             // Deserialize from CBOR
             let deserialized: SetBehavior = cbor4ii::serde::from_slice(&cbor_data).unwrap();
@@ -592,7 +620,7 @@ mod tests {
             .sub_cap(Cap::SYS_BOOT)
             .build();
 
-        println!("Testing SCapabilities: {:?}", caps);
+        println!("Testing SCapabilities: {caps:?}");
 
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
@@ -612,7 +640,7 @@ mod tests {
                 default: Some(SetBehavior::All),
                 add: vec![],
                 sub: vec![],
-                _extra_fields: Default::default(),
+                extra_fields: Map::default(),
             },
             // Array case
             SCommands::builder(SetBehavior::None)
@@ -626,12 +654,12 @@ mod tests {
         ];
 
         for (i, cmds) in test_cases.into_iter().enumerate() {
-            println!("Testing SCommands case {}: {:?}", i, cmds);
+            println!("Testing SCommands case {i}: {cmds:?}");
 
             // Serialize to CBOR
             let mut cbor_data = Vec::new();
             cbor4ii::serde::to_writer(&mut cbor_data, &cmds).unwrap();
-            println!("CBOR data: {:02x?}", cbor_data);
+            println!("CBOR data: {cbor_data:02x?}");
 
             // Deserialize from CBOR
             let deserialized: SCommands = cbor4ii::serde::from_slice(&cbor_data).unwrap();
@@ -652,7 +680,7 @@ mod tests {
             )
             .build();
 
-        println!("Testing SCredentials: {:?}", creds);
+        println!("Testing SCredentials: {creds:?}");
 
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
@@ -668,12 +696,12 @@ mod tests {
     fn test_groupseither_cbor_roundtrip() {
         let mandatory_single = SGroupsEither::MandatoryGroup(1.into());
 
-        println!("Testing SSetgidSet: {:?}", mandatory_single);
+        println!("Testing SSetgidSet: {mandatory_single:?}");
 
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &mandatory_single).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
 
         // Deserialize from CBOR
         let deserialized: SGroupsEither = cbor4ii::serde::from_slice(&cbor_data).unwrap();
@@ -681,11 +709,11 @@ mod tests {
 
         let mandatory_multiple =
             SGroupsEither::MandatoryGroups(SGroups::Multiple(vec![1.into(), 2.into()]));
-        println!("Testing SSetgidSet: {:?}", mandatory_multiple);
+        println!("Testing SSetgidSet: {mandatory_multiple:?}");
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &mandatory_multiple).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         // Deserialize from CBOR
         let deserialized: SGroupsEither = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert_eq!(mandatory_multiple, deserialized);
@@ -696,11 +724,11 @@ mod tests {
                 .sub(vec![3.into(), 4.into()])
                 .build(),
         );
-        println!("Testing SSetgidSet: {:?}", gidset);
+        println!("Testing SSetgidSet: {gidset:?}");
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &gidset).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         // Deserialize from CBOR
         let deserialized: SGroupsEither = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert_eq!(gidset, deserialized);
@@ -717,12 +745,12 @@ mod tests {
             )
             .build();
 
-        println!("Testing STask: {:?}", task);
+        println!("Testing STask: {task:?}");
 
         // Serialize to CBOR
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &task).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
 
         // Deserialize from CBOR
         let deserialized: STask = cbor4ii::serde::from_slice(&cbor_data).unwrap();
@@ -737,10 +765,10 @@ mod tests {
 
         // Test SetBehavior
         for behavior in [SetBehavior::None, SetBehavior::All] {
-            println!("Testing SetBehavior: {:?}", behavior);
+            println!("Testing SetBehavior: {behavior:?}");
             let mut cbor_data = Vec::new();
             cbor4ii::serde::to_writer(&mut cbor_data, &behavior).unwrap();
-            println!("CBOR data: {:02x?}", cbor_data);
+            println!("CBOR data: {cbor_data:02x?}");
             let deserialized: SetBehavior = cbor4ii::serde::from_slice(&cbor_data).unwrap();
             assert_eq!(behavior, deserialized);
         }
@@ -750,21 +778,21 @@ mod tests {
             default: Some(SetBehavior::All),
             add: vec![],
             sub: vec![],
-            _extra_fields: Default::default(),
+            extra_fields: Map::default(),
         };
-        println!("Testing SCommands: {:?}", cmds);
+        println!("Testing SCommands: {cmds:?}");
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &cmds).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         let deserialized: SCommands = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert_eq!(cmds, deserialized);
 
         // Test STask
         let task = STask::builder("test_task").build();
-        println!("Testing STask: {:?}", task);
+        println!("Testing STask: {task:?}");
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &task).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         let deserialized: STask = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert_eq!(task.as_ref().borrow().name, deserialized.name);
     }
@@ -772,18 +800,18 @@ mod tests {
     #[test]
     fn test_sactor_cbor_roundtrip() {
         let actor = SActor::user(1000).build();
-        println!("Testing SActor: {:?}", actor);
+        println!("Testing SActor: {actor:?}");
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &actor).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         let deserialized: SActor = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert!(actor.is_user());
         assert_eq!(actor, deserialized);
         let actor = SActor::group(2000).build();
-        println!("Testing SActor: {:?}", actor);
+        println!("Testing SActor: {actor:?}");
         let mut cbor_data = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor_data, &actor).unwrap();
-        println!("CBOR data: {:02x?}", cbor_data);
+        println!("CBOR data: {cbor_data:02x?}");
         let deserialized: SActor = cbor4ii::serde::from_slice(&cbor_data).unwrap();
         assert!(actor.is_group());
         assert_eq!(actor, deserialized);

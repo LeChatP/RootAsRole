@@ -3,14 +3,14 @@ use std::path::PathBuf;
 /// Security module, provides Landlock and Seccomp locking
 /// This way, the administrator cannot edit files that should not be edited
 use landlock::{
-    Access, AccessFs, Compatible, PathBeneath, PathFd, RestrictionStatus, Ruleset, RulesetAttr,
-    RulesetCreatedAttr, ABI,
+    ABI, Access, AccessFs, Compatible, PathBeneath, PathFd, RestrictionStatus, Ruleset,
+    RulesetAttr, RulesetCreatedAttr,
 };
 use libseccomp::{ScmpAction, ScmpFilterContext, ScmpSyscall};
 
-use crate::{cli::editor::SYSTEM_EDITOR, ROOTASROLE};
+use crate::{ROOTASROLE, cli::editor::SYSTEM_EDITOR};
 
-pub(crate) fn full_program_lock(
+pub fn full_program_lock(
     folder: &PathBuf,
 ) -> Result<RestrictionStatus, Box<dyn std::error::Error>> {
     Ok(Ruleset::default()

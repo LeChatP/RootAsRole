@@ -3,9 +3,9 @@ use std::error::Error;
 use actor::{SGroups, SUserType};
 use bon::Builder;
 use chrono::Duration;
-use linked_hash_set::LinkedHashSet;
+use indexmap::IndexSet;
 use options::EnvBehavior;
-use serde::{de::Deserialize, de::Deserializer, Serialize};
+use serde::{Serialize, de::Deserialize, de::Deserializer};
 
 use self::options::EnvKey;
 
@@ -20,35 +20,33 @@ pub mod ser;
 pub mod structs;
 pub mod versionning;
 
+#[allow(clippy::missing_errors_doc)]
 #[derive(Debug, Default, Builder)]
 #[builder(on(_, overwritable))]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
     pub env_behavior: Option<EnvBehavior>,
-    #[builder(with = |s: impl Into<SUserType>| -> Result<_,String> { s.into().fetch_id().ok_or("This user does not exist".into()) })]
+    #[builder(with = |s: impl Into<SUserType>| -> Result<_,String> { s.into().fetch_id().ok_or_else(|| "This user does not exist".into()) })]
     pub user: Option<u32>,
     #[builder(with = |s: impl Into<SGroups>| -> Result<_,String> { s.into().try_into() })]
     pub group: Option<Vec<u32>>,
 }
 
 // deserialize the linked hash set
-fn lhs_deserialize_envkey<'de, D>(
-    deserializer: D,
-) -> Result<Option<LinkedHashSet<EnvKey>>, D::Error>
+#[allow(clippy::unnecessary_wraps)] // Function used by serde, must return a Result
+fn lhs_deserialize_envkey<'de, D>(deserializer: D) -> Result<Option<IndexSet<EnvKey>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    if let Ok(v) = Vec::<EnvKey>::deserialize(deserializer) {
-        Ok(Some(v.into_iter().collect()))
-    } else {
-        Ok(None)
-    }
+    Vec::<EnvKey>::deserialize(deserializer)
+        .map_or_else(|_| Ok(None), |v| Ok(Some(v.into_iter().collect())))
 }
 
 // serialize the linked hash set
+#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
 fn lhs_serialize_envkey<S>(
-    value: &Option<LinkedHashSet<EnvKey>>,
+    value: &Option<IndexSet<EnvKey>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -63,19 +61,18 @@ where
 }
 
 // deserialize the linked hash set
-fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<LinkedHashSet<String>>, D::Error>
+#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
+fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<IndexSet<String>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    if let Ok(v) = Vec::<String>::deserialize(deserializer) {
-        Ok(Some(v.into_iter().collect()))
-    } else {
-        Ok(None)
-    }
+    Vec::<String>::deserialize(deserializer)
+        .map_or_else(|_| Ok(None), |v| Ok(Some(v.into_iter().collect())))
 }
 
 // serialize the linked hash set
-fn lhs_serialize<S>(value: &Option<LinkedHashSet<String>>, serializer: S) -> Result<S::Ok, S::Error>
+#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
+fn lhs_serialize<S>(value: &Option<IndexSet<String>>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -91,6 +88,8 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
+/// # Errors
+/// Returns an error if the duration string is not in the correct format.
 pub fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -107,6 +106,8 @@ where
     }
 }
 
+/// # Errors
+/// Returns an error if the duration string is not in the correct format or if the duration is negative.
 pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
 where
     D: Deserializer<'de>,
@@ -137,9 +138,9 @@ fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<
 mod tests {
     use super::*;
 
-    struct LinkedHashSetTester<T>(pub Option<LinkedHashSet<T>>);
+    struct IndexSetTester<T>(pub Option<IndexSet<T>>);
 
-    impl<'de> Deserialize<'de> for LinkedHashSetTester<EnvKey> {
+    impl<'de> Deserialize<'de> for IndexSetTester<EnvKey> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -148,7 +149,7 @@ mod tests {
         }
     }
 
-    impl Serialize for LinkedHashSetTester<EnvKey> {
+    impl Serialize for IndexSetTester<EnvKey> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -157,7 +158,7 @@ mod tests {
         }
     }
 
-    impl<'de> Deserialize<'de> for LinkedHashSetTester<String> {
+    impl<'de> Deserialize<'de> for IndexSetTester<String> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -166,7 +167,7 @@ mod tests {
         }
     }
 
-    impl Serialize for LinkedHashSetTester<String> {
+    impl Serialize for IndexSetTester<String> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn test_lhs_deserialize_envkey() {
         let json = r#"["key1", "key2", "key3"]"#;
-        let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
+        let deserialized: Option<IndexSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
         let set = deserialized.unwrap().0.unwrap();
         assert_eq!(set.len(), 3);
@@ -210,7 +211,7 @@ mod tests {
     #[test]
     fn test_lhs_deserialize() {
         let json = r#"["value1", "value2", "value3"]"#;
-        let deserialized: Option<LinkedHashSetTester<String>> = serde_json::from_str(json).unwrap();
+        let deserialized: Option<IndexSetTester<String>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_some());
         let set = deserialized.unwrap().0.unwrap();
         assert_eq!(set.len(), 3);
@@ -221,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_lhs_serialize() {
-        let mut set = LinkedHashSetTester(Some(LinkedHashSet::new()));
+        let mut set = IndexSetTester(Some(IndexSet::new()));
         set.0.as_mut().unwrap().insert("value1".to_string());
         set.0.as_mut().unwrap().insert("value2".to_string());
         set.0.as_mut().unwrap().insert("value3".to_string());
@@ -254,36 +255,35 @@ mod tests {
     }
     #[test]
     fn test_lhs_serialize_empty() {
-        let set: LinkedHashSetTester<EnvKey> = LinkedHashSetTester(None);
+        let set: IndexSetTester<EnvKey> = IndexSetTester(None);
         let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"null"#);
-        let set: LinkedHashSetTester<String> = LinkedHashSetTester(None);
+        assert_eq!(serialized, r"null");
+        let set: IndexSetTester<String> = IndexSetTester(None);
         let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"null"#);
+        assert_eq!(serialized, r"null");
         let duration = DurationTester(None);
         let serialized = serde_json::to_string(&duration).unwrap();
-        assert_eq!(serialized, r#"null"#);
+        assert_eq!(serialized, r"null");
     }
     #[test]
     fn test_lhs_deserialize_envkey_null() {
-        let json = r#"null"#;
-        let deserialized: Option<LinkedHashSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
+        let json = r"null";
+        let deserialized: Option<IndexSetTester<EnvKey>> = serde_json::from_str(json).unwrap();
         assert!(deserialized.is_none());
     }
 
     #[test]
     fn test_lhs_deserialize_empty_object() {
-        let json = r#"{}"#;
-        let deserialized: Result<Option<LinkedHashSetTester<String>>, _> =
-            serde_json::from_str(json);
+        let json = r"{}";
+        let deserialized: Result<Option<IndexSetTester<String>>, _> = serde_json::from_str(json);
         assert!(deserialized.is_err());
     }
 
     #[test]
     fn test_lhs_serialize_empty_set() {
-        let set = LinkedHashSetTester(Some(LinkedHashSet::<EnvKey>::new()));
+        let set = IndexSetTester(Some(IndexSet::<EnvKey>::new()));
         let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"[]"#);
+        assert_eq!(serialized, r"[]");
     }
 
     #[test]
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn test_lhs_deserialize_envkey_mixed_types() {
         let json = r#"["key1", 123, null]"#;
-        let deserialized: Result<LinkedHashSetTester<EnvKey>, _> = serde_json::from_str(json);
+        let deserialized: Result<IndexSetTester<EnvKey>, _> = serde_json::from_str(json);
         assert!(deserialized.is_err());
     }
 }
@@ -342,7 +342,7 @@ mod serde_tests {
     };
 
     use capctl::Cap;
-    use serde_test::{assert_tokens, Configure, Token};
+    use serde_test::{Configure, Token, assert_tokens};
 
     #[test]
     fn test_set_behavior() {
@@ -488,7 +488,7 @@ mod serde_tests {
     }
 
     #[test]
-    fn test_sgroups() {
+    fn test_mandatory_group() {
         let groups = SGroupsEither::MandatoryGroup(1000.into());
         assert_tokens(
             &groups.readable(),
@@ -497,7 +497,10 @@ mod serde_tests {
                 Token::U32(1000),
             ],
         );
+    }
 
+    #[test]
+    fn test_mandatory_groups() {
         let groups =
             SGroupsEither::MandatoryGroups(SGroups::Multiple(vec![1000.into(), 1001.into()]));
         assert_tokens(
@@ -511,7 +514,10 @@ mod serde_tests {
                 Token::SeqEnd,
             ],
         );
+    }
 
+    #[test]
+    fn test_group_selector() {
         let groups = SGroupsEither::GroupSelector(
             SSetgidSet::builder(
                 SetBehavior::None,
@@ -661,9 +667,9 @@ mod serde_tests {
                 Token::Str("d"),
                 Token::U32(HARDENED_ENUM_VALUE_0),
                 Token::Str("a"),
-                Token::U64((1u64 << Cap::BPF as u8) as u64),
+                Token::U64(1u64 << Cap::BPF as u8),
                 Token::Str("s"),
-                Token::U64((1u64 << Cap::CHOWN as u8) as u64),
+                Token::U64(1u64 << Cap::CHOWN as u8),
                 Token::MapEnd,
                 Token::MapEnd,
             ],

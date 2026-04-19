@@ -1,0 +1,18 @@
+[package]
+name = "rootasrole-exec"
+version = "4.0.0"
+edition = "2024"
+authors = ["Eddie Billoir <lechatp@outlook.fr>"]
+license = "LGPL-3.0-or-later"
+description = "Execution primitives for RootAsRole, mostly inspired by sudo-rs, but usable by other projects (mine aswell)."
+
+[dependencies]
+rkyv = { version = "0.8" }
+libc = "0.2"
+ringbuf = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+
+[dev-dependencies]
+serial_test = "3.2.0"
+

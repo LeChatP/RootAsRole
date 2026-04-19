@@ -1,4 +1,4 @@
-% RootAsRole(8) RootAsRole 3.3.2 | System Manager's Manual
+% RootAsRole(8) RootAsRole 4.0.0 | System Manager's Manual
 % Eddie Billoir <lechatp@outlook.fr>
 % August 2025
 
@@ -18,9 +18,9 @@ The Role-Based Access Control (RBAC) model is based on sets of permissions assig
 
 The **dosr** command allows the execution of commands using a role. It requires a command to be executed as a mandatory parameter. It is also possible to specify a role and a task to select.
 
-There are cases where several tasks correspond to a user's command input. In such cases, sr will select the most precise and least privileged task. The notion of precision is based on how closely the RootAsRole policy matches the user's command. The more the user's profile matches the policy, the higher the level of precision. The same applies to the precision of the user's command compared to its specification in the policy. Similarly, the task with fewer privileges will be prioritized over a task with higher privileges, but only if the tasks are equally precise. Despite this intelligent selection, confusion can still arise, and an error message will be returned.
+There are cases where several tasks correspond to a user's command input. In such cases, dosr will select the most precise and least privileged task. The notion of precision is based on how closely the RootAsRole policy matches the user's command. The more the user's profile matches the policy, the higher the level of precision. The same applies to the precision of the user's command compared to its specification in the policy. Similarly, the task with fewer privileges will be prioritized over a task with higher privileges, but only if the tasks are equally precise. Despite this intelligent selection, confusion can still arise, and an error message will be returned.
 
-Example of a confusion case: Two roles are assigned in the same way to a user, and among these roles, two tasks are entirely equivalent, but the configured environment variable are different for these two tasks. In this case, dosr will display the error message "Permission denied" and log a warning that configuration must be fixed. This case should not happen if administrators are using **chsr**, the configuration tool.
+Example of a confusion case: Two roles are assigned in the same way to a user, and among these roles, two tasks are entirely equivalent, but the configured environment variables are different for these two tasks. In this case, dosr will display the error message "Permission denied" and log a warning that configuration must be fixed. This case should not happen if administrators are using **chsr**, the configuration tool.
 
 It is possible to change the user's prompt using the **-p** option. It is also possible to view the executor's rights using the **-i** option. The displayed information is very limited for the user. Otherwise, administrator can use **chsr** to obtain the complete policy.
 
@@ -52,8 +52,8 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
 **\-p, --prompt** &lt;PROMPT&gt; 
   Prompt to display when authenticating.
 
-**\-K**  
-  Remove timestamp file. (It requires you to authenticate again before executing a command)
+**\-K, --remove-timestamp**  
+  Remove timestamp cookie before authentication.
 
 **\-i, --info**  
   Print the execution context of a command if allowed by a matching task.
@@ -74,7 +74,7 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
 
 # HISTORY
 
-You can find the history of RootAsRole in the website <https://lechatp.github.io/HISTORY.html>.
+You can find the history of RootAsRole on the website <https://lechatp.github.io/RootAsRole/HISTORY.html>.
 
 # SECURITY RISKS
 

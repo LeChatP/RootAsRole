@@ -31,9 +31,11 @@ mod tests {
             .expect("Failed to run dosr --version");
 
         assert!(result.success, "Command failed: {}", result.stderr);
-        assert!(result
-            .stdout
-            .contains(&env!("CARGO_PKG_VERSION").to_string()));
+        assert!(
+            result
+                .stdout
+                .contains(&env!("CARGO_PKG_VERSION").to_string())
+        );
         assert_eq!(result.exit_code, 0);
     }
 
@@ -237,7 +239,7 @@ mod tests {
     #[serial]
     fn test_dosr_as_user_and_group() {
         let runner = get_test_runner()
-            .inspect_err(|e| eprintln!("Failed to setup test environment: {}", e))
+            .inspect_err(|e| eprintln!("Failed to setup test environment: {e}"))
             .unwrap();
         let result = runner
             .run_dosr(&["-u", "nobody", "-g", "daemon,nobody", "id"])
@@ -246,7 +248,7 @@ mod tests {
             .fixture_name("tests/fixtures/user_group.json")
             .env_vars(&[("LANG", "en_US")])
             .call()
-            .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {}", e))
+            .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {e}"))
             .unwrap();
         if !result.success {
             eprintln!("stderr: {}", result.stderr);
@@ -324,12 +326,16 @@ mod tests {
         assert!(result.stdout.contains("Role: A"));
         // this also tests that not writing a absolute path in the policy is not a valid command.
         assert!(result.stdout.contains("Task: A_B"));
-        assert!(result
-            .stdout
-            .contains("Execute as user: root (0) and group(s): root (0)"));
-        assert!(result
-            .stdout
-            .contains("With capabilities: CAP_DAC_OVERRIDE"));
+        assert!(
+            result
+                .stdout
+                .contains("Execute as user: root (0) and group(s): root (0)")
+        );
+        assert!(
+            result
+                .stdout
+                .contains("With capabilities: CAP_DAC_OVERRIDE")
+        );
         assert_eq!(result.exit_code, 0);
     }
 }

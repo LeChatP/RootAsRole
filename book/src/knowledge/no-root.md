@@ -1,12 +1,18 @@
-# Is a Linux system without root user possible ?
+# Is a Linux system without a root user possible?
 
-To make it short, not really. But you can design your system to never have to use the root user. This is what RootAsRole aims, and the exact purpose of Linux Capabilities. Let's consider you want a system without root user and you want to setup a webserver. Firstly, let's create the apache2 user and group:
+Short answer: not really.
+
+Practical answer: you can design operations so daily work does not require logging in as `root`. That is exactly the RootAsRole objective with Linux capabilities.
+
+Example: preparing Apache management without direct root sessions.
+
+First, create the service account:
 
 ```bash
 dosr adduser apache2
 ```
 
-We consider that we still use the default configuration of RootAsRole. Then, let's add a task to install apache2 with the apache2 user:
+Then create a task to install Apache with that account:
 
 ```bash
 dosr chsr r r_root t install_apache2 add
@@ -15,7 +21,7 @@ dosr chsr r r_root t install_apache2 cmd whitelist add "/usr/sbin/apt ^upgrade( 
 dosr chsr r r_root t install_apache2 cred set --caps CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_NET_BIND_SERVICE,CAP_SETUID --setuid apache2 --setgid apache2
 ```
 
-Then, let's add a task to start apache2 with the apache2 user:
+Add another task to start/stop Apache:
 
 ```bash
 dosr chsr r r_root t start_apache2 add
@@ -24,13 +30,13 @@ dosr chsr r r_root t start_apache2 cmd whitelist add "/usr/bin/service ^apache2 
 dosr chsr r r_root t install_apache2 cred set --caps CAP_NET_BIND_SERVICE,CAP_SETUID --setuid apache2 --setgid apache2
 ```
 
-So now you can install and start apache2 with the apache2 user:
+Now installation can be delegated through policy:
 
 ```bash
 dosr apt install apache2
 ```
 
-This should install apache2 configuration files owned by apache2 user and group. Then you can start apache2 with the apache2 user:
+Then service control can also run through delegated tasks:
 
 ```bash
 dosr systemctl start apache2

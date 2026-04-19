@@ -20,8 +20,8 @@ fn calculate_hash<T: Hash>(value: &T) -> u64 {
 }
 
 fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResult<bool> {
-    if let Some(Value::Array(ssd)) = role.role()._extra_values.get("ssd") {
-        for ssd in ssd.iter() {
+    if let Some(Value::Array(ssd)) = role.role().extra_values.get("ssd") {
+        for ssd in ssd {
             if let Value::String(ssd) = ssd {
                 if visited.contains(&calculate_hash(ssd)) {
                     continue; // Avoid infinite recursion
@@ -37,7 +37,7 @@ fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResu
                 }
             }
         }
-    } else if let Some(Value::String(ssd)) = role.role()._extra_values.get("ssd") {
+    } else if let Some(Value::String(ssd)) = role.role().extra_values.get("ssd") {
         if visited.contains(&calculate_hash(ssd)) {
             return Ok(false); // Avoid infinite recursion
         }
@@ -50,21 +50,21 @@ fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResu
                 return Ok(true);
             }
         }
-    } else if let Some(e) = role.role()._extra_values.get("ssd") {
-        debug!("Invalid SSD value: {:?}", e);
+    } else if let Some(e) = role.role().extra_values.get("ssd") {
+        debug!("Invalid SSD value: {e:?}");
         return Err(SrError::ConfigurationError);
     }
     Ok(false)
 }
 
 fn check_ssd(event: &mut ApiEvent) -> SrResult<()> {
-    if let ApiEvent::ActorMatching(role, _settings, matching) = event {
-        if role.role().user_min.matching() {
-            let mut visited: HashSet<u64> = HashSet::new();
-            if check_ssd_recursive(role, &mut visited)? {
-                **matching = false;
-                return Ok(());
-            }
+    if let ApiEvent::ActorMatching(role, _settings, matching) = event
+        && role.role().user_min.matching()
+    {
+        let mut visited: HashSet<u64> = HashSet::new();
+        if check_ssd_recursive(role, &mut visited)? {
+            **matching = false;
+            return Ok(());
         }
     }
     Ok(())

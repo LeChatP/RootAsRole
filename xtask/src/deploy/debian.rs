@@ -8,13 +8,13 @@ use anyhow::Context;
 use log::debug;
 
 use crate::{
-    installer::{self, dependencies::install_dependencies, InstallDependenciesOptions, Profile},
-    util::{detect_priv_bin, get_os, OsTarget},
+    installer::{self, InstallDependenciesOptions, Profile, dependencies::install_dependencies},
+    util::{OsTarget, detect_priv_bin, get_os},
 };
 
 use super::setup_maint_scripts;
 
-fn dependencies(os: &OsTarget, priv_bin: Option<String>) -> Result<ExitStatus, anyhow::Error> {
+fn dependencies(os: &OsTarget, priv_bin: Option<&String>) -> Result<ExitStatus, anyhow::Error> {
     install_dependencies(os, &["upx"], priv_bin)
         .context("failed to install packaging dependencies")?;
     Command::new("cargo")
@@ -42,21 +42,21 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
         .next()
         .expect("Are you in the git repository ?")?;
 
-    debug!("Generating changelog from {} to {}", from, to);
+    debug!("Generating changelog from {from} to {to}");
 
     let changes = Command::new("git")
-        .args(["log", "--pretty=format:  %s", &format!("{}..{}", to, from)])
+        .args(["log", "--pretty=format:  %s", &format!("{to}..{from}")])
         .output()?;
     debug!(
         "Changes: {}",
         String::from_utf8(changes.stdout.clone()).unwrap()
     );
     let changelog = format!(
-        r#"rootasrole ({version}) {dist}; urgency={urgency}
+        r"rootasrole ({version}) {dist}; urgency={urgency}
 {changes}
 
  -- Eddie Billoir <lechatp@outlook.fr>  {date}
-"#,
+",
         version = env!("CARGO_PKG_VERSION"),
         dist = "unstable",
         urgency = "low",
@@ -69,15 +69,15 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
 }
 
 pub fn make_deb(
-    os: Option<OsTarget>,
+    os: Option<&OsTarget>,
     profile: Profile,
-    priv_bin: &Option<String>,
+    priv_bin: Option<&String>,
 ) -> Result<(), anyhow::Error> {
     let os = get_os(os)?;
-    let priv_bin = priv_bin.clone().or(detect_priv_bin());
-    dependencies(&os, priv_bin.clone())?;
+    let priv_bin = priv_bin.cloned().or_else(detect_priv_bin);
+    dependencies(&os, priv_bin.as_ref())?;
 
-    installer::dependencies(InstallDependenciesOptions {
+    installer::dependencies(&InstallDependenciesOptions {
         os: Some(os),
         install_dependencies: true,
         dev: true,

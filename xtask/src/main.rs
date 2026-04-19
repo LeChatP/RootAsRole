@@ -3,6 +3,7 @@ mod deploy;
 mod installer;
 pub mod util;
 
+use Command::{Build, Configure, Dependencies, Deploy, Install, Uninstall};
 use std::process::exit;
 
 use clap::Parser;
@@ -40,9 +41,8 @@ fn main() {
         .format_module_path(true)
         .init();
     let opts = Options::parse();
-    use Command::*;
     let ret = match opts.command {
-        Dependencies(opts) => installer::dependencies(opts),
+        Dependencies(opts) => installer::dependencies(&opts),
         Build(opts) => installer::build(&opts),
         Install(opts) => installer::install(&opts),
         Configure { os } => installer::configure(os),

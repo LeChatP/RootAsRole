@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use ::landlock::{RestrictionStatus, RulesetStatus};
     use capctl::Cap;
     use log::{error, warn};
-    use rar_common::{util::definitive_drop, LockedSettingsFile};
+    use rar_common::{LockedSettingsFile, util::definitive_drop};
 
     use crate::security::{full_program_lock, seccomp_lock};
 
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ruleset_status = match full_program_lock(&folder) {
         Ok(RestrictionStatus { ruleset, .. }) => ruleset,
         Err(e) => {
-            warn!("Failed to apply landlock policy: {:#}", e);
+            warn!("Failed to apply landlock policy: {e:#}");
             RulesetStatus::NotEnforced
         }
     };
@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut settings = LockedSettingsFile::open(
         ROOTASROLE,
-        OpenOptions::new()
+        &OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -63,11 +63,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .expect("Error on config read");
 
-    if cli::main(settings.data.clone(), std::env::args().skip(1))
+    if cli::main(&settings.data.clone(), std::env::args().skip(1))
         .ruleset(ruleset_status)
         .folder(&folder)
         .call()
-        .map_err(|e| error!("Unable to edit policy : {}", e))
+        .map_err(|e| error!("Unable to edit policy : {e}"))
         .is_ok_and(|b| b)
     {
         settings.save()

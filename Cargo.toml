@@ -1,12 +1,12 @@
 [workspace]
-members = ["xtask", "rar-common"]
+members = ["xtask", "rar-common", "rar-exec"]
 
 [package]
 name = "rootasrole"
-version = "3.3.2"
-rust-version = "1.83.0"
+version = "4.0.0"
+rust-version = "1.88.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
-edition = "2021"
+edition = "2024"
 default-run = "dosr"
 description = "A better alternative to sudo(-rs)/su"
 license = "LGPL-3.0-or-later"
@@ -51,7 +51,7 @@ path = "tests/integration_tests.rs"
 required-features = ["finder"]
 
 [features]
-finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rar-common/finder", "dep:nonstick", "dep:libpam-sys", "dep:pty-process", "dep:once_cell"]
+finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rar-common/finder", "dep:nonstick", "dep:libpam-sys", "dep:indexmap"]
 glob = ["rar-common/glob"]
 pcre2 = ["dep:pcre2", "rar-common/pcre2"]
 plugins = ["hashchecker", "ssd", "hierarchy"]
@@ -60,20 +60,31 @@ ssd = []
 hierarchy = []
 timeout = []
 landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
-editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:linked_hash_set"]
+editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap"]
 
 [lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin_include)'] }
+unexpected_cfgs = "allow"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = 1 }
+nursery = { level = "warn", priority = 1 }
+unwrap_used = "deny"
+similar_names = "allow"
+should_implement_trait = "allow"
+
+[package.metadata.clippy]
+allow-unwrap-in-tests = true
 
 [build-dependencies]
-toml = { version = "0.8", default-features = false, features = ["parse", "display", "preserve_order"] }
+toml = { version = "0.9", default-features = false, features = ["serde","parse", "display", "preserve_order"] }
 
 [dependencies]
-rar-common = { path = "rar-common", version = "3.3.2", package = "rootasrole-core" }
+rar-common = { path = "rar-common", version = "4.0.0", package = "rootasrole-core" }
+rar-exec = { path = "rar-exec", version = "4.0.0", package = "rootasrole-exec" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
 strum = { version = "0.26", default-features = false, features = ["derive"] }
-nix = { version = "0.29", features = ["user", "process", "signal", "fs"] }
+nix = { version = "0.30", features = ["user", "process", "signal", "fs"] }
 capctl = { version = "0.2", default-features = false, features = ["serde"] }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
@@ -84,17 +95,15 @@ chrono = { version = "0.4", default-features = false, features = ["now"] }
 const_format = { version = "0.2", default-features = false }
 bon = { version = "3", default-features = false }
 ## dosr
-nonstick = { version = "0.1.1", optional = true }
+nonstick = { version = "0.1", optional = true }
 libpam-sys = { version = "0.2.0", default-features = false, optional = true }
 pcre2 = { version = "0.2", default-features = false, optional = true }
 glob = { version = "0.3", default-features = false, optional = true }
 sha2 = { version = "0.10", default-features = false, optional = true }
-pty-process = { version = "0.4", default-features = false, optional = true }
-once_cell = { version = "1.20", default-features = false, optional = true, features = ["std"] }
 ## chsr
 pest = { version = "2.7", default-features = false, features = ["std"], optional = true }
 pest_derive = { version = "2.7", default-features = false, features = ["std"], optional = true }
-linked_hash_set = { version = "0.1", default-features = false, optional = true }
+indexmap = { version = "2.13", default-features = false, features = ["std"], optional = true }
 hex = { version = "0.4", default-features = false, optional = true, features = ["alloc"]}
 landlock = { version = "0.4", optional = true }
 libseccomp = { version = "0.3", optional = true }

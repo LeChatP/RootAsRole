@@ -3,16 +3,17 @@ use std::{
     error::Error,
     fs::File,
     io::{BufWriter, Write},
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
 use log::{debug, error};
 use rar_common::{
-    database::versionning::Versioning, retrieve_sconfig, FullSettings, StorageMethod,
+    FullSettings, RemoteStorageSettings, StorageMethod, database::versionning::Versioning,
+    retrieve_sconfig,
 };
 
-use crate::{cli::data::Convertion, ROOTASROLE};
+use crate::{ROOTASROLE, cli::data::Convertion};
 
 pub fn convert(
     settings: &Rc<RefCell<FullSettings>>,
@@ -21,8 +22,8 @@ pub fn convert(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr convert");
     let mut settings = settings.borrow_mut();
-    let default = Default::default();
-    let default_path = Default::default();
+    let default = RemoteStorageSettings::default();
+    let default_path = PathBuf::default();
     let path = settings
         .storage
         .settings
@@ -33,20 +34,20 @@ pub fn convert(
         .unwrap_or(&default_path);
     let config = match convertion.from {
         Some(ref from) => {
-            debug!("Convert from: {:?}", from);
+            debug!("Convert from: {}", from.display());
             let from_type = convertion.from_type.expect("Impossible state");
             if from == &convertion.to {
                 error!("The source and destination paths are the same");
                 return Ok(false);
             }
-            if from != path {
-                retrieve_sconfig(&from_type, from)?
-            } else {
+            if from == path {
                 settings
                     .config
                     .as_ref()
                     .expect("A configuration should be loaded")
                     .clone()
+            } else {
+                retrieve_sconfig(&from_type, from)?
             }
         }
         None => settings
@@ -56,13 +57,15 @@ pub fn convert(
     };
     println!(
         "Config : {}",
-        serde_json::to_string_pretty(&Versioning::new(config.clone())).unwrap()
+        serde_json::to_string_pretty(&Versioning::new(config.clone()))?
     );
     if !convert_reconfigure && convertion.to != *path {
         write_config_file(&convertion, config)
     } else if convert_reconfigure {
         if convertion.to_type != StorageMethod::JSON && convertion.to == Path::new(ROOTASROLE) {
-            error!("The general settings file cannot be converted to another format than JSON\nThis file is used to determine the policy location and format. Please specify another path.");
+            error!(
+                "The general settings file cannot be converted to another format than JSON\nThis file is used to determine the policy location and format. Please specify another path."
+            );
             return Ok(false);
         }
         settings.storage.method = convertion.to_type;
@@ -71,7 +74,9 @@ pub fn convert(
         settings.storage.settings = Some(remote);
         Ok(true)
     } else {
-        error!("You are overwriting the current configuration file but you not specified the reconfigure (-r) option, this would break the current configuration");
+        error!(
+            "You are overwriting the current configuration file but you not specified the reconfigure (-r) option, this would break the current configuration"
+        );
         Ok(false)
     }
 }

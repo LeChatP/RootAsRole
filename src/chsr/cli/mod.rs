@@ -1,14 +1,14 @@
-pub(crate) mod data;
+pub mod data;
 #[cfg(not(tarpaulin_include))]
 #[cfg(feature = "editor")]
-pub(crate) mod editor;
-pub(crate) mod pair;
-pub(crate) mod process;
+pub mod editor;
+pub mod pair;
+pub mod process;
 //TODO: UI miri tests
 #[cfg(not(tarpaulin_include))]
-pub(crate) mod usage;
+pub mod usage;
 
-use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, error::Error, path::Path, rc::Rc};
 
 use bon::builder;
 use data::{Cli, Inputs, Rule};
@@ -25,10 +25,10 @@ use crate::{cli::editor::edit_config, util::escape_parser_string_vec};
 
 #[builder]
 pub fn main<I, S>(
-    #[builder(start_fn)] storage: Rc<RefCell<FullSettings>>,
+    #[builder(start_fn)] storage: &Rc<RefCell<FullSettings>>,
     #[builder(start_fn)] args: I,
     #[builder(default = RulesetStatus::NotEnforced)] ruleset: RulesetStatus,
-    folder: Option<&PathBuf>,
+    folder: Option<&Path>,
 ) -> Result<bool, Box<dyn Error>>
 where
     I: IntoIterator<Item = S>,
@@ -46,22 +46,23 @@ where
     for pair in args {
         recurse_pair(pair, &mut inputs)?;
     }
-    debug!("Inputs : {:?}", inputs);
+    debug!("Inputs : {inputs:?}");
     if inputs.editor {
         if ruleset == RulesetStatus::NotEnforced {
             return Err("Editor mode requires landlock to be enforced.".into());
         }
-        return edit_config(folder.unwrap(), storage.clone());
+        return edit_config(folder.expect("implementation error"), storage);
     }
-    process_input(&storage, inputs)
+    process_input(storage, inputs)
 }
 
 #[cfg(test)]
 mod tests {
     use std::{env::current_dir, fs, io::Write};
 
-    use linked_hash_set::LinkedHashSet;
+    use indexmap::IndexSet;
     use rar_common::{
+        FullSettings, RemoteStorageSettings, SettingsContent, StorageMethod,
         database::{
             actor::SActor,
             actor::SGroups,
@@ -71,7 +72,6 @@ mod tests {
         },
         read_full_settings,
         util::remove_with_privileges,
-        FullSettings, RemoteStorageSettings, SettingsContent, StorageMethod,
     };
     use serde_json::{Map, Value};
 
@@ -87,7 +87,7 @@ mod tests {
 
     impl<F: FnOnce()> Defer<F> {
         pub fn new(f: F) -> Self {
-            Defer(Some(f))
+            Self(Some(f))
         }
     }
 
@@ -113,7 +113,7 @@ mod tests {
     impl TestContext {
         fn new(name: &str) -> (Self, Defer<impl FnOnce()>) {
             let defer = setup(name);
-            let path = format!("{}.{}", ROOTASROLE, name);
+            let path = format!("{ROOTASROLE}.{name}");
             let settings = read_full_settings(&path).expect("Failed to get settings");
             (
                 Self {
@@ -126,10 +126,10 @@ mod tests {
         }
 
         fn run_command(&self, command: &str) -> Result<bool, Box<dyn Error>> {
-            main(self.settings.clone(), command.split(" "))
+            main(&self.settings, command.split(' '))
                 .call()
-                .inspect_err(|e| error!("{}", e))
-                .inspect(|e| debug!("{}", e))
+                .inspect_err(|e| error!("{e}"))
+                .inspect(|e| debug!("{e}"))
         }
 
         fn assert_command_success(&self, command: &str) {
@@ -193,13 +193,13 @@ mod tests {
         fn assert_actor_exists(&self, actor: &SActor) {
             self.with_role_actors(|actors| {
                 assert!(actors.contains(actor));
-            })
+            });
         }
 
         fn assert_actor_not_exists(&self, actor: &SActor) {
             self.with_role_actors(|actors| {
                 assert!(!actors.contains(actor));
-            })
+            });
         }
 
         fn task_count(&self) -> usize {
@@ -227,38 +227,38 @@ mod tests {
         fn assert_command_default_behavior(&self, expected: Option<SetBehavior>) {
             self.with_task_commands(|commands| {
                 assert_eq!(commands.default, expected);
-            })
+            });
         }
 
         fn assert_command_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(commands.add.contains(command));
-            })
+            });
         }
 
         fn assert_command_not_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(!commands.add.contains(command));
-            })
+            });
         }
 
         fn assert_command_blacklist_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(commands.sub.contains(command));
-            })
+            });
         }
 
         fn assert_command_blacklist_not_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(!commands.sub.contains(command));
-            })
+            });
         }
 
         fn run_command_vec(&self, args: Vec<&str>) -> Result<bool, Box<dyn Error>> {
-            main(self.settings.clone(), args)
+            main(&self.settings, args)
                 .call()
-                .inspect_err(|e| error!("{}", e))
-                .inspect(|e| debug!("{}", e))
+                .inspect_err(|e| error!("{e}"))
+                .inspect(|e| debug!("{e}"))
         }
 
         fn assert_command_vec_success(&self, args: Vec<&str>) {
@@ -268,31 +268,31 @@ mod tests {
         fn assert_capability_default_behavior_is_none(&self) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().default_behavior.is_none());
-            })
+            });
         }
 
         fn assert_capability_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().add.has(cap));
-            })
+            });
         }
 
         fn assert_capability_sub_size(&self, expected: usize) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().sub.size(), expected);
-            })
+            });
         }
 
         fn assert_capability_add_size(&self, expected: usize) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().add.size(), expected);
-            })
+            });
         }
 
         fn assert_capability_add_is_empty(&self) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().add.is_empty());
-            })
+            });
         }
 
         fn assert_setuid_is_none(&self) {
@@ -310,25 +310,25 @@ mod tests {
         fn assert_capability_default_behavior(&self, expected: SetBehavior) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().default_behavior, expected);
-            })
+            });
         }
 
         fn assert_capability_sub_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().sub.has(cap));
-            })
+            });
         }
 
         fn assert_capability_add_not_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(!caps.unwrap().add.has(cap));
-            })
+            });
         }
 
         fn assert_capability_sub_not_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(!caps.unwrap().sub.has(cap));
-            })
+            });
         }
 
         fn with_path_options<F, R>(&self, f: F) -> R
@@ -337,7 +337,7 @@ mod tests {
         {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            f(&task_ref.path.as_ref().unwrap())
+            f(task_ref.path.as_ref().unwrap())
         }
 
         fn assert_path_default_behavior(&self, expected: PathBehavior) {
@@ -348,45 +348,53 @@ mod tests {
 
         fn assert_path_whitelist_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(path_options
-                    .add
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    path_options
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_whitelist_not_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(!path_options
-                    .add
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    !path_options
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_blacklist_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(path_options
-                    .sub
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    path_options
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_blacklist_not_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(!path_options
-                    .sub
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    !path_options
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
@@ -396,7 +404,7 @@ mod tests {
 
         fn assert_path_whitelist_len(&self, expected: usize) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
+                let default = IndexSet::new();
                 assert_eq!(
                     path_options.add.as_ref().unwrap_or(&default).len(),
                     expected
@@ -406,7 +414,7 @@ mod tests {
 
         fn assert_path_blacklist_len(&self, expected: usize) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
+                let default = IndexSet::new();
                 assert_eq!(
                     path_options.sub.as_ref().unwrap_or(&default).len(),
                     expected
@@ -420,57 +428,61 @@ mod tests {
         {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            f(&task_ref.env.as_ref().unwrap())
+            f(task_ref.env.as_ref().unwrap())
         }
 
         fn assert_env_default_behavior_is_delete(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.default_behavior.is_delete());
-            })
+            });
         }
 
         fn assert_env_default_behavior_is_keep(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.default_behavior.is_keep());
-            })
+            });
         }
 
         fn assert_env_default_behavior(&self, expected: EnvBehavior) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.default_behavior, expected);
-            })
+            });
         }
 
         fn assert_env_keep_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .keep
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .keep
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_keep_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.keep.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_delete_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .delete
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .delete
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_delete_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.delete.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_set_key_value(&self, key: &str, value: &str) {
@@ -484,134 +496,145 @@ mod tests {
                         .unwrap(),
                     (&key.to_string(), &value.to_string())
                 );
-            })
+            });
         }
 
         fn assert_env_set_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.set.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_set_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.set.is_none());
-            })
+            });
         }
 
         fn assert_env_set_key_not_exists(&self, key: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .set
-                    .as_ref()
-                    .unwrap()
-                    .get_key_value(key)
-                    .is_none());
-            })
+                assert!(
+                    env_options
+                        .set
+                        .as_ref()
+                        .unwrap()
+                        .get_key_value(key)
+                        .is_none()
+                );
+            });
         }
 
         fn assert_env_keep_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .keep
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .keep
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_keep_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.keep.is_none());
-            })
+            });
         }
 
         fn assert_env_delete_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .delete
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .delete
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_delete_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.delete.is_none());
-            })
+            });
         }
 
         fn assert_env_check_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .check
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .check
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_check_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .check
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .check
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_check_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.check.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_check_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.check.is_none());
-            })
+            });
         }
 
         // Root option helpers
-        fn assert_root_option(&self, expected: &Option<SPrivileged>) {
+        fn assert_root_option(&self, expected: Option<&SPrivileged>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.root, *expected);
+            assert_eq!(task_ref.root.as_ref(), expected);
         }
 
         // Bounding option helpers
-        fn assert_bounding_option(&self, expected: &Option<SBounding>) {
+        fn assert_bounding_option(&self, expected: Option<&SBounding>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.bounding, *expected);
+            assert_eq!(task_ref.bounding.as_ref(), expected);
         }
 
         // Authentication option helpers
-        fn assert_authentication_option(&self, expected: &Option<SAuthentication>) {
+        fn assert_authentication_option(&self, expected: Option<&SAuthentication>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.authentication, *expected);
+            assert_eq!(task_ref.authentication.as_ref(), expected);
         }
 
         // Execinfo option helpers
-        fn assert_execinfo_option(&self, expected: &Option<SInfo>) {
+        fn assert_execinfo_option(&self, expected: Option<&SInfo>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.execinfo, *expected);
+            assert_eq!(task_ref.execinfo.as_ref(), expected);
         }
 
         // SUMask option helpers
-        fn assert_umask_option(&self, expected: &Option<SUMask>) {
+        fn assert_umask_option(&self, expected: Option<&SUMask>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.umask, *expected);
+            assert_eq!(task_ref.umask.as_ref(), expected);
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn setup(name: &str) -> Defer<impl FnOnce()> {
-        let file_path = format!("{}.{}", ROOTASROLE, name);
+        let file_path = format!("{ROOTASROLE}.{name}");
         let versionned = Versioning::new(
             FullSettings::builder()
                 .storage(
@@ -973,9 +996,11 @@ mod tests {
         ctx.assert_command_blacklist_not_contains(&command);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
+    fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2()
+     {
+        let (ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2",
+        );
 
         // Test cred set command
         ctx.assert_command_success("r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2");
@@ -1013,9 +1038,11 @@ mod tests {
         ctx.assert_capability_default_behavior(SetBehavior::All);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+    fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot()
+     {
+        let (ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot",
+        );
 
         ctx.assert_command_success("r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot");
         ctx.assert_capability_has(Cap::DAC_OVERRIDE);
@@ -1023,9 +1050,11 @@ mod tests {
         ctx.assert_capability_has(Cap::SYS_BOOT);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+    fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot()
+     {
+        let (ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot",
+        );
 
         // Test blacklist add
         ctx.assert_command_success("r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot");
@@ -1177,7 +1206,7 @@ mod tests {
             TestContext::new("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
 
         // Test setlist set
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist set VAR3=value3"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist set VAR3=value3");
 
         // Test setlist add
         ctx.assert_command_success(
@@ -1189,13 +1218,13 @@ mod tests {
         ctx.assert_env_set_len(3);
 
         // Test setlist del
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist del MYVAR,VAR2"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist del MYVAR,VAR2");
         ctx.assert_env_set_len(1);
         ctx.assert_env_set_key_not_exists("MYVAR");
         ctx.assert_env_set_key_not_exists("VAR2");
 
         // Test setlist purge
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist purge"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist purge");
         ctx.assert_env_set_is_none();
     }
     #[test]
@@ -1302,38 +1331,38 @@ mod tests {
 
         // Test root privileged
         ctx.assert_command_success("r complete t t_complete o root privileged");
-        ctx.assert_root_option(&Some(SPrivileged::Privileged));
+        ctx.assert_root_option(Some(&SPrivileged::Privileged));
 
         debug!("=====");
         // Test root user
         ctx.assert_command_success("r complete t t_complete o root user");
-        ctx.assert_root_option(&Some(SPrivileged::User));
+        ctx.assert_root_option(Some(&SPrivileged::User));
 
         debug!("=====");
         // Test root unset
         ctx.assert_command_success("r complete t t_complete o root unset");
-        ctx.assert_root_option(&None);
+        ctx.assert_root_option(None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_strict");
 
         ctx.assert_command_success("r complete t t_complete o bounding strict");
-        ctx.assert_bounding_option(&Some(SBounding::Strict));
+        ctx.assert_bounding_option(Some(&SBounding::Strict));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_ignore");
 
         ctx.assert_command_success("r complete t t_complete o bounding ignore");
-        ctx.assert_bounding_option(&Some(SBounding::Ignore));
+        ctx.assert_bounding_option(Some(&SBounding::Ignore));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_inherit");
 
         ctx.assert_command_success("r complete t t_complete o bounding unset");
-        ctx.assert_bounding_option(&None);
+        ctx.assert_bounding_option(None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
@@ -1341,17 +1370,17 @@ mod tests {
 
         // Test auth skip
         ctx.assert_command_success("r complete t t_complete o auth skip");
-        ctx.assert_authentication_option(&Some(SAuthentication::Skip));
+        ctx.assert_authentication_option(Some(&SAuthentication::Skip));
 
         debug!("=====");
         // Test auth perform
         ctx.assert_command_success("r complete t t_complete o auth perform");
-        ctx.assert_authentication_option(&Some(SAuthentication::Perform));
+        ctx.assert_authentication_option(Some(&SAuthentication::Perform));
 
         debug!("=====");
         // Test auth unset
         ctx.assert_command_success("r complete t t_complete o auth unset");
-        ctx.assert_authentication_option(&None);
+        ctx.assert_authentication_option(None);
     }
 
     #[test]
@@ -1360,15 +1389,15 @@ mod tests {
 
         // Test execinfo set
         ctx.assert_command_success("r complete t t_complete o execinfo show");
-        ctx.assert_execinfo_option(&Some(SInfo::Show));
+        ctx.assert_execinfo_option(Some(&SInfo::Show));
 
         ctx.assert_command_success("r complete t t_complete o execinfo hide");
-        ctx.assert_execinfo_option(&Some(SInfo::Hide));
+        ctx.assert_execinfo_option(Some(&SInfo::Hide));
 
         debug!("=====");
         // Test execinfo unset
         ctx.assert_command_success("r complete t t_complete o execinfo unset");
-        ctx.assert_execinfo_option(&None);
+        ctx.assert_execinfo_option(None);
     }
 
     #[test]
@@ -1377,12 +1406,12 @@ mod tests {
 
         // Test umask set
         ctx.assert_command_success("r complete t t_complete o umask 027");
-        ctx.assert_umask_option(&Some(0o27.into()));
+        ctx.assert_umask_option(Some(&0o27.into()));
 
         debug!("=====");
         // Test umask unset
         ctx.assert_command_success("r complete t t_complete o umask unset");
-        ctx.assert_umask_option(&None);
+        ctx.assert_umask_option(None);
     }
 
     fn normalize_json_object(value: Value) -> Value {
@@ -1410,34 +1439,32 @@ mod tests {
             .try_init();
         let (ctx, _defer) = TestContext::new("convert");
 
-        ctx.assert_command_success(&format!("convert cbor {}.convert.bin", ROOTASROLE));
-        ctx.assert_command_success(&format!("convert json {}.convert.json.1", ROOTASROLE));
+        ctx.assert_command_success(&format!("convert cbor {ROOTASROLE}.convert.bin"));
+        ctx.assert_command_success(&format!("convert json {ROOTASROLE}.convert.json.1"));
 
-        assert!(fs::metadata(format!("{}.convert.bin", ROOTASROLE)).is_ok());
+        assert!(fs::metadata(format!("{ROOTASROLE}.convert.bin")).is_ok());
 
         ctx.assert_command_success(&format!(
-            "convert --from cbor {0}.convert.bin json {0}.convert.json",
-            ROOTASROLE
+            "convert --from cbor {ROOTASROLE}.convert.bin json {ROOTASROLE}.convert.json"
         ));
-        assert!(fs::metadata(format!("{}.convert.json", ROOTASROLE)).is_ok());
+        assert!(fs::metadata(format!("{ROOTASROLE}.convert.json")).is_ok());
         assert_eq!(
             normalize_json_object(
                 serde_json::from_str::<Value>(
-                    &fs::read_to_string(format!("{}.convert.json", ROOTASROLE)).unwrap()
+                    &fs::read_to_string(format!("{ROOTASROLE}.convert.json")).unwrap()
                 )
                 .unwrap()
             ),
             normalize_json_object(
                 serde_json::from_str::<Value>(
-                    &fs::read_to_string(format!("{}.convert.json.1", ROOTASROLE)).unwrap()
+                    &fs::read_to_string(format!("{ROOTASROLE}.convert.json.1")).unwrap()
                 )
                 .unwrap()
             )
         );
 
         ctx.assert_command_success(&format!(
-            "convert --reconfigure cbor {}.reconfigure.convert.bin",
-            ROOTASROLE
+            "convert --reconfigure cbor {ROOTASROLE}.reconfigure.convert.bin"
         ));
 
         assert_eq!(
@@ -1453,10 +1480,10 @@ mod tests {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            format!("{}.reconfigure.convert.bin", ROOTASROLE)
+            format!("{ROOTASROLE}.reconfigure.convert.bin")
         );
 
-        fs::remove_file(format!("{}.convert.bin", ROOTASROLE)).unwrap();
-        fs::remove_file(format!("{}.convert.json", ROOTASROLE)).unwrap();
+        fs::remove_file(format!("{ROOTASROLE}.convert.bin")).unwrap();
+        fs::remove_file(format!("{ROOTASROLE}.convert.json")).unwrap();
     }
 }

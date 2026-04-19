@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceFolder}/target/debug/dosr",
-            "args": ["ls"],
+            "args": ["/usr/bin/ls"],
             "cwd": "${workspaceFolder}"
         }
 

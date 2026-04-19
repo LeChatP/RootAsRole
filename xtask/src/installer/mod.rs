@@ -1,8 +1,9 @@
 mod build;
-pub(crate) mod dependencies;
-pub(crate) mod install;
+pub mod dependencies;
+pub mod install;
 mod uninstall;
 
+use std::fmt::Write;
 use std::str::FromStr;
 use std::{collections::VecDeque, fmt::Display};
 
@@ -16,7 +17,7 @@ use log::debug;
 
 use crate::{
     configure,
-    util::{detect_priv_bin, get_os, OsTarget},
+    util::{OsTarget, detect_priv_bin, get_os},
 };
 pub const RAR_BIN_PATH: &str = env!("RAR_BIN_PATH");
 pub const SR_DEST: &str = "dosr";
@@ -115,17 +116,18 @@ impl Display for Toolchain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = self.channel.to_string();
         if let Some(ref date) = self.date {
-            s.push_str(&format!(
+            let _ = write!(
+                s,
                 "-{:04}-{:02}-{:02}",
                 date.year(),
                 date.month(),
                 date.day()
-            ));
+            );
         }
         if let Some(ref host) = self.host {
-            s.push_str(&format!("-{}", host));
+            let _ = write!(s, "-{host}");
         }
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -138,7 +140,7 @@ pub struct Toolchain {
 
 impl Default for Toolchain {
     fn default() -> Self {
-        Toolchain {
+        Self {
             channel: Channel::Stable,
             date: None,
             host: None,
@@ -157,10 +159,10 @@ pub enum Channel {
 impl Display for Channel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Channel::Stable => write!(f, "stable"),
-            Channel::Beta => write!(f, "beta"),
-            Channel::Nightly => write!(f, "nightly"),
-            Channel::Version(v) => write!(f, "{}", v),
+            Self::Stable => write!(f, "stable"),
+            Self::Beta => write!(f, "beta"),
+            Self::Nightly => write!(f, "nightly"),
+            Self::Version(v) => write!(f, "{v}"),
         }
     }
 }
@@ -169,12 +171,12 @@ impl FromStr for Channel {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, anyhow::Error> {
         match s.to_lowercase().as_str() {
-            "stable" => Ok(Channel::Stable),
-            "beta" => Ok(Channel::Beta),
-            "nightly" => Ok(Channel::Nightly),
+            "stable" => Ok(Self::Stable),
+            "beta" => Ok(Self::Beta),
+            "nightly" => Ok(Self::Nightly),
             version => {
                 let version = Version::parse(version)?;
-                Ok(Channel::Version(version))
+                Ok(Self::Version(version))
             }
         }
     }
@@ -196,7 +198,7 @@ impl FromStr for Toolchain {
     fn from_str(s: &str) -> Result<Self, anyhow::Error> {
         let mut parts: VecDeque<&str> = s.split('-').collect();
         if parts.is_empty() {
-            return Ok(Toolchain::default());
+            return Ok(Self::default());
         }
         let channel = parts
             .pop_front()
@@ -216,8 +218,8 @@ impl FromStr for Toolchain {
 
         let host = parts
             .iter()
-            .fold(String::new(), |acc, x| format!("{}-{}", acc, x));
-        Ok(Toolchain {
+            .fold(String::new(), |acc, x| format!("{acc}-{x}"));
+        Ok(Self {
             channel,
             date,
             host: if host.is_empty() { None } else { Some(host) },
@@ -225,23 +227,23 @@ impl FromStr for Toolchain {
     }
 }
 
-pub(crate) fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
+pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     configure::configure(os)
 }
 
-pub(crate) fn dependencies(opts: InstallDependenciesOptions) -> Result<(), anyhow::Error> {
+pub fn dependencies(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
     dependencies::install(opts)
 }
 
-pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
-    let os = get_os(opts.os.clone())?;
+pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
+    let os = get_os(opts.os.as_ref())?;
     if opts.install_dependencies {
         debug!("Installing dependencies");
-        dependencies(InstallDependenciesOptions {
+        dependencies(&InstallDependenciesOptions {
             os: Some(os.clone()),
             install_dependencies: true,
             dev: opts.build,
-            priv_bin: opts.build_opts.privbin.clone().or(detect_priv_bin()),
+            priv_bin: opts.build_opts.privbin.clone().or_else(detect_priv_bin),
         })?;
     }
     if opts.build {
@@ -249,7 +251,7 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         build(&opts.build_opts)?;
     }
     if install::install(
-        &opts.priv_bin,
+        opts.priv_bin.as_ref(),
         opts.build_opts.profile,
         opts.clean_after,
         true,
@@ -262,10 +264,10 @@ pub(crate) fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
     }
 }
 
-pub(crate) fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
+pub fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
     build::build(opts)
 }
 
-pub(crate) fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
+pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     uninstall::uninstall(opts)
 }

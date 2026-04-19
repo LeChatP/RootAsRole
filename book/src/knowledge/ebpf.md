@@ -1,3 +1,5 @@
-# What is eBPF ?
+# What is eBPF?
 
-eBPF (extended Berkeley Packet Filter) @@sharafExtendedBerkeleyPacket2022 is a technology that allows the execution of custom programs in the Linux kernel without changing the kernel source code or loading kernel modules. In RootAsRole, we use eBPF to implement the `capable` command. This command allows you to check if a process requests any capability.
+eBPF (extended Berkeley Packet Filter) @@sharafExtendedBerkeleyPacket2022 lets the kernel run restricted programs without patching kernel code or loading custom kernel modules.
+
+In RootAsRole, eBPF is used by `capable` to observe capability checks during command execution.

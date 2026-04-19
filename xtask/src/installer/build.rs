@@ -21,7 +21,7 @@ fn build_binary(
         args.push("--release");
     }
     args.extend(additionnal_args);
-    debug!("Building {} binary with args: {:?}", name, args);
+    debug!("Building {name} binary with args: {args:?}");
     Command::new("cargo").args(args).status()?;
     Ok(())
 }

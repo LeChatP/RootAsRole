@@ -3,10 +3,11 @@ use std::{collections::HashMap, path::PathBuf};
 use bon::Builder;
 use capctl::CapSet;
 use chrono::Duration;
-use linked_hash_set::LinkedHashSet;
+use indexmap::IndexSet;
 
 use pest_derive::Parser;
 use rar_common::{
+    StorageMethod,
     database::{
         actor::{SActor, SGroups, SUserType},
         options::{
@@ -15,28 +16,27 @@ use rar_common::{
         },
         structs::{IdTask, SetBehavior},
     },
-    StorageMethod,
 };
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]
 pub struct Cli;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RoleType {
     All,
     Actors,
     Tasks,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TaskType {
     All,
     Commands,
     Credentials,
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
 pub enum InputAction {
     Help,
     List,
@@ -49,7 +49,7 @@ pub enum InputAction {
     None,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SetListType {
     White,
     Black,
@@ -57,7 +57,7 @@ pub enum SetListType {
     Set,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
 pub enum TimeoutOpt {
     Duration = 0,
@@ -89,7 +89,7 @@ pub struct Inputs {
     pub options_type: Option<OptType>,
     pub options_path: Option<String>,
     pub options_path_policy: Option<PathBehavior>,
-    pub options_key_env: Option<LinkedHashSet<EnvKey>>,
+    pub options_key_env: Option<IndexSet<EnvKey>>,
     pub options_env_values: Option<HashMap<String, String>>,
     pub options_env_policy: Option<EnvBehavior>,
     pub options_root: Option<SPrivileged>,

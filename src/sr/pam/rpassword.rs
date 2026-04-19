@@ -4,21 +4,21 @@
 /// This module contains code that was originally written by Conrad Kleinespel for the rpassword
 /// crate. The crate is under Apache 2.0 licence.
 ///
-/// See: https://docs.rs/rpassword/latest/rpassword/
+/// See: <https://docs.rs/rpassword/latest/rpassword/>
 ///
 /// Most code was replaced and so is no longer a derived work; work that we kept:
 ///
-/// - the "HiddenInput" struct and implementation, with changes:
-///   * replaced occurences of explicit 'i32' and 'c_int' with RawFd
+/// - the ``HiddenInput`` struct and implementation, with changes:
+///   * replaced occurences of explicit 'i32' and '``c_int``' with ``RawFd``
 ///   * open the TTY ourselves to mitigate Linux CVE-2023-2002
-/// - the general idea of a "SafeString" type that clears its memory
+/// - the general idea of a "``SafeString``" type that clears its memory
 ///   (although much more robust than in the original code)
 ///
 use std::io::{self, Error, ErrorKind, Read};
 use std::os::fd::{AsRawFd, RawFd};
 use std::{fs, mem};
 
-use libc::{tcsetattr, termios, ECHO, ECHONL, TCSANOW};
+use libc::{ECHO, ECHONL, TCSANOW, tcsetattr, termios};
 
 use super::cutils::cerr;
 
@@ -31,7 +31,7 @@ pub struct HiddenInput {
 
 impl HiddenInput {
     #[cfg_attr(tarpaulin, ignore)]
-    fn new() -> io::Result<Option<HiddenInput>> {
+    fn new() -> io::Result<Option<Self>> {
         // control ourselves that we are really talking to a TTY
         // mitigates: https://marc.info/?l=oss-security&m=168164424404224
         let Ok(tty) = fs::File::open("/dev/tty") else {
@@ -53,9 +53,9 @@ impl HiddenInput {
         term.c_lflag |= ECHONL;
 
         // Save the settings for now.
-        cerr(unsafe { tcsetattr(fd, TCSANOW, &term) })?;
+        cerr(unsafe { tcsetattr(fd, TCSANOW, &raw const term) })?;
 
-        Ok(Some(HiddenInput { tty, term_orig }))
+        Ok(Some(Self { tty, term_orig }))
     }
 }
 
@@ -64,7 +64,7 @@ impl Drop for HiddenInput {
     fn drop(&mut self) {
         // Set the the mode back to normal
         unsafe {
-            tcsetattr(self.tty.as_raw_fd(), TCSANOW, &self.term_orig);
+            tcsetattr(self.tty.as_raw_fd(), TCSANOW, &raw const self.term_orig);
         }
     }
 }
@@ -76,18 +76,19 @@ fn safe_tcgetattr(fd: RawFd) -> io::Result<termios> {
     Ok(unsafe { term.assume_init() })
 }
 
+const EOL: u8 = 0x0A;
+
 /// Reads a password from the given file descriptor
 fn read_unbuffered(source: &mut impl io::Read) -> io::Result<PamBuffer> {
     let mut password = PamBuffer::default();
     let mut pwd_iter = password.iter_mut();
 
-    const EOL: u8 = 0x0A;
     #[allow(clippy::unbuffered_bytes)] // we want unbuffered reading for passwords
     let input = source.bytes().take_while(|x| x.as_ref().ok() != Some(&EOL));
 
     for read_byte in input {
         if let Some(dest) = pwd_iter.next() {
-            *dest = read_byte?
+            *dest = read_byte?;
         } else {
             return Err(Error::new(
                 ErrorKind::OutOfMemory,
@@ -124,8 +125,8 @@ impl Terminal<'_> {
     }
 
     /// Open standard input and standard error for user communication
-    pub fn open_stdie() -> io::Result<Self> {
-        Ok(Terminal::StdIE(io::stdin().lock(), io::stderr().lock()))
+    pub fn open_stdie() -> Terminal<'static> {
+        Terminal::StdIE(io::stdin().lock(), io::stderr().lock())
     }
 
     /// Reads input with TTY echo disabled
@@ -164,10 +165,11 @@ impl Terminal<'_> {
 
 #[cfg(test)]
 mod test {
-    use super::{read_unbuffered, write_unbuffered, Terminal};
+    use super::{Terminal, read_unbuffered, write_unbuffered};
     use std::io::{self, Read, Write};
 
     #[test]
+    #[allow(clippy::string_lit_as_bytes)]
     fn miri_test_read() {
         let mut data = "password123\nhello world".as_bytes();
         let buf = read_unbuffered(&mut data).unwrap();
@@ -240,16 +242,9 @@ mod test {
     }
 
     #[test]
-    fn test_terminal_open_stdie() {
-        // Test that open_stdie always succeeds
-        let result = Terminal::open_stdie();
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_terminal_variant_matching() {
         // Test that we can match on Terminal variants
-        let terminal = Terminal::open_stdie().unwrap();
+        let terminal = Terminal::open_stdie();
 
         match terminal {
             Terminal::StdIE(_, _) => {}
@@ -258,44 +253,5 @@ mod test {
                 panic!("Expected StdIE variant, got Tty");
             }
         }
-    }
-
-    // Note: Testing read_password and read_cleartext methods directly is challenging
-    // because they interact with terminal settings and user input.
-    // These would be better tested with integration tests or mocked input.
-
-    #[test]
-    fn test_terminal_prompt_conceptual() {
-        // This is a conceptual test showing how Terminal::prompt would work
-        // In practice, testing this requires mocking stdin/stderr or using a PTY
-
-        // We can't easily test the actual prompt method without complex mocking,
-        // but we can verify the structure is sound by checking compilation
-        let _test_fn = |mut terminal: Terminal| -> io::Result<()> {
-            terminal.prompt(&"Test prompt: ")?;
-            Ok(())
-        };
-    }
-
-    #[test]
-    fn test_terminal_source_sink_methods() {
-        // Test that the internal source/sink methods work correctly
-        // This is mainly a compilation test since the methods are private
-
-        // We verify the Terminal enum can be constructed and methods exist
-        let terminal_result = Terminal::open_stdie();
-        assert!(terminal_result.is_ok());
-    }
-
-    #[test]
-    fn test_terminal_lifetime_handling() {
-        // Test that Terminal handles lifetimes correctly for StdIE variant
-        fn create_stdie_terminal() -> io::Result<Terminal<'static>> {
-            // This should compile - Terminal can have different lifetimes
-            Terminal::open_stdie()
-        }
-
-        let result = create_stdie_terminal();
-        assert!(result.is_ok());
     }
 }

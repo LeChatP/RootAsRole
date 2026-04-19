@@ -1,4 +1,4 @@
-% RootAsRole(8) RootAsRole 3.3.2 | Manuel de l'administrateur système
+% RootAsRole(8) RootAsRole 4.0.0 | Manuel de l'administrateur système
 % Eddie Billoir <lechatp@outlook.fr>
 % Août 2025
 
@@ -15,11 +15,11 @@ RootAsRole - Une alternative pour les commandes sudo/su respectant le principe d
 
 Le modèle de Roles Based Access Control (RBAC) est basé sur des ensembles de permissions assignées à des utilisateurs ou des groupes. Pour RootAsRole, un rôle est un ensemble de tâches administratives assignées à des utilisateurs. Les tâches sont des commandes avec des droits à utiliser. Les droits peuvent être un changement d'utilisateur, un changement de groupe ou/et des Linux capabilities.
 
-La commande **dosr** permet d'exécuter des commandes en utilisant un rôle. Il prends en paramètre obligatoire une commande à exécuter. Il est également possible de spécifier un rôle et une tâche à sélectionner.
+La commande **dosr** permet d'exécuter des commandes en utilisant un rôle. Elle prend en paramètre obligatoire une commande à exécuter. Il est également possible de spécifier un rôle et une tâche à sélectionner.
 
 Il existe des cas où deux tâches correspondent à la commande d'un utilisateur. Dans ce cas, dosr va sélectionner la tâche la plus précise et la moins privilégiée. La notion de précision est basée sur la précision de la politique RootAsRole comparée à l'occurence de la commande utilisateur. Plus le profil utilisateur et correspond à la politique, plus le niveau de précision est élevé. Il en est de même pour la précision de la commande de l'utilisateur vis-à-vis de sa spécification dans la politique. Pareillement, moins les droits sont élevés pour une tâche, plus la tâche sera prioritaire par rapport à une autre tâche. Le cas de la tâche moins privilégié n'est qu'uniquement si les tâches sont déjà avec le même niveau de précision. Malgré cette sélection intelligente, il reste des cas de confusion, ceux-ci renvoient un message d'erreur.
 
-Exemple d'un cas de confusion : Deux rôles sont assignés de la même manière à un utilisateur, parmi ces rôles, deux tâches sont totalement équivalentes mais les variables d'environment sont différents. Dans ce cas, dosr affiche le message d'erreur "Permission denied" et fais un message warning dans les logs.
+Exemple d'un cas de confusion : Deux rôles sont assignés de la même manière à un utilisateur, parmi ces rôles, deux tâches sont totalement équivalentes mais les variables d'environnement sont différentes. Dans ce cas, dosr affiche le message d'erreur "Permission denied" et écrit un avertissement dans les logs.
 
 Il est possible de changer le prompt de l'utilisateur en utilisant l'option **-p**. Il est également possible de voir les droits de l'exécuteur en utilisant l'option **-i**. Les informations affichées sont très limitées.
 
@@ -51,8 +51,8 @@ Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par 
 **\-p, --prompt** &lt;PROMPT&gt; 
   Prompt à afficher lors de l'authentification.
 
-**\-K**  
-  Supprimer le fichier de timestamp. (Cela oblige de s'authentifier à nouveau avant d'exécuter une commande)
+**\-K, --remove-timestamp**  
+  Supprimer le cookie de timestamp avant l'authentification.
 
 **\-i, --info**  
   Afficher le contexte d'exécution d'une commande si autorisé par une tâche correspondante.

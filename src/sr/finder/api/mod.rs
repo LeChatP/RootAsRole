@@ -1,16 +1,15 @@
 use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
 
-use once_cell::sync::Lazy;
 use rar_common::database::score::{CmdMin, Score};
 use serde_json::Value;
 use strum::Display;
 
-use crate::{error::SrResult, Cli};
+use crate::{Cli, error::SrResult};
 
 use super::{
+    BestExecSettings,
     de::{DConfigFinder, DLinkedRole, DLinkedTask},
     options::BorrowedOptStack,
-    BestExecSettings,
 };
 
 #[cfg(feature = "hashchecker")]
@@ -18,12 +17,12 @@ mod hashchecker;
 #[cfg(feature = "hierarchy")]
 mod hierarchy;
 #[cfg(feature = "landlock")]
-mod landlock;
+pub mod landlock;
 #[cfg(feature = "ssd")]
 mod ssd;
 
 thread_local! {
-    static API: Lazy<UnsafeCell<Api>> = Lazy::new(|| UnsafeCell::new(Api::new()));
+    static API: UnsafeCell<Api> = UnsafeCell::new(Api::new());
 }
 
 pub type EventCallbackFunction = dyn Fn(&mut ApiEvent) -> SrResult<()>;
@@ -84,7 +83,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
 }
 
 impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
-    fn get_key(&self) -> EventKey {
+    const fn get_key(&self) -> EventKey {
         match self {
             ApiEvent::BestGlobalSettingsFound(..) => EventKey::BestGlobalSettings,
             ApiEvent::BestRoleSettingsFound(..) => EventKey::BestRoleSettings,
@@ -98,7 +97,7 @@ impl ApiEvent<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
 
 impl Api {
     fn new() -> Self {
-        Api {
+        Self {
             callbacks: HashMap::new(),
         }
     }
@@ -108,7 +107,7 @@ impl Api {
         API.with(|api| -> SrResult<()> {
             let api = unsafe { &mut *api.get() };
             if let Some(callbacks) = api.callbacks.get(&key) {
-                for callback in callbacks.iter() {
+                for callback in callbacks {
                     callback(&mut event)?;
                 }
             }

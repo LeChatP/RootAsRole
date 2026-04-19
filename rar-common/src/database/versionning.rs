@@ -6,16 +6,16 @@ use super::migration::Migration;
 use crate::{FullSettings, PACKAGE_VERSION};
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct Versioning<T: Default + Debug> {
+pub struct Versioning<T: Debug> {
     pub version: Version,
     #[serde(default, flatten)]
     pub data: T,
 }
 
 impl<T: Default + Debug> Versioning<T> {
-    pub fn new(data: T) -> Self {
+    pub const fn new(data: T) -> Self {
         Self {
-            version: PACKAGE_VERSION.to_owned().parse().unwrap(),
+            version: PACKAGE_VERSION,
             data,
         }
     }
@@ -24,7 +24,7 @@ impl<T: Default + Debug> Versioning<T> {
 impl<T: Default + Debug> Default for Versioning<T> {
     fn default() -> Self {
         Self {
-            version: PACKAGE_VERSION.to_owned().parse().unwrap(),
+            version: PACKAGE_VERSION,
             data: T::default(),
         }
     }
