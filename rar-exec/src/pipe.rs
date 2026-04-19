@@ -191,7 +191,10 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 match source.read(&mut buf) {
                     Ok(read_bytes) => {
                         if let Some(logger) = &mut self.logger {
-                            io_logger_sealed::Sealed::log_output(logger.as_mut(), &buf[..read_bytes]);
+                            io_logger_sealed::Sealed::log_output(
+                                logger.as_mut(),
+                                &buf[..read_bytes],
+                            );
                         }
                         sink.write_all(&buf[..read_bytes])?;
                     }

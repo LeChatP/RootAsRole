@@ -400,8 +400,8 @@ pub fn run_with_pty(
 #[cfg(test)]
 mod tests {
     use super::{SimpleFileLogger, run_no_pty};
-    use crate::pipe::io_logger_sealed::Sealed;
     use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
+    use crate::pipe::io_logger_sealed::Sealed;
     use serial_test::serial;
     use std::fs;
     use std::io;

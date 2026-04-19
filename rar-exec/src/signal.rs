@@ -202,7 +202,7 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     sa.sa_sigaction = handler as *const () as usize;
     // Use SA_RESTART to avoid interrupting system calls
     sa.sa_flags = libc::SA_RESTART;
-    
+
     // Block all signals during signal handler execution to prevent re-entrancy issues
     // SAFETY: valid sigset pointer.
     unsafe {

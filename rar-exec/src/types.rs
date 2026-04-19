@@ -18,11 +18,7 @@ impl ProcessId {
     /// Returns `None` if the pid is not positive (invalid).
     #[must_use]
     pub const fn new(pid: libc::pid_t) -> Option<Self> {
-        if pid > 0 {
-            Some(Self(pid))
-        } else {
-            None
-        }
+        if pid > 0 { Some(Self(pid)) } else { None }
     }
 
     /// Creates a ``ProcessId`` from a raw value without validation.
@@ -129,11 +125,7 @@ impl RawFileDescriptor {
     /// Returns `None` if the fd is negative (invalid).
     #[must_use]
     pub const fn new(fd: RawFd) -> Option<Self> {
-        if fd >= 0 {
-            Some(Self(fd))
-        } else {
-            None
-        }
+        if fd >= 0 { Some(Self(fd)) } else { None }
     }
 
     /// Creates a ``RawFileDescriptor`` without validation.
