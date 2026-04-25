@@ -9,16 +9,14 @@ use derivative::Derivative;
 use log::{debug, info};
 use nix::unistd::{Group, User};
 use rar_common::{
-    Cred,
-    database::{
+    Cred, StorageMethod, database::{
         actor::{DActor, DGroupType, DGroups, DUserType},
         options::Level,
         score::{
             ActorMatchMin, CapsMin, CmdMin, Score, SecurityMin, SetgidMin, SetuidMin, TaskScore,
         },
         structs::{SCapabilities, SetBehavior},
-    },
-    util::capabilities_are_exploitable,
+    }, util::capabilities_are_exploitable
 };
 use serde::{
     Deserialize,
@@ -105,12 +103,27 @@ impl<'a> DCommand<'a> {
     }
 }
 
+/// This is the highly efficient deserializer
+/// It is a lossy deserialiser, It skips information that is not matching the current user who is running the program
 pub struct ConfigFinderDeserializer<'a> {
     pub cli: &'a Cli,
     pub cred: &'a Cred,
+    /// The current user path
     pub env_path: &'a [&'a str],
 }
 
+/// This is clearer for me to understanf what type is ``is_human_readable``
+#[inline]
+const fn to_storage_m(is_human_readable: bool) -> StorageMethod {
+    if is_human_readable { StorageMethod::JSON } else { StorageMethod::CBOR }
+}
+
+/// Let me explain a bit my deserialisation process
+/// Here you get only ``Options``, ``Roles``. Options can arrive after Roles and vice-versa
+/// In order to evaluate commands, you need PATH env var.
+/// PATH var is defined in Options
+/// So, we need to store Options for all the deserialisation process 
+/// (for Global case, other cases, see ``RoleFinderDeserializer``)
 impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
     type Value = DConfigFinder<'a>;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -134,7 +147,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             cli: &'a Cli,
             cred: &'a Cred,
             env_path: &'a [&'a str],
-            human_readable: bool,
+            policy_format: StorageMethod,
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for ConfigFinderVisitor<'a> {
@@ -155,7 +168,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                             debug!("ConfigFinderVisitor: options");
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Global;
-                            if self.human_readable
+                            // if we are in binary format, we know that options are before roles
+                            // then it means that we can use spath for Roles
+                            // so we can optimize the processing
+                            if self.policy_format.is_cbor() // little perf gain in json. If perf pb, you can trash this
                                 && let Some(path) = opt.path.as_ref()
                             {
                                 spath.union(&path.clone());
@@ -181,14 +197,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             }
         }
         const FIELDS: &[&str] = &["options", "roles", "version"];
-        let human_readable = deserializer.is_human_readable();
+        let human_readable = to_storage_m(deserializer.is_human_readable());
         deserializer.deserialize_struct(
             "Config",
             FIELDS,
             ConfigFinderVisitor {
                 cli: self.cli,
                 cred: self.cred,
-                human_readable,
+                policy_format: human_readable,
                 env_path: self.env_path,
             },
         )
@@ -198,7 +214,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
 struct RoleListFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     cred: &'a Cred,
+    /// spath is scoped only inside the deserialisation, useful for cbor
     spath: &'b mut DPathOptions<'a>,
+    /// The current user path
     env_path: &'a [&'a str],
 }
 
@@ -253,7 +271,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
 struct RoleFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     cred: &'a Cred,
+    /// The current user path
     env_path: &'a [&'a str],
+    /// spath is scoped only inside the deserialisation, useful for cbor
     spath: &'b mut DPathOptions<'a>,
 }
 
@@ -285,8 +305,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             cred: &'a Cred,
             env_path: &'a [&'a str],
             spath: &'b mut DPathOptions<'a>,
-            #[allow(dead_code)]
-            human_readable: bool,
+            // TODO: If perf problem in cbor you can trash this
+            policy_format: StorageMethod,
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for RoleFinderVisitor<'a, '_> {
@@ -310,7 +330,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                             debug!("RoleFinderVisitor: options");
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Role;
-                            if let Some(path) = opt.path.as_ref() {
+                            if self.policy_format.is_cbor() // little perf gain in json
+                               && let Some(path) = opt.path.as_ref() {
                                 self.spath.union(&path.clone());
                             }
                             options = Some(opt);
@@ -369,7 +390,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                 cred: self.cred,
                 spath: self.spath,
                 env_path: self.env_path,
-                human_readable,
+                policy_format: to_storage_m(human_readable),
             },
         )
     }
@@ -451,7 +472,9 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
 
 struct TaskListFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
+    /// The current user path
     env_path: &'a [&'a str],
+    /// spath is scoped only inside the deserialisation, useful for cbor
     spath: &'b mut DPathOptions<'a>,
 }
 
@@ -506,7 +529,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
 struct TaskFinderDeserializer<'a, 'b> {
     cli: &'a Cli,
     i: usize,
+    /// The current user path
     env_path: &'a [&'a str],
+    /// spath is scoped only inside the deserialisation, useful for cbor
     spath: &'b mut DPathOptions<'a>,
 }
 
@@ -539,7 +564,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
             i: usize,
             env_path: &'a [&'a str],
             spath: &'b mut DPathOptions<'a>,
-            human_readable: bool,
+            storage_method: StorageMethod,
         }
 
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskFinderVisitor<'a, '_> {
@@ -568,7 +593,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             debug!("TaskFinderVisitor: options");
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Task;
-                            if let Some(path) = opt.path.as_ref() {
+                            if self.storage_method.is_cbor() &&
+                                let Some(path) = opt.path.as_ref() {
                                 self.spath.union(&path.clone());
                             }
                             if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
@@ -621,9 +647,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                         }
                         Field::Commands => {
                             debug!("TaskFinderVisitor: commands");
-                            // if is_human_readable -> next_value
-                            // else -> next_value_seed -> no memory allocation, just the result, thus highly optimizing
-                            if self.human_readable {
+                            // if json -> next_value (store)
+                            // else -> next_value_seed -> use deserializer, thus highly optimizing
+                            if self.storage_method.is_json() {
                                 commands = Some(map.next_value()?);
                             } else {
                                 map.next_value_seed(DCommandListDeserializer {
@@ -664,7 +690,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                 cli: self.cli,
                 env_path: self.env_path,
                 spath: self.spath,
-                human_readable,
+                storage_method: to_storage_m(human_readable),
             },
         )
     }
