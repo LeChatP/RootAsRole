@@ -5,12 +5,12 @@ use std::{
 
 use bon::bon;
 use log::debug;
-use nix::unistd::{Group, User};
+use nix::unistd::{Gid, Group, User};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use strum::EnumIs;
 
-use crate::util::{HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1};
+use crate::util::{Either, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, either_to_gid};
 
 #[derive(Serialize, Debug, EnumIs, Clone, PartialEq, Eq, strum::Display)]
 #[serde(untagged, rename_all = "lowercase")]
@@ -576,17 +576,17 @@ impl PartialEq<u32> for SGroupType {
     }
 }
 
-impl PartialEq<Group> for SGroupType {
-    fn eq(&self, other: &Group) -> bool {
+impl PartialEq<Either<Group,Gid>> for SGroupType {
+    fn eq(&self, other: &Either<Group,Gid>) -> bool {
         let gid = self.fetch_id();
-        gid.is_some_and(|gid| gid == other.gid.as_raw())
+        gid.is_some_and(|gid| gid == either_to_gid(other).as_raw())
     }
 }
 
-impl PartialEq<Group> for DGroupType<'_> {
-    fn eq(&self, other: &Group) -> bool {
+impl PartialEq<Either<Group,Gid>> for DGroupType<'_> {
+    fn eq(&self, other: &Either<Group,Gid>) -> bool {
         let gid = self.fetch_id();
-        gid.is_some_and(|gid| gid == other.gid.as_raw())
+        gid.is_some_and(|gid| gid == either_to_gid(other).as_raw())
     }
 }
 
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn test_partialeq_group() {
-        let group = Group::from_gid(0.into()).unwrap().unwrap();
+        let group = Either::Left(Group::from_gid(0.into()).unwrap().unwrap());
         assert!(SGroupType::from(0) == group);
         assert!(SGroupType::from(1) != group);
         assert!(SGroupType::from("root") == group);

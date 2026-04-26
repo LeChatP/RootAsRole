@@ -412,7 +412,7 @@ mod tests {
     }
 
     fn dummy_cred() -> Cred {
-        Cred::builder().build()
+        Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build()
     }
 
     fn dummy_dconfigfinder<'a>() -> DConfigFinder<'a> {

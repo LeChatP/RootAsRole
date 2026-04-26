@@ -196,7 +196,11 @@ impl DEnvOptions<'_> {
         final_set.insert("RAR_UID".into(), current_user.user.uid.to_string());
         final_set.insert("RAR_GID".into(), current_user.user.gid.to_string());
         final_set.insert("RAR_USER".into(), current_user.user.name.clone());
-        final_set.insert("RAR_COMMAND".into(), command);
+        final_set.insert("RAR_COMMAND".into(), command.clone());
+        final_set.insert("SUDO_UID".into(), current_user.user.uid.to_string());
+        final_set.insert("SUDO_GID".into(), current_user.user.gid.to_string());
+        final_set.insert("SUDO_USER".into(), current_user.user.name.clone());
+        final_set.insert("SUDO_COMMAND".into(), command);
         final_set
             .entry("TERM".into())
             .or_insert_with(|| "unknown".into());
@@ -890,7 +894,7 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
@@ -931,7 +935,7 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
@@ -973,7 +977,7 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(result.is_err());
     }

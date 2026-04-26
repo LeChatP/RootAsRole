@@ -57,7 +57,7 @@ use std::{
     cell::RefCell,
     error::Error,
     fs::{File, Permissions},
-    io::{BufReader, Seek},
+    io::{BufReader, Seek, Error as IoError},
     ops::DerefMut,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -89,19 +89,29 @@ use database::{
 };
 
 use crate::util::{
-    has_privileges, is_immutable, open_lock_with_privileges, with_mutable_config, with_privileges,
+    Either, has_privileges, is_immutable, open_lock_with_privileges, with_mutable_config, with_privileges
 };
 
 #[derive(Debug, Builder)]
+#[allow(clippy::missing_errors_doc)]
 pub struct Cred {
-    #[builder(field = User::from_uid(Uid::current()).unwrap().unwrap())]
+    #[builder(with = || -> Result<_,IoError> {
+        let uid = Uid::current();
+        User::from_uid(uid)?.ok_or_else(|| IoError::other("User not found"))})
+    ]
     pub user: User,
-    #[builder(field = getgroups().unwrap().iter().map(|gid| Group::from_gid(*gid).unwrap().unwrap())
-    .collect())]
-    pub groups: Vec<Group>,
+    #[builder(with = || -> Result<_,IoError> {
+        Ok(getgroups()?
+        .iter()
+        .map(|gid| Either::from(Group::from_gid(*gid).ok().flatten().ok_or(*gid)))
+        .collect())
+    })]
+    pub groups: Vec<Either<Group,Gid>>,
     pub tty: Option<dev_t>,
     #[builder(default = nix::unistd::getppid(), into)]
     pub ppid: Pid,
+    #[builder(with = || -> Result<_, std::io::Error> { std::env::current_dir() })]
+    pub curdir : PathBuf,
 }
 
 #[derive(

@@ -12,7 +12,7 @@ use chrono::Duration;
 use konst::{iter, option, primitive::parse_i64, result, slice, string, unwrap_ctx};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
-use nix::fcntl::{Flock, FlockArg};
+use nix::{fcntl::{Flock, FlockArg}, unistd::{Gid, Group}};
 use serde::Serialize;
 
 use crate::database::options::{
@@ -106,6 +106,51 @@ pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
     ),
     Duration::seconds(5)
 );
+
+/// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
+#[derive(Debug, Hash, Copy, Clone)]
+#[must_use]
+pub enum Either<L, R> {
+    /// Contains the Left value
+    Left(L),
+    /// Contains the Right value
+    Right(R),
+}
+impl<L,R> Either<L,R> {
+    pub const fn left(&self) -> Option<&L> {
+        match self {
+            Self::Left(l) => Some(l),
+            Self::Right(_) => None,
+        }
+    }
+    pub const fn right(&self) -> Option<&R> {
+        match self {
+            Self::Left(_) => None,
+            Self::Right(r) => Some(r)
+        }
+    }
+    pub fn map<T>(&self, left: impl Fn(&L) -> T, right: impl Fn(&R) -> T) -> T {
+        match self {
+            Self::Left(l) => left(l),
+            Self::Right(r) => right(r),
+        }
+    }
+}
+
+impl<L, R> From<Result<L, R>> for Either<L, R> {
+    fn from(value: Result<L, R>) -> Self {
+        match value {
+            Ok(l) => Self::Left(l),
+            Err(r) => Self::Right(r),
+        }
+    }
+}
+
+#[must_use]
+pub fn either_to_gid(either: &Either<Group,Gid>) -> Gid {
+    either.map(|l| l.gid, |r|*r)
+}
+
 
 #[derive(Debug)]
 struct DurationParseError;

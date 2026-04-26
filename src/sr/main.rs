@@ -293,7 +293,7 @@ fn main_inner() -> SrResult<()> {
         println!("{USAGE}");
         return Ok(());
     }
-    let user = make_cred();
+    let user = make_cred().map_err(|_| SrError::SystemError)?;
     if args.del_ts {
         #[cfg(not(feature = "timeout"))]
         {
@@ -437,8 +437,11 @@ fn main_inner() -> SrResult<()> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn make_cred() -> Cred {
-    Cred::builder()
+fn make_cred() -> std::io::Result<Cred> {
+    Ok(Cred::builder()
+        .user()?
+        .groups()?
+        .curdir()?
         .maybe_tty(stat::fstat(stdout()).ok().and_then(|s| {
             if isatty(stdout()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
@@ -446,7 +449,7 @@ fn make_cred() -> Cred {
                 None
             }
         }))
-        .build()
+        .build())
 }
 
 fn set_capabilities(cred: &CredOwnedData, bounding: SBounding) -> SrResult<()> {
@@ -606,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_make_cred() {
-        let user = make_cred();
+        let user = make_cred().unwrap();
         let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
         assert_eq!(user.user.gid.as_raw(), gid);
@@ -616,7 +619,7 @@ mod tests {
             .map(|g| Group::from_gid(*g).unwrap().unwrap())
             .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
-        assert_eq!(user.groups, groups);
+        assert_eq!(user.groups.iter().map(|e|e.left().unwrap().clone()).collect::<Vec<_>>(), groups);
         assert_eq!(user.ppid, Pid::parent());
     }
 
