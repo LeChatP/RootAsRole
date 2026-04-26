@@ -266,6 +266,20 @@ pub fn run(
     }
 }
 
+/// This function manages command execution with a Pty, and TWO forks (so 3 processes):
+/// 
+/// 1. Parent - monitor signals and I/O
+/// 2. Monitor - forward signals, detect issues (command exits)
+/// 3. Command - the executed command
+/// 
+/// (Parent --> monitor --> Command)
+/// 
+/// This allows to :
+/// - Better signal management
+/// - Better error management
+/// - Better termination process
+/// - Better TTY management.
+/// 
 /// # Errors
 /// Returns an error if the execution fails due to :
 /// - Failure to fork process
@@ -287,21 +301,25 @@ pub fn run_with_pty(
     for &sig in RUNNER_SIGNALS_WITH_PTY {
         register_signal_handler(sig)?;
     }
+    // we ignore SIGTTIN and SIGTOU, no suspend here.
     unsafe {
         libc::signal(libc::SIGTTIN, libc::SIG_IGN);
         libc::signal(libc::SIGTTOU, libc::SIG_IGN);
     }
 
+    //enabling rawmode for fforward keystrokes
     user_term.set_raw_mode(true, true)?;
 
+    // Create Pty
     let pty = Pty::open()?;
     if let Ok(sz) = user_term.get_size() {
-        pty.leader.set_size(&sz)?;
+        pty.leader.set_size(&sz)?; // set window size by default, resizing comes with features
     }
 
     // Create backchannel
     let (mut parent_channel, monitor_channel) = Backchannel::pair()?;
 
+    // TODO: Verify if there isn't a better API for forking
     // FORK: Separate Parent and Monitor
     // SAFETY: Single threaded at this point
     let pid = unsafe { libc::fork() };
@@ -329,10 +347,7 @@ pub fn run_with_pty(
             error!("Monitor failed: {e}");
             unsafe { libc::_exit(1) };
         }
-        // SAFETY: exec_monitor_process should have replaced the process image via exec().
-        // If we reach this point, exec() failed and we already exited above with code 1.
-        // This line is unreachable in normal execution.
-        unreachable!("exec_monitor_process must either exec or exit");
+        unsafe { libc::exit(0) };
     }
 
     // --- PARENT PROCESS ---
