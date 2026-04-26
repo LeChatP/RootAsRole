@@ -1,15 +1,9 @@
-use std::
-    borrow::Cow
-;
+use std::borrow::Cow;
 
 use log::debug;
 use rar_common::{
-    StorageMethod, database::{
-        options::Level,
-        score::
-            TaskScore
-        ,
-    }
+    StorageMethod,
+    database::{options::Level, score::TaskScore},
 };
 use serde::{
     Deserialize,
@@ -19,10 +13,15 @@ use serde::{
 use crate::{
     Cli,
     finder::{
-        de::{DTaskFinder, IdTask, commands::DCommandListDeserializer, cred::{CredData, CredFinderDeserializerReturn}, to_storage_m}, options::{DPathOptions, Opt}
+        de::{
+            DTaskFinder, IdTask,
+            commands::DCommandListDeserializer,
+            cred::{CredData, CredFinderDeserializerReturn},
+            to_storage_m,
+        },
+        options::{DPathOptions, Opt},
     },
 };
-
 
 pub(super) struct TaskListFinderDeserializer<'a, 'b> {
     pub(super) cli: &'a Cli,
@@ -147,8 +146,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             debug!("TaskFinderVisitor: options");
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Task;
-                            if self.storage_method.is_cbor() &&
-                                let Some(path) = opt.path.as_ref() {
+                            if self.storage_method.is_cbor()
+                                && let Some(path) = opt.path.as_ref()
+                            {
                                 self.spath.union(&path.clone());
                             }
                             if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
@@ -255,7 +255,13 @@ mod test {
     use serde::de::DeserializeSeed;
     use test_log::test;
 
-    use crate::{Cli, finder::{de::{DCommandList, DTaskFinder, tasks::TaskFinderDeserializer}, options::DPathOptions}};
+    use crate::{
+        Cli,
+        finder::{
+            de::{DCommandList, DTaskFinder, tasks::TaskFinderDeserializer},
+            options::DPathOptions,
+        },
+    };
 
     #[test]
     fn test_expecting_error() {

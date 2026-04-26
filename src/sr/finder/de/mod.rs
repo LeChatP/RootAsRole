@@ -1,16 +1,13 @@
-use std::{
-    borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf,
-};
+use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf};
 
 use bon::Builder;
 use derivative::Derivative;
 use log::debug;
 use rar_common::{
-    Cred, StorageMethod, database::{
+    Cred, StorageMethod,
+    database::{
         options::Level,
-        score::{
-            ActorMatchMin, CmdMin, Score, SecurityMin, TaskScore,
-        },
+        score::{ActorMatchMin, CmdMin, Score, SecurityMin, TaskScore},
         structs::SetBehavior,
     },
 };
@@ -23,7 +20,10 @@ use strum::EnumIs;
 
 use crate::{
     Cli,
-    finder::{de::{cred::CredData, roles::RoleListFinderDeserializer}, options::DPathOptions},
+    finder::{
+        de::{cred::CredData, roles::RoleListFinderDeserializer},
+        options::DPathOptions,
+    },
 };
 
 use super::options::Opt;
@@ -84,7 +84,6 @@ pub struct DTaskFinder<'a> {
     pub final_path: Option<PathBuf>,
 }
 
-
 /// This struct keeps the list of commands because options may be written after
 #[cfg_attr(test, derive(Builder))]
 #[derive(PartialEq, Eq, Debug)]
@@ -96,7 +95,6 @@ pub struct DCommandList<'a> {
     #[cfg_attr(test, builder(default, into))]
     pub del: Cow<'a, [DCommand<'a>]>,
 }
-
 
 #[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
 #[serde(untagged)]
@@ -118,7 +116,11 @@ impl<'a> DCommand<'a> {
 /// This is clearer for me to understanf what type is ``is_human_readable``
 #[inline]
 const fn to_storage_m(is_human_readable: bool) -> StorageMethod {
-    if is_human_readable { StorageMethod::JSON } else { StorageMethod::CBOR }
+    if is_human_readable {
+        StorageMethod::JSON
+    } else {
+        StorageMethod::CBOR
+    }
 }
 
 impl<'a> DConfigFinder<'a> {
@@ -269,7 +271,6 @@ impl<'a> Deref for DLinkedCommand<'_, '_, '_, '_, 'a> {
     }
 }
 
-
 /// This is the highly efficient deserializer
 /// It is a lossy deserialiser, It skips information that is not matching the current user who is running the program
 pub struct ConfigFinderDeserializer<'a> {
@@ -283,7 +284,7 @@ pub struct ConfigFinderDeserializer<'a> {
 /// Here you get only ``Options``, ``Roles``. Options can arrive after Roles and vice-versa
 /// In order to evaluate commands, you need PATH env var.
 /// PATH var is defined in Options
-/// So, we need to store Options for all the deserialisation process 
+/// So, we need to store Options for all the deserialisation process
 /// (for Global case, other cases, see ``RoleFinderDeserializer``)
 impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
     type Value = DConfigFinder<'a>;
@@ -371,7 +372,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         )
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -477,7 +477,6 @@ mod tests {
         let result: Result<DCommandList, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
-
 
     #[test]
     fn test_config_finder_deserializer() {
@@ -983,11 +982,6 @@ mod tests {
         };
         let result = task_list.deserialize(&mut serde_json::Deserializer::from_str(map));
         assert!(result.is_err(), "Expected error, got: {result:?}");
-        
-        
-
-        
-        
     }
 
     // this test is to check if the deserializer can handle unknown types... It might evolve in the future

@@ -39,11 +39,11 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// The final matching score. Evaluated over several fields, see `Score`
     pub score: Score,
-    
+
     #[builder(default)]
     /// The execution path, canonalized and sanitized
     pub final_path: PathBuf,
-    
+
     #[builder(default)]
     /// The Owned version of credentials needed for switching user and set capabilities
     pub cred: CredOwnedData,

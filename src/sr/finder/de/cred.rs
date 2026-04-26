@@ -1,7 +1,4 @@
-
-use std::{
-    borrow::Cow, collections::HashMap,
-};
+use std::{borrow::Cow, collections::HashMap};
 
 use bon::Builder;
 use capctl::CapSet;
@@ -10,11 +7,10 @@ use nix::unistd::{Group, User};
 use rar_common::{
     database::{
         actor::{DGroupType, DGroups, DUserType},
-        score::{
-            CapsMin, SetgidMin, SetuidMin, TaskScore,
-        },
+        score::{CapsMin, SetgidMin, SetuidMin, TaskScore},
         structs::{SCapabilities, SetBehavior},
-    }, util::capabilities_are_exploitable
+    },
+    util::capabilities_are_exploitable,
 };
 use serde::{
     Deserialize,
@@ -23,8 +19,6 @@ use serde::{
 use serde_json::Value;
 
 use crate::Cli;
-
-
 
 pub(super) struct CredFinderDeserializerReturn<'a> {
     pub(super) cli: &'a Cli,

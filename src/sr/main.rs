@@ -273,7 +273,11 @@ fn main() {
 fn main_inner() -> SrResult<()> {
     use std::env;
 
-    use crate::{ROOTASROLE, finder::api::{Api, register_plugins}, pam::start_session};
+    use crate::{
+        ROOTASROLE,
+        finder::api::{Api, register_plugins},
+        pam::start_session,
+    };
     use finder::find_best_exec_settings;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);

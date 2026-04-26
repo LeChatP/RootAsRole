@@ -1,17 +1,14 @@
-use std::{
-    borrow::Cow, collections::HashMap,
-};
+use std::{borrow::Cow, collections::HashMap};
 
 use log::{debug, info};
 use nix::unistd::Group;
 use rar_common::{
-    Cred, StorageMethod, database::{
+    Cred, StorageMethod,
+    database::{
         actor::{DActor, DGroups},
         options::Level,
-        score::
-            ActorMatchMin
-        ,
-    }
+        score::ActorMatchMin,
+    },
 };
 use serde::{
     Deserialize,
@@ -21,10 +18,11 @@ use serde_json::Value;
 
 use crate::{
     Cli,
-    finder::{de::{DRoleFinder, DTaskFinder, tasks::TaskListFinderDeserializer, to_storage_m}, options::{DPathOptions, Opt}},
+    finder::{
+        de::{DRoleFinder, DTaskFinder, tasks::TaskListFinderDeserializer, to_storage_m},
+        options::{DPathOptions, Opt},
+    },
 };
-
-
 
 pub(super) struct RoleListFinderDeserializer<'a, 'b> {
     pub(super) cli: &'a Cli,
@@ -146,7 +144,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                             let mut opt: Opt = map.next_value()?;
                             opt.level = Level::Role;
                             if self.policy_format.is_cbor() // little perf gain in json
-                               && let Some(path) = opt.path.as_ref() {
+                               && let Some(path) = opt.path.as_ref()
+                            {
                                 self.spath.union(&path.clone());
                             }
                             options = Some(opt);
@@ -285,7 +284,6 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::finder::de::IdTask;
@@ -304,7 +302,6 @@ mod test {
         let user_min = result.unwrap();
         assert_eq!(user_min, ActorMatchMin::UserMatch);
     }
-
 
     #[test]
     fn test_role_finder_deserializer() {
@@ -326,7 +323,6 @@ mod test {
         assert_eq!(role.tasks.len(), 1);
         assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));
     }
-
 
     #[test]
     fn test_role_list_finder_deserializer() {
@@ -409,5 +405,4 @@ mod test {
         let result = role.deserialize(&mut serde_json::Deserializer::from_str(int));
         assert!(result.is_err(), "Expected error, got: {result:?}");
     }
-
 }

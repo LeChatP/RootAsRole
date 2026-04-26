@@ -267,19 +267,19 @@ pub fn run(
 }
 
 /// This function manages command execution with a Pty, and TWO forks (so 3 processes):
-/// 
+///
 /// 1. Parent - monitor signals and I/O
 /// 2. Monitor - forward signals, detect issues (command exits)
 /// 3. Command - the executed command
-/// 
+///
 /// (Parent --> monitor --> Command)
-/// 
+///
 /// This allows to :
 /// - Better signal management
 /// - Better error management
 /// - Better termination process
 /// - Better TTY management.
-/// 
+///
 /// # Errors
 /// Returns an error if the execution fails due to :
 /// - Failure to fork process

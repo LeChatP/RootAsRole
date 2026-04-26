@@ -1,14 +1,7 @@
-use std::{
-    borrow::Cow, path::PathBuf, str::FromStr,
-};
+use std::{borrow::Cow, path::PathBuf, str::FromStr};
 
 use log::debug;
-use rar_common::
-    database::{
-        score::CmdMin,
-        structs::SetBehavior,
-    }
-;
+use rar_common::database::{score::CmdMin, structs::SetBehavior};
 use serde::{
     Deserialize,
     de::{DeserializeSeed, IgnoredAny},
@@ -16,10 +9,10 @@ use serde::{
 use serde_json::Value;
 
 use crate::finder::{
-        api::{Api, ApiEvent},
-        cmd, de::{DCommand, DCommandList},
-    };
-
+    api::{Api, ApiEvent},
+    cmd,
+    de::{DCommand, DCommandList},
+};
 
 impl<'de: 'a, 'a> Deserialize<'de> for DCommandList<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -346,8 +339,10 @@ mod test {
     use rar_common::database::score::CmdMin;
     use serde::de::DeserializeSeed;
 
-    use crate::{Cli, finder::de::commands::{DCommandDeserializer, DCommandListDeserializer}};
-
+    use crate::{
+        Cli,
+        finder::de::commands::{DCommandDeserializer, DCommandListDeserializer},
+    };
 
     #[test]
     fn test_dcommandlist_seed() {
@@ -405,4 +400,3 @@ mod test {
         assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 }
-
