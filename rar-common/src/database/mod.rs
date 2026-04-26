@@ -31,6 +31,7 @@ pub struct FilterMatcher {
     pub user: Option<u32>,
     #[builder(with = |s: impl Into<SGroups>| -> Result<_,String> { s.into().try_into() })]
     pub group: Option<Vec<u32>>,
+    pub workdir: Option<String>,
 }
 
 // deserialize the linked hash set

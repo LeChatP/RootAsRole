@@ -212,6 +212,64 @@ pub struct SEnvOptions {
     pub extra_fields: Map<String, Value>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(untagged)]
+pub enum SWorkdirEither {
+    /// This is the equivalent of deny all and fallback to the specified path.
+    Path(String),
+    Struct(SWorkdirSet),
+}
+
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Default)]
+#[repr(u32)]
+pub enum WorkdirBehavior {
+    Allowlist = HARDENED_ENUM_VALUE_0,      // Deny all except for the listed ones in "add" minus "sub" ofc
+    Blacklist = HARDENED_ENUM_VALUE_1,      // Allow all except for the listed ones in "sub"
+    #[default]
+    Inherit = HARDENED_ENUM_VALUE_2,       // Inherit from parent levels, which can be combined with the above two behaviors.
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct SWorkdirSet {
+    /// The default behavior for workdir handling. This determines how the "add" and "sub" lists are interpreted.
+    /// - If set to `Allowlist`, only the paths in the "add" list (minus those in the "sub" list) will be allowed as workdirs.
+    /// - If set to `Blacklist`, all paths will be allowed as workdirs except those in the "sub" list.
+    /// - If set to `Inherit`, the behavior will be inherited from parent levels, which can be combined with the above two behaviors.
+    /// 
+    /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
+    /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default_behavior: WorkdirBehavior,
+
+    /// The "fallback" field specifies a fallback directory to use as the working directory.
+    /// This will override the current user working directory.
+    /// For example:
+    /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`, 
+    /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
+    /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub add: Option<IndexSet<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize",
+        alias = "del"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub sub: Option<IndexSet<String>>,
+
+}
 #[derive(
     Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
 )]
@@ -354,6 +412,8 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<SWorkdirEither>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
@@ -372,6 +432,7 @@ impl Opt {
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
+        workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Map<String, Value>,
@@ -384,6 +445,7 @@ impl Opt {
             bounding,
             authentication,
             execinfo,
+            workdir,
             timeout,
             umask,
             extra_fields,
@@ -657,6 +719,8 @@ impl SAuthentication {
         }
     }
 }
+
+
 
 // === Defaults based on config.toml ===
 impl Default for Opt {

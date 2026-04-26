@@ -1,5 +1,5 @@
 {
-    "version": "3.3.0",
+    "version": "4.0.0",
     "storage": {
         "method": "json",
         "settings": {
@@ -40,7 +40,8 @@
                 "PS2",
                 "XAUTHORY",
                 "XAUTHORIZATION",
-                "XDG_CURRENT_DESKTOP"
+                "XDG_CURRENT_DESKTOP",
+                "RUST_LOG"
             ],
             "check": [
                 "COLORTERM",
@@ -58,17 +59,29 @@
                 "PERL5LIB",
                 "PERL5OPT",
                 "PYTHONINSPECT"
-            ],
-            "set": {}
+            ]
         },
         "authentication": "perform",
         "root": "user",
         "bounding": "strict",
         "umask": "022",
-        "execinfo": "hide"
+        "execinfo": "hide",
+        "workdir": {
+            "default": "all",
+            "fallback": "/bla",
+            "add": "",
+            "sub": [
+                "/home/lechatp/.ssh"
+            ]
+        }
     },
     "roles": [
         {
+            "options": {
+                "workdir": [
+                    "/home/lechatp/**"
+                ]
+            },
             "name": "r_root",
             "actors": [
                 {
@@ -81,7 +94,13 @@
                 }
             ],
             "tasks": [
-                {
+                {   
+                    "options": {
+                        "workdir": true,
+                        "env": {
+                            "override_behavior": true
+                        }
+                    },
                     "name": "t_root",
                     "purpose": "access to every commands",
                     "cred": {
@@ -100,12 +119,8 @@
                             ]
                         }
                     },
-                    "commands": "all",
-                    "options": {
-                        "env": {
-                            "override_behavior": true
-                        }
-                    }
+                    "commands": "all"
+                    
                 },
                 {
                     "name": "t_chsr",

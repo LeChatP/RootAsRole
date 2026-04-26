@@ -115,6 +115,7 @@ pub struct Cred {
     Copy,
     EnumString,
     strum::VariantNames,
+    strum::EnumIs
 )]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]

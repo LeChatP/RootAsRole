@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use api::{Api, ApiEvent, register_plugins};
+use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
@@ -26,7 +26,7 @@ use serde::de::DeserializeSeed;
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::de::CredOwnedData,
+    finder::de::cred::CredOwnedData,
 };
 
 pub mod api;
@@ -37,30 +37,53 @@ mod options;
 #[derive(Debug, Default, Clone, Builder)]
 pub struct BestExecSettings {
     #[builder(default)]
+    /// The final matching score. Evaluated over several fields, see `Score`
     pub score: Score,
+    
     #[builder(default)]
+    /// The execution path, canonalized and sanitized
     pub final_path: PathBuf,
+    
     #[builder(default)]
+    /// The Owned version of credentials needed for switching user and set capabilities
     pub cred: CredOwnedData,
+
+    ///The task name matched in the policy
     pub task: Option<String>,
+
     #[builder(default)]
+    /// The role name matched in the policy
     pub role: String,
     #[builder(default)]
+    /// The final set of environment variable to keep/set
     pub env: HashMap<String, String>,
     #[builder(default)]
+    /// The PATH variable is managed indepedently given the policy
     pub env_path: Vec<String>,
+    /// The working directory to set, if specified in policy
+    pub _workdir: Option<PathBuf>,
     #[builder(default)]
+    /// Whether the Linux Capabilities are [bounded](https://www.man7.org/linux/man-pages/man7/capabilities.7.html)
     pub bounding: SBounding,
     #[builder(default)]
+    /// Information about whether the user should re-authenticate
     pub timeout: STimeout,
     #[builder(default)]
+    /// Information about whether the user should authenticate or bypass it
     pub auth: SAuthentication,
     #[builder(default)]
+    /// Is root id has it's privileges or not? If not, root is going to be a simple user
     pub root: SPrivileged,
     #[builder(default)]
+    /// Setting umask
     pub umask: SUMask,
 }
 
+/// This functions is the main entrace to lookup at the security policy.
+/// It efficiently check the policy based on the user args, skips unnecessary policy info etc.
+/// The main focus here is to avoid at maximum any allocation.
+/// # Returns
+/// When a policy match was found, it returns all needed information, otherwise, it returns an ``SrError``.
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
@@ -71,7 +94,6 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
 where
     P: AsRef<Path>,
 {
-    register_plugins();
     let settings_file = rar_common::get_settings(path).map_err(|e| {
         debug!("Policy unreachable: {e}");
         SrError::ConfigurationError
@@ -81,17 +103,17 @@ where
         cred,
         env_path,
     };
+    let file_path = settings_file
+        .storage
+        .settings
+        .unwrap_or_default()
+        .path
+        .ok_or(SrError::ConfigurationError)?;
+    let file = read_with_privileges(&file_path)?;
+    let reader = BufReader::new(file);
     match settings_file.storage.method {
         StorageMethod::CBOR => {
-            let file_path = settings_file
-                .storage
-                .settings
-                .unwrap_or_default()
-                .path
-                .ok_or(SrError::ConfigurationError)?;
-            let file = read_with_privileges(&file_path)?;
-            let reader = BufReader::new(file); // Use BufReader for efficient streaming
-            let mut io_reader = cbor4ii::core::utils::IoReader::new(reader); // Use IoReader for streaming
+            let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
             Ok(BestExecSettings::retrieve_settings(
                 cli,
                 cred,
@@ -106,14 +128,6 @@ where
             )?)
         }
         StorageMethod::JSON => {
-            let file_path = settings_file
-                .storage
-                .settings
-                .unwrap_or_default()
-                .path
-                .ok_or(SrError::ConfigurationError)?;
-            let file = read_with_privileges(&file_path)?;
-            let reader = BufReader::new(file);
             let io_reader = serde_json::de::IoRead::new(reader);
             Ok(BestExecSettings::retrieve_settings(
                 cli,
@@ -385,7 +399,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::Cli;
-    use crate::finder::de::CredData;
+    use crate::finder::de::cred::CredData;
     use crate::finder::options::{DEnvOptions, Opt};
     use rar_common::Cred;
 

@@ -128,7 +128,7 @@ impl Api {
     }
 }
 
-pub(super) fn register_plugins() {
+pub fn register_plugins() {
     #[cfg(feature = "ssd")]
     ssd::register();
     #[cfg(feature = "hashchecker")]

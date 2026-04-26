@@ -33,7 +33,7 @@ use rar_common::util::{BOLD, RST, UNDERLINE, drop_effective, subsribe};
 
 use crate::error::SrError;
 use crate::error::SrResult;
-use crate::finder::de::CredOwnedData;
+use crate::finder::de::cred::CredOwnedData;
 
 #[cfg(not(test))]
 const ROOTASROLE: &str = env!("RAR_CFG_PATH");
@@ -143,6 +143,7 @@ where
     let mut iter = s.into_iter().skip(1);
     let mut role = None;
     let mut task = None;
+    let mut workdir = None;
     let mut user: Option<SUserType> = None;
     let mut group: Option<SGroups> = None;
     let mut env = None;
@@ -174,6 +175,9 @@ where
             }
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
+            }
+            "-w" | "--wordir" => {
+                workdir = iter.next().map(|s| escape_parser_string(s));
             }
             #[cfg(feature = "timeout")]
             "-K" | "--remove-timestamp" => {
@@ -211,6 +215,7 @@ where
         FilterMatcher::builder()
             .maybe_role(role)
             .maybe_task(task)
+            .maybe_workdir(workdir)
             .maybe_env_behavior(env)
             .maybe_user(user)
             .map_err(|e| {
@@ -268,7 +273,7 @@ fn main() {
 fn main_inner() -> SrResult<()> {
     use std::env;
 
-    use crate::{ROOTASROLE, finder::api::Api, pam::start_session};
+    use crate::{ROOTASROLE, finder::api::{Api, register_plugins}, pam::start_session};
     use finder::find_best_exec_settings;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
@@ -302,6 +307,7 @@ fn main_inner() -> SrResult<()> {
             }
         }
     }
+    register_plugins();
     let execcfg = find_best_exec_settings(
         &args,
         &user,
@@ -525,7 +531,7 @@ mod tests {
 
     use crate::finder::BestExecSettings;
 
-    use super::finder::de::CredOwnedData;
+    use super::finder::de::cred::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
     use nix::unistd::{Group, Pid, User, getgroups, getuid};

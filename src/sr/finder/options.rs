@@ -91,6 +91,8 @@ pub struct Opt<'a> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<Cow<'a, str>>, // we only need to store the enforced workdir, if existing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
@@ -109,6 +111,7 @@ impl<'a> Opt<'a> {
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
+        workdir: Option<Cow<'a, str>>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Value,
@@ -121,6 +124,7 @@ impl<'a> Opt<'a> {
             bounding,
             authentication,
             execinfo,
+            workdir,
             timeout,
             umask,
             extra_fields,
