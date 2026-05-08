@@ -386,7 +386,7 @@ impl UserTerm {
 
     /// # Errors
     /// Returns an error if system call fails.
-    pub fn set_raw_mode(&mut self, with_signals: bool, preserve_oflag: bool) -> io::Result<()> {
+    pub fn set_raw_mode(&mut self, with_signals: bool, preserve_oflag: bool, enable_echo: bool) -> io::Result<()> {
         let fd = self.tty.as_raw_fd();
         let mut term = if let Some(termios) = self.original_termios {
             termios
@@ -399,6 +399,8 @@ impl UserTerm {
         };
         let original_oflag = term.c_oflag;
         unsafe { cfmakeraw(&raw mut term) };
+        term.c_iflag |= libc::ICRNL;
+        term.c_oflag |= libc::OPOST | libc::ONLCR;
         if preserve_oflag {
             term.c_oflag = original_oflag;
         } else {
@@ -406,6 +408,9 @@ impl UserTerm {
         }
         if with_signals {
             term.c_lflag |= ISIG;
+        }
+        if enable_echo {
+            term.c_lflag |= libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHOCTL | libc::ECHOKE;
         }
 
         unsafe { tcsetattr_nobg(fd, TCSADRAIN, &raw const term) }?;
@@ -509,7 +514,7 @@ mod tests {
                 assert!(terminal::safe_isatty(&term));
 
                 // Try enabling raw mode
-                let res = term.set_raw_mode(false, false);
+                let res = term.set_raw_mode(false, false, false);
                 assert!(res.is_ok());
 
                 // Restore

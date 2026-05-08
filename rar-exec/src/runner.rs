@@ -304,7 +304,7 @@ pub fn run_with_pty(
     }
 
     //enabling rawmode for fforward keystrokes
-    user_term.set_raw_mode(true, true)?;
+    user_term.set_raw_mode(true, true, false)?;
 
     // Create Pty
     let pty = Pty::open()?;
