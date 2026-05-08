@@ -22,6 +22,7 @@ pub struct MonitorClosure {
     signal_stream: &'static SignalStream,
     backchannel: Backchannel,
     err_reader: std::os::unix::net::UnixStream,
+    err_handle: crate::event::EventHandle,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -42,7 +43,10 @@ impl Process for MonitorClosure {
                 use std::io::Read;
                 let mut buf = [0u8; 1024];
                 match self.err_reader.read(&mut buf) {
-                    Ok(0) => {} // EOF, no error
+                    Ok(0) => {
+                        // EOF: stop polling this FD to avoid busy loop
+                        self.err_handle.ignore(registry);
+                    }
                     Ok(n) => {
                         let err_msg = String::from_utf8_lossy(&buf[..n]).to_string();
                         if let Err(e) = self
@@ -80,33 +84,28 @@ impl Process for MonitorClosure {
                 }
             },
             MonitorEvent::Backchannel => {
-                loop {
-                    match self.backchannel.recv_monitor_message() {
-                        Ok(MonitorMessage::Signal(sig)) => {
-                            if is_forward_signal_allowed(sig) {
-                                if let Some(pid) = self.command_pid {
-                                    unsafe { libc::kill(pid.cast_signed(), sig) };
-                                }
-                            } else {
-                                let _ =
-                                    self.backchannel.send_parent_message(&ParentMessage::Error(
-                                        format!("Rejected disallowed signal value: {sig}"),
-                                    ));
+                match self.backchannel.recv_monitor_message() {
+                    Ok(MonitorMessage::Signal(sig)) => {
+                        if is_forward_signal_allowed(sig) {
+                            if let Some(pid) = self.command_pid {
+                                unsafe { libc::kill(pid.cast_signed(), sig) };
                             }
-                        }
-                        Ok(MonitorMessage::Edge) => {
-                            // unexpected.
-                            registry.set_break(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "Unexpected Edge message from parent".to_string(),
+                        } else {
+                            let _ = self.backchannel.send_parent_message(&ParentMessage::Error(
+                                format!("Rejected disallowed signal value: {sig}"),
                             ));
-                            break;
                         }
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(e) => {
-                            registry.set_break(e);
-                            break;
-                        }
+                    }
+                    Ok(MonitorMessage::Edge) => {
+                        // unexpected.
+                        registry.set_break(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Unexpected Edge message from parent".to_string(),
+                        ));
+                    }
+                    //Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => { },
+                    Err(e) => {
+                        registry.set_break(e);
                     }
                 }
             }
@@ -138,6 +137,7 @@ impl MonitorClosure {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 /// # Errors
 /// Returns an error if any system call fails during the monitor process execution.
 pub fn exec_monitor_process(
@@ -233,7 +233,23 @@ pub fn exec_monitor_process(
     // Send PID to Runner
     let _ = backchannel.send_parent_message(&ParentMessage::CommandPid(pid));
 
+    let (err_reader, err_writer) = std::os::unix::net::UnixStream::pair()?;
+
+    // Ensure err_writer is closed on exec
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = err_writer.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if flags >= 0 {
+            let _ = unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+        }
+    }
+
     let mut registry = EventRegistry::new();
+
+    let err_handle =
+        registry.register_event(&err_reader, PollEvent::Readable, |_| MonitorEvent::ErrPipe);
+
     let signal_stream = SignalStream::init()?;
     for &sig in MONITOR_SIGNALS {
         register_signal_handler(sig)?;
@@ -250,6 +266,7 @@ pub fn exec_monitor_process(
         signal_stream,
         backchannel,
         err_reader,
+        err_handle,
     };
 
     // Monitor Loop

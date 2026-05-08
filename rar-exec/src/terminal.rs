@@ -405,7 +405,7 @@ impl UserTerm {
             term.c_oflag = 0;
         }
         if with_signals {
-            term.c_cflag |= ISIG;
+            term.c_lflag |= ISIG;
         }
 
         unsafe { tcsetattr_nobg(fd, TCSADRAIN, &raw const term) }?;

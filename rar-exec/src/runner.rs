@@ -121,7 +121,17 @@ impl Process for ExecRunner {
             RunnerEvent::Backchannel => {
                 loop {
                     match self.backchannel.recv_parent_message() {
-                        Ok(msg) => self.handle_monitor_message(msg, registry),
+                        Ok(ParentMessage::CommandPid(pid)) => {
+                            self.command_pid = pid;
+                        }
+                        Ok(ParentMessage::ExitStatus(status)) => {
+                            registry.set_exit(std::process::ExitStatus::from_raw(status));
+                            break;
+                        }
+                        Ok(ParentMessage::Error(err)) => {
+                            registry.set_break(io::Error::other(err));
+                            break;
+                        }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => {
                             // If monitor closes connection, it usually means it exited.
@@ -165,20 +175,6 @@ impl ExecRunner {
                     // If send fails, monitor is likely gone
                     self.check_monitor_exit(registry);
                 }
-            }
-        }
-    }
-
-    fn handle_monitor_message(&mut self, msg: ParentMessage, registry: &mut EventRegistry<Self>) {
-        match msg {
-            ParentMessage::CommandPid(pid) => {
-                self.command_pid = pid;
-            }
-            ParentMessage::ExitStatus(status) => {
-                registry.set_exit(std::process::ExitStatus::from_raw(status));
-            }
-            ParentMessage::Error(err) => {
-                registry.set_break(io::Error::other(err));
             }
         }
     }
@@ -315,6 +311,9 @@ pub fn run_with_pty(
     if let Ok(sz) = user_term.get_size() {
         pty.leader.set_size(&sz)?; // set window size by default, resizing comes with features
     }
+
+    // Copy terminal settings from user terminal to PTY follower to ensure interactive I/O works
+    user_term.copy_to(&pty.follower)?;
 
     // Create backchannel
     let (mut parent_channel, monitor_channel) = Backchannel::pair()?;

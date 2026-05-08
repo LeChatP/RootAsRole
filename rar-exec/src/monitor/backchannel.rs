@@ -64,11 +64,13 @@ pub struct Backchannel {
 
 impl Backchannel {
     /// # Errors
-    /// Returns an error if the ``UnixStream`` pair cannot be created or if setting non-blocking
+    /// Returns an error if the ``UnixStream`` pair cannot be created
+    ///
+    /// The backchannel sockets are created as BLOCKING. They will be registered with `poll()`,
+    /// which will notify when they're ready. Then they can be read without blocking the event loop.
     pub fn pair() -> io::Result<(Self, Self)> {
         let (a, b) = UnixStream::pair()?;
-        a.set_nonblocking(true)?;
-        b.set_nonblocking(true)?;
+        // Keep both as blocking - poll() will notify when data is available
         Ok((Self { stream: a }, Self { stream: b }))
     }
 
