@@ -6,9 +6,9 @@ use rar_common::{
     Cred, StorageMethod,
     database::{
         actor::{DActor, DGroups},
-        options::Level,
         score::ActorMatchMin,
-    }, util::Either,
+    },
+    util::Either,
 };
 use serde::{
     Deserialize,
@@ -20,7 +20,7 @@ use crate::{
     Cli,
     finder::{
         de::{DRoleFinder, DTaskFinder, tasks::TaskListFinderDeserializer, to_storage_m},
-        options::{DPathOptions, Opt},
+        options::DPathOptions,
     },
 };
 
@@ -119,6 +119,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             env_path: &'a [&'a str],
             spath: &'b mut DPathOptions<'a>,
             // TODO: If perf problem in cbor you can trash this
+            #[allow(dead_code)]
             policy_format: StorageMethod,
         }
 
@@ -141,14 +142,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                     match key {
                         Field::Options => {
                             debug!("RoleFinderVisitor: options");
-                            let mut opt: Opt = map.next_value()?;
-                            opt.level = Level::Role;
-                            if self.policy_format.is_cbor() // little perf gain in json
-                               && let Some(path) = opt.path.as_ref()
-                            {
-                                self.spath.union(&path.clone());
-                            }
-                            options = Some(opt);
+                            options = Some(map.next_value()?);
                         }
                         Field::Name => {
                             debug!("RoleFinderVisitor: name");
@@ -194,19 +188,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                 }))
             }
         }
-        const FIELDS: &[&str] = &["name", "tasks", "options"];
         let human_readable = deserializer.is_human_readable();
-        deserializer.deserialize_struct(
-            "Role",
-            FIELDS,
-            RoleFinderVisitor {
-                cli: self.cli,
-                cred: self.cred,
-                spath: self.spath,
-                env_path: self.env_path,
-                policy_format: to_storage_m(human_readable),
-            },
-        )
+        deserializer.deserialize_map(RoleFinderVisitor {
+            cli: self.cli,
+            cred: self.cred,
+            spath: self.spath,
+            env_path: self.env_path,
+            policy_format: to_storage_m(human_readable),
+        })
     }
 }
 
@@ -247,7 +236,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
         }
 
         impl ActorsFinderVisitor<'_> {
-            fn match_groups(groups: &[Either<Group,Gid>], role_groups: &[&DGroups<'_>]) -> bool {
+            fn match_groups(groups: &[Either<Group, Gid>], role_groups: &[&DGroups<'_>]) -> bool {
                 for role_group in role_groups {
                     if match role_group {
                         DGroups::Single(group) => groups.iter().any(|g| group == g),
@@ -295,7 +284,14 @@ mod test {
     fn test_actors_finder_deserializer() {
         let json = format!(r#"[{{"type": "user", "id": {}}}]"#, getuid().as_raw());
         let deserializer = ActorsFinderDeserializer {
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -313,7 +309,14 @@ mod test {
         let deserializer = RoleFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
@@ -334,7 +337,14 @@ mod test {
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
@@ -351,7 +361,14 @@ mod test {
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
@@ -365,7 +382,14 @@ mod test {
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
@@ -383,7 +407,14 @@ mod test {
         let deserializer = RoleFinderDeserializer {
             cli: &cli,
             env_path: &[],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
@@ -392,14 +423,28 @@ mod test {
             "Expected role with nothing in it, got: {result:?}"
         );
         let actors = ActorsFinderDeserializer {
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = actors.deserialize(&mut serde_json::Deserializer::from_str(int));
         assert!(result.is_err(), "Expected error, got: {result:?}");
         let role = RoleFinderDeserializer {
             cli: &cli,
             env_path: &[],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = role.deserialize(&mut serde_json::Deserializer::from_str(int));

@@ -57,7 +57,7 @@ use std::{
     cell::RefCell,
     error::Error,
     fs::{File, Permissions},
-    io::{BufReader, Seek, Error as IoError},
+    io::{BufReader, Error as IoError, Seek},
     ops::DerefMut,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -89,7 +89,8 @@ use database::{
 };
 
 use crate::util::{
-    Either, has_privileges, is_immutable, open_lock_with_privileges, with_mutable_config, with_privileges
+    Either, has_privileges, is_immutable, open_lock_with_privileges, with_mutable_config,
+    with_privileges,
 };
 
 #[derive(Debug, Builder)]
@@ -106,12 +107,12 @@ pub struct Cred {
         .map(|gid| Either::from(Group::from_gid(*gid).ok().flatten().ok_or(*gid)))
         .collect())
     })]
-    pub groups: Vec<Either<Group,Gid>>,
+    pub groups: Vec<Either<Group, Gid>>,
     pub tty: Option<dev_t>,
     #[builder(default = nix::unistd::getppid(), into)]
     pub ppid: Pid,
     #[builder(with = || -> Result<_, std::io::Error> { std::env::current_dir() })]
-    pub curdir : PathBuf,
+    pub curdir: PathBuf,
 }
 
 #[derive(

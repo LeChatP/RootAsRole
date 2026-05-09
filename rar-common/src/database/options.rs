@@ -130,10 +130,6 @@ pub struct SPathOptions {
     pub sub: Option<IndexSet<String>>,
 }
 
-// ...existing code...
-impl SPathOptions {}
-// ...existing code...
-
 #[derive(
     Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
 )]
@@ -220,13 +216,27 @@ pub enum SWorkdirEither {
     Struct(SWorkdirSet),
 }
 
-#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Default)]
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Default)]
 #[repr(u32)]
 pub enum WorkdirBehavior {
     Allowlist = HARDENED_ENUM_VALUE_0, // Deny all except for the listed ones in "add" minus "sub" ofc
     Blacklist = HARDENED_ENUM_VALUE_1, // Allow all except for the listed ones in "sub"
     #[default]
     Inherit = HARDENED_ENUM_VALUE_2, // Inherit from parent levels, which can be combined with the above two behaviors.
+}
+
+impl WorkdirBehavior {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
+        match input {
+            _ if eq_str(input, "delete") => Self::Blacklist,
+            _ if eq_str(input, "allow") => Self::Allowlist,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse PathBehavior"),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
@@ -398,13 +408,13 @@ pub enum SInfo {
 pub struct Opt {
     #[serde(skip)]
     pub level: Level,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<SPathOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<SEnvOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
@@ -729,7 +739,8 @@ impl Default for Opt {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] //Maybe used for other binaries
+#[derive(Debug, Clone)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
     roles: Option<Rc<RefCell<SConfig>>>,

@@ -1,10 +1,7 @@
 use std::borrow::Cow;
 
 use log::debug;
-use rar_common::{
-    StorageMethod,
-    database::{options::Level, score::TaskScore},
-};
+use rar_common::{StorageMethod, database::score::TaskScore};
 use serde::{
     Deserialize,
     de::{DeserializeSeed, IgnoredAny},
@@ -19,7 +16,7 @@ use crate::{
             cred::{CredData, CredFinderDeserializerReturn},
             to_storage_m,
         },
-        options::{DPathOptions, Opt},
+        options::DPathOptions,
     },
 };
 
@@ -144,14 +141,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                     match key {
                         Field::Options => {
                             debug!("TaskFinderVisitor: options");
-                            let mut opt: Opt = map.next_value()?;
-                            opt.level = Level::Task;
-                            if self.storage_method.is_cbor()
-                                && let Some(path) = opt.path.as_ref()
-                            {
-                                self.spath.union(&path.clone());
+                            if let Some(opt) = map.next_value()? {
+                                options = Some(opt);
+                            } else {
+                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+                                return Ok(None);
                             }
-                            if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
+
+                            /*if self.cli.info && opt.execinfo.is_some_and(|i| i.is_hide()) {
                                 while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                                 return Ok(None);
                             }
@@ -169,8 +166,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                             }) {
                                 while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
                                 return Ok(None);
-                            }
-                            options = Some(opt);
+                            }*/
                         }
                         Field::Name => {
                             debug!("TaskFinderVisitor: name");
@@ -233,20 +229,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                 }))
             }
         }
-
-        const FIELDS: &[&str] = &["name", "cred", "commands", "options"];
         let human_readable = deserializer.is_human_readable();
-        deserializer.deserialize_struct(
-            "STask",
-            FIELDS,
-            TaskFinderVisitor {
-                i: self.i,
-                cli: self.cli,
-                env_path: self.env_path,
-                spath: self.spath,
-                storage_method: to_storage_m(human_readable),
-            },
-        )
+        deserializer.deserialize_map(TaskFinderVisitor {
+            i: self.i,
+            cli: self.cli,
+            env_path: self.env_path,
+            spath: self.spath,
+            storage_method: to_storage_m(human_readable),
+        })
     }
 }
 
@@ -268,7 +258,6 @@ mod test {
         let seq = "[1, 2, 3]";
         let int = "1";
         let json = r#"{"unknown": "unknown"}"#;
-
         let cli = Cli::builder().build();
 
         let deserializer = TaskFinderDeserializer {

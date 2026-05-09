@@ -1,4 +1,4 @@
-use std::process::ExitStatus;
+use std::process::{ExitStatus, Stdio};
 
 use anyhow::Context;
 use capctl::CapState;
@@ -117,6 +117,7 @@ pub fn install_dependencies(
     command.extend(deps);
     Ok(std::process::Command::new(command[0])
         .args(&command[1..])
+        .stdin(Stdio::piped())
         .status()?)
 }
 

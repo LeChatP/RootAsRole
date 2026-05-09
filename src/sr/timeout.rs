@@ -19,7 +19,8 @@ use rar_common::{
     Cred,
     database::options::{STimeout, TimestampType},
     util::{
-        create_dir_all_with_privileges, create_with_privileges, read_with_privileges, remove_with_privileges
+        create_dir_all_with_privileges, create_with_privileges, read_with_privileges,
+        remove_with_privileges,
     },
 };
 
@@ -196,9 +197,7 @@ fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Er
     let s_uid = user.user.uid.as_raw().to_string();
     let path = Path::new(TS_LOCATION).join(&s_uid);
     create_dir_all_with_privileges(path.parent().expect("Failed to get parent directory"))?;
-    let lockpath = Path::new(TS_LOCATION)
-        .join(&s_uid)
-        .with_extension("lock");
+    let lockpath = Path::new(TS_LOCATION).join(&s_uid).with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     cbor4ii::serde::to_writer(&mut file, &cookies)?;
     if let Err(err) = remove_with_privileges(lockpath) {

@@ -67,21 +67,11 @@
         "umask": "022",
         "execinfo": "hide",
         "workdir": {
-            "default": "all",
-            "fallback": "/bla",
-            "add": "",
-            "sub": [
-                "/home/lechatp/.ssh"
-            ]
+            "default": "all"
         }
     },
     "roles": [
         {
-            "options": {
-                "workdir": [
-                    "/home/lechatp/**"
-                ]
-            },
             "name": "r_root",
             "actors": [
                 {
@@ -94,7 +84,7 @@
                 }
             ],
             "tasks": [
-                {   
+                {
                     "options": {
                         "workdir": true,
                         "env": {
@@ -120,7 +110,6 @@
                         }
                     },
                     "commands": "all"
-                    
                 },
                 {
                     "name": "t_chsr",

@@ -576,15 +576,15 @@ impl PartialEq<u32> for SGroupType {
     }
 }
 
-impl PartialEq<Either<Group,Gid>> for SGroupType {
-    fn eq(&self, other: &Either<Group,Gid>) -> bool {
+impl PartialEq<Either<Group, Gid>> for SGroupType {
+    fn eq(&self, other: &Either<Group, Gid>) -> bool {
         let gid = self.fetch_id();
         gid.is_some_and(|gid| gid == either_to_gid(other).as_raw())
     }
 }
 
-impl PartialEq<Either<Group,Gid>> for DGroupType<'_> {
-    fn eq(&self, other: &Either<Group,Gid>) -> bool {
+impl PartialEq<Either<Group, Gid>> for DGroupType<'_> {
+    fn eq(&self, other: &Either<Group, Gid>) -> bool {
         let gid = self.fetch_id();
         gid.is_some_and(|gid| gid == either_to_gid(other).as_raw())
     }

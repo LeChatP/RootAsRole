@@ -16,17 +16,17 @@ use rar_common::{
     Cred, StorageMethod,
     database::{
         actor::{DGroupType, DGroups},
-        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
-        score::{CmdMin, CmdOrder, Score},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, WorkdirBehavior},
+        score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
     },
-    util::{all_paths_from_env, read_with_privileges},
+    util::{WORKDIR_BEHAVIOR, all_paths_from_env, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::de::cred::CredOwnedData,
+    finder::{de::cred::CredOwnedData, options::DWorkdirSet},
 };
 
 pub mod api;
@@ -61,7 +61,7 @@ pub struct BestExecSettings {
     /// The PATH variable is managed indepedently given the policy
     pub env_path: Vec<String>,
     /// The working directory to set, if specified in policy
-    pub _workdir: Option<PathBuf>,
+    pub workdir: Option<PathBuf>,
     #[builder(default)]
     /// Whether the Linux Capabilities are [bounded](https://www.man7.org/linux/man-pages/man7/capabilities.7.html)
     pub bounding: SBounding,
@@ -157,9 +157,10 @@ impl BestExecSettings {
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.clone());
         for role in data.roles() {
-            matching |= result.role_settings(cli, &role, &mut opt_stack, env_path)?;
+            matching |= result.role_settings(cli, cred, &role, &mut opt_stack, env_path)?;
             Api::notify(ApiEvent::BestRoleSettingsFound(
                 cli,
+                cred,
                 &role,
                 &mut opt_stack,
                 &env_path,
@@ -192,12 +193,14 @@ impl BestExecSettings {
         result.timeout = opt_stack.calc_timeout();
         result.root = opt_stack.calc_privileged();
         result.umask = opt_stack.calc_umask();
+        result.workdir = opt_stack.calc_workdir();
         Ok(result)
     }
 
     pub fn role_settings<'c, 'a>(
         &mut self,
         cli: &'c Cli,
+        cred: &'c Cred,
         data: &DLinkedRole<'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
@@ -208,7 +211,7 @@ impl BestExecSettings {
         }
         let mut res = false;
         for task in data.tasks() {
-            res |= self.task_settings(cli, &task, opt_stack, env_path)?;
+            res |= self.task_settings(cli, cred, &task, opt_stack, env_path)?;
         }
         Ok(res)
     }
@@ -223,6 +226,7 @@ impl BestExecSettings {
     pub fn task_settings<'t, 'a>(
         &mut self,
         cli: &'t Cli,
+        cred: &'t Cred,
         data: &DLinkedTask<'t, '_, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
@@ -240,6 +244,24 @@ impl BestExecSettings {
         {
             debug!(
                 "task_settings: deny task due to inherited from role or config env_override requirement"
+            );
+            return Ok(false);
+        }
+        let result = temp_opt_stack.get_workdir_temp();
+        if cli
+            .opt_filter
+            .as_ref()
+            .and_then(|f| f.workdir.as_ref())
+            .is_some_and(|w| Self::allowed_workdir(&result, w.as_str()).is_false())
+        {
+            debug!(
+                "task_settings: deny task due to the user wanted to execute to a specific folder, which do not match to settings"
+            );
+            return Ok(false);
+        }
+        if Self::allowed_workdir(&result, cred.curdir.as_os_str().to_string_lossy().as_ref()).is_false() {
+            debug!(
+                "task_settings: deny task due to the current directory do not match to allowed settings"
             );
             return Ok(false);
         }
@@ -369,6 +391,33 @@ impl BestExecSettings {
         })
     }
 
+    /// This function takes a workdir path, and returns whether it is allowed based on the workdir settings.
+    fn allowed_workdir(result: &DWorkdirSet<'_>, workdir: &str) -> HardenedBool {
+        // Apply logic based on final behavior
+        match result.default_behavior {
+            WorkdirBehavior::Allowlist => {
+                // Block all except what is in "add" minus "sub"
+                let is_in_add = result
+                    .add
+                    .iter().any(|path| path.as_ref() == workdir);
+                let is_in_sub = result
+                    .sub
+                    .iter().any(|path| path.as_ref() == workdir);
+                hardened_bool_from_bool(is_in_add && !is_in_sub)
+            }
+            WorkdirBehavior::Blacklist => {
+                // Allow all except what is in "sub"
+                hardened_bool_from_bool(!result
+                    .sub
+                    .iter().any(|path| path.as_ref() == workdir))
+            }
+            WorkdirBehavior::Inherit => {
+                // Should not happen after union, but default to WORKDIR_BEHAVIOR
+                hardened_bool_from_bool(WORKDIR_BEHAVIOR.is_blacklist())
+            }
+        }
+    }
+
     fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
         debug!(
             "update_command_score: current score {:?}, new score {:?}",
@@ -412,7 +461,14 @@ mod tests {
     }
 
     fn dummy_cred() -> Cred {
-        Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build()
+        Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build()
     }
 
     fn dummy_dconfigfinder<'a>() -> DConfigFinder<'a> {
@@ -452,11 +508,7 @@ mod tests {
                             .options(
                                 Opt::builder(Level::Task)
                                     .execinfo(SInfo::Show)
-                                    .env(
-                                        DEnvOptions::builder(EnvBehavior::Delete)
-                                            .override_behavior(true)
-                                            .build(),
-                                    )
+                                    .env(DEnvOptions::builder(EnvBehavior::Delete).build())
                                     .build(),
                             )
                             .build(),
@@ -537,11 +589,12 @@ mod tests {
     fn test_role_settings_calls_actors_and_tasks() {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let data = binding.roles().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(None);
         let env_path = &["/bin"];
-        let result = best.role_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
     }
 
@@ -559,12 +612,13 @@ mod tests {
     fn test_task_settings_sets_fields_on_found() {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok_and(|r| r));
         assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test");
@@ -644,6 +698,7 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().next().unwrap();
@@ -651,7 +706,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
@@ -663,6 +718,7 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
@@ -671,7 +727,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -683,13 +739,14 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert!(*best.final_path == *"/usr/bin/ls");
@@ -704,12 +761,13 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert!(*best.final_path == *"/usr/bin/ls");
@@ -729,6 +787,7 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().next().unwrap();
@@ -736,7 +795,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
@@ -752,6 +811,7 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
@@ -760,7 +820,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -776,13 +836,14 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert!(*best.final_path == *"/usr/bin/ls");
@@ -801,16 +862,19 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
         assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }
+
+    
 }

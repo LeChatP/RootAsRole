@@ -12,12 +12,15 @@ use chrono::Duration;
 use konst::{iter, option, primitive::parse_i64, result, slice, string, unwrap_ctx};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
-use nix::{fcntl::{Flock, FlockArg}, unistd::{Gid, Group}};
+use nix::{
+    fcntl::{Flock, FlockArg},
+    unistd::{Gid, Group},
+};
 use serde::Serialize;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
-    TimestampType,
+    TimestampType, WorkdirBehavior,
 };
 
 #[cfg(feature = "finder")]
@@ -107,6 +110,27 @@ pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
     Duration::seconds(5)
 );
 
+pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
+    WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR"));
+
+pub const WORKDIR_FALLBACK: Option<&str> = option_env!("RAR_WORKDIR_FALLBACK");
+
+pub const WORKDIR_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_ADD_LIST"), ","),
+        map(string::trim),
+);
+
+pub const WORKDIR_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_REMOVE_LIST"), ","),
+        map(string::trim),
+);
+
+pub static WORKDIR_ADD_LIST: [&str; WORKDIR_ADD_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(WORKDIR_ADD_LIST_SLICE));
+
+pub static WORKDIR_REMOVE_LIST: [&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
+    *unwrap_ctx!(slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
+
 /// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
 #[derive(Debug, Hash, Copy, Clone)]
 #[must_use]
@@ -116,7 +140,7 @@ pub enum Either<L, R> {
     /// Contains the Right value
     Right(R),
 }
-impl<L,R> Either<L,R> {
+impl<L, R> Either<L, R> {
     pub const fn left(&self) -> Option<&L> {
         match self {
             Self::Left(l) => Some(l),
@@ -126,7 +150,7 @@ impl<L,R> Either<L,R> {
     pub const fn right(&self) -> Option<&R> {
         match self {
             Self::Left(_) => None,
-            Self::Right(r) => Some(r)
+            Self::Right(r) => Some(r),
         }
     }
     pub fn map<T>(&self, left: impl Fn(&L) -> T, right: impl Fn(&R) -> T) -> T {
@@ -147,10 +171,9 @@ impl<L, R> From<Result<L, R>> for Either<L, R> {
 }
 
 #[must_use]
-pub fn either_to_gid(either: &Either<Group,Gid>) -> Gid {
-    either.map(|l| l.gid, |r|*r)
+pub fn either_to_gid(either: &Either<Group, Gid>) -> Gid {
+    either.map(|l| l.gid, |r| *r)
 }
-
 
 #[derive(Debug)]
 struct DurationParseError;

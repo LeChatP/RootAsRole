@@ -28,6 +28,16 @@ pub enum HardenedBool {
     True = HARDENED_ENUM_VALUE_1,
 }
 
+#[inline]
+#[must_use]
+pub const fn hardened_bool_from_bool(b: bool) -> HardenedBool {
+    if b {
+        HardenedBool::True
+    } else {
+        HardenedBool::False
+    }
+}
+
 impl ActorMatchMin {
     #[inline]
     #[must_use]

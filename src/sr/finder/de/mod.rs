@@ -6,7 +6,6 @@ use log::debug;
 use rar_common::{
     Cred, StorageMethod,
     database::{
-        options::Level,
         score::{ActorMatchMin, CmdMin, Score, SecurityMin, TaskScore},
         structs::SetBehavior,
     },
@@ -30,7 +29,8 @@ use super::options::Opt;
 
 pub mod commands;
 pub mod cred;
-pub mod opt;
+//Coming soon: options can be optimized way more than today.
+//pub mod opt;
 pub mod roles;
 pub mod tasks;
 
@@ -309,7 +309,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             cli: &'a Cli,
             cred: &'a Cred,
             env_path: &'a [&'a str],
-            policy_format: StorageMethod,
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for ConfigFinderVisitor<'a> {
@@ -328,17 +327,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                     match key {
                         Field::Options => {
                             debug!("ConfigFinderVisitor: options");
-                            let mut opt: Opt = map.next_value()?;
-                            opt.level = Level::Global;
-                            // if we are in binary format, we know that options are before roles
-                            // then it means that we can use spath for Roles
-                            // so we can optimize the processing
-                            if self.policy_format.is_cbor() // little perf gain in json. If perf pb, you can trash this
-                                && let Some(path) = opt.path.as_ref()
-                            {
-                                spath.union(&path.clone());
-                            }
-                            options = Some(opt);
+                            options = Some(map.next_value()?);
                         }
                         Field::Roles => {
                             debug!("ConfigFinderVisitor: roles");
@@ -358,18 +347,11 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                 Ok(DConfigFinder { options, roles })
             }
         }
-        const FIELDS: &[&str] = &["options", "roles", "version"];
-        let human_readable = to_storage_m(deserializer.is_human_readable());
-        deserializer.deserialize_struct(
-            "Config",
-            FIELDS,
-            ConfigFinderVisitor {
-                cli: self.cli,
-                cred: self.cred,
-                policy_format: human_readable,
-                env_path: self.env_path,
-            },
-        )
+        deserializer.deserialize_map(ConfigFinderVisitor {
+            cli: self.cli,
+            cred: self.cred,
+            env_path: self.env_path,
+        })
     }
 }
 
@@ -488,7 +470,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -509,7 +498,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -737,7 +733,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -882,7 +885,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result: Result<DConfigFinder<'_>, _> = deserializer.deserialize(
             &mut cbor4ii::serde::Deserializer::new(SliceReader::new(cbor.as_slice())),
@@ -929,7 +939,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &["/usr/bin"],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result: Result<DConfigFinder<'_>, _> = deserializer.deserialize(
             &mut cbor4ii::serde::Deserializer::new(SliceReader::new(cbor.as_slice())),
@@ -959,10 +976,18 @@ mod tests {
         let seq = "[1, 2, 3]";
         let map = "{\"1\": 2, \"3\": 4}";
         let cli = Cli::builder().build();
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
         let config_finder = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &[],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &cred,
         };
         let result = config_finder.deserialize(&mut serde_json::Deserializer::from_str(seq));
         assert!(result.is_err(), "Expected error, got: {result:?}");
@@ -970,7 +995,14 @@ mod tests {
         let role_list = RoleListFinderDeserializer {
             cli: &cli,
             env_path: &[],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
             spath: &mut DPathOptions::default(),
         };
         let result = role_list.deserialize(&mut serde_json::Deserializer::from_str(map));
@@ -992,7 +1024,14 @@ mod tests {
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
             env_path: &[],
-            cred: &Cred::builder().curdir().unwrap().groups().unwrap().user().unwrap().build(),
+            cred: &Cred::builder()
+                .curdir()
+                .unwrap()
+                .groups()
+                .unwrap()
+                .user()
+                .unwrap()
+                .build(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(

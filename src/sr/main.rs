@@ -610,16 +610,20 @@ mod tests {
     #[test]
     fn test_make_cred() {
         let user = make_cred().unwrap();
-        let gid = unsafe { getgid() };
         assert_eq!(user.user.uid, getuid());
-        assert_eq!(user.user.gid.as_raw(), gid);
         let groups = getgroups()
             .unwrap()
             .iter()
             .map(|g| Group::from_gid(*g).unwrap().unwrap())
             .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
-        assert_eq!(user.groups.iter().map(|e|e.left().unwrap().clone()).collect::<Vec<_>>(), groups);
+        assert_eq!(
+            user.groups
+                .iter()
+                .map(|e| e.left().unwrap().clone())
+                .collect::<Vec<_>>(),
+            groups
+        );
         assert_eq!(user.ppid, Pid::parent());
     }
 

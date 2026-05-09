@@ -28,6 +28,7 @@ pub fn full_program_lock(
             PathFd::new(folder)?,
             AccessFs::from_all(ABI::V6),
         ))?
+        //TODO: Add rule allowing the path of the policy
         .add_rule(PathBeneath::new(
             PathFd::new(SYSTEM_EDITOR)?,
             AccessFs::from_read(ABI::V6),
