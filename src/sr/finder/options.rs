@@ -13,7 +13,10 @@ use rar_common::database::options::{
 };
 use rar_common::database::score::SecurityMin;
 use rar_common::util::{
-    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST
+    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
+    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
+    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST,
 };
 use std::hash::Hash;
 
@@ -785,14 +788,12 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                 result.fallback.take();
             }
             result.add.extend(
-                add
-                    .clone()
+                add.clone()
                     .into_iter()
                     .map(|k| k.as_ref().to_string().into()),
             );
             result.sub.extend(
-                del
-                    .clone()
+                del.clone()
                     .into_iter()
                     .map(|k| k.as_ref().to_string().into()),
             );

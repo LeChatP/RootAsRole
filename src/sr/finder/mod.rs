@@ -259,7 +259,9 @@ impl BestExecSettings {
             );
             return Ok(false);
         }
-        if Self::allowed_workdir(&result, cred.curdir.as_os_str().to_string_lossy().as_ref()).is_false() {
+        if Self::allowed_workdir(&result, cred.curdir.as_os_str().to_string_lossy().as_ref())
+            .is_false()
+        {
             debug!(
                 "task_settings: deny task due to the current directory do not match to allowed settings"
             );
@@ -397,19 +399,13 @@ impl BestExecSettings {
         match result.default_behavior {
             WorkdirBehavior::Allowlist => {
                 // Block all except what is in "add" minus "sub"
-                let is_in_add = result
-                    .add
-                    .iter().any(|path| path.as_ref() == workdir);
-                let is_in_sub = result
-                    .sub
-                    .iter().any(|path| path.as_ref() == workdir);
+                let is_in_add = result.add.iter().any(|path| path.as_ref() == workdir);
+                let is_in_sub = result.sub.iter().any(|path| path.as_ref() == workdir);
                 hardened_bool_from_bool(is_in_add && !is_in_sub)
             }
             WorkdirBehavior::Blacklist => {
                 // Allow all except what is in "sub"
-                hardened_bool_from_bool(!result
-                    .sub
-                    .iter().any(|path| path.as_ref() == workdir))
+                hardened_bool_from_bool(!result.sub.iter().any(|path| path.as_ref() == workdir))
             }
             WorkdirBehavior::Inherit => {
                 // Should not happen after union, but default to WORKDIR_BEHAVIOR
@@ -875,6 +871,4 @@ mod tests {
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }
-
-    
 }

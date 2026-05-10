@@ -27,16 +27,31 @@ pub const FORWARDABLE_SIGNALS: &[libc::c_int] =
     signals!(core + [libc::SIGUSR1, libc::SIGUSR2, libc::SIGWINCH]);
 
 /// Signals to register for no-pty execution (runner).
-pub const RUNNER_SIGNALS_NO_PTY: &[libc::c_int] =
-    signals!(core + [libc::SIGPIPE, libc::SIGUSR1, libc::SIGUSR2, libc::SIGCHLD, libc::SIGWINCH]);
+pub const RUNNER_SIGNALS_NO_PTY: &[libc::c_int] = signals!(
+    core + [
+        libc::SIGPIPE,
+        libc::SIGUSR1,
+        libc::SIGUSR2,
+        libc::SIGCHLD,
+        libc::SIGWINCH
+    ]
+);
 
 /// Signals to register for pty execution (runner).
 pub const RUNNER_SIGNALS_WITH_PTY: &[libc::c_int] =
     signals!(core + [libc::SIGUSR1, libc::SIGUSR2, libc::SIGCHLD, libc::SIGWINCH]);
 
 /// Signals to register for monitor process.
-pub const MONITOR_SIGNALS: &[libc::c_int] =
-    &[libc::SIGINT, libc::SIGQUIT, libc::SIGTSTP, libc::SIGTERM, libc::SIGHUP, libc::SIGUSR1, libc::SIGUSR2, libc::SIGCHLD];
+pub const MONITOR_SIGNALS: &[libc::c_int] = &[
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGTSTP,
+    libc::SIGTERM,
+    libc::SIGHUP,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGCHLD,
+];
 
 #[inline]
 #[must_use]
@@ -126,8 +141,9 @@ impl Backchannel {
     pub fn recv_monitor_message(&mut self) -> io::Result<MonitorMessage> {
         let data = self.read_frame()?;
         // SAFETY: bytes come from our own serializer over a trusted local socket.
-        let msg = unsafe { rkyv::from_bytes_unchecked::<MonitorMessage, rkyv::rancor::Error>(&data) }
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let msg =
+            unsafe { rkyv::from_bytes_unchecked::<MonitorMessage, rkyv::rancor::Error>(&data) }
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         trace!("backchannel: recv monitor message {msg:?}");
         Ok(msg)
     }
@@ -145,8 +161,9 @@ impl Backchannel {
     /// Returns an error if deserialization fails, if reading from the stream fails
     pub fn recv_parent_message(&mut self) -> io::Result<ParentMessage> {
         let data = self.read_frame()?;
-        let msg = unsafe { rkyv::from_bytes_unchecked::<ParentMessage, rkyv::rancor::Error>(&data) }
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let msg =
+            unsafe { rkyv::from_bytes_unchecked::<ParentMessage, rkyv::rancor::Error>(&data) }
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         trace!("backchannel: recv parent message {msg:?}");
         Ok(msg)
     }

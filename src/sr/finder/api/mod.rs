@@ -1,6 +1,9 @@
 use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
 
-use rar_common::{Cred, database::score::{CmdMin, Score}};
+use rar_common::{
+    Cred,
+    database::score::{CmdMin, Score},
+};
 use serde_json::Value;
 use strum::Display;
 

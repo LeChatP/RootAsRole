@@ -13,8 +13,15 @@ use crate::{
 use super::{Api, ApiEvent, EventKey};
 
 fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
-    if let ApiEvent::BestRoleSettingsFound(cli, cred, role, opt_stack, env_path, settings, matching) =
-        event
+    if let ApiEvent::BestRoleSettingsFound(
+        cli,
+        cred,
+        role,
+        opt_stack,
+        env_path,
+        settings,
+        matching,
+    ) = event
     {
         return match role.role().extra_values.get("parents") {
             Some(Value::Array(parents)) => {
@@ -57,7 +64,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
 fn evaluate_parent_role<'a>(
     parent: &str,
     cli: &Cli,
-    cred: & Cred,
+    cred: &Cred,
     role: &DLinkedRole<'_, 'a>,
     opt_stack: &mut BorrowedOptStack<'a>,
     settings: &mut BestExecSettings,

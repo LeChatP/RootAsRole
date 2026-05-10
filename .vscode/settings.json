@@ -1,34 +1,8 @@
 {
-    "files.associations": {
-        "capability.h": "c",
-        "random": "c",
-        "role_manager.h": "c",
-        "strings.h": "c",
-        "string.h": "c",
-        "stat.h": "c",
-        "limits.h": "c",
-        "xml_options.h": "c",
-        "rar_env.h": "c",
-        "errno.h": "c",
-        "stdlib.h": "c",
-        "syslog.h": "c",
-        "types.h": "c",
-        "array": "c",
-        "string_view": "c",
-        "initializer_list": "c",
-        "xml_manager.h": "c",
-        "cstring": "c",
-        "string": "c",
-        "sstream": "c",
-        "command.h": "c",
-        "unistd.h": "c",
-        "stdint.h": "c",
-        "criterion.h": "c",
-        "typeinfo": "c"
-    },
     "rust-analyzer.linkedProjects": [
         //"sudoers-reader/Cargo.toml",
         "Cargo.toml",
+        "rar-common/Cargo.toml",
         //"./capable/Cargo.toml"
     ],
     "c-cpp-flylint.clang.includePaths": [

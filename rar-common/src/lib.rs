@@ -48,9 +48,9 @@
 //   }
 
 pub const PACKAGE_VERSION: semver::Version = semver::Version::new(
-    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_MAJOR"))),
-    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_MINOR"))),
-    konst::unwrap_ctx!(konst::primitive::parse_u64(env!("CARGO_PKG_VERSION_PATCH"))),
+    result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)),
+    result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MINOR"), 10)),
+    result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_PATCH"), 10)),
 );
 
 use std::{
@@ -66,6 +66,7 @@ use std::{
 
 use bon::{Builder, builder};
 use capctl::Cap;
+use konst::result;
 use libc::dev_t;
 use log::{debug, warn};
 use nix::{

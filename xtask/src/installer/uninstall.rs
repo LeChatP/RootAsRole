@@ -29,7 +29,7 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
     }
     for error in errors {
         if let Err(e) = error {
-            warn!("{}: {}", e, e.source().unwrap());
+            warn!("{}: {}", e, e.source().expect("Error should have a source"));
         }
     }
     Ok(())

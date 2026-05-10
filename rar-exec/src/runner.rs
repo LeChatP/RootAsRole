@@ -134,7 +134,11 @@ impl Process for ExecRunner {
 }
 
 impl ExecRunner {
-    fn handle_signal(&mut self, info: crate::signal::SignalInfo, registry: &mut EventRegistry<Self>) {
+    fn handle_signal(
+        &mut self,
+        info: crate::signal::SignalInfo,
+        registry: &mut EventRegistry<Self>,
+    ) {
         debug!("runner: got signal {} from pid {}", info.signal, info.pid);
         match info.signal {
             libc::SIGCHLD => {
@@ -160,7 +164,10 @@ impl ExecRunner {
                         .is_err()
                 {
                     // If send fails, monitor is likely gone
-                    warn!("runner: failed to forward signal {}, checking monitor exit", info.signal);
+                    warn!(
+                        "runner: failed to forward signal {}, checking monitor exit",
+                        info.signal
+                    );
                     self.check_monitor_exit(registry);
                 }
             }
@@ -220,7 +227,10 @@ impl ExecRunner {
 
     fn resume_terminal(&mut self) -> io::Result<()> {
         if self.term_raw && self.foreground {
-            debug!("runner: restoring raw mode (preserve_oflag={})", self.preserve_oflag);
+            debug!(
+                "runner: restoring raw mode (preserve_oflag={})",
+                self.preserve_oflag
+            );
             self.pipe
                 .left_mut()
                 .set_raw_mode(true, self.preserve_oflag)?;
@@ -280,8 +290,8 @@ pub fn run_no_pty(
     }
 
     let mut child = command.spawn()?;
-    let child_pid = i32::try_from(child.id())
-        .map_err(|_| io::Error::other("child pid out of range"))?;
+    let child_pid =
+        i32::try_from(child.id()).map_err(|_| io::Error::other("child pid out of range"))?;
     debug!("runner(no_pty): child pid {child_pid}");
 
     restore_signals(original_set);
@@ -589,11 +599,7 @@ fn block_all_signals() -> Option<libc::sigset_t> {
 
     let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     let res = unsafe { libc::sigprocmask(libc::SIG_BLOCK, &raw const set, &raw mut old) };
-    if res == -1 {
-        None
-    } else {
-        Some(old)
-    }
+    if res == -1 { None } else { Some(old) }
 }
 
 fn restore_signals(original: Option<libc::sigset_t>) {

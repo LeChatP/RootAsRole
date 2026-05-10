@@ -129,15 +129,17 @@ impl MonitorClosure {
         if info.signal == SIGCHLD {
             if let Some(pid) = self.command_pid {
                 let mut status = 0;
-                let res = unsafe {
-                    libc::waitpid(pid, &raw mut status, libc::WNOHANG | libc::WUNTRACED)
-                };
+                let res =
+                    unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG | libc::WUNTRACED) };
                 if res > 0 {
                     if libc::WIFSTOPPED(status) {
                         warn!("monitor: command stopped with {}", libc::WSTOPSIG(status));
-                        let _ = self.backchannel.send_parent_message(&ParentMessage::Error(
-                            format!("Command stopped with signal {}", libc::WSTOPSIG(status)),
-                        ));
+                        let _ =
+                            self.backchannel
+                                .send_parent_message(&ParentMessage::Error(format!(
+                                    "Command stopped with signal {}",
+                                    libc::WSTOPSIG(status)
+                                )));
                         return;
                     }
 
@@ -363,7 +365,10 @@ pub fn exec_monitor_process(
     debug!("monitor: received stop edge or backchannel closed");
 
     let _ = unsafe {
-        libc::tcsetpgrp(monitor.pty_follower.as_fd().as_raw_fd(), monitor.monitor_pgrp)
+        libc::tcsetpgrp(
+            monitor.pty_follower.as_fd().as_raw_fd(),
+            monitor.monitor_pgrp,
+        )
     };
 
     // Cleanup
