@@ -490,7 +490,7 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
 /// Returns an error if the logger fails to initialize
 pub fn subsribe(_: &str) -> io::Result<()> {
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Trace)
         .format_module_path(true)
         .init();
     Ok(())
