@@ -86,7 +86,9 @@
             "tasks": [
                 {
                     "options": {
-                        "workdir": true,
+                        "workdir": {
+                            "default": "all"
+                        },
                         "env": {
                             "override_behavior": true
                         }
@@ -104,9 +106,7 @@
                         },
                         "capabilities": {
                             "default": "all",
-                            "sub": [
-                                "CAP_LINUX_IMMUTABLE"
-                            ]
+                            "sub": ["CAP_LINUX_IMMUTABLE"]
                         }
                     },
                     "commands": "all"
@@ -117,13 +117,9 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": [
-                            "CAP_LINUX_IMMUTABLE"
-                        ]
+                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
                     },
-                    "commands": [
-                        "/usr/bin/chsr ^.*$"
-                    ]
+                    "commands": ["/usr/bin/chsr ^.*$"]
                 }
             ]
         }

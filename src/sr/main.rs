@@ -64,6 +64,9 @@ const USAGE: &str = formatcp!(
   {BOLD}-E, --preserve-env{RST}
           Preserve environment variables if allowed by a matching task
 
+  {BOLD}-D, --chdir <WORKDIR>{RST}
+          Workdir option allows you to specify the working directory for the command
+
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
@@ -176,7 +179,7 @@ where
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
             }
-            "-w" | "--wordir" => {
+            "-D" | "--chdir" => {
                 workdir = iter.next().map(|s| escape_parser_string(s));
             }
             #[cfg(feature = "timeout")]

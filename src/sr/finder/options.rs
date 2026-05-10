@@ -79,7 +79,8 @@ pub struct DEnvOptions<'a> {
 #[serde(untagged)]
 pub enum DWorkdirEither<'a> {
     /// This is the equivalent of deny all and fallback to the specified path.
-    Path(String),
+    #[serde(borrow)]
+    Path(Cow<'a, str>),
     #[serde(borrow)]
     Struct(DWorkdirSet<'a>),
 }
@@ -767,7 +768,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         self.get_opt_iter_rev()
             .filter_map(|o| o.workdir.as_ref())
             .find_map(|w| match w {
-                DWorkdirEither::Path(p) => Some(p.into()),
+                DWorkdirEither::Path(p) => Some(p.as_ref().into()),
                 DWorkdirEither::Struct(s) => s.fallback.as_ref().map(|f| f.to_string().into()),
             })
     }

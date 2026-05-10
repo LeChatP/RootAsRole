@@ -219,9 +219,12 @@ pub enum SWorkdirEither {
 #[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Default)]
 #[repr(u32)]
 pub enum WorkdirBehavior {
+    #[serde(rename = "none")]
     Allowlist = HARDENED_ENUM_VALUE_0, // Deny all except for the listed ones in "add" minus "sub" ofc
+    #[serde(rename = "all")]
     Blacklist = HARDENED_ENUM_VALUE_1, // Allow all except for the listed ones in "sub"
     #[default]
+    #[serde(rename = "inherit")]
     Inherit = HARDENED_ENUM_VALUE_2, // Inherit from parent levels, which can be combined with the above two behaviors.
 }
 
