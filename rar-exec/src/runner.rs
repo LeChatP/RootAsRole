@@ -557,6 +557,9 @@ pub fn run_with_pty(
     }
     debug!("runner(pty): sent start edge to monitor");
 
+    runner.backchannel.set_nonblocking(true)?;
+    debug!("runner(pty): backchannel set nonblocking");
+
     restore_signals(original_set);
 
     let res = registry.event_loop(&mut runner);

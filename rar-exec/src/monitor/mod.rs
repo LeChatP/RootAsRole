@@ -271,18 +271,13 @@ pub fn exec_monitor_process(
         let cmd_pid = unsafe { libc::getpid() };
 
         if foreground {
-            debug!("monitor: waiting for foreground pgrp switch");
-            let mut ready = false;
-            for _ in 0..10_000 {
-                let pgrp = unsafe { libc::tcgetpgrp(pty_follower.as_fd().as_raw_fd()) };
-                if pgrp == cmd_pid {
-                    ready = true;
-                    break;
-                }
-                std::thread::yield_now();
-            }
-            if !ready {
-                warn!("monitor: foreground pgrp switch timeout, continuing exec");
+            let pgrp = unsafe { libc::tcgetpgrp(pty_follower.as_fd().as_raw_fd()) };
+            if pgrp == cmd_pid {
+                debug!("monitor: foreground pgrp confirmed");
+            } else {
+                warn!(
+                    "monitor: foreground pgrp mismatch (expected {cmd_pid}, got {pgrp}), continuing exec"
+                );
             }
         }
 

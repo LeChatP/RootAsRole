@@ -401,7 +401,6 @@ impl UserTerm {
         unsafe { cfmakeraw(&raw mut term) };
         term.c_iflag |= libc::ICRNL | libc::IXON;
         term.c_oflag |= libc::OPOST | libc::ONLCR;
-        term.c_lflag |= libc::ECHO | libc::ICANON | libc::IEXTEN | libc::ECHO;
         if preserve_oflag {
             term.c_oflag = original_oflag;
         } else {
