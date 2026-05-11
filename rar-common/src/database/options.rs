@@ -12,6 +12,8 @@ use chrono::Duration;
 use indexmap::IndexSet;
 use konst::eq_str;
 
+#[cfg(feature = "pcre2")]
+use log::warn;
 use nix::sys::stat::Mode;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
@@ -476,14 +478,15 @@ impl Opt {
             .execinfo(INFO)
             .umask(UMASK)
             .env(
+                #[allow(clippy::unwrap_used)]
                 SEnvOptions::builder(ENV_DEFAULT_BEHAVIOR)
-                    .keep(ENV_KEEP_LIST)
+                    .keep(ENV_KEEP_LIST.iter().copied())
                     .unwrap()
-                    .check(ENV_CHECK_LIST)
+                    .check(ENV_CHECK_LIST.iter().copied())
                     .unwrap()
-                    .delete(ENV_DELETE_LIST)
+                    .delete(ENV_DELETE_LIST.iter().copied())
                     .unwrap()
-                    .set(ENV_SET_LIST)
+                    .set(ENV_SET_LIST.iter().copied())
                     .override_behavior(ENV_OVERRIDE_BEHAVIOR)
                     .build(),
             )
@@ -611,15 +614,25 @@ impl EnvSet for Option<IndexSet<EnvKey>> {
 }
 
 #[cfg(feature = "pcre2")]
-fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
-    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
-        .unwrap()
-        .is_match(s.as_bytes())
-        .is_ok_and(|m| m)
+fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
+    let pattern = format!("^{}$", wildcarded.value);
+    match Regex::new(&pattern) {
+        Ok(regex) => match regex.is_match(s.as_bytes()) {
+            Ok(is_match) => is_match,
+            Err(err) => {
+                warn!("Regex match error for '{pattern}': {err}");
+                false
+            }
+        },
+        Err(err) => {
+            warn!("Invalid regex '{pattern}': {err}");
+            false
+        }
+    }
 }
 
 #[cfg(not(feature = "pcre2"))]
-fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
+fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
     true
 }
 
@@ -775,9 +788,9 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
                 .borrow()
                 .role
                 .as_ref()
-                .unwrap()
+                .expect("task must belong to a role")
                 .upgrade()
-                .unwrap(),
+                .expect("role should not be dropped before task"),
         )
         .task(task.clone())
         .opt(task.as_ref().borrow().options.clone())
@@ -796,9 +809,9 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
                 .borrow()
                 .config
                 .as_ref()
-                .unwrap()
+                .expect("role must belong to a config")
                 .upgrade()
-                .unwrap(),
+                .expect("config should not be dropped before role"),
         )
         .role(role.clone())
         .opt(role.as_ref().borrow().options.clone())
@@ -935,7 +948,7 @@ impl OptStack {
             .build()
     }
 
-    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> SEnvOptions {
+    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> Result<SEnvOptions, String> {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
         let mut final_keep = IndexSet::new();
@@ -996,15 +1009,15 @@ impl OptStack {
                 };
             }
         });
-        SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
+        let builder = SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
             .set(final_set)
             .keep(final_keep)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env keep list: {err}"))?
             .check(final_check)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env check list: {err}"))?
             .delete(final_delete)
-            .unwrap()
-            .build()
+            .map_err(|err| format!("Failed to set env delete list: {err}"))?;
+        Ok(builder.build())
     }
 
     fn get_level(&self) -> Level {
@@ -1014,12 +1027,13 @@ impl OptStack {
         level
     }
 
-    #[must_use]
-    pub fn to_opt(&self) -> Rc<RefCell<Opt>> {
-        rc_refcell!(
+    /// # Errors
+    /// Returns an error if any environment option builder step fails.
+    pub fn to_opt(&self) -> Result<Rc<RefCell<Opt>>, String> {
+        Ok(rc_refcell!(
             Opt::builder(self.get_level())
                 .path(self.get_final_path())
-                .env(self.get_final_env(None))
+                .env(self.get_final_env(None)?)
                 .maybe_root(
                     self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
                         .map(|(_, root)| root),
@@ -1043,7 +1057,7 @@ impl OptStack {
                         .map(|(_, timeout)| timeout),
                 )
                 .build()
-        )
+        ))
     }
 }
 
@@ -1161,7 +1175,9 @@ mod tests {
                 .build()
             })
             .build();
-        let binding = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
+        let binding = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let options = binding.as_ref().borrow();
         let res = &options.env.as_ref().unwrap().keep;
         assert!(
@@ -1257,7 +1273,7 @@ mod tests {
             .build();
         let default = IndexSet::new();
         let stack = OptStack::from_roles(&config);
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build global options");
         let global_options = opt.as_ref().borrow();
         assert_eq!(
             global_options.path.as_ref().unwrap().default_behavior,
@@ -1317,7 +1333,9 @@ mod tests {
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        let opt = OptStack::from_role(&config.role("test").unwrap()).to_opt();
+        let opt = OptStack::from_role(&config.role("test").unwrap())
+            .to_opt()
+            .expect("Failed to build role options");
         let role_options = opt.as_ref().borrow();
         assert_eq!(
             role_options.path.as_ref().unwrap().default_behavior,
@@ -1361,7 +1379,9 @@ mod tests {
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::PPID
         );
-        let opt = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
+        let opt = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let task_options = opt.as_ref().borrow();
         assert_eq!(
             task_options.path.as_ref().unwrap().default_behavior,
@@ -1458,7 +1478,7 @@ mod tests {
             })
             .build();
         let stack = OptStack::from_task(&config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
         assert_eq!(
             options
@@ -1512,7 +1532,7 @@ mod tests {
             })
             .build();
         let stack = OptStack::from_task(&config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
         assert!(
             options

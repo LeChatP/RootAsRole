@@ -445,7 +445,10 @@ impl LockedSettingsFile {
         {
             let storage_method = self.data.as_ref().borrow().storage.method;
             let binding = self.data.as_ref().borrow_mut();
-            let config = binding.config.as_ref().unwrap();
+            let config = binding
+                .config
+                .as_ref()
+                .ok_or_else(|| "No config to save in separate file".to_string())?;
             let versioned_config: Versioning<Rc<RefCell<SConfig>>> =
                 Versioning::new(config.clone());
             let mut file = open_lock_with_privileges(
@@ -510,7 +513,8 @@ where
     debug!(
         "Saving in {} : {}",
         path.as_ref().display(),
-        serde_json::to_string_pretty(&config).unwrap()
+        serde_json::to_string_pretty(&config)
+            .unwrap_or_else(|_| "Failed to serialize config".to_string())
     );
     match method {
         StorageMethod::JSON => write_json_config(config, fd),

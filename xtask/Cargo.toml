@@ -7,9 +7,9 @@ publish = false
 
 
 [lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-unwrap_used = "deny"
+pedantic = { level = "warn", priority = 1 }
+nursery = { level = "warn", priority = 1 }
+unwrap_used = { level = "deny", priority = 2 }
 similar_names = { level = "allow", priority = 2 }
 should_implement_trait = { level = "allow", priority = 2 }
 

@@ -57,7 +57,9 @@ fn list_task(
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
                 debug!("task {task:?}");
-                let rcopt = OptStack::from_task(&task.clone()).to_opt();
+                let rcopt = OptStack::from_task(&task.clone())
+                    .to_opt()
+                    .map_err(std::io::Error::other)?;
                 let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {
                     match opttype {
@@ -96,10 +98,10 @@ fn list_task(
             return Err("Task not found".into());
         }
     } else if options {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&OptStack::from_role(&role.clone()).to_opt())?
-        );
+        let rcopt = OptStack::from_role(&role.clone())
+            .to_opt()
+            .map_err(std::io::Error::other)?;
+        println!("{}", serde_json::to_string_pretty(&rcopt)?);
     } else {
         print_role(role, role_type.unwrap_or(RoleType::All))?;
     }
@@ -579,7 +581,7 @@ pub fn set_privileged(
     task_id: Option<IdTask>,
     options_root: Option<rar_common::database::options::SPrivileged>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o root set privileged");
+    debug!("chsr o root set privileged {options_root:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().root = options_root;
         Ok(())
@@ -593,7 +595,7 @@ pub fn set_bounding(
     task_id: Option<IdTask>,
     options_bounding: Option<rar_common::database::options::SBounding>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o bounding set");
+    debug!("chsr o bounding set {options_bounding:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().bounding = options_bounding;
         Ok(())
@@ -607,7 +609,7 @@ pub fn set_authentication(
     task_id: Option<IdTask>,
     options_auth: Option<rar_common::database::options::SAuthentication>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o auth set");
+    debug!("chsr o auth set {options_auth:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().authentication = options_auth;
         Ok(())
@@ -621,7 +623,7 @@ pub fn set_execinfo(
     task_id: Option<IdTask>,
     options_execinfo: Option<rar_common::database::options::SInfo>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o execinfo set");
+    debug!("chsr o execinfo set {options_execinfo:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().execinfo = options_execinfo;
         Ok(())
@@ -635,7 +637,7 @@ pub fn set_umask(
     task_id: Option<IdTask>,
     options_umask: Option<SUMask>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o umask set");
+    debug!("chsr o umask set {options_umask:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().umask = options_umask;
         Ok(())
@@ -1044,11 +1046,10 @@ pub fn env_setpolicy(
     task_id: Option<IdTask>,
     options_env_policy: EnvBehavior,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o env setpolicy delete-all");
+    debug!("chsr o env setpolicy delete-all {options_env_policy:?}");
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
-        let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        let env = binding.env.get_or_insert_default();
         env.default_behavior = options_env_policy;
         Ok(())
     })?;

@@ -86,17 +86,17 @@ pub const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
     false
 );
 
-pub static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
+pub static ENV_KEEP_LIST: &[&str; ENV_KEEP_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
 
-pub static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
+pub static ENV_CHECK_LIST: &[&str; ENV_CHECK_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
 
-pub static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
+pub static ENV_DELETE_LIST: &[&str; ENV_DELETE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
 
-pub static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
+pub static ENV_SET_LIST: &[(&str, &str); ENV_SET_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
 
 //=== STimeout ===
 
@@ -125,11 +125,11 @@ pub const WORKDIR_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
         map(str::trim_ascii),
 );
 
-pub static WORKDIR_ADD_LIST: [&str; WORKDIR_ADD_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(WORKDIR_ADD_LIST_SLICE));
+pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_ADD_LIST_SLICE));
 
-pub static WORKDIR_REMOVE_LIST: [&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
+pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
 
 /// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
 #[derive(Debug, Hash, Copy, Clone)]

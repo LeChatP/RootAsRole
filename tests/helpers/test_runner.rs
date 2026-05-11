@@ -28,7 +28,7 @@ struct UserGroupGuard {
 }
 
 impl UserGroupGuard {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             users: Vec::new(),
             groups: Vec::new(),

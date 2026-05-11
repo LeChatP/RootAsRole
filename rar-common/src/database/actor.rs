@@ -797,12 +797,14 @@ impl SActor {
 impl core::fmt::Display for SActor {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::User { id, .. } => {
-                write!(f, "User: {}", id.as_ref().unwrap())
-            }
-            Self::Group { groups, .. } => {
-                write!(f, "Group: {}", groups.as_ref().unwrap())
-            }
+            Self::User { id, .. } => match id.as_ref() {
+                Some(id) => write!(f, "User: {id}"),
+                None => write!(f, "User: <unknown>"),
+            },
+            Self::Group { groups, .. } => match groups.as_ref() {
+                Some(groups) => write!(f, "Group: {groups}"),
+                None => write!(f, "Group: <unknown>"),
+            },
             Self::Unknown(unknown) => {
                 write!(f, "Unknown: {unknown}")
             }

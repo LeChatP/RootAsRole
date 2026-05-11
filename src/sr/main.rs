@@ -84,10 +84,7 @@ const USAGE: &str = formatcp!(
           Print dosr version
 
   {BOLD}-h, --help{RST}
-          Print help (see a summary with '-h')"#,
-    UNDERLINE = UNDERLINE,
-    BOLD = BOLD,
-    RST = RST
+          Print help (see a summary with '-h')"#
 );
 
 #[derive(Debug, Builder)]
@@ -282,7 +279,6 @@ fn main_inner() -> SrResult<()> {
         pam::start_session,
     };
     use finder::find_best_exec_settings;
-    use rar_common::database::options::WorkdirBehavior;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
