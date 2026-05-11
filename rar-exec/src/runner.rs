@@ -256,8 +256,27 @@ impl ExecRunner {
         let res = unsafe { libc::waitpid(self.monitor_pid, &raw mut status, libc::WNOHANG) };
         if res > 0 {
             debug!("runner: monitor exited with status {status}");
-            registry.set_exit(std::process::ExitStatus::from_raw(status));
+            
+            // Critical: Restore terminal settings and foreground pgrp to prevent freeze on next invocation
+            if self.term_raw {
+                if let Err(e) = self.pipe.left_mut().restore(false) {
+                    warn!("runner: failed to restore terminal settings: {e}");
+                } else {
+                    debug!("runner: terminal settings restored");
+                }
+            }
+            
+            // Restore foreground process group to parent
+            if self.foreground {
+                if let Err(e) = self.pipe.left_mut().tcsetpgrp_nobg(self.parent_pgrp) {
+                    warn!("runner: failed to restore foreground pgrp: {e}");
+                } else {
+                    debug!("runner: restored foreground pgrp to parent ({})", self.parent_pgrp.inner());
+                }
+            }
+            
             let _ = self.pipe.flush_left();
+            registry.set_exit(std::process::ExitStatus::from_raw(status));
         }
     }
 }
@@ -284,9 +303,14 @@ pub fn run_no_pty(
     debug!("runner(no_pty): signal handlers installed");
 
     // orchestration: set up pre_exec hooks before spawning
+    // Also restore the signal mask in the child so forwarded signals are delivered.
+    let child_sigset = original_set;
     unsafe {
         let ctx = PreExecContext::empty();
-        command.pre_exec(move || orchestrator.run(&ctx));
+        command.pre_exec(move || {
+            restore_signals(child_sigset);
+            orchestrator.run(&ctx)
+        });
     }
 
     let mut child = command.spawn()?;
@@ -397,16 +421,7 @@ pub fn run_with_pty(
     // initialize signals
     // SIGTTIN and SIGTTOU are ignored to prevent the runner from being suspended
     // when interacting with the terminal in background
-    let signal_stream = SignalStream::init()?;
-    for &sig in RUNNER_SIGNALS_WITH_PTY {
-        register_signal_handler(sig)?;
-    }
-    debug!("runner(pty): signal handlers installed");
-    // we ignore SIGTTIN and SIGTOU, no suspend here.
-    unsafe {
-        libc::signal(libc::SIGTTIN, libc::SIG_IGN);
-        libc::signal(libc::SIGTTOU, libc::SIG_IGN);
-    }
+    // NOTE: SignalStream initialization is done after fork to match sudo-rs behavior.
 
     // Create Pty
     let pty = Pty::open()?;
@@ -460,8 +475,10 @@ pub fn run_with_pty(
     }
 
     if foreground {
-        debug!("runner(pty): enabling raw mode preserve_oflag={preserve_oflag}");
-        user_term.set_raw_mode(true, preserve_oflag)?;
+        // Preserve oflag for interactive terminals (keeps ONLCR for proper CR/LF mapping)
+        let preserve = !exec_bg || preserve_oflag;
+        debug!("runner(pty): enabling raw mode preserve_oflag={preserve}");
+        user_term.set_raw_mode(true, preserve)?;
         term_raw = true;
     }
 
@@ -505,6 +522,16 @@ pub fn run_with_pty(
     }
 
     // --- PARENT PROCESS ---
+    let signal_stream = SignalStream::init()?;
+    for &sig in RUNNER_SIGNALS_WITH_PTY {
+        register_signal_handler(sig)?;
+    }
+    debug!("runner(pty): signal handlers installed");
+    // we ignore SIGTTIN and SIGTOU, no suspend here.
+    unsafe {
+        libc::signal(libc::SIGTTIN, libc::SIG_IGN);
+        libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+    }
     drop(command);
     drop(pty.follower); // Parent doesn't need follower
     drop(monitor_channel); // Parent doesn't need monitor channel
@@ -672,6 +699,7 @@ mod tests {
         ))
     }
 
+    #[serial]
     #[test]
     fn simple_file_logger_writes_expected_prefixes() {
         let path = unique_log_path("prefixes");
@@ -689,6 +717,7 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[serial]
     #[test]
     fn simple_file_logger_appends_across_instances() {
         let path = unique_log_path("append");
@@ -714,6 +743,7 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[serial]
     #[test]
     fn simple_file_logger_supports_empty_payloads() {
         let path = unique_log_path("empty");
@@ -731,6 +761,7 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[serial]
     #[test]
     fn run_no_pty_returns_command_exit_code() {
         let mut command = Command::new("sh");
@@ -763,8 +794,21 @@ mod tests {
     #[serial]
     #[test]
     fn run_no_pty_forwards_signals_to_child() {
-        let sender = thread::spawn(|| {
-            thread::sleep(std::time::Duration::from_millis(250));
+        let ready_path = std::env::temp_dir().join(format!(
+            "rar_exec_runner_ready_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before UNIX_EPOCH")
+                .as_nanos()
+        ));
+        let ready_path_for_sender = ready_path.clone();
+
+        let sender = thread::spawn(move || {
+            while !ready_path_for_sender.exists() {
+                thread::sleep(std::time::Duration::from_millis(10));
+            }
+            thread::sleep(std::time::Duration::from_millis(50));
             unsafe {
                 libc::kill(libc::getpid(), libc::SIGHUP);
             }
@@ -772,11 +816,13 @@ mod tests {
 
         let mut command = Command::new("sh");
         command
+            .env("READY_FILE", &ready_path)
             .arg("-c")
-            .arg("trap 'exit 42' HUP; while :; do sleep 1; done");
+            .arg("touch \"$READY_FILE\"; trap 'exit 42' HUP; while :; do sleep 1; done");
 
         let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
         sender.join().expect("signal sender thread joined");
+        let _ = std::fs::remove_file(&ready_path);
 
         assert_eq!(status.code(), Some(42));
     }

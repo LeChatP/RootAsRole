@@ -161,9 +161,8 @@ impl Backchannel {
     /// Returns an error if deserialization fails, if reading from the stream fails
     pub fn recv_parent_message(&mut self) -> io::Result<ParentMessage> {
         let data = self.read_frame()?;
-        let msg =
-            unsafe { rkyv::from_bytes_unchecked::<ParentMessage, rkyv::rancor::Error>(&data) }
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let msg = rkyv::from_bytes::<ParentMessage, rkyv::rancor::Error>(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         trace!("backchannel: recv parent message {msg:?}");
         Ok(msg)
     }
@@ -251,6 +250,33 @@ mod tests {
         let error = receiver
             .read_frame()
             .expect_err("zero-sized frame must fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn backchannel_rejects_truncated_parent_message() {
+        let (mut sender, mut receiver) = Backchannel::pair().expect("create backchannel pair");
+
+        // Serialize a valid message first to get real serialized bytes
+        let msg = ParentMessage::CommandPid(4242);
+        let full_data = rkyv::to_bytes::<rkyv::rancor::Error>(&msg)
+            .expect("serialize parent message");
+        
+        // Write the full length of the serialized data, but only send part of it
+        #[allow(clippy::cast_possible_truncation)]
+        let truncated_len = (full_data.len() / 2) as u32;
+        sender
+            .get_mut()
+            .write_all(&truncated_len.to_le_bytes())
+            .expect("write truncated frame header");
+        sender
+            .get_mut()
+            .write_all(&full_data[..truncated_len as usize])
+            .expect("write partial frame payload");
+
+        let error = receiver
+            .recv_parent_message()
+            .expect_err("truncated frame must fail gracefully");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }

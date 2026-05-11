@@ -359,12 +359,15 @@ pub fn exec_monitor_process(
     }
     debug!("monitor: received stop edge or backchannel closed");
 
+    // Restore terminal foreground process group to monitor (prevent SIGHUP to children)
+    // This is critical to ensure the next invocation doesn't freeze waiting for foreground pgrp
     let _ = unsafe {
         libc::tcsetpgrp(
             monitor.pty_follower.as_fd().as_raw_fd(),
             monitor.monitor_pgrp,
         )
     };
+    debug!("monitor: restored foreground pgrp to monitor ({})", monitor.monitor_pgrp);
 
     // Cleanup
     if let Some(pid) = monitor.command_pid {

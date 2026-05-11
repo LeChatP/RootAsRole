@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 use bon::bon;
 
-use crate::helpers::config_manager::ConfigManager;
+use crate::helpers::{acquire_global_lock, config_manager::ConfigManager};
 
 /// Represents the result of running the dosr command
 #[derive(Debug)]
@@ -20,6 +20,34 @@ pub struct CommandResult {
 pub struct TestRunner {
     binary_path: PathBuf,
     config_manager: ConfigManager,
+}
+
+struct UserGroupGuard {
+    users: Vec<String>,
+    groups: Vec<String>,
+}
+
+impl UserGroupGuard {
+    fn new() -> Self {
+        Self { users: Vec::new(), groups: Vec::new() }
+    }
+    fn add_user(&mut self, u: String) {
+        self.users.push(u);
+    }
+    fn add_group(&mut self, g: String) {
+        self.groups.push(g);
+    }
+}
+
+impl Drop for UserGroupGuard {
+    fn drop(&mut self) {
+        for user in &self.users {
+            let _ = Command::new("userdel").args(["-r", user]).status();
+        }
+        for group in &self.groups {
+            let _ = Command::new("groupdel").args([group]).status();
+        }
+    }
 }
 
 #[bon]
@@ -48,14 +76,15 @@ impl TestRunner {
         users: Option<&[&str]>,
         groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
+        let _lock = acquire_global_lock();
+
         // If a fixture is specified, update the configuration
         if let Some(fixture) = fixture_name
             && let Err(e) = self.config_manager.load_fixture(Path::new(fixture))
         {
             eprintln!("Warning: Failed to load fixture '{fixture}': {e}");
         }
-        let mut added_users = Vec::new();
-        let mut added_groups = Vec::new();
+        let mut guard = UserGroupGuard::new();
         if let Some(user_list) = users {
             // Check if users exist and create them if necessary
             for &user in user_list {
@@ -70,7 +99,7 @@ impl TestRunner {
                                 println!("Warning: Failed to create user '{user}': {e}");
                             }
                             println!("Created user '{user}' for testing purposes");
-                            added_users.push(user.to_string());
+                            guard.add_user(user.to_string());
                         }
                         println!("User '{user}' exists");
                     }
@@ -84,7 +113,7 @@ impl TestRunner {
             // Check if groups exist and create them if necessary
             for &group in group_list {
                 let group_check = Command::new("getent").args(["group", group]).status();
-                match group_check {
+                        match group_check {
                     Ok(e) => {
                         if !e.success() {
                             // Group does not exist, attempt to create
@@ -92,7 +121,7 @@ impl TestRunner {
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create group '{group}': {e}");
                             }
-                            added_groups.push(group.to_string());
+                                    guard.add_group(group.to_string());
                             println!("Created group '{group}' for testing purposes");
                         }
                     }
@@ -103,6 +132,8 @@ impl TestRunner {
             }
         }
         let mut command = Command::new(&self.binary_path);
+        // Ensure the child process uses the test configuration file we manage
+        command.env("RAR_CFG_PATH", self.config_manager.config_file_path().to_str().unwrap());
         println!("Running command: {command:?} {args:?}");
         command
             .args(args)
@@ -127,13 +158,7 @@ impl TestRunner {
             String::from_utf8(output.stderr.clone()).unwrap()
         );
 
-        // Clean up any users or groups we added
-        for user in added_users {
-            let _ = Command::new("userdel").args(["-r", &user]).status()?;
-        }
-        for group in added_groups {
-            let _ = Command::new("groupdel").args([&group]).status()?;
-        }
+        // `guard` will clean up created users and groups in its Drop implementation
 
         Ok(CommandResult {
             success: output.status.success(),

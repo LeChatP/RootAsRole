@@ -234,10 +234,9 @@ impl WorkdirBehavior {
     /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
     pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "delete") => Self::Blacklist,
-            _ if eq_str(input, "allow") => Self::Allowlist,
-            _ if eq_str(input, "inherit") => Self::Inherit,
-            _ => panic!("fail to parse PathBehavior"),
+            _ if eq_str(input, "all") => Self::Blacklist,
+            _ if eq_str(input, "none") => Self::Allowlist,
+            _ => panic!("Workdir behavior must be one of: all, none"),
         }
     }
 }

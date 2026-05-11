@@ -447,6 +447,7 @@ mod tests {
     use crate::finder::de::cred::CredData;
     use crate::finder::options::{DEnvOptions, Opt};
     use rar_common::Cred;
+    use test_log::test;
 
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
@@ -504,7 +505,11 @@ mod tests {
                             .options(
                                 Opt::builder(Level::Task)
                                     .execinfo(SInfo::Show)
-                                    .env(DEnvOptions::builder(EnvBehavior::Delete).build())
+                                    .env(
+                                        DEnvOptions::builder(EnvBehavior::Delete)
+                                            .override_behavior(true)
+                                            .build(),
+                                    )
                                     .build(),
                             )
                             .build(),
