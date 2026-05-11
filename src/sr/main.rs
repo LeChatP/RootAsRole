@@ -282,6 +282,7 @@ fn main_inner() -> SrResult<()> {
         pam::start_session,
     };
     use finder::find_best_exec_settings;
+    use rar_common::database::options::WorkdirBehavior;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -412,6 +413,15 @@ fn main_inner() -> SrResult<()> {
     let cfinal_env = execcfg.clone().env;
 
     Api::notify(finder::api::ApiEvent::PreExec(&args, &execcfg))?;
+
+    // we set workdir if -D is provided
+    if let Some(workdir) = args.opt_filter.as_ref().and_then(|f| f.workdir.as_ref()) {
+        command_builder.current_dir(workdir);
+    // if no workdir from args, we check if exec settings enforce a workdir
+    } else if let Some(workdir) = execcfg.workdir.as_ref() {
+        command_builder.current_dir(workdir);
+    }
+    // otherwise we keep the same workdir
 
     command_builder.args(cargs.iter());
     command_builder.env_clear();
