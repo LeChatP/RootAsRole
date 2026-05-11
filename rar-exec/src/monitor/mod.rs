@@ -367,7 +367,10 @@ pub fn exec_monitor_process(
             monitor.monitor_pgrp,
         )
     };
-    debug!("monitor: restored foreground pgrp to monitor ({})", monitor.monitor_pgrp);
+    debug!(
+        "monitor: restored foreground pgrp to monitor ({})",
+        monitor.monitor_pgrp
+    );
 
     // Cleanup
     if let Some(pid) = monitor.command_pid {

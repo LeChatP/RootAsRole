@@ -4,10 +4,10 @@ pub mod test_runner;
 use std::error::Error;
 use std::ffi::CString;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::os::unix::process::parent_id;
 use std::path::PathBuf;
 use std::process::Command;
-use std::os::unix::process::CommandExt;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock};
 use std::{env, fs};
 

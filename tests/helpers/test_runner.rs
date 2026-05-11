@@ -29,7 +29,10 @@ struct UserGroupGuard {
 
 impl UserGroupGuard {
     fn new() -> Self {
-        Self { users: Vec::new(), groups: Vec::new() }
+        Self {
+            users: Vec::new(),
+            groups: Vec::new(),
+        }
     }
     fn add_user(&mut self, u: String) {
         self.users.push(u);
@@ -113,7 +116,7 @@ impl TestRunner {
             // Check if groups exist and create them if necessary
             for &group in group_list {
                 let group_check = Command::new("getent").args(["group", group]).status();
-                        match group_check {
+                match group_check {
                     Ok(e) => {
                         if !e.success() {
                             // Group does not exist, attempt to create
@@ -121,7 +124,7 @@ impl TestRunner {
                             if let Err(e) = create_status {
                                 println!("Warning: Failed to create group '{group}': {e}");
                             }
-                                    guard.add_group(group.to_string());
+                            guard.add_group(group.to_string());
                             println!("Created group '{group}' for testing purposes");
                         }
                     }
@@ -133,7 +136,10 @@ impl TestRunner {
         }
         let mut command = Command::new(&self.binary_path);
         // Ensure the child process uses the test configuration file we manage
-        command.env("RAR_CFG_PATH", self.config_manager.config_file_path().to_str().unwrap());
+        command.env(
+            "RAR_CFG_PATH",
+            self.config_manager.config_file_path().to_str().unwrap(),
+        );
         println!("Running command: {command:?} {args:?}");
         command
             .args(args)

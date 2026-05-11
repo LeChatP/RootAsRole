@@ -259,9 +259,9 @@ mod tests {
 
         // Serialize a valid message first to get real serialized bytes
         let msg = ParentMessage::CommandPid(4242);
-        let full_data = rkyv::to_bytes::<rkyv::rancor::Error>(&msg)
-            .expect("serialize parent message");
-        
+        let full_data =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&msg).expect("serialize parent message");
+
         // Write the full length of the serialized data, but only send part of it
         #[allow(clippy::cast_possible_truncation)]
         let truncated_len = (full_data.len() / 2) as u32;

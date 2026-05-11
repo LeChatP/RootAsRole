@@ -256,7 +256,7 @@ impl ExecRunner {
         let res = unsafe { libc::waitpid(self.monitor_pid, &raw mut status, libc::WNOHANG) };
         if res > 0 {
             debug!("runner: monitor exited with status {status}");
-            
+
             // Critical: Restore terminal settings and foreground pgrp to prevent freeze on next invocation
             if self.term_raw {
                 if let Err(e) = self.pipe.left_mut().restore(false) {
@@ -265,16 +265,19 @@ impl ExecRunner {
                     debug!("runner: terminal settings restored");
                 }
             }
-            
+
             // Restore foreground process group to parent
             if self.foreground {
                 if let Err(e) = self.pipe.left_mut().tcsetpgrp_nobg(self.parent_pgrp) {
                     warn!("runner: failed to restore foreground pgrp: {e}");
                 } else {
-                    debug!("runner: restored foreground pgrp to parent ({})", self.parent_pgrp.inner());
+                    debug!(
+                        "runner: restored foreground pgrp to parent ({})",
+                        self.parent_pgrp.inner()
+                    );
                 }
             }
-            
+
             let _ = self.pipe.flush_left();
             registry.set_exit(std::process::ExitStatus::from_raw(status));
         }
