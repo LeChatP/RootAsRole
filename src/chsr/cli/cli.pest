@@ -145,7 +145,7 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o t unset --type --duration --max_usage
 
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
+opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
 opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout"  }
@@ -157,6 +157,10 @@ opt_path_setpolicy = _{ setpolicy ~ path_policy }
 path_policy        =  { "delete-all" | "keep-safe" | "keep-unsafe" | "inherit" }
 opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
 path               =  @{ name }
+
+opt_workdir = { ("workdir" | "w") ~ opt_workdir_args }
+opt_workdir_args = _{ (setpolicy ~ workdir_policy) | (opt_path_listing) | (set ~ path) }
+workdir_policy = { "all" | "none" | "inherit" }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
 opt_env_args    = _{ opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }

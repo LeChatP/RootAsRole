@@ -111,7 +111,14 @@ pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
 );
 
 pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
-    WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR"));
+    assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));
+
+const fn assert_valid_workdir_behavior(e: WorkdirBehavior) -> WorkdirBehavior {
+    match e {
+        WorkdirBehavior::Inherit => panic!("Workdir behavior cannot be inherit"),
+        e => e,
+    }
+}
 
 pub const WORKDIR_FALLBACK: Option<&str> = option_env!("RAR_WORKDIR_FALLBACK");
 

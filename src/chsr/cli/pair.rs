@@ -12,7 +12,7 @@ use rar_common::{
     StorageMethod,
     database::{
         actor::{SActor, SGroupType},
-        options::{EnvBehavior, OptType, PathBehavior, TimestampType},
+        options::{EnvBehavior, OptType, PathBehavior, TimestampType, WorkdirBehavior},
         structs::{IdTask, SetBehavior},
     },
 };
@@ -162,6 +162,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else {
                 unreachable!("Unknown env policy: {}", pair.as_str())
             }
+        }
+        Rule::workdir_policy => {
+            inputs.action = InputAction::Set;
+            inputs.options_workdir_policy = Some(WorkdirBehavior::const_parse(pair.as_str()));
         }
         // === timeout ===
         Rule::time => {
@@ -361,6 +365,9 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
 
         Rule::opt_path => {
             inputs.options_type = Some(OptType::Path);
+        }
+        Rule::opt_workdir => {
+            inputs.options_type = Some(OptType::Workdir);
         }
         Rule::opt_show_arg => {
             if pair.as_str() == "all" {

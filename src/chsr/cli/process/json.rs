@@ -8,7 +8,7 @@ use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt}
 use rar_common::database::{
     options::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout, SUMask,
+        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
     },
     structs::{
         IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
@@ -86,6 +86,9 @@ fn list_task(
                         }
                         OptType::UMask => {
                             println!("{}", serde_json::to_string_pretty(&opt.umask)?);
+                        }
+                        OptType::Workdir => {
+                            println!("{}", serde_json::to_string_pretty(&opt.workdir)?);
                         }
                     }
                 } else {
@@ -717,6 +720,43 @@ pub fn path_purge(
     Ok(true)
 }
 
+pub fn workdir_purge(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o workdir purge");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        let workdir_current = binding.workdir.take();
+        let mut workdir_set = match workdir_current {
+            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
+            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
+                fallback: Some(path),
+                ..Default::default()
+            },
+            None => SWorkdirSet::default(),
+        };
+        match setlist_type {
+            Some(SetListType::White) => {
+                if let Some(add) = &mut workdir_set.add {
+                    add.clear();
+                }
+            }
+            Some(SetListType::Black) => {
+                if let Some(sub) = &mut workdir_set.sub {
+                    sub.clear();
+                }
+            }
+            _ => unreachable!("Unknown setlist type"),
+        }
+        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
 pub fn env_whitelist_set(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<&String>,
@@ -891,6 +931,115 @@ pub fn path_setlist2(
     Ok(true)
 }
 
+pub fn workdir_set_path(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    options_path: &str,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o workdir set path {options_path}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().workdir = Some(SWorkdirEither::Path(options_path.to_string()));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn workdir_setlist(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    action: InputAction,
+    options_path: &str,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o w set whitelist|blacklist add|del|set path1:path2:path3");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        let workdir_current = binding.workdir.take();
+        let mut workdir_set = match workdir_current {
+            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
+            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
+                fallback: Some(path),
+                ..Default::default()
+            },
+            None => SWorkdirSet::default(),
+        };
+        match setlist_type {
+            Some(SetListType::White) => match action {
+                InputAction::Add => {
+                    workdir_set.add.get_or_insert_with(IndexSet::new).extend(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string),
+                    );
+                }
+                InputAction::Del => {
+                    debug!("workdir.add del {:?}", workdir_set.add);
+                    let hashset = options_path
+                        .split(':')
+                        .map(std::string::ToString::to_string)
+                        .collect::<IndexSet<String>>();
+                    if let Some(paths) = &mut workdir_set.add {
+                        *paths = paths
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<IndexSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
+                }
+                InputAction::Set => {
+                    workdir_set.add = Some(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string)
+                            .collect(),
+                    );
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::Black) => match action {
+                InputAction::Add => {
+                    workdir_set.sub.get_or_insert_with(IndexSet::new).extend(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string),
+                    );
+                }
+                InputAction::Del => {
+                    debug!("workdir.del del {:?}", workdir_set.sub);
+                    let hashset = options_path
+                        .split(':')
+                        .map(std::string::ToString::to_string)
+                        .collect::<IndexSet<String>>();
+                    if let Some(paths) = &mut workdir_set.sub {
+                        *paths = paths
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<IndexSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
+                }
+                InputAction::Set => {
+                    workdir_set.sub = Some(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string)
+                            .collect(),
+                    );
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            _ => unreachable!("Unknown setlist type"),
+        }
+        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
 pub fn path_setpolicy(
     rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
     role_id: Option<&String>,
@@ -907,6 +1056,42 @@ pub fn path_setpolicy(
                 ..Default::default()
             });
         }
+        Ok(())
+    })
+    .map(|()| true)
+}
+
+pub fn workdir_setpolicy(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    options_workdir_policy: WorkdirBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path setpolicy delete-all");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let workdir = opt.as_ref().borrow_mut().workdir.as_mut().map_or_else(
+            || {
+                SWorkdirEither::Struct(SWorkdirSet {
+                    default_behavior: options_workdir_policy,
+                    fallback: None,
+                    add: None,
+                    sub: None,
+                })
+            },
+            |workdir| match workdir {
+                SWorkdirEither::Path(p) => SWorkdirEither::Struct(SWorkdirSet {
+                    default_behavior: options_workdir_policy,
+                    fallback: Some(p.clone()),
+                    add: None,
+                    sub: None,
+                }),
+                SWorkdirEither::Struct(sworkdir_set) => {
+                    sworkdir_set.default_behavior = options_workdir_policy;
+                    SWorkdirEither::Struct(sworkdir_set.clone())
+                }
+            },
+        );
+        opt.as_ref().borrow_mut().workdir = Some(workdir);
         Ok(())
     })
     .map(|()| true)

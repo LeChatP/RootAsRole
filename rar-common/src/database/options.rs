@@ -49,7 +49,7 @@ pub enum Level {
     Task,
 }
 
-#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
+#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display, EnumIs)]
 pub enum OptType {
     Path,
     Env,
@@ -59,6 +59,7 @@ pub enum OptType {
     Authentication,
     ExecInfo,
     UMask,
+    Workdir,
 }
 
 #[derive(
@@ -238,7 +239,8 @@ impl WorkdirBehavior {
         match input {
             _ if eq_str(input, "all") => Self::Blacklist,
             _ if eq_str(input, "none") => Self::Allowlist,
-            _ => panic!("Workdir behavior must be one of: all, none"),
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse WorkdirBehavior"),
         }
     }
 }
