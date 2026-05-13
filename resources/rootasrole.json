@@ -1,5 +1,5 @@
 {
-    "version": "3.3.0",
+    "version": "4.0.0",
     "storage": {
         "method": "json",
         "settings": {
@@ -40,7 +40,8 @@
                 "PS2",
                 "XAUTHORY",
                 "XAUTHORIZATION",
-                "XDG_CURRENT_DESKTOP"
+                "XDG_CURRENT_DESKTOP",
+                "RUST_LOG"
             ],
             "check": [
                 "COLORTERM",
@@ -58,14 +59,16 @@
                 "PERL5LIB",
                 "PERL5OPT",
                 "PYTHONINSPECT"
-            ],
-            "set": {}
+            ]
         },
         "authentication": "perform",
         "root": "user",
         "bounding": "strict",
         "umask": "022",
-        "execinfo": "hide"
+        "execinfo": "hide",
+        "workdir": {
+            "default": "all"
+        }
     },
     "roles": [
         {
@@ -82,6 +85,14 @@
             ],
             "tasks": [
                 {
+                    "options": {
+                        "workdir": {
+                            "default": "all"
+                        },
+                        "env": {
+                            "override_behavior": true
+                        }
+                    },
                     "name": "t_root",
                     "purpose": "access to every commands",
                     "cred": {
@@ -95,17 +106,10 @@
                         },
                         "capabilities": {
                             "default": "all",
-                            "sub": [
-                                "CAP_LINUX_IMMUTABLE"
-                            ]
+                            "sub": ["CAP_LINUX_IMMUTABLE"]
                         }
                     },
-                    "commands": "all",
-                    "options": {
-                        "env": {
-                            "override_behavior": true
-                        }
-                    }
+                    "commands": "all"
                 },
                 {
                     "name": "t_chsr",
@@ -113,13 +117,9 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": [
-                            "CAP_LINUX_IMMUTABLE"
-                        ]
+                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
                     },
-                    "commands": [
-                        "/usr/bin/chsr ^.*$"
-                    ]
+                    "commands": ["/usr/bin/chsr ^.*$"]
                 }
             ]
         }

@@ -78,30 +78,46 @@ pub fn check_filesystem() -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn set_options(content: &mut String) -> io::Result<()> {
     let mut config: SettingsFile = serde_json::from_str(content)?;
-    config.storage.method = env!("RAR_CFG_TYPE").parse().unwrap();
+    config.storage.method = env!("RAR_CFG_TYPE")
+        .parse()
+        .expect("Check RAR_CFG_TYPE in .cargo/config.toml");
     if let Some(settings) = &mut config.storage.settings {
         if let Some(path) = &mut settings.path {
             *path = env!("RAR_CFG_DATA_PATH").to_string();
         }
         if let Some(immutable) = &mut settings.immutable {
-            *immutable = env!("RAR_CFG_IMMUTABLE").parse().unwrap();
+            *immutable = env!("RAR_CFG_IMMUTABLE")
+                .parse()
+                .expect("Check RAR_CFG_IMMUTABLE in .cargo/config.toml");
         }
     }
     config.storage.options = Some(Opt {
         timeout: Some(STimeout {
-            type_field: Some(env!("RAR_TIMEOUT_TYPE").parse().unwrap()),
-            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")).unwrap(),
+            type_field: Some(
+                env!("RAR_TIMEOUT_TYPE")
+                    .parse()
+                    .expect("Check RAR_TIMEOUT_TYPE in .cargo/config.toml"),
+            ),
+            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
+                .expect("Check RAR_TIMEOUT_DURATION in .cargo/config.toml"),
             max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
                 None
             } else {
-                Some(env!("RAR_TIMEOUT_MAX_USAGE").parse().unwrap())
+                Some(
+                    env!("RAR_TIMEOUT_MAX_USAGE")
+                        .parse()
+                        .expect("Check RAR_TIMEOUT_MAX_USAGE in .cargo/config.toml"),
+                )
             },
             extra_fields: Value::Null,
         }),
         path: Some(SPathOptions {
-            default_behavior: env!("RAR_PATH_DEFAULT").parse().unwrap(),
+            default_behavior: env!("RAR_PATH_DEFAULT")
+                .parse()
+                .expect("Check RAR_PATH_DEFAULT in .cargo/config.toml"),
             add: Some(
                 env!("RAR_PATH_ADD_LIST")
                     .split(':')
@@ -121,9 +137,18 @@ fn set_options(content: &mut String) -> io::Result<()> {
             extra_fields: Value::Null,
         }),
         env: Some(SEnvOptions {
-            default_behavior: env!("RAR_ENV_DEFAULT").parse().unwrap(),
-            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap() {
-                Some(env!("RAR_ENV_OVERRIDE_BEHAVIOR").parse().unwrap())
+            default_behavior: env!("RAR_ENV_DEFAULT")
+                .parse()
+                .expect("Check RAR_ENV_DEFAULT in .cargo/config.toml"),
+            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR")
+                .parse()
+                .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml")
+            {
+                Some(
+                    env!("RAR_ENV_OVERRIDE_BEHAVIOR")
+                        .parse()
+                        .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml"),
+                )
             } else {
                 None
             },
@@ -148,13 +173,26 @@ fn set_options(content: &mut String) -> io::Result<()> {
             set: if env!("RAR_ENV_SET_LIST").is_empty() {
                 HashMap::new()
             } else {
-                serde_json::from_str(env!("RAR_ENV_SET_LIST")).unwrap()
+                serde_json::from_str(env!("RAR_ENV_SET_LIST"))
+                    .expect("Check RAR_ENV_SET_LIST in .cargo/config.toml")
             },
             extra_fields: Value::Null,
         }),
-        root: Some(env!("RAR_USER_CONSIDERED").parse().unwrap()),
-        bounding: Some(env!("RAR_BOUNDING").parse().unwrap()),
-        authentication: Some(env!("RAR_AUTHENTICATION").parse().unwrap()),
+        root: Some(
+            env!("RAR_USER_CONSIDERED")
+                .parse()
+                .expect("Check RAR_USER_CONSIDERED in .cargo/config.toml"),
+        ),
+        bounding: Some(
+            env!("RAR_BOUNDING")
+                .parse()
+                .expect("Check RAR_BOUNDING in .cargo/config.toml"),
+        ),
+        authentication: Some(
+            env!("RAR_AUTHENTICATION")
+                .parse()
+                .expect("Check RAR_AUTHENTICATION in .cargo/config.toml"),
+        ),
         extra_fields: Value::Null,
     });
     *content = serde_json::to_string_pretty(&config)?;
@@ -172,36 +210,49 @@ fn set_immutable(config: &mut SettingsFile, value: bool) {
         let roles = config
             .extra_fields
             .as_object_mut()
-            .unwrap()
+            .expect("Config extra fields should be a JSON object")
             .get_mut("roles")
-            .unwrap()
+            .expect("Config should have roles field")
             .as_array_mut()
-            .unwrap();
+            .expect("Roles field should be an array");
         for role in roles {
-            let tasks = role.as_object_mut().unwrap().get_mut("tasks");
+            let tasks = role
+                .as_object_mut()
+                .expect("Role should be a JSON object")
+                .get_mut("tasks");
             if let Some(tasks) = tasks {
-                for task in tasks.as_array_mut().unwrap() {
+                for task in tasks
+                    .as_array_mut()
+                    .expect("Tasks field should be an array")
+                {
                     let cred = task
                         .as_object_mut()
-                        .unwrap()
+                        .expect("Task shoudl be a JSON object")
                         .get_mut("cred")
-                        .unwrap()
+                        .expect("Task should have cred field")
                         .as_object_mut()
-                        .unwrap();
+                        .expect("Cred field should be a JSON object");
                     let caps = cred
                         .get_mut("capabilities")
-                        .unwrap()
-                        .as_object_mut()
-                        .unwrap();
-                    if let Some(add) = caps.get_mut("add") {
-                        add.as_array_mut()
-                            .unwrap()
-                            .retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
-                    }
-                    if let Some(sub) = caps.get_mut("sub") {
-                        sub.as_array_mut()
-                            .unwrap()
-                            .retain(|x| x.as_str().unwrap() != "CAP_LINUX_IMMUTABLE");
+                        .expect("Cred should have capabilities field");
+
+                    if let Some(caps_obj) = caps.as_object_mut() {
+                        if let Some(add) = caps_obj.get_mut("add") {
+                            add.as_array_mut()
+                                .expect("Add field should be an array")
+                                .retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                        }
+                        if let Some(sub) = caps_obj.get_mut("sub") {
+                            sub.as_array_mut()
+                                .expect("Sub field should be an array")
+                                .retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                        }
+                    } else if let Some(caps_arr) = caps.as_array_mut() {
+                        caps_arr.retain(|x| x != "CAP_LINUX_IMMUTABLE");
+                    } else {
+                        warn!(
+                            "Unsupported capabilities format in config, expected object or array"
+                        );
                     }
                 }
             }
@@ -217,18 +268,15 @@ fn get_filesystem_type<P: AsRef<Path>>(path: P) -> io::Result<Option<String>> {
     let mut filesystem_type = None;
 
     for line_result in reader.lines() {
-        if let Ok(line_result) = line_result {
-            let fields: Vec<&str> = line_result.split_whitespace().collect();
-            if fields.len() > 2 {
-                let mount_point = fields[1];
-                let fs_type = fields[2];
-                if path.starts_with(mount_point) && mount_point.len() > longest_mount_point.len() {
-                    longest_mount_point = mount_point.to_string();
-                    filesystem_type = Some(fs_type.to_string());
-                }
+        let line = line_result?;
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() > 2 {
+            let mount_point = fields[1];
+            let fs_type = fields[2];
+            if path.starts_with(mount_point) && mount_point.len() > longest_mount_point.len() {
+                longest_mount_point = mount_point.to_string();
+                filesystem_type = Some(fs_type.to_string());
             }
-        } else {
-            return Err(line_result.unwrap_err());
         }
     }
 
@@ -315,13 +363,16 @@ fn retrieve_real_user() -> Result<Option<nix::unistd::User>, anyhow::Error> {
     }
 }
 
-pub const fn pam_config(os: &OsTarget) -> &'static str {
+pub fn pam_config(os: &OsTarget) -> std::io::Result<String> {
     match os {
         OsTarget::Debian | OsTarget::Ubuntu => {
-            include_str!("../../resources/debian/deb_sr_pam.conf")
+            std::fs::read_to_string("../../resources/debian/deb_sr_pam.conf")
         }
-        OsTarget::RedHat | OsTarget::Fedora => include_str!("../../resources/rh/rh_sr_pam.conf"),
-        OsTarget::ArchLinux => include_str!("../../resources/arch/arch_sr_pam.conf"),
+        OsTarget::RedHat | OsTarget::Fedora => {
+            std::fs::read_to_string("../../resources/rh/rh_sr_pam.conf")
+        }
+        OsTarget::OpenSUSE => std::fs::read_to_string("../../resources/opensuse/opensuse.conf"),
+        OsTarget::ArchLinux => std::fs::read_to_string("../../resources/arch/arch_sr_pam.conf"),
     }
 }
 
@@ -329,7 +380,7 @@ fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
     if fs::metadata(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE)).is_err() {
         info!("Deploying PAM configuration file");
         let mut pam_conf = File::create(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE))?;
-        pam_conf.write_all(pam_config(os).as_bytes())?;
+        pam_conf.write_all(pam_config(os)?.as_bytes())?;
         pam_conf.sync_all()?;
     }
     Ok(0)

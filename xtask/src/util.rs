@@ -4,8 +4,9 @@ use std::{
     fs::{self, File},
     io,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
-    path::Path,
-    process::Command,
+    path::{Path, PathBuf},
+    process::{Command, ExitStatus, Output},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use anyhow::{Context, anyhow};
@@ -13,7 +14,7 @@ use capctl::Cap;
 use capctl::CapState;
 use chrono::Duration;
 use clap::ValueEnum;
-use log::debug;
+use log::{debug, info};
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
@@ -30,15 +31,41 @@ pub enum OsTarget {
     RedHat,
     #[clap(alias = "fed")]
     Fedora,
+    #[clap(alias = "suse")]
+    OpenSUSE,
     #[clap(alias = "arch")]
     ArchLinux,
 }
 
 impl OsTarget {
+    fn os_release_identifiers(content: &str) -> Vec<String> {
+        content
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .filter_map(|(key, value)| {
+                if key == "ID" || key == "ID_LIKE" {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .flat_map(|value| value.trim_matches('"').split_whitespace())
+            .map(str::to_ascii_lowercase)
+            .collect()
+    }
     /// # Errors
     ///
     /// Will return an error if the OS cannot be detected or is unsupported
     pub fn detect() -> Result<Self, anyhow::Error> {
+        if let Ok(os_release) = std::fs::read_to_string("/etc/os-release") {
+            let identifiers = Self::os_release_identifiers(&os_release);
+            if let Some(target) = crate::installer::dependencies::os_target_from_identifiers(
+                identifiers.iter().map(std::string::String::as_str),
+            )? {
+                return Ok(target);
+            }
+        }
+
         for file in glob::glob("/etc/*-release")? {
             let file = file?;
             let os = std::fs::read_to_string(&file)?.to_ascii_lowercase();
@@ -62,6 +89,7 @@ pub const RST: &str = "\x1B[0m";
 pub const BOLD: &str = "\x1B[1m";
 pub const UNDERLINE: &str = "\x1B[4m";
 pub const RED: &str = "\x1B[31m";
+pub const GREEN: &str = "\x1B[32m";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SettingsFile {
@@ -256,6 +284,7 @@ pub struct Opt {
 
 const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
 pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+static DRY_RUN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, EnumIs)]
 pub enum ImmutableLock {
@@ -315,7 +344,7 @@ pub fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, 
 
 fn immutable_required_privileges(file: &File, effective: bool) -> Result<(), capctl::Error> {
     //get file owner
-    let metadata = file.metadata().unwrap();
+    let metadata = file.metadata().expect("Failed to get file metadata");
     let uid = metadata.uid();
     let gid = metadata.gid();
     immutable_effective(effective)?;
@@ -343,15 +372,105 @@ fn read_or_dac_override(effective: bool) -> Result<(), capctl::Error> {
 
 /// # Errors
 ///
-/// Will return an error if the current directory is not a git repository or if git command fails
-pub fn change_dir_to_git_root() -> Result<(), anyhow::Error> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()?;
-    let git_root = String::from_utf8(output.stdout)?.trim().to_string();
-    debug!("Changing directory to git root: {git_root}");
-    std::env::set_current_dir(git_root)?;
+/// Will return an error if the current directory is not a cargo project or if cargo command fails
+pub fn change_dir_to_project_root() -> Result<(), anyhow::Error> {
+    // check if current directory is our code repo by looking for the Cargo.toml file
+    let output = output_checked(
+        Command::new("cargo").args(["locate-project", "--workspace"]),
+        "check if current directory is a cargo workspace",
+    )?;
+    let json = String::from_utf8(output.stdout)?;
+    let value: Value = serde_json::from_str(&json)?;
+    let manifest_path = Path::new(
+        value
+            .get("root")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("Failed to parse cargo locate-project output"))?,
+    );
+
+    std::env::set_current_dir(
+        manifest_path
+            .parent()
+            .ok_or_else(|| anyhow!("Failed to get parent directory of Cargo.toml"))?,
+    )?;
     Ok(())
+}
+
+pub fn set_dry_run(enabled: bool) {
+    DRY_RUN.store(enabled, Ordering::Relaxed);
+}
+
+#[must_use]
+pub fn is_dry_run() -> bool {
+    DRY_RUN.load(Ordering::Relaxed)
+}
+
+/// # Errors
+///
+/// Will return an error if the command fails to execute or exits with a non-zero code
+pub fn status_checked(command: &mut Command, action: &str) -> Result<ExitStatus, anyhow::Error> {
+    let status = command
+        .status()
+        .with_context(|| format!("Failed to {action}: {command:?}"))?;
+    if !status.success() {
+        anyhow::bail!("Failed to {action}: {command:?} exited with status {status}");
+    }
+    Ok(status)
+}
+
+fn shell_quote(arg: &str) -> String {
+    if arg.is_empty() {
+        "''".to_string()
+    } else if !arg.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"') {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+fn shell_quote_command(command: &Command) -> String {
+    format!(
+        "{} {}",
+        command.get_program().to_string_lossy(),
+        command
+            .get_args()
+            .map(|arg| shell_quote(arg.to_string_lossy().as_ref()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+/// # Errors
+///
+/// Will return an error if the command fails to execute or exits with a non-zero code
+pub fn run_checked(command: &mut Command, action: &str) -> Result<(), anyhow::Error> {
+    log_command_execution(command, action);
+    let _ = status_checked(command, action)?;
+    Ok(())
+}
+
+fn log_command_execution(command: &Command, action: &str) {
+    info!(
+        "{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}",
+        shell_quote_command(command),
+        action
+    );
+}
+
+/// # Errors
+///
+/// Will return an error if the command fails to execute or exits with a non-zero code
+pub fn output_checked(command: &mut Command, action: &str) -> Result<Output, anyhow::Error> {
+    let output = command
+        .output()
+        .with_context(|| format!("Failed to {action}: {command:?}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to {action}: {command:?} exited with status {}",
+            output.status
+        );
+    }
+    Ok(output)
 }
 
 /// Set or unset the immutable flag on a file
@@ -450,14 +569,16 @@ pub fn get_os(os: Option<&OsTarget>) -> Result<OsTarget, anyhow::Error> {
 }
 
 #[must_use]
-pub fn detect_priv_bin() -> Option<String> {
+pub fn detect_priv_bin() -> Option<PathBuf> {
     // is /usr/bin/dosr exist ?
     if std::fs::metadata("/usr/bin/dosr").is_ok() {
-        Some("/usr/bin/dosr".to_string())
+        Some("/usr/bin/dosr".into())
     } else if std::fs::metadata("/usr/bin/sudo").is_ok() {
-        Some("/usr/bin/sudo".to_string())
+        Some("/usr/bin/sudo".into())
     } else if std::fs::metadata("/usr/bin/doas").is_ok() {
-        Some("/usr/bin/doas".to_string())
+        Some("/usr/bin/doas".into())
+    } else if std::fs::metadata("/usr/bin/please").is_ok() {
+        Some("/usr/bin/please".into())
     } else {
         None
     }
@@ -469,4 +590,28 @@ pub fn cap_clear(state: &mut capctl::CapState) -> Result<(), anyhow::Error> {
     state.effective.clear();
     state.set_current()?;
     Ok(())
+}
+
+#[must_use]
+pub fn is_su_command(priv_bin: &Path) -> bool {
+    priv_bin.file_name().is_some_and(|name| name == "su")
+}
+
+#[must_use]
+pub fn is_run0_command(priv_bin: &Path) -> bool {
+    priv_bin.file_name().is_some_and(|name| name == "run0")
+}
+
+pub fn path_exe_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Option<PathBuf> {
+    env_path.iter().find_map(|dir| {
+        let full_path = Path::new(dir).join(&exe_name);
+        debug!("Checking path: {}", full_path.display());
+        full_path.is_file().then_some(full_path).and_then(|path| {
+            if path.is_symlink() {
+                fs::read_link(path).ok()
+            } else {
+                path.canonicalize().ok()
+            }
+        })
+    })
 }

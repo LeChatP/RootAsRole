@@ -9,15 +9,18 @@ use capctl::{Cap, CapSet, ParseCapError};
 use capctl::{CapState, prctl};
 
 use chrono::Duration;
-use konst::{iter, option, primitive::parse_i64, result, slice, string, unwrap_ctx};
+use konst::{iter, option, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
-use nix::fcntl::{Flock, FlockArg};
+use nix::{
+    fcntl::{Flock, FlockArg},
+    unistd::{Gid, Group},
+};
 use serde::Serialize;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
-    TimestampType,
+    TimestampType, WorkdirBehavior,
 };
 
 #[cfg(feature = "finder")]
@@ -41,12 +44,12 @@ pub const ENV_PATH_BEHAVIOR: PathBehavior = PathBehavior::const_parse(env!("RAR_
 
 pub const ENV_PATH_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_PATH_ADD_LIST"), ":"),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_PATH_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_PATH_REMOVE_LIST"), ":"),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 //=== ENV ===
@@ -54,24 +57,24 @@ pub const ENV_DEFAULT_BEHAVIOR: EnvBehavior = EnvBehavior::const_parse(env!("RAR
 
 pub const ENV_KEEP_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_KEEP_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_CHECK_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_CHECK_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_DELETE_LIST"), ","),
-        map(string::trim),
+        map(str::trim_ascii),
 );
 
 pub const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
     string::split(env!("RAR_ENV_SET_LIST"), "\n"),
         filter_map(|s| {
             if let Some((key,value)) = string::split_once(s, '=') {
-                Some((string::trim(key),string::trim(value)))
+                Some((str::trim_ascii(key),str::trim_ascii(value)))
             } else {
                 None
             }
@@ -83,17 +86,17 @@ pub const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
     false
 );
 
-pub static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_KEEP_LIST_SLICE));
+pub static ENV_KEEP_LIST: &[&str; ENV_KEEP_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
 
-pub static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_CHECK_LIST_SLICE));
+pub static ENV_CHECK_LIST: &[&str; ENV_CHECK_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
 
-pub static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_DELETE_LIST_SLICE));
+pub static ENV_DELETE_LIST: &[&str; ENV_DELETE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
 
-pub static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
-    *unwrap_ctx!(slice::try_into_array(ENV_SET_LIST_SLICE));
+pub static ENV_SET_LIST: &[(&str, &str); ENV_SET_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
 
 //=== STimeout ===
 
@@ -107,6 +110,78 @@ pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
     Duration::seconds(5)
 );
 
+pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
+    assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));
+
+const fn assert_valid_workdir_behavior(e: WorkdirBehavior) -> WorkdirBehavior {
+    match e {
+        WorkdirBehavior::Inherit => panic!("Workdir behavior cannot be inherit"),
+        e => e,
+    }
+}
+
+pub const WORKDIR_FALLBACK: Option<&str> = option_env!("RAR_WORKDIR_FALLBACK");
+
+pub const WORKDIR_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_ADD_LIST"), ","),
+        map(str::trim_ascii),
+);
+
+pub const WORKDIR_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_REMOVE_LIST"), ","),
+        map(str::trim_ascii),
+);
+
+pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_ADD_LIST_SLICE));
+
+pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
+
+/// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
+#[derive(Debug, Hash, Copy, Clone)]
+#[must_use]
+pub enum Either<L, R> {
+    /// Contains the Left value
+    Left(L),
+    /// Contains the Right value
+    Right(R),
+}
+impl<L, R> Either<L, R> {
+    pub const fn left(&self) -> Option<&L> {
+        match self {
+            Self::Left(l) => Some(l),
+            Self::Right(_) => None,
+        }
+    }
+    pub const fn right(&self) -> Option<&R> {
+        match self {
+            Self::Left(_) => None,
+            Self::Right(r) => Some(r),
+        }
+    }
+    pub fn map<T>(&self, left: impl Fn(&L) -> T, right: impl Fn(&R) -> T) -> T {
+        match self {
+            Self::Left(l) => left(l),
+            Self::Right(r) => right(r),
+        }
+    }
+}
+
+impl<L, R> From<Result<L, R>> for Either<L, R> {
+    fn from(value: Result<L, R>) -> Self {
+        match value {
+            Ok(l) => Self::Left(l),
+            Err(r) => Self::Right(r),
+        }
+    }
+}
+
+#[must_use]
+pub fn either_to_gid(either: &Either<Group, Gid>) -> Gid {
+    either.map(|l| l.gid, |r| *r)
+}
+
 #[derive(Debug)]
 struct DurationParseError;
 impl std::fmt::Display for DurationParseError {
@@ -118,28 +193,28 @@ impl std::fmt::Display for DurationParseError {
 const fn convert_string_to_duration(
     s: &str,
 ) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
-    let parts = string::split(s, ':');
-    let Some((hours, parts)) = parts.next() else {
+    let mut parts = string::split(s, ':');
+    let Some(hours) = parts.next() else {
         return Err(DurationParseError);
     };
-    let Some((minutes, parts)) = parts.next() else {
+    let Some(minutes) = parts.next() else {
         return Err(DurationParseError);
     };
-    let Some((seconds, _)) = parts.next() else {
+    let Some(seconds) = parts.next() else {
         return Err(DurationParseError);
     };
 
-    let hours: i64 = if let Ok(hours) = parse_i64(hours) {
+    let hours: i64 = if let Ok(hours) = i64::from_str_radix(hours, 10) {
         hours
     } else {
         return Err(DurationParseError);
     };
-    let minutes: i64 = if let Ok(minutes) = parse_i64(minutes) {
+    let minutes: i64 = if let Ok(minutes) = i64::from_str_radix(minutes, 10) {
         minutes
     } else {
         return Err(DurationParseError);
     };
-    let seconds: i64 = if let Ok(seconds) = parse_i64(seconds) {
+    let seconds: i64 = if let Ok(seconds) = i64::from_str_radix(seconds, 10) {
         seconds
     } else {
         return Err(DurationParseError);
@@ -149,10 +224,8 @@ const fn convert_string_to_duration(
     )))
 }
 
-pub const TIMEOUT_MAX_USAGE: u64 = result::unwrap_or!(
-    konst::primitive::parse_u64(env!("RAR_TIMEOUT_MAX_USAGE")),
-    0
-);
+pub const TIMEOUT_MAX_USAGE: u64 =
+    result::unwrap_or!(u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"), 10), 0);
 
 pub const BOUNDING: SBounding = SBounding::const_parse(env!("RAR_BOUNDING"));
 
@@ -162,7 +235,7 @@ pub const AUTHENTICATION: SAuthentication =
 pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
 
 pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    konst::primitive::parse_u16(env!("RAR_UMASK")),
+    u16::from_str_radix(env!("RAR_UMASK"), 10),
     0o022
 ));
 
@@ -422,7 +495,7 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
 /// Returns an error if the logger fails to initialize
 pub fn subsribe(_: &str) -> io::Result<()> {
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Trace)
         .format_module_path(true)
         .init();
     Ok(())

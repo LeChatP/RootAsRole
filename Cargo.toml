@@ -4,7 +4,7 @@ members = ["xtask", "rar-common", "rar-exec"]
 [package]
 name = "rootasrole"
 version = "4.0.0"
-rust-version = "1.88.0"
+rust-version = "1.93.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2024"
 default-run = "dosr"
@@ -68,9 +68,9 @@ unexpected_cfgs = "allow"
 [lints.clippy]
 pedantic = { level = "warn", priority = 1 }
 nursery = { level = "warn", priority = 1 }
-unwrap_used = "deny"
-similar_names = "allow"
-should_implement_trait = "allow"
+unwrap_used = { level = "deny", priority = 2 }
+similar_names = { level = "allow", priority = 2 }
+should_implement_trait = { level = "allow", priority = 2 }
 
 [package.metadata.clippy]
 allow-unwrap-in-tests = true
@@ -106,7 +106,7 @@ pest_derive = { version = "2.7", default-features = false, features = ["std"], o
 indexmap = { version = "2.13", default-features = false, features = ["std"], optional = true }
 hex = { version = "0.4", default-features = false, optional = true, features = ["alloc"]}
 landlock = { version = "0.4", optional = true }
-libseccomp = { version = "0.3", optional = true }
+libseccomp = { version = "0.4", optional = true }
 bitflags = { version = "2.9", default-features = false, optional = true }
 
 [dev-dependencies]

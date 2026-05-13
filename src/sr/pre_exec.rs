@@ -4,7 +4,7 @@ use nix::sys::stat::{Mode, umask};
 use rar_common::{database::options::SBounding, util::activates_no_new_privs};
 use rar_exec::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
 
-use crate::finder::de::CredOwnedData;
+use crate::finder::de::cred::CredOwnedData;
 
 struct PreExecConfig {
     umask: u16,
@@ -122,7 +122,7 @@ pub static PRE_EXEC_ORCHESTRATOR: Orchestrator = Orchestrator::new(PRE_EXEC_STEP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::finder::de::CredOwnedData;
+    use crate::finder::de::cred::CredOwnedData;
     use rar_common::database::options::SBounding;
 
     #[test]

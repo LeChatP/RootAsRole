@@ -28,7 +28,7 @@ syslog = { version= "6.0", default-features = false }
 env_logger = { version= "0.11", default-features = false }
 bon = { version = "3", default-features = false, features = ["experimental-overwritable"] }
 cbor4ii = { version = "1.0", default-features = false, features = ["serde", "serde1", "use_std"] }
-konst = { version= "0.3", default-features = false, features = ["parsing_proc", "iter"] }
+konst = { version= "0.4", default-features = false, features = ["parsing_proc", "iter"] }
 
 [dev-dependencies]
 log = { version= "0.4", default-features = false }
@@ -38,6 +38,13 @@ serde_test = "1.0"
 [build-dependencies]
 serde = { version = "1.0", default-features = false, features= ["rc", "derive"] }
 serde_json = { version= "1.0", default-features = false }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = 1 }
+nursery = { level = "warn", priority = 1 }
+unwrap_used = { level = "deny", priority = 2 }
+similar_names = { level = "allow", priority = 2 }
+should_implement_trait = { level = "allow", priority = 2 }
 
 [features]
 default = ["pcre2", "glob"]

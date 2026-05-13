@@ -78,6 +78,13 @@ impl ConfigManager {
     }
 }
 
+impl ConfigManager {
+    /// Return the path to the config file used by the test manager
+    pub fn config_file_path(&self) -> &std::path::Path {
+        &self.config_file_path
+    }
+}
+
 impl Drop for ConfigManager {
     fn drop(&mut self) {
         // Clean up the configuration file

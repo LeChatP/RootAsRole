@@ -4,14 +4,14 @@ pub mod test_runner;
 use std::error::Error;
 use std::ffi::CString;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::os::unix::process::parent_id;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Mutex, Once, OnceLock};
+use std::sync::{Mutex, MutexGuard, Once, OnceLock};
 use std::{env, fs};
 
-use nix::sys::wait::WaitStatus;
-use nix::unistd::{User, fork, setgid, setgroups, setuid, unlink};
+use nix::unistd::{User, setgid, setgroups, setuid, unlink};
 
 use crate::helpers::test_runner::TestRunner;
 
@@ -51,6 +51,13 @@ fn cleanup_temp_files() {
 
 static GLOBAL_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+pub fn acquire_global_lock() -> MutexGuard<'static, ()> {
+    GLOBAL_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("Failed to acquire global lock")
+}
+
 fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let pid = parent_id();
 
@@ -67,31 +74,8 @@ fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     if needs_build && option_env!("SKIP_BUILD").is_none() {
         print!("Building dosr .... ");
-
-        match unsafe { fork() } {
-            Ok(nix::unistd::ForkResult::Parent { child }) => {
-                // Parent process: wait for the child to finish
-                loop {
-                    let wait_status = nix::sys::wait::waitpid(child, None)
-                        .expect("Failed to wait for child process");
-                    if let WaitStatus::Exited(_, code) = wait_status {
-                        if code != 0 {
-                            return Err("Child process failed to build dosr binary".into());
-                        } // else
-                        break;
-                    }
-                }
-            }
-            Ok(nix::unistd::ForkResult::Child) => {
-                if let Err(e) = build_dosr_binary(pid, &temp_file) {
-                    eprintln!("Error during build: {e}");
-                    std::process::exit(1);
-                }
-                std::process::exit(0);
-            }
-            Err(e) => {
-                return Err(format!("Fork failed: {e}").into());
-            }
+        if let Err(e) = build_dosr_binary(pid, &temp_file) {
+            return Err(format!("Build failed: {e}").into());
         }
     } else {
         print!("Reusing binary ... ");
@@ -113,25 +97,34 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
         .inspect_err(|e| eprintln!("Failed to create CString: {e}"))?;
     let groups = nix::unistd::getgrouplist(user_name_cstr.as_c_str(), user.gid)
         .unwrap_or_else(|_| vec![user.gid]);
-    setgroups(&groups).inspect_err(|e| eprintln!("Failed to setgroups: {e}"))?;
-    setgid(user.gid).inspect_err(|e| eprintln!("Failed to setegid: {e}"))?;
-    setuid(user.uid).inspect_err(|e| eprintln!("Failed to seteuid: {e}"))?;
-    unsafe {
-        env::set_var(
-            "PATH",
-            format!("{}:{}/bin", env::var("PATH")?, env!("CARGO_HOME")),
-        );
-        env::set_var("HOME", &user.dir);
-    }
+    let uid = user.uid;
+    let gid = user.gid;
+    let home_dir = user.dir;
 
     let cfg_path = PathBuf::from(RAR_CFG_PATH);
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .args(["build", "--bin", "dosr", "--features", "finder"])
         .env(
             "RAR_CFG_PATH",
             cfg_path.to_str().ok_or("Invalid RAR_CFG_PATH")?,
         )
         .env("RAR_AUTHENTICATION", "skip")
+        .env(
+            "PATH",
+            format!("{}:{}/bin", env::var("PATH")?, env!("CARGO_HOME")),
+        )
+        .env("HOME", &home_dir);
+    unsafe {
+        command.pre_exec(move || {
+            let map_err = |e: nix::Error| std::io::Error::from_raw_os_error(e as i32);
+            setgroups(&groups).map_err(map_err)?;
+            setgid(gid).map_err(map_err)?;
+            setuid(uid).map_err(map_err)?;
+            Ok(())
+        });
+    }
+    let output = command
         .output()
         .inspect_err(|e| eprintln!("Failed to execute cargo build: {e}"))?;
     if !output.status.success() {
@@ -144,10 +137,7 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
 }
 
 pub fn get_test_runner() -> Result<TestRunner, Box<dyn std::error::Error>> {
-    let _lock = GLOBAL_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("Failed to acquire global lock");
+    let _lock = acquire_global_lock();
     let binary_path = ensure_binary_built()?;
 
     register_cleanup();

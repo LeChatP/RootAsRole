@@ -21,6 +21,10 @@ use rar_common::{
     },
 };
 
+use crate::cli::process::json::{
+    workdir_purge, workdir_set_path, workdir_setlist, workdir_setpolicy,
+};
+
 use super::{
     data::{InputAction, Inputs},
     usage,
@@ -330,6 +334,17 @@ pub fn process_input(
         } => path_purge(rconfig, role_id.as_ref(), task_id, setlist_type),
 
         Inputs {
+            // chsr o path whitelist set a:b:c
+            action: InputAction::Purge,
+            role_id,
+            task_id,
+            options_path: None,
+            options_type: Some(OptType::Workdir),
+            setlist_type,
+            ..
+        } => workdir_purge(rconfig, role_id.as_ref(), task_id, setlist_type),
+
+        Inputs {
             // chsr o env whitelist set A,B,C
             action: InputAction::Set,
             role_id,
@@ -388,7 +403,17 @@ pub fn process_input(
             ..
         } => path_setpolicy(rconfig, role_id.as_ref(), task_id, options_path_policy),
         Inputs {
-            // chsr o path whitelist add path1:path2:path3
+            // chsr o workdir setpolicy none
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_type: Some(OptType::Workdir),
+            options_workdir_policy: Some(options_workdir_policy),
+            ..
+        } => workdir_setpolicy(rconfig, role_id.as_ref(), task_id, options_workdir_policy),
+
+        Inputs {
+            // chsr o env whitelist add A
             action,
             role_id,
             task_id,
@@ -418,6 +443,35 @@ pub fn process_input(
             setlist_type,
             ..
         } => path_setlist2(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            setlist_type,
+            action,
+            &options_path,
+        ),
+
+        Inputs {
+            // chsr o workdir set /home/user
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_path: Some(options_path),
+            options_type: Some(OptType::Workdir),
+            setlist_type: None,
+            ..
+        } => workdir_set_path(rconfig, role_id.as_ref(), task_id, options_path.as_str()),
+
+        Inputs {
+            // chsr o workdir whitelist add /home/user
+            action,
+            role_id,
+            task_id,
+            options_path: Some(options_path),
+            options_type: Some(OptType::Workdir),
+            setlist_type,
+            ..
+        } => workdir_setlist(
             rconfig,
             role_id.as_ref(),
             task_id,

@@ -174,6 +174,9 @@ mod tests {
     #[test]
     #[serial]
     fn test_dosr_env_override_denied_not_overriden() {
+        env_logger::builder()
+            .filter_level(log::LevelFilter::Trace)
+            .build();
         let runner = get_test_runner().expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "env", "--task", "denied", "env"])

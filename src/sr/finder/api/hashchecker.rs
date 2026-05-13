@@ -256,7 +256,7 @@ mod tests {
 
     use crate::finder::{
         api::hashchecker::{FS_IMMUTABLE_FL, register},
-        de::DCommandDeserializer,
+        de::commands::DCommandDeserializer,
     };
     pub struct Defer<F: FnOnce()>(Option<F>);
 

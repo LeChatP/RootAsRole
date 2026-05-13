@@ -176,9 +176,10 @@ const TS_LOCATION: &str = env!("RAR_TIMEOUT_STORAGE");
 const TS_LOCATION: &str = "target/ts";
 
 fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
-    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
+    let s_uid = user.user.uid.as_raw().to_string();
+    let path = Path::new(TS_LOCATION).join(&s_uid);
     let lockpath = Path::new(TS_LOCATION)
-        .join(user.user.uid.as_raw().to_string()) // Convert u32 to String
+        .join(&s_uid) // Convert u32 to String
         .with_extension("lock");
     if !path.exists() {
         return Ok(Vec::new());
@@ -193,11 +194,10 @@ fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
 
 fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
     debug!("Saving cookies: {cookies:?}");
-    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
+    let s_uid = user.user.uid.as_raw().to_string();
+    let path = Path::new(TS_LOCATION).join(&s_uid);
     create_dir_all_with_privileges(path.parent().expect("Failed to get parent directory"))?;
-    let lockpath = Path::new(TS_LOCATION)
-        .join(user.user.uid.as_raw().to_string())
-        .with_extension("lock");
+    let lockpath = Path::new(TS_LOCATION).join(&s_uid).with_extension("lock");
     let mut file = create_with_privileges(&path)?;
     cbor4ii::serde::to_writer(&mut file, &cookies)?;
     if let Err(err) = remove_with_privileges(lockpath) {
@@ -216,7 +216,7 @@ fn find_valid_cookie(
     let mut res = None;
     debug!(
         "Constraints for {} : {:?}",
-        cred_asked.user.uid.as_raw(),
+        &cred_asked.user.uid.as_raw(),
         constraint
     );
     for (a, cookiev) in cookies.iter_mut().enumerate() {
@@ -333,6 +333,7 @@ mod test {
     fn test_cookie() {
         let cred = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
             groups: vec![],
             tty: None,
             ppid: Pid::parent(),

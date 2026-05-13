@@ -67,7 +67,7 @@ impl PipeFactory {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SignalInfo {
     pub signal: SignalNumber,
     pub pid: libc::pid_t,
@@ -76,17 +76,7 @@ pub struct SignalInfo {
 }
 
 impl SignalInfo {
-    pub const SIZE: usize = std::mem::size_of::<SignalNumber>();
-
-    #[must_use]
-    pub const fn new(signal: SignalNumber) -> Self {
-        Self {
-            signal,
-            pid: 0,
-            uid: 0,
-            status: 0,
-        }
-    }
+    pub const SIZE: usize = std::mem::size_of::<Self>();
 }
 
 pub struct SignalStream {
@@ -134,19 +124,24 @@ impl SignalStream {
     /// # Errors
     /// Returns an error if reading from the signal stream fails
     pub fn recv(&self) -> io::Result<SignalInfo> {
-        let mut signal: SignalNumber = 0;
+        let mut info = SignalInfo {
+            signal: 0,
+            pid: 0,
+            uid: 0,
+            status: 0,
+        };
         loop {
             // SAFETY: valid pointer and size to read one signal number.
             let n = unsafe {
                 libc::read(
                     self.rx.as_raw_fd(),
-                    (&raw mut signal).cast(),
+                    (&raw mut info).cast(),
                     SignalInfo::SIZE,
                 )
             };
 
             if n == SignalInfo::SIZE.cast_signed() {
-                return Ok(SignalInfo::new(signal));
+                return Ok(info);
             } else if n == 0 {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
             } else if n == -1 {
@@ -177,14 +172,28 @@ impl AsFd for SignalStream {
 // - Multiple signals arrive faster than they can be consumed by event loop
 // - Event loop is blocked processing other events
 // - The receiver (SignalStream::recv) isn't called frequently enough
-extern "C" fn handler(signal: SignalNumber) {
+extern "C" fn handler(signal: SignalNumber, info: *mut libc::siginfo_t, _ctx: *mut libc::c_void) {
     // Use Acquire ordering to ensure we see the most recent value written by init()
     let fd = WRITE_FD.load(Ordering::Acquire);
     if fd < 0 {
         return;
     }
 
-    let value = signal;
+    let (pid, uid, status) = if info.is_null() {
+        (0, 0, 0)
+    } else {
+        // SAFETY: info is provided by the kernel for SA_SIGINFO handlers.
+        let info = unsafe { &*info };
+        // SAFETY: accessors rely on the kernel-populated siginfo_t.
+        unsafe { (info.si_pid(), info.si_uid(), info.si_status()) }
+    };
+
+    let value = SignalInfo {
+        signal,
+        pid,
+        uid,
+        status,
+    };
     // SAFETY: `write(2)` is async-signal-safe and the pointer is valid for `SignalInfo::SIZE` bytes.
     // Note to myself in the future: Errors (including EAGAIN if buffer full) are silently ignored.
     // This is acceptable since the kernel queues pending signals and re-notifies when the queue is consumed.
@@ -200,8 +209,8 @@ extern "C" fn handler(signal: SignalNumber) {
 pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
     sa.sa_sigaction = handler as *const () as usize;
-    // Use SA_RESTART to avoid interrupting system calls
-    sa.sa_flags = libc::SA_RESTART;
+    // Use SA_RESTART to avoid interrupting system calls and SA_SIGINFO for metadata.
+    sa.sa_flags = libc::SA_RESTART | libc::SA_SIGINFO;
 
     // Block all signals during signal handler execution to prevent re-entrancy issues
     // SAFETY: valid sigset pointer.
@@ -229,7 +238,9 @@ mod tests {
         let stream = SignalStream::init().expect("Failed to init SignalStream");
 
         signal::register_signal_handler(libc::SIGUSR1).expect("Failed to register SIGUSR1");
-        super::handler(libc::SIGUSR1);
+        unsafe {
+            libc::raise(libc::SIGUSR1);
+        }
 
         let mut found = false;
         for _ in 0..50 {
@@ -238,7 +249,6 @@ mod tests {
                     // Verify we received the correct data
                     if info.signal == libc::SIGUSR1 {
                         found = true;
-                        assert_eq!(info.pid, 0);
                         break;
                     }
                 }
@@ -250,7 +260,9 @@ mod tests {
 
         // Verification that we can handle multiple different signals
         signal::register_signal_handler(libc::SIGUSR2).expect("Failed to register SIGTRAP");
-        super::handler(libc::SIGUSR2);
+        unsafe {
+            libc::raise(libc::SIGUSR2);
+        }
 
         found = false;
         for _ in 0..50 {

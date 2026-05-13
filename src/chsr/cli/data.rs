@@ -12,7 +12,7 @@ use rar_common::{
         actor::{SActor, SGroups, SUserType},
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
-            SPrivileged, SUMask, TimestampType,
+            SPrivileged, SUMask, TimestampType, WorkdirBehavior,
         },
         structs::{IdTask, SetBehavior},
     },
@@ -97,6 +97,7 @@ pub struct Inputs {
     pub options_auth: Option<SAuthentication>,
     pub options_execinfo: Option<SInfo>,
     pub options_umask: Option<SUMask>,
+    pub options_workdir_policy: Option<WorkdirBehavior>,
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
 }

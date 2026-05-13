@@ -12,6 +12,8 @@ use chrono::Duration;
 use indexmap::IndexSet;
 use konst::eq_str;
 
+#[cfg(feature = "pcre2")]
+use log::warn;
 use nix::sys::stat::Mode;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
@@ -47,7 +49,7 @@ pub enum Level {
     Task,
 }
 
-#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
+#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display, EnumIs)]
 pub enum OptType {
     Path,
     Env,
@@ -57,6 +59,7 @@ pub enum OptType {
     Authentication,
     ExecInfo,
     UMask,
+    Workdir,
 }
 
 #[derive(
@@ -129,10 +132,6 @@ pub struct SPathOptions {
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
 }
-
-// ...existing code...
-impl SPathOptions {}
-// ...existing code...
 
 #[derive(
     Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
@@ -212,6 +211,80 @@ pub struct SEnvOptions {
     pub extra_fields: Map<String, Value>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(untagged)]
+pub enum SWorkdirEither {
+    /// This is the equivalent of deny all and fallback to the specified path.
+    Path(String),
+    Struct(SWorkdirSet),
+}
+
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Default)]
+#[repr(u32)]
+pub enum WorkdirBehavior {
+    #[serde(rename = "none")]
+    Allowlist = HARDENED_ENUM_VALUE_0, // Deny all except for the listed ones in "add" minus "sub" ofc
+    #[serde(rename = "all")]
+    Blacklist = HARDENED_ENUM_VALUE_1, // Allow all except for the listed ones in "sub"
+    #[default]
+    #[serde(rename = "inherit")]
+    Inherit = HARDENED_ENUM_VALUE_2, // Inherit from parent levels, which can be combined with the above two behaviors.
+}
+
+impl WorkdirBehavior {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
+        match input {
+            _ if eq_str(input, "all") => Self::Blacklist,
+            _ if eq_str(input, "none") => Self::Allowlist,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse WorkdirBehavior"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct SWorkdirSet {
+    /// The default behavior for workdir handling. This determines how the "add" and "sub" lists are interpreted.
+    /// - If set to `Allowlist`, only the paths in the "add" list (minus those in the "sub" list) will be allowed as workdirs.
+    /// - If set to `Blacklist`, all paths will be allowed as workdirs except those in the "sub" list.
+    /// - If set to `Inherit`, the behavior will be inherited from parent levels, which can be combined with the above two behaviors.
+    ///
+    /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
+    /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default_behavior: WorkdirBehavior,
+
+    /// The "fallback" field specifies a fallback directory to use as the working directory.
+    /// This will override the current user working directory.
+    /// For example:
+    /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`,
+    /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
+    /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub add: Option<IndexSet<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize",
+        alias = "del"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub sub: Option<IndexSet<String>>,
+}
 #[derive(
     Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
 )]
@@ -341,18 +414,20 @@ pub enum SInfo {
 pub struct Opt {
     #[serde(skip)]
     pub level: Level,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<SPathOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<SEnvOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<SWorkdirEither>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -372,6 +447,7 @@ impl Opt {
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
+        workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Map<String, Value>,
@@ -384,6 +460,7 @@ impl Opt {
             bounding,
             authentication,
             execinfo,
+            workdir,
             timeout,
             umask,
             extra_fields,
@@ -403,14 +480,15 @@ impl Opt {
             .execinfo(INFO)
             .umask(UMASK)
             .env(
+                #[allow(clippy::unwrap_used)]
                 SEnvOptions::builder(ENV_DEFAULT_BEHAVIOR)
-                    .keep(ENV_KEEP_LIST)
+                    .keep(ENV_KEEP_LIST.iter().copied())
                     .unwrap()
-                    .check(ENV_CHECK_LIST)
+                    .check(ENV_CHECK_LIST.iter().copied())
                     .unwrap()
-                    .delete(ENV_DELETE_LIST)
+                    .delete(ENV_DELETE_LIST.iter().copied())
                     .unwrap()
-                    .set(ENV_SET_LIST)
+                    .set(ENV_SET_LIST.iter().copied())
                     .override_behavior(ENV_OVERRIDE_BEHAVIOR)
                     .build(),
             )
@@ -538,15 +616,25 @@ impl EnvSet for Option<IndexSet<EnvKey>> {
 }
 
 #[cfg(feature = "pcre2")]
-fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
-    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
-        .unwrap()
-        .is_match(s.as_bytes())
-        .is_ok_and(|m| m)
+fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
+    let pattern = format!("^{}$", wildcarded.value);
+    match Regex::new(&pattern) {
+        Ok(regex) => match regex.is_match(s.as_bytes()) {
+            Ok(is_match) => is_match,
+            Err(err) => {
+                warn!("Regex match error for '{pattern}': {err}");
+                false
+            }
+        },
+        Err(err) => {
+            warn!("Invalid regex '{pattern}': {err}");
+            false
+        }
+    }
 }
 
 #[cfg(not(feature = "pcre2"))]
-fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
+fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
     true
 }
 
@@ -668,7 +756,8 @@ impl Default for Opt {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] //Maybe used for other binaries
+#[derive(Debug, Clone)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
     roles: Option<Rc<RefCell<SConfig>>>,
@@ -701,9 +790,9 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
                 .borrow()
                 .role
                 .as_ref()
-                .unwrap()
+                .expect("task must belong to a role")
                 .upgrade()
-                .unwrap(),
+                .expect("role should not be dropped before task"),
         )
         .task(task.clone())
         .opt(task.as_ref().borrow().options.clone())
@@ -722,9 +811,9 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
                 .borrow()
                 .config
                 .as_ref()
-                .unwrap()
+                .expect("role must belong to a config")
                 .upgrade()
-                .unwrap(),
+                .expect("config should not be dropped before role"),
         )
         .role(role.clone())
         .opt(role.as_ref().borrow().options.clone())
@@ -861,7 +950,7 @@ impl OptStack {
             .build()
     }
 
-    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> SEnvOptions {
+    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> Result<SEnvOptions, String> {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
         let mut final_keep = IndexSet::new();
@@ -922,15 +1011,15 @@ impl OptStack {
                 };
             }
         });
-        SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
+        let builder = SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
             .set(final_set)
             .keep(final_keep)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env keep list: {err}"))?
             .check(final_check)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env check list: {err}"))?
             .delete(final_delete)
-            .unwrap()
-            .build()
+            .map_err(|err| format!("Failed to set env delete list: {err}"))?;
+        Ok(builder.build())
     }
 
     fn get_level(&self) -> Level {
@@ -940,12 +1029,13 @@ impl OptStack {
         level
     }
 
-    #[must_use]
-    pub fn to_opt(&self) -> Rc<RefCell<Opt>> {
-        rc_refcell!(
+    /// # Errors
+    /// Returns an error if any environment option builder step fails.
+    pub fn to_opt(&self) -> Result<Rc<RefCell<Opt>>, String> {
+        Ok(rc_refcell!(
             Opt::builder(self.get_level())
                 .path(self.get_final_path())
-                .env(self.get_final_env(None))
+                .env(self.get_final_env(None)?)
                 .maybe_root(
                     self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
                         .map(|(_, root)| root),
@@ -969,7 +1059,7 @@ impl OptStack {
                         .map(|(_, timeout)| timeout),
                 )
                 .build()
-        )
+        ))
     }
 }
 
@@ -1087,7 +1177,9 @@ mod tests {
                 .build()
             })
             .build();
-        let binding = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
+        let binding = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let options = binding.as_ref().borrow();
         let res = &options.env.as_ref().unwrap().keep;
         assert!(
@@ -1183,7 +1275,7 @@ mod tests {
             .build();
         let default = IndexSet::new();
         let stack = OptStack::from_roles(&config);
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build global options");
         let global_options = opt.as_ref().borrow();
         assert_eq!(
             global_options.path.as_ref().unwrap().default_behavior,
@@ -1243,7 +1335,9 @@ mod tests {
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        let opt = OptStack::from_role(&config.role("test").unwrap()).to_opt();
+        let opt = OptStack::from_role(&config.role("test").unwrap())
+            .to_opt()
+            .expect("Failed to build role options");
         let role_options = opt.as_ref().borrow();
         assert_eq!(
             role_options.path.as_ref().unwrap().default_behavior,
@@ -1287,7 +1381,9 @@ mod tests {
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::PPID
         );
-        let opt = OptStack::from_task(&config.task("test", 1).unwrap()).to_opt();
+        let opt = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let task_options = opt.as_ref().borrow();
         assert_eq!(
             task_options.path.as_ref().unwrap().default_behavior,
@@ -1384,7 +1480,7 @@ mod tests {
             })
             .build();
         let stack = OptStack::from_task(&config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
         assert_eq!(
             options
@@ -1438,7 +1534,7 @@ mod tests {
             })
             .build();
         let stack = OptStack::from_task(&config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
         assert!(
             options

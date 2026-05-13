@@ -422,6 +422,107 @@ mod tests {
             });
         }
 
+        fn with_workdir_set<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&SWorkdirSet) -> R,
+        {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            let workdir = task_ref.workdir.as_ref().expect("workdir expected");
+            match workdir {
+                SWorkdirEither::Struct(workdir_set) => f(workdir_set),
+                SWorkdirEither::Path(_) => panic!("workdir set expected"),
+            }
+        }
+
+        fn assert_workdir_is_path(&self, expected: &str) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            let workdir = task_ref.workdir.as_ref().expect("workdir expected");
+            match workdir {
+                SWorkdirEither::Path(path) => assert_eq!(path, expected),
+                SWorkdirEither::Struct(workdir_set) => {
+                    assert_eq!(workdir_set.fallback.as_deref(), Some(expected));
+                }
+            }
+        }
+
+        fn assert_workdir_default_behavior(&self, expected: WorkdirBehavior) {
+            self.with_workdir_set(|workdir_set| {
+                assert_eq!(workdir_set.default_behavior, expected);
+            });
+        }
+
+        fn assert_workdir_whitelist_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    workdir_set
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_whitelist_not_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    !workdir_set
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_blacklist_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    workdir_set
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_blacklist_not_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    !workdir_set
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_whitelist_is_empty(&self) {
+            self.assert_workdir_whitelist_len(0);
+        }
+
+        fn assert_workdir_whitelist_len(&self, expected: usize) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert_eq!(workdir_set.add.as_ref().unwrap_or(&default).len(), expected);
+            });
+        }
+
+        fn assert_workdir_blacklist_len(&self, expected: usize) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert_eq!(workdir_set.sub.as_ref().unwrap_or(&default).len(), expected);
+            });
+        }
+
         fn with_env_options<F, R>(&self, f: F) -> R
         where
             F: FnOnce(&SEnvOptions) -> R,
@@ -840,6 +941,10 @@ mod tests {
     // chsr o timeout set --type tty --duration 5:00 --max_usage 1
     // chsr o t unset --type --duration --max_usage
 
+    // chsr o workdir set /home/user
+    // chsr o workdir setpolicy (all|none|inherit)
+    // chsr o workdir (whitelist|blacklist) (add|del|set|purge) /home/user/**
+
     #[test]
     fn test_all_main() {
         let (ctx, _defer) = TestContext::new("all_main");
@@ -1166,6 +1271,70 @@ mod tests {
         let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_blacklist_purge");
 
         ctx.assert_command_success("r complete t t_complete o path blacklist purge");
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_set() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_set");
+
+        ctx.assert_command_success("r complete t t_complete o workdir set /home/user");
+        ctx.assert_workdir_is_path("/home/user");
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_setpolicy() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_setpolicy");
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy all");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Blacklist);
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy none");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Allowlist);
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy inherit");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Inherit);
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_whitelist_add() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_whitelist_add");
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist add /home/user");
+        ctx.assert_workdir_whitelist_contains("/home/user");
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist del /home/user");
+        ctx.assert_workdir_whitelist_not_contains("/home/user");
+
+        ctx.assert_command_success(
+            "r complete t t_complete o workdir whitelist set /home/user:/tmp",
+        );
+        ctx.assert_workdir_whitelist_contains("/home/user");
+        ctx.assert_workdir_whitelist_contains("/tmp");
+        ctx.assert_workdir_whitelist_len(2);
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist purge");
+        ctx.assert_workdir_whitelist_is_empty();
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_blacklist_add() {
+        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_blacklist_add");
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist set /home/user");
+        ctx.assert_workdir_blacklist_contains("/home/user");
+        ctx.assert_workdir_blacklist_len(1);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist add /tmp");
+        ctx.assert_workdir_blacklist_contains("/tmp");
+        ctx.assert_workdir_blacklist_len(2);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist del /home/user");
+        ctx.assert_workdir_blacklist_not_contains("/home/user");
+        ctx.assert_workdir_blacklist_contains("/tmp");
+        ctx.assert_workdir_blacklist_len(1);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist purge");
+        ctx.assert_workdir_blacklist_len(0);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
