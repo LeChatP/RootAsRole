@@ -829,4 +829,39 @@ mod tests {
 
         assert_eq!(status.code(), Some(42));
     }
+
+    #[test]
+    fn block_and_restore_signals_roundtrip() {
+        fn current_mask() -> libc::sigset_t {
+            let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+            unsafe {
+                libc::sigprocmask(libc::SIG_SETMASK, std::ptr::null(), &raw mut set);
+            }
+            set
+        }
+
+        let original = current_mask();
+        let saved = super::block_all_signals();
+        assert!(
+            saved.is_some(),
+            "block_all_signals must return previous set"
+        );
+
+        let blocked = current_mask();
+        let sigint_blocked =
+            unsafe { libc::sigismember(std::ptr::from_ref(&blocked), libc::SIGINT) };
+        assert_eq!(sigint_blocked, 1, "SIGINT should be blocked");
+
+        super::restore_signals(saved);
+        let restored = current_mask();
+
+        let same = unsafe {
+            libc::memcmp(
+                std::ptr::from_ref(&original).cast::<libc::c_void>(),
+                std::ptr::from_ref(&restored).cast::<libc::c_void>(),
+                std::mem::size_of::<libc::sigset_t>(),
+            ) == 0
+        };
+        assert!(same, "signal mask should be restored");
+    }
 }

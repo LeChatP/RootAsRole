@@ -172,6 +172,9 @@ impl MonitorClosure {
     }
 }
 
+/// Determines if a signal from `signaler_pid` should be considered self-terminating for the command process.
+/// A signal is considered self-terminating if it originates from the command process itself or
+/// from a process in the same process group.
 fn is_self_terminating(
     signaler_pid: libc::pid_t,
     command_pid: libc::pid_t,
@@ -380,4 +383,37 @@ pub fn exec_monitor_process(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_self_terminating;
+
+    #[test]
+    fn self_terminating_true_for_same_pid() {
+        let pid = unsafe { libc::getpid() };
+        let pgrp = unsafe { libc::getpgrp() };
+        assert!(is_self_terminating(pid, pid, pgrp));
+    }
+
+    #[test]
+    fn self_terminating_true_for_same_pgrp() {
+        let pid = unsafe { libc::getpid() };
+        let pgrp = unsafe { libc::getpgrp() };
+        assert!(is_self_terminating(pid, pid + 1, pgrp));
+    }
+
+    #[test]
+    fn self_terminating_false_for_other_pgrp() {
+        let pid = unsafe { libc::getpid() };
+        let pgrp = unsafe { libc::getpgrp() };
+        assert!(!is_self_terminating(pid, pid + 1, pgrp + 1));
+    }
+
+    #[test]
+    fn self_terminating_false_for_non_positive_pid() {
+        let pgrp = unsafe { libc::getpgrp() };
+        assert!(!is_self_terminating(0, 1, pgrp));
+        assert!(!is_self_terminating(-1, 1, pgrp));
+    }
 }
