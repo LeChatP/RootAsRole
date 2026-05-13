@@ -159,7 +159,8 @@ opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | 
 path               =  @{ name }
 
 opt_workdir = { ("workdir" | "w") ~ opt_workdir_args }
-opt_workdir_args = _{ (setpolicy ~ workdir_policy) | (opt_path_listing) | (set ~ path) }
+opt_workdir_args = _{ (setpolicy ~ workdir_policy) | (opt_workdir_listing) | (set ~ path) }
+opt_workdir_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
 workdir_policy = { "all" | "none" | "inherit" }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
