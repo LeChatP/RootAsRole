@@ -42,7 +42,7 @@ coverage = [
 [env]
 RAR_CFG_TYPE = "json"
 RAR_CFG_PATH = "/etc/security/rootasrole.json"
-RAR_CFG_DATA_PATH = "/etc/security/rootasrole.json"
+RAR_CFG_DATA_PATH = "/etc/security/rootasrole.d/"
 RAR_PAM_SERVICE = "dosr"
 RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"

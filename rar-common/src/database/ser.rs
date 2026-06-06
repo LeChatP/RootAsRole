@@ -8,12 +8,12 @@ use crate::util::optimized_serialize_capset;
 use super::{
     is_default,
     structs::{
-        SCapabilities, SCommands, SConfig, SCredentials, SRole, SSetgidSet, SSetuidSet, STask,
+        SCapabilities, SCommands, SCredentials, SPolicy, SRole, SSetgidSet, SSetuidSet, STask,
         SetBehavior, cmds_is_default,
     },
 };
 
-impl Serialize for SConfig {
+impl Serialize for SPolicy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_sconfig_human_readable() {
-        let config = SConfig {
+        let config = SPolicy {
             options: Some(Rc::default()),
             roles: vec![],
             extra_fields: Map::default(),

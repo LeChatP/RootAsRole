@@ -14,11 +14,11 @@ use json::{
 use log::debug;
 
 use rar_common::{
-    FullSettings,
     database::{
         options::{Opt, OptType},
         structs::{IdTask, RoleGetter},
     },
+    file::FileSettings,
 };
 
 use crate::cli::process::json::{
@@ -31,10 +31,7 @@ use super::{
 };
 
 #[allow(clippy::too_many_lines)]
-pub fn process_input(
-    storage: &Rc<RefCell<FullSettings>>,
-    inputs: Inputs,
-) -> Result<bool, Box<dyn Error>> {
+pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool, Box<dyn Error>> {
     if inputs.action == InputAction::Convert {
         debug!("chsr convert");
         return convert::convert(
@@ -45,8 +42,11 @@ pub fn process_input(
             inputs.convert_reconfigure,
         );
     }
-    let binding = storage.as_ref().borrow();
-    let rconfig = binding.config.as_ref().ok_or("No configuration loaded")?;
+    let rconfig = storage
+        .get_root()
+        .config
+        .as_ref()
+        .ok_or("No configuration loaded")?;
     match inputs {
         Inputs {
             action: InputAction::Help,
@@ -493,7 +493,7 @@ pub fn process_input(
     }
 }
 pub fn perform_on_target_opt(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,

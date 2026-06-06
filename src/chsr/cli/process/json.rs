@@ -18,7 +18,7 @@ use rar_common::database::{
 use super::perform_on_target_opt;
 
 pub fn list_json(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options: bool,
@@ -160,7 +160,7 @@ fn print_role(
 }
 
 pub fn role_add_del(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     action: InputAction,
     role_id: String,
     role_type: Option<RoleType>,
@@ -214,7 +214,7 @@ pub fn role_add_del(
 }
 
 pub fn task_add_del(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     action: InputAction,
     task_id: IdTask,
@@ -286,7 +286,7 @@ pub fn task_add_del(
 }
 
 pub fn grant_revoke(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     action: InputAction,
     mut actors: Vec<rar_common::database::actor::SActor>,
@@ -324,7 +324,7 @@ pub fn grant_revoke(
 }
 
 pub fn cred_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
@@ -351,7 +351,7 @@ pub fn cred_set(
 }
 
 pub fn cred_unset(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
@@ -383,7 +383,7 @@ pub fn cred_unset(
 }
 
 pub fn cred_caps(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     setlist_type: SetListType,
@@ -453,7 +453,7 @@ pub fn cred_caps(
 }
 
 pub fn cred_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_policy: rar_common::database::structs::SetBehavior,
@@ -477,7 +477,7 @@ pub fn cred_setpolicy(
 }
 
 pub fn cmd_whitelist_action(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cmd_id: impl IntoIterator<Item = String>,
@@ -535,7 +535,7 @@ pub fn cmd_whitelist_action(
 }
 
 pub fn cmd_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cmd_policy: rar_common::database::structs::SetBehavior,
@@ -551,7 +551,7 @@ pub fn cmd_setpolicy(
 }
 
 pub fn env_set_policylist(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_env: &IndexSet<EnvKey>,
@@ -579,7 +579,7 @@ pub fn env_set_policylist(
 }
 
 pub fn set_privileged(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_root: Option<rar_common::database::options::SPrivileged>,
@@ -593,7 +593,7 @@ pub fn set_privileged(
 }
 
 pub fn set_bounding(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_bounding: Option<rar_common::database::options::SBounding>,
@@ -607,7 +607,7 @@ pub fn set_bounding(
 }
 
 pub fn set_authentication(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_auth: Option<rar_common::database::options::SAuthentication>,
@@ -621,7 +621,7 @@ pub fn set_authentication(
 }
 
 pub fn set_execinfo(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_execinfo: Option<rar_common::database::options::SInfo>,
@@ -635,7 +635,7 @@ pub fn set_execinfo(
 }
 
 pub fn set_umask(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_umask: Option<SUMask>,
@@ -649,7 +649,7 @@ pub fn set_umask(
 }
 
 pub fn path_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -693,7 +693,7 @@ pub fn path_set(
 }
 
 pub fn path_purge(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -721,7 +721,7 @@ pub fn path_purge(
 }
 
 pub fn workdir_purge(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -758,7 +758,7 @@ pub fn workdir_purge(
 }
 
 pub fn env_whitelist_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<&SetListType>,
@@ -790,7 +790,7 @@ pub fn env_whitelist_set(
 }
 
 pub fn unset_timeout(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     timeout_arg: [bool; 3],
@@ -819,7 +819,7 @@ pub fn unset_timeout(
 }
 
 pub fn set_timeout(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     timeout_type: Option<rar_common::database::options::TimestampType>,
@@ -845,7 +845,7 @@ pub fn set_timeout(
 }
 
 pub fn path_setlist2(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -932,7 +932,7 @@ pub fn path_setlist2(
 }
 
 pub fn workdir_set_path(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_path: &str,
@@ -946,7 +946,7 @@ pub fn workdir_set_path(
 }
 
 pub fn workdir_setlist(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -1041,7 +1041,7 @@ pub fn workdir_setlist(
 }
 
 pub fn path_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_path_policy: PathBehavior,
@@ -1062,7 +1062,7 @@ pub fn path_setpolicy(
 }
 
 pub fn workdir_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_workdir_policy: WorkdirBehavior,
@@ -1099,7 +1099,7 @@ pub fn workdir_setpolicy(
 
 #[allow(clippy::too_many_lines)]
 pub fn env_setlist_add(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -1226,7 +1226,7 @@ pub fn env_setlist_add(
 }
 
 pub fn env_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_env_policy: EnvBehavior,

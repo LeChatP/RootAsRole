@@ -60,7 +60,7 @@ ssd = []
 hierarchy = []
 timeout = []
 landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
-editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap"]
+editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
 
 [lints.rust]
 unexpected_cfgs = "allow"
@@ -108,6 +108,8 @@ hex = { version = "0.4", default-features = false, optional = true, features = [
 landlock = { version = "0.4", optional = true }
 libseccomp = { version = "0.4", optional = true }
 bitflags = { version = "2.9", default-features = false, optional = true }
+konst = { version= "0.4", default-features = false, optional = true, features = ["parsing_proc", "iter"] }
+
 
 [dev-dependencies]
 log = { version = "0.4", default-features = false, features = ["std"] }

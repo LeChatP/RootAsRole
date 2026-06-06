@@ -4,11 +4,12 @@ use bon::Builder;
 use derivative::Derivative;
 use log::debug;
 use rar_common::{
-    Cred, StorageMethod,
+    Cred,
     database::{
         score::{ActorMatchMin, CmdMin, Score, SecurityMin, TaskScore},
         structs::SetBehavior,
     },
+    util::StorageMethod,
 };
 use serde::{
     Deserialize,
@@ -32,6 +33,7 @@ pub mod cred;
 //Coming soon: options can be optimized way more than today.
 //pub mod opt;
 pub mod roles;
+pub mod settings;
 pub mod tasks;
 
 #[cfg_attr(test, derive(Builder))]

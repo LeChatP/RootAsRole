@@ -3,12 +3,12 @@ use std::{borrow::Cow, collections::HashMap};
 use log::{debug, info};
 use nix::unistd::{Gid, Group};
 use rar_common::{
-    Cred, StorageMethod,
+    Cred,
     database::{
         actor::{DActor, DGroups},
         score::ActorMatchMin,
     },
-    util::Either,
+    util::{Either, StorageMethod},
 };
 use serde::{
     Deserialize,

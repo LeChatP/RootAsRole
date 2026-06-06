@@ -1,5 +1,5 @@
 cli  = { SOI ~ args ~ EOI }
-args = { help | convert_op | list | role | editor | options_operations }
+args = { help | convert_op | list | file | role | editor_op | options_operations }
 
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
@@ -20,6 +20,13 @@ all       = { "all" }
 
 name = @{ (!WHITESPACE ~ ANY)+ }
 
+// ========================
+// editor
+// ========================
+editor_op = { editor ~ editor_type? ~ editor_path? }
+editor_type = { "--type" ~ convert_type }
+editor_path = @{ name }
+
 
 // ========================
 // convert
@@ -31,6 +38,16 @@ to   = { convert_type ~ path }
 convert_type = { "json" | "cbor" }
 convert_reconfigure = { "--reconfigure" | "-r" }
 
+// ========================
+// file
+// ========================
+
+// chsr file /path/to/file role r1 create
+// chsr f /path/to/file show (all|role|options)
+
+file      = { ("file" | "f") ~ (list | file_ops) }
+file_ops = { policy_path ~ (list | role | options_operations) }
+policy_path = @{ name }
 
 // ========================
 // role
@@ -128,7 +145,7 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // options
 // ========================
 
-// chsr (r r1) (t t1) options show (all|path|env|root|bounding)
+// chsr (f /foo/bar) (r r1) (t t1) options show (all|path|env|root|bounding)
 // chsr o path set /usr/bin:/bin this regroups setpolicy delete and whitelist set
 // chsr o path setpolicy (delete-all|keep-all|inherit)
 // chsr o path (whitelist|blacklist) (add|del|set|purge) /usr/bin:/bin

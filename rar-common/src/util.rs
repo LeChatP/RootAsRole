@@ -9,14 +9,15 @@ use capctl::{Cap, CapSet, ParseCapError};
 use capctl::{CapState, prctl};
 
 use chrono::Duration;
-use konst::{iter, option, result, string};
+use konst::{eq_str, iter, option, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use nix::{
     fcntl::{Flock, FlockArg},
     unistd::{Gid, Group},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use strum::EnumString;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
@@ -39,6 +40,23 @@ pub const HARDENED_ENUM_VALUE_1: u32 = 0x0ad5_d6da; // 1010110101011101011011011
 pub const HARDENED_ENUM_VALUE_2: u32 = 0x69d6_1fc8; // 1101001110101100001111111001000
 pub const HARDENED_ENUM_VALUE_3: u32 = 0x1629_e037; // 0010110001010011110000000110111
 pub const HARDENED_ENUM_VALUE_4: u32 = 0x1fc8_d3ac; // 11111110010001101001110101100
+
+#[cfg(not(test))]
+pub(super) const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+#[cfg(test)]
+pub(super) const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
+
+#[cfg(debug_assertions)]
+pub(super) const RAR_CFG_IMMUTABLE: bool = false;
+#[cfg(not(debug_assertions))]
+pub(super) const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
+
+pub const RAR_CFG_TYPE: StorageMethod = StorageMethod::const_parse(env!("RAR_CFG_TYPE"));
 
 pub const ENV_PATH_BEHAVIOR: PathBehavior = PathBehavior::const_parse(env!("RAR_PATH_DEFAULT"));
 
@@ -137,6 +155,50 @@ pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
 
 pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
     result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Copy,
+    EnumString,
+    strum::VariantNames,
+    strum::EnumIs,
+    strum::Display,
+)]
+#[serde(rename_all = "lowercase")]
+#[repr(u8)]
+pub enum StorageMethod {
+    #[strum(ascii_case_insensitive)]
+    JSON,
+    #[strum(ascii_case_insensitive)]
+    CBOR,
+    //    SQLite,
+    //    PostgreSQL,
+    //    MySQL,
+}
+
+impl Default for StorageMethod {
+    fn default() -> Self {
+        RAR_CFG_TYPE
+    }
+}
+
+impl StorageMethod {
+    /// # Panics
+    /// Panics if the string does not correspond to a valid storage method.
+    #[must_use]
+    pub const fn const_parse(s: &str) -> Self {
+        match s {
+            _ if eq_str(s, "cbor") => Self::CBOR,
+            _ if eq_str(s, "json") => Self::JSON,
+            _ => panic!("fail to parse StorageMethod from string: invalid value"),
+        }
+    }
+}
 
 /// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
 #[derive(Debug, Hash, Copy, Clone)]
@@ -570,14 +632,27 @@ pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
 
 /// # Errors
 /// Returns an error if the internal write operation fails
-pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+pub fn write_config<T: Serialize>(
+    settings: &T,
+    file: &mut impl Write,
+    method: StorageMethod,
+) -> std::io::Result<()> {
+    match method {
+        StorageMethod::JSON => write_json_config(settings, file),
+        StorageMethod::CBOR => write_cbor_config(settings, file),
+    }
+}
+
+/// # Errors
+/// Returns an error if the internal write operation fails
+fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
     serde_json::to_writer_pretty(file, &settings)?;
     Ok(())
 }
 
 /// # Errors
 /// Returns an error if the internal write operation fails
-pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
     cbor4ii::serde::to_writer(file, &settings)
         .map_err(|e| std::io::Error::other(format!("Failed to write cbor config: {e}")))
 }

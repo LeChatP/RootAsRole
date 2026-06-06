@@ -1,4 +1,3 @@
-pub mod config_manager;
 pub mod test_runner;
 
 use std::error::Error;
@@ -12,11 +11,12 @@ use std::sync::{Mutex, MutexGuard, Once, OnceLock};
 use std::{env, fs};
 
 use nix::unistd::{User, setgid, setgroups, setuid, unlink};
-
-use crate::helpers::test_runner::TestRunner;
+use rar_common::util::StorageMethod;
 
 const TEMP_LIFETIME_BUILD_STATE: &str = "target/tmp/dosr_integration_test_build";
 const RAR_CFG_PATH: &str = "target/rootasrole.json";
+const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
+
 static CLEANUP_REGISTERED: Once = Once::new();
 
 fn register_cleanup() {
@@ -58,7 +58,11 @@ pub fn acquire_global_lock() -> MutexGuard<'static, ()> {
         .expect("Failed to acquire global lock")
 }
 
-fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn ensure_binary_built(
+    rar_cfg_path: &str,
+    rar_cfg_data_path: &str,
+    rar_cfg_type: StorageMethod,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let pid = parent_id();
 
     let temp_file = PathBuf::from(TEMP_LIFETIME_BUILD_STATE);
@@ -74,7 +78,13 @@ fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     if needs_build && option_env!("SKIP_BUILD").is_none() {
         print!("Building dosr .... ");
-        if let Err(e) = build_dosr_binary(pid, &temp_file) {
+        if let Err(e) = build_dosr_binary(
+            pid,
+            &temp_file,
+            rar_cfg_path,
+            rar_cfg_data_path,
+            rar_cfg_type,
+        ) {
             return Err(format!("Build failed: {e}").into());
         }
     } else {
@@ -85,7 +95,13 @@ fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok("target/debug/dosr".into())
 }
 
-fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>> {
+fn build_dosr_binary(
+    pid: u32,
+    temp_file: &PathBuf,
+    rar_cfg_path: &str,
+    rar_cfg_data_path: &str,
+    rar_cfg_type: StorageMethod,
+) -> Result<(), Box<dyn Error>> {
     let user = User::from_name(
         &std::env::var("RAR_USER")
             .or_else(|_| std::env::var("SUDO_USER"))
@@ -100,15 +116,12 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
     let uid = user.uid;
     let gid = user.gid;
     let home_dir = user.dir;
-
-    let cfg_path = PathBuf::from(RAR_CFG_PATH);
     let mut command = Command::new("cargo");
     command
         .args(["build", "--bin", "dosr", "--features", "finder"])
-        .env(
-            "RAR_CFG_PATH",
-            cfg_path.to_str().ok_or("Invalid RAR_CFG_PATH")?,
-        )
+        .env("RAR_CFG_PATH", rar_cfg_path)
+        .env("RAR_CFG_DATA_PATH", rar_cfg_data_path)
+        .env("RAR_CFG_TYPE", rar_cfg_type.to_string())
         .env("RAR_AUTHENTICATION", "skip")
         .env(
             "PATH",
@@ -134,13 +147,4 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
     fs::write(temp_file, pid.to_string())?;
     print!("compiled binary ... ");
     Ok(())
-}
-
-pub fn get_test_runner() -> Result<TestRunner, Box<dyn std::error::Error>> {
-    let _lock = acquire_global_lock();
-    let binary_path = ensure_binary_built()?;
-
-    register_cleanup();
-
-    TestRunner::new(binary_path, &PathBuf::from(RAR_CFG_PATH))
 }

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use log::debug;
-use rar_common::{StorageMethod, database::score::TaskScore};
+use rar_common::{database::score::TaskScore, util::StorageMethod};
 use serde::{
     Deserialize,
     de::{DeserializeSeed, IgnoredAny},

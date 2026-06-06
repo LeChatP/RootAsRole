@@ -36,9 +36,14 @@ use crate::error::SrResult;
 use crate::finder::de::cred::CredOwnedData;
 
 #[cfg(not(test))]
-const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
-const ROOTASROLE: &str = "target/rootasrole.json";
+pub const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -274,11 +279,12 @@ fn main_inner() -> SrResult<()> {
     use std::env;
 
     use crate::{
-        ROOTASROLE,
+        RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
         pam::start_session,
     };
     use finder::find_best_exec_settings;
+    use rar_common::util::RAR_CFG_TYPE;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -315,7 +321,9 @@ fn main_inner() -> SrResult<()> {
     let execcfg = find_best_exec_settings(
         &args,
         &user,
-        &ROOTASROLE.to_string(),
+        RAR_CFG_PATH,
+        RAR_CFG_DATA_PATH,
+        RAR_CFG_TYPE,
         env::vars(),
         env::var("PATH")
             .unwrap_or_default()

@@ -35,7 +35,7 @@ use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration}
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
-    structs::{SConfig, SRole, STask},
+    structs::{SPolicy, SRole, STask},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -760,7 +760,7 @@ impl Default for Opt {
 #[derive(Debug, Clone)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
-    roles: Option<Rc<RefCell<SConfig>>>,
+    roles: Option<Rc<RefCell<SPolicy>>>,
     role: Option<Rc<RefCell<SRole>>>,
     task: Option<Rc<RefCell<STask>>>,
 }
@@ -821,7 +821,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
 
     fn with_roles(
         self,
-        roles: &Rc<RefCell<SConfig>>,
+        roles: &Rc<RefCell<SPolicy>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRoles<S>>
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
@@ -841,7 +841,7 @@ impl OptStack {
     #[builder]
     pub const fn new(
         #[builder(field)] stack: [Option<Rc<RefCell<Opt>>>; 5],
-        roles: Option<Rc<RefCell<SConfig>>>,
+        roles: Option<Rc<RefCell<SPolicy>>>,
         role: Option<Rc<RefCell<SRole>>>,
         task: Option<Rc<RefCell<STask>>>,
     ) -> Self {
@@ -858,7 +858,7 @@ impl OptStack {
     pub fn from_role(role: &Rc<RefCell<SRole>>) -> Self {
         Self::builder().with_role(role).build()
     }
-    pub fn from_roles(roles: &Rc<RefCell<SConfig>>) -> Self {
+    pub fn from_roles(roles: &Rc<RefCell<SPolicy>>) -> Self {
         Self::builder().with_roles(roles).build()
     }
 
@@ -1102,7 +1102,7 @@ mod tests {
 
     #[test]
     fn test_find_in_options() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .options(|opt| {
@@ -1140,7 +1140,7 @@ mod tests {
 
     #[test]
     fn test_env_global_to_task() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1194,7 +1194,7 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     #[test]
     fn test_to_opt() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1445,7 +1445,7 @@ mod tests {
 
     #[test]
     fn test_get_final_env_set_inherit() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1499,7 +1499,7 @@ mod tests {
 
     #[test]
     fn test_get_final_path_inherit() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1570,7 +1570,7 @@ mod tests {
 
     #[test]
     fn test_find_in_options_none() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(STask::builder(1).build())

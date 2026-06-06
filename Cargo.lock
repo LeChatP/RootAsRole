@@ -1149,6 +1149,7 @@ dependencies = [
  "glob",
  "hex",
  "indexmap",
+ "konst 0.4.3",
  "landlock",
  "libc",
  "libpam-sys",

@@ -1,12 +1,16 @@
 use std::env;
-use std::io::Result as IoResult;
-use std::path::{Path, PathBuf};
+use std::io::{self, BufReader, Result as IoResult};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use bon::bon;
+use rar_common::database::versionning::Versioning;
+use rar_common::file::{LockedSettingsFile, RootSettings};
+use rar_common::util::{RAR_CFG_TYPE, StorageMethod};
 
-use crate::helpers::{acquire_global_lock, config_manager::ConfigManager};
-
+use crate::helpers::{
+    RAR_CFG_DATA_PATH, RAR_CFG_PATH, acquire_global_lock, ensure_binary_built, register_cleanup,
+};
 /// Represents the result of running the dosr command
 #[derive(Debug)]
 pub struct CommandResult {
@@ -19,7 +23,8 @@ pub struct CommandResult {
 /// Main test runner that manages the dosr binary and test configurations
 pub struct TestRunner {
     binary_path: PathBuf,
-    config_manager: ConfigManager,
+    rar_cfg_path: String,
+    rar_cfg_type: StorageMethod,
 }
 
 struct UserGroupGuard {
@@ -57,15 +62,20 @@ impl Drop for UserGroupGuard {
 #[allow(clippy::unwrap_used)]
 impl TestRunner {
     /// Creates a new ``TestRunner`` instance and compiles the dosr binary
+    #[builder]
     pub fn new(
-        binary_path: PathBuf,
-        test_config_path: &Path,
+        #[builder(default = RAR_CFG_PATH)] rar_cfg_path: &str,
+        #[builder(default = RAR_CFG_DATA_PATH)] rar_cfg_data_path: &str,
+        #[builder(default = RAR_CFG_TYPE)] rar_cfg_type: StorageMethod,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let config_manager = ConfigManager::new(test_config_path)?;
+        let _lock = acquire_global_lock();
+        let binary_path = ensure_binary_built(rar_cfg_path, rar_cfg_data_path, rar_cfg_type)?;
 
+        register_cleanup();
         Ok(Self {
             binary_path,
-            config_manager,
+            rar_cfg_path: rar_cfg_path.to_string(),
+            rar_cfg_type,
         })
     }
 
@@ -74,19 +84,35 @@ impl TestRunner {
     pub fn run_dosr(
         &self,
         #[builder(start_fn)] args: &[&str],
-        fixture_name: Option<&str>,
+        rar_cfg_data_path: Option<&str>,
         env_vars: Option<&[(&str, &str)]>,
         users: Option<&[&str]>,
         groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
         let _lock = acquire_global_lock();
 
-        // If a fixture is specified, update the configuration
-        if let Some(fixture) = fixture_name
-            && let Err(e) = self.config_manager.load_fixture(Path::new(fixture))
-        {
-            eprintln!("Warning: Failed to load fixture '{fixture}': {e}");
+        if let Some(data_path) = rar_cfg_data_path {
+            let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
+                LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {
+                    let settings: Versioning<RootSettings> = match self.rar_cfg_type {
+                        StorageMethod::JSON => serde_json::from_reader(file)?,
+                        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
+                            .map_err(io::Error::other)?,
+                    };
+                    Ok(settings)
+                })?;
+            settings_file
+                .data
+                .data
+                .storage
+                .settings
+                .get_or_insert_default()
+                .path = Some(data_path.into());
+            settings_file
+                .save(self.rar_cfg_type, false)
+                .map_err(|e| io::Error::other(e.to_string()))?;
         }
+
         let mut guard = UserGroupGuard::new();
         if let Some(user_list) = users {
             // Check if users exist and create them if necessary
@@ -134,14 +160,7 @@ impl TestRunner {
                 }
             }
         }
-        let mut command = Command::new(&self.binary_path);
-        // Ensure the child process uses the test configuration file we manage
-        command.env(
-            "RAR_CFG_PATH",
-            self.config_manager.config_file_path().to_str().unwrap(),
-        );
-        println!("Running command: {command:?} {args:?}");
-        command
+        let output = Command::new(&self.binary_path)
             .args(args)
             .envs(
                 env::vars().chain(
@@ -152,9 +171,8 @@ impl TestRunner {
                 ),
             )
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let output = command.output()?;
+            .stderr(Stdio::piped())
+            .output()?;
         println!(
             "Output : {}",
             String::from_utf8(output.stdout.clone()).unwrap()
@@ -163,8 +181,6 @@ impl TestRunner {
             "Error  : {}",
             String::from_utf8(output.stderr.clone()).unwrap()
         );
-
-        // `guard` will clean up created users and groups in its Drop implementation
 
         Ok(CommandResult {
             success: output.status.success(),

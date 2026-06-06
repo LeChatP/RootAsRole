@@ -19,10 +19,10 @@ pub mod options;
 pub mod ser;
 pub mod structs;
 pub mod versionning;
+pub mod warn;
 
 #[allow(clippy::missing_errors_doc)]
 #[derive(Debug, Default, Builder)]
-#[builder(on(_, overwritable))]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,

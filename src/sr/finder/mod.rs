@@ -3,6 +3,7 @@
 /// Only the settings that are needed are kept in memory
 use std::{
     collections::HashMap,
+    fs,
     io::BufReader,
     path::{Path, PathBuf},
 };
@@ -13,20 +14,23 @@ use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, D
 use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
-    Cred, StorageMethod,
+    Cred,
     database::{
         actor::{DGroupType, DGroups},
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, WorkdirBehavior},
         score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
     },
-    util::{WORKDIR_BEHAVIOR, all_paths_from_env, read_with_privileges},
+    util::{StorageMethod, WORKDIR_BEHAVIOR, all_paths_from_env, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::{de::cred::CredOwnedData, options::DWorkdirSet},
+    finder::{
+        de::{cred::CredOwnedData, settings::read_storage},
+        options::DWorkdirSet,
+    },
 };
 
 pub mod api;
@@ -87,62 +91,117 @@ pub struct BestExecSettings {
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
-    path: &'a P,
+    rar_cfg_path: P,
+    rar_cfg_data_path: P,
+    rar_cfg_type: StorageMethod,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     env_path: &[&str],
 ) -> SrResult<BestExecSettings>
 where
     P: AsRef<Path>,
 {
-    let settings_file = rar_common::get_settings(path).map_err(|e| {
-        debug!("Policy unreachable: {e}");
-        SrError::ConfigurationError
-    })?;
-    let config_finder_deserializer = ConfigFinderDeserializer {
-        cli,
-        cred,
-        env_path,
-    };
+    let env_vars: Vec<(String, String)> = env_vars
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+    let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
     let file_path = settings_file
-        .storage
+        .data
+        .data
         .settings
         .unwrap_or_default()
         .path
-        .ok_or(SrError::ConfigurationError)?;
-    let file = read_with_privileges(&file_path)?;
-    let reader = BufReader::new(file);
-    match settings_file.storage.method {
-        StorageMethod::CBOR => {
-            let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
-            Ok(BestExecSettings::retrieve_settings(
-                cli,
-                cred,
-                &config_finder_deserializer
-                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                    .map_err(|e| {
-                        debug!("Error deserializing CBOR: {e}");
-                        SrError::ConfigurationError
-                    })?,
-                env_vars,
-                env_path,
-            )?)
+        .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
+    let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
+        let config_finder_deserializer = ConfigFinderDeserializer {
+            cli,
+            cred,
+            env_path,
+        };
+        let file = read_with_privileges(file_path)?;
+        let reader = BufReader::new(file);
+        match settings_file.data.data.method {
+            StorageMethod::CBOR => {
+                let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
+                Ok(BestExecSettings::retrieve_settings(
+                    cli,
+                    cred,
+                    &config_finder_deserializer
+                        .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
+                        .map_err(|e| {
+                            debug!("Error deserializing CBOR: {e}");
+                            SrError::ConfigurationError
+                        })?,
+                    env_vars.iter().cloned(),
+                    env_path,
+                )?)
+            }
+            StorageMethod::JSON => {
+                let io_reader = serde_json::de::IoRead::new(reader);
+                Ok(BestExecSettings::retrieve_settings(
+                    cli,
+                    cred,
+                    &config_finder_deserializer
+                        .deserialize(&mut serde_json::Deserializer::new(io_reader))
+                        .map_err(|e| {
+                            debug!("Error deserializing JSON: {e}");
+                            SrError::ConfigurationError
+                        })?,
+                    env_vars.iter().cloned(),
+                    env_path,
+                )?)
+            }
         }
-        StorageMethod::JSON => {
-            let io_reader = serde_json::de::IoRead::new(reader);
-            Ok(BestExecSettings::retrieve_settings(
-                cli,
-                cred,
-                &config_finder_deserializer
-                    .deserialize(&mut serde_json::Deserializer::new(io_reader))
-                    .map_err(|e| {
-                        debug!("Error deserializing JSON: {e}");
-                        SrError::ConfigurationError
-                    })?,
-                env_vars,
-                env_path,
-            )?)
+    };
+
+    if file_path.is_dir() {
+        let mut entries: Vec<PathBuf> = fs::read_dir(&file_path)
+            .map_err(|e| {
+                debug!(
+                    "Failed to read policy directory {}: {e}",
+                    file_path.display()
+                );
+                SrError::ConfigurationError
+            })?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .collect();
+        entries.sort();
+
+        let mut best: Option<BestExecSettings> = None;
+        let mut parsed_any = false;
+
+        for entry in entries {
+            let result = parse_file(&entry);
+            match result {
+                Ok(settings) => {
+                    parsed_any = true;
+                    if best.as_ref().is_none_or(|best_settings| {
+                        settings.score.better_fully(&best_settings.score)
+                    }) {
+                        best = Some(settings);
+                    }
+                }
+                Err(SrError::PermissionDenied) => {
+                    parsed_any = true;
+                }
+                Err(err) => {
+                    debug!("Skipping policy file {}: {err}", entry.display());
+                }
+            }
         }
+
+        return best.ok_or({
+            if parsed_any {
+                SrError::PermissionDenied
+            } else {
+                SrError::ConfigurationError
+            }
+        });
     }
+
+    parse_file(&file_path)
 }
 
 impl BestExecSettings {
