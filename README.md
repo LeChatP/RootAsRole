@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./book/src/assets/logo/svg/color/logo-mascot-full.svg" width=50%>
+  <img src="./assets/logo/svg/color/logo-mascot-full.svg" width=50%>
  </p>
  <p align="center">
   
