@@ -23,13 +23,13 @@ impl Warn for RootSettings {
         F: FnMut(String),
     {
         self.storage.warn_anomalies(&mut warn);
-        if let Some(config) = &self.config {
-            config.as_ref().borrow().warn_anomalies(&mut warn);
-        } else if self
-            .storage
-            .settings
-            .as_ref()
-            .is_none_or(|f| f.path.is_none())
+        self.config.as_ref().borrow().warn_anomalies(&mut warn);
+        if self.config.as_ref().borrow().is_empty()
+            && self
+                .storage
+                .settings
+                .as_ref()
+                .is_none_or(|f| f.path.is_none())
         {
             warn("Warning: No configuration section found".to_string());
         }

@@ -9,7 +9,7 @@ use rar_common::file::{LockedSettingsFile, RootSettings};
 use rar_common::util::{RAR_CFG_TYPE, StorageMethod};
 
 use crate::helpers::{
-    RAR_CFG_DATA_PATH, RAR_CFG_PATH, acquire_global_lock, ensure_binary_built, register_cleanup,
+    FileLock, RAR_CFG_DATA_PATH, RAR_CFG_PATH, ensure_binary_built, register_cleanup,
 };
 /// Represents the result of running the dosr command
 #[derive(Debug)]
@@ -25,6 +25,7 @@ pub struct TestRunner {
     binary_path: PathBuf,
     rar_cfg_path: String,
     rar_cfg_type: StorageMethod,
+    _lock: FileLock,
 }
 
 struct UserGroupGuard {
@@ -68,7 +69,7 @@ impl TestRunner {
         #[builder(default = RAR_CFG_DATA_PATH)] rar_cfg_data_path: &str,
         #[builder(default = RAR_CFG_TYPE)] rar_cfg_type: StorageMethod,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let _lock = acquire_global_lock();
+        let lock = FileLock::new("target/tmp/dosr_integration.lock")?;
         let binary_path = ensure_binary_built(rar_cfg_path, rar_cfg_data_path, rar_cfg_type)?;
 
         register_cleanup();
@@ -76,6 +77,7 @@ impl TestRunner {
             binary_path,
             rar_cfg_path: rar_cfg_path.to_string(),
             rar_cfg_type,
+            _lock: lock,
         })
     }
 
@@ -89,8 +91,6 @@ impl TestRunner {
         users: Option<&[&str]>,
         groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
-        let _lock = acquire_global_lock();
-
         if let Some(data_path) = rar_cfg_data_path {
             let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
                 LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {

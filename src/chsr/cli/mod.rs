@@ -163,7 +163,7 @@ mod tests {
                 }
                 Level::Global => {
                     let settings_ref = self.settings.get_root();
-                    let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+                    let config_ref = settings_ref.config.as_ref().borrow();
                     config_ref.options.as_ref().unwrap().clone()
                 }
                 _ => panic!("Invalid level"),
@@ -172,7 +172,7 @@ mod tests {
 
         fn get_role(&self, role_index: usize) -> Rc<RefCell<SRole>> {
             let settings_ref = self.settings.get_root();
-            let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+            let config_ref = settings_ref.config.as_ref().borrow();
             config_ref[role_index].clone()
         }
 

@@ -404,6 +404,11 @@ impl SPolicy {
         }
         c
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_empty() && self.options.is_none() && self.extra_fields.is_empty()
+    }
 }
 
 pub trait RoleGetter {

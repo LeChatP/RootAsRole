@@ -42,22 +42,12 @@ pub fn convert(
                 return Ok(false);
             }
             if from == rar_data_path {
-                settings
-                    .get_root()
-                    .config
-                    .as_ref()
-                    .expect("A configuration should be loaded")
-                    .clone()
+                settings.get_root().config.clone()
             } else {
                 FileSettings::read_policy(from, from_type)?.data.data
             }
         }
-        None => settings
-            .get_root()
-            .config
-            .as_ref()
-            .expect("A configuration should be loaded")
-            .clone(),
+        None => settings.get_root().config.clone(),
     };
     println!(
         "Config : {}",

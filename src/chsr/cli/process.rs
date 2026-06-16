@@ -42,11 +42,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             inputs.convert_reconfigure,
         );
     }
-    let rconfig = storage
-        .get_root()
-        .config
-        .as_ref()
-        .ok_or("No configuration loaded")?;
+    let rconfig = &storage.get_root().config;
     match inputs {
         Inputs {
             action: InputAction::Help,

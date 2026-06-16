@@ -135,7 +135,8 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
 pub struct RootSettings {
     pub storage: SettingsContent,
     #[serde(flatten)]
-    pub config: Option<Rc<RefCell<SPolicy>>>,
+    #[builder(default)]
+    pub config: Rc<RefCell<SPolicy>>,
 }
 
 pub type ConfigMap = Vec<LockedPolicy>;
@@ -229,7 +230,7 @@ impl FileSettings {
         P: AsRef<Path>,
     {
         let rar_cfg_data_path = rar_cfg_data_path.as_ref().to_path_buf();
-        let mut root =
+        let root =
             LockedSettingsFile::open(rar_cfg_path.as_ref(), options, write, |path, file| {
                 debug!("Loading root settings from {}", path.display());
                 let mut settings: Versioning<RootSettings> = match rar_cfg_type {
@@ -242,9 +243,7 @@ impl FileSettings {
                             io::Error::new(io::ErrorKind::InvalidData, e)
                         })?,
                 };
-                if let Some(config) = settings.data.config.as_ref() {
-                    Self::make_weak_config(config);
-                }
+                Self::make_weak_config(&settings.data.config);
                 settings.upgrade_version(ROOT_MIGRATIONS).map_err(|e| {
                     debug!("Failed to upgrade root settings: {e}");
                     io::Error::other(e.to_string())
@@ -276,14 +275,13 @@ impl FileSettings {
                 }
             })
         {
-            if root.data.data.config.is_some() {
+            if !root.data.data.config.as_ref().borrow().is_empty() {
                 warn!(
                     "A policy has been detected in {}, but a different path is specified. 
                     Ignoring the policy and keeping only the ones in the specified path: {}",
                     rar_cfg_path.as_ref().display(),
                     path.display()
                 );
-                root.data.data.config = None;
             }
             if path.is_dir() {
                 debug!("Loading settings from directory {}", path.display());
@@ -440,7 +438,7 @@ impl FileSettings {
     #[must_use]
     pub fn get(&self, path: &Path) -> Option<&Rc<RefCell<SPolicy>>> {
         if path == RAR_CFG_PATH {
-            self.root.data.data.config.as_ref()
+            Some(&self.root.data.data.config)
         } else {
             self.map
                 .iter()

@@ -2,12 +2,16 @@ pub mod test_runner;
 
 use std::error::Error;
 use std::ffi::CString;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::os::unix::process::parent_id;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard, Once, OnceLock};
+use std::sync::Once;
 use std::{env, fs};
 
 use nix::unistd::{User, setgid, setgroups, setuid, unlink};
@@ -49,13 +53,38 @@ fn cleanup_temp_files() {
     }
 }
 
-static GLOBAL_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+pub struct FileLock {
+    file: File,
+}
 
-pub fn acquire_global_lock() -> MutexGuard<'static, ()> {
-    GLOBAL_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("Failed to acquire global lock")
+impl FileLock {
+    pub fn new<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
+        // Open or create the lock file without truncating it
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
+
+        let fd = file.as_raw_fd();
+
+        let result = unsafe { libc::flock(fd, libc::LOCK_EX) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        Ok(Self { file })
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let fd = self.file.as_raw_fd();
+        unsafe {
+            libc::flock(fd, libc::LOCK_UN);
+        }
+    }
 }
 
 fn ensure_binary_built(
@@ -102,13 +131,15 @@ fn build_dosr_binary(
     rar_cfg_data_path: &str,
     rar_cfg_type: StorageMethod,
 ) -> Result<(), Box<dyn Error>> {
-    let user = User::from_name(
-        &std::env::var("RAR_USER")
-            .or_else(|_| std::env::var("SUDO_USER"))
-            .expect("RAR_USER not set"),
-    )
-    .unwrap_or(None)
-    .ok_or("User not found")?;
+    let username = std::env::var("RAR_USER")
+        .or_else(|_| std::env::var("SUDO_USER"))
+        .expect("RAR_USER not set");
+
+    println!("DEBUG: Recherche de l'utilisateur système nommé : '{username}'");
+
+    let user = User::from_name(&username)
+        .unwrap_or(None)
+        .ok_or_else(|| format!("User '{username}' not found in /etc/passwd"))?;
     let user_name_cstr = CString::new(user.name.clone())
         .inspect_err(|e| eprintln!("Failed to create CString: {e}"))?;
     let groups = nix::unistd::getgrouplist(user_name_cstr.as_c_str(), user.gid)
