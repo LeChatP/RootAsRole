@@ -13,7 +13,6 @@
 
 
 </p>
-<!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
 # RootAsRole — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
@@ -149,7 +148,7 @@ RootAsRole **3.1.0** introduced **CBOR** support, significantly boosting perform
 When using **Ansible** (or any automation tool), every task that uses `become: true` will invoke `dosr` on the target host.
 With **RootAsRole (RaR)**, each role and task introduces additional access control logic --- this doesn’t slow you down.
 
-💡 **Here’s the reality**: You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
+💡 You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
 
 That means:
 - You can define thousands of fine-grained rules
@@ -205,3 +204,9 @@ This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airb
 
 
 ## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
+<!-- markdownlint-capture -->
+<!-- markdownlint-disable -->
+<p align="center">
+  <img src="./assets/logo/svg/color/logo-vertical.svg" width=30%>
+ </p>
+<!-- markdownlint-restore -->
