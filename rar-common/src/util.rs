@@ -193,8 +193,8 @@ impl StorageMethod {
     #[must_use]
     pub const fn const_parse(s: &str) -> Self {
         match s {
-            _ if eq_str(s, "cbor") => Self::CBOR,
-            _ if eq_str(s, "json") => Self::JSON,
+            _ if eq_str(s, "cbor") | eq_str(s, "CBOR") => Self::CBOR,
+            _ if eq_str(s, "json") | eq_str(s, "JSON") => Self::JSON,
             _ => panic!("fail to parse StorageMethod from string: invalid value"),
         }
     }

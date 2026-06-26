@@ -3,12 +3,11 @@ mod helpers;
 #[cfg(test)]
 mod tests {
     use pcre2::bytes::RegexBuilder;
-    use serial_test::serial;
+    use test_log::test;
 
     use crate::helpers::test_runner::TestRunner;
 
     #[test]
-    #[serial]
     fn test_dosr_help() {
         let runner = TestRunner::builder()
             .build()
@@ -16,6 +15,7 @@ mod tests {
         let result = runner
             .run_dosr(&["--help"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --help");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -24,7 +24,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_version() {
         let runner = TestRunner::builder()
             .build()
@@ -32,6 +31,7 @@ mod tests {
         let result = runner
             .run_dosr(&["--version"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --version");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -44,7 +44,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_role_selection() {
         let runner = TestRunner::builder()
             .build()
@@ -53,6 +52,7 @@ mod tests {
             .run_dosr(&["--role", "B", "env"])
             .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with invalid role");
         assert!(
             result.success,
@@ -65,7 +65,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_task_selection() {
         let runner = TestRunner::builder()
             .build()
@@ -86,7 +85,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_invalid_role() {
         let runner = TestRunner::builder()
             .build()
@@ -95,6 +93,7 @@ mod tests {
             .run_dosr(&["--role", "C", "env"])
             .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with invalid role");
         assert!(!result.success, "Command unexpectedly succeeded");
         assert!(!result.stdout.contains("ROLE="));
@@ -104,7 +103,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override() {
         let runner = TestRunner::builder()
             .build()
@@ -119,6 +117,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -133,7 +132,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_not_overriden() {
         let runner = TestRunner::builder()
             .build()
@@ -148,6 +146,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -162,7 +161,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_denied() {
         let runner = TestRunner::builder()
             .build()
@@ -177,6 +175,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(!result.success, "Command unexpectedly succeeded");
         assert!(!result.stdout.contains("FOO=BAR"));
@@ -188,7 +187,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_denied_not_overriden() {
         env_logger::builder()
             .filter_level(log::LevelFilter::Trace)
@@ -206,6 +204,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -220,7 +219,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_user() {
         let runner = TestRunner::builder()
             .build()
@@ -230,6 +228,7 @@ mod tests {
             .rar_cfg_data_path("tests/fixtures/user_group.json")
             .users(&["nobody"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr -u nobody id");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -238,7 +237,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_group() {
         let runner = TestRunner::builder()
             .build()
@@ -249,6 +247,7 @@ mod tests {
             .users(&["nobody"])
             .groups(&["nobody"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr -u nobody id");
         if !result.success {
             eprintln!("stderr: {}", result.stderr);
@@ -261,7 +260,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_user_and_group() {
         let runner = TestRunner::builder()
             .build()
@@ -301,7 +299,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_auth() {
         if env!("RAR_PAM_SERVICE") == "dosr" {
             println!("Skipping test_dosr_auth because RAR_PAM_SERVICE is set to original dosr");
@@ -314,6 +311,7 @@ mod tests {
             .run_dosr(&["/usr/bin/true"])
             .rar_cfg_data_path("tests/fixtures/perform_auth.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with auth role");
         assert!(
             result.success,
@@ -340,7 +338,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_info() {
         let runner = TestRunner::builder()
             .build()
@@ -349,6 +346,7 @@ mod tests {
             .run_dosr(&["--info", "-r", "A", "cat", "/proc/self/status"])
             .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --info");
         assert!(result.success, "Command failed: {}", result.stderr);
         // it must print execution info, not executing the command

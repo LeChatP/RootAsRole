@@ -536,11 +536,12 @@ mod tests {
                     .build(),
             )
             .build();
-        let mut config =
-            LockedSettingsFile::open_write(PathBuf::from(value), |_, _| Ok(settings.clone()))
-                .unwrap();
+        let mut config = LockedSettingsFile::open_write(PathBuf::from(value), |_, _| {
+            Ok(Versioning::new(settings.clone()))
+        })
+        .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         let full = FileSettings::read_all(value, value, StorageMethod::JSON).unwrap();
         assert_eq!(*full.get_root(), settings);
     }
@@ -584,10 +585,12 @@ mod tests {
                     .build(),
             )
             .build();
-        let mut file =
-            LockedSettingsFile::open_write(test_file_path, |_, _| Ok(settings_config.clone()))
-                .unwrap();
+        let mut file = LockedSettingsFile::open_write(test_file_path, |_, _| {
+            Ok(Versioning::new(settings_config.clone()))
+        })
+        .unwrap();
         file.save(StorageMethod::JSON, false).unwrap();
+        drop(file); // yes, it is ugly.
         let config = SPolicy::builder()
             .role(
                 SRole::builder("test_role")
@@ -605,14 +608,21 @@ mod tests {
                     .build(),
             )
             .build();
-        let mut file =
-            LockedSettingsFile::open_write(external_file_path, |_, _| Ok(config.clone())).unwrap();
+        let mut file = LockedSettingsFile::open_write(external_file_path, |_, _| {
+            Ok(Versioning::new(config.clone()))
+        })
+        .unwrap();
         file.save(StorageMethod::JSON, false).unwrap();
+        let data = file.data.clone();
+        drop(file); // yes, it is ugly.
 
         let full = FileSettings::read_all(test_file_path, external_file_path, StorageMethod::JSON)
             .unwrap();
         assert_eq!(full.get_policies().len(), 1);
-        assert_eq!(*full.get_policies()[0].borrow(), *file.data.borrow());
+        assert_eq!(
+            *full.get_policies()[0].borrow(),
+            *data.data.as_ref().borrow()
+        );
     }
 
     #[test]
@@ -700,21 +710,23 @@ mod tests {
                     )
                     .build(),
             )
-            .config(
-                SPolicy::builder()
-                    .role(
-                        SRole::builder("test_role")
-                            .actor(SActor::user(0).build())
-                            .task(
-                                STask::builder("test_task")
-                                    .cred(SCredentials::builder().setuid(0).setgid(0).build())
-                                    .commands(
-                                        SCommands::builder(SetBehavior::None)
-                                            .add(vec![SCommand::Simple(
-                                                "/usr/bin/true".to_string(),
-                                            )])
-                                            .build(),
-                                    )
+            .build();
+        let mut config = LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| {
+            Ok(settings_config.clone())
+        })
+        .unwrap();
+        config.save(StorageMethod::JSON, false).unwrap();
+        drop(config); // yes, it is ugly.
+        let policy = SPolicy::builder()
+            .role(
+                SRole::builder("test_role")
+                    .actor(SActor::user(0).build())
+                    .task(
+                        STask::builder("test_task")
+                            .cred(SCredentials::builder().setuid(0).setgid(0).build())
+                            .commands(
+                                SCommands::builder(SetBehavior::None)
+                                    .add(vec![SCommand::Simple("/usr/bin/true".to_string())])
                                     .build(),
                             )
                             .build(),
@@ -722,12 +734,12 @@ mod tests {
                     .build(),
             )
             .build();
-        let mut config = LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| {
-            Ok(settings_config.clone())
+        let mut config = LockedSettingsFile::open_write(PathBuf::from(external_file), |_, _| {
+            Ok(Versioning::new(policy.clone()))
         })
         .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         // assert that external_file contains /usr/bin/true
         let mut file = read_with_privileges(external_file).unwrap();
         let mut content = String::new();
@@ -762,45 +774,50 @@ mod tests {
             }
         });
 
-        let settings = RootSettings::builder()
-            .storage(
-                SettingsContent::builder()
-                    .method(StorageMethod::CBOR)
-                    .settings(
-                        RemoteStorageSettings::builder()
-                            .path(external_file)
-                            .not_immutable()
-                            .build(),
-                    )
-                    .build(),
-            )
-            .config(
-                SPolicy::builder()
-                    .role(
-                        SRole::builder("test_role")
-                            .actor(SActor::user(0).build())
-                            .task(
-                                STask::builder("test_task")
-                                    .cred(SCredentials::builder().setuid(0).setgid(0).build())
-                                    .commands(
-                                        SCommands::builder(SetBehavior::None)
-                                            .add(vec![SCommand::Simple(
-                                                "/usr/bin/true".to_string(),
-                                            )])
-                                            .build(),
-                                    )
-                                    .build(),
-                            )
-                            .build(),
-                    )
-                    .build(),
-            )
-            .build();
+        let settings = Versioning::new(
+            RootSettings::builder()
+                .storage(
+                    SettingsContent::builder()
+                        .method(StorageMethod::CBOR)
+                        .settings(
+                            RemoteStorageSettings::builder()
+                                .path(external_file)
+                                .not_immutable()
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        );
         let mut config =
             LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| Ok(settings.clone()))
                 .unwrap();
         config.save(StorageMethod::CBOR, false).unwrap();
-
+        drop(config); // yes, it is ugly.
+        let policy = Versioning::new(
+            SPolicy::builder()
+                .role(
+                    SRole::builder("test_role")
+                        .actor(SActor::user(0).build())
+                        .task(
+                            STask::builder("test_task")
+                                .cred(SCredentials::builder().setuid(0).setgid(0).build())
+                                .commands(
+                                    SCommands::builder(SetBehavior::None)
+                                        .add(vec![SCommand::Simple("/usr/bin/true".to_string())])
+                                        .build(),
+                                )
+                                .build(),
+                        )
+                        .build(),
+                )
+                .build(),
+        );
+        let mut config =
+            LockedSettingsFile::open_write(PathBuf::from(external_file), |_, _| Ok(policy.clone()))
+                .unwrap();
+        config.save(StorageMethod::CBOR, false).unwrap();
+        drop(config); // yes, it is ugly.
         // Assert that external_file is a binary file with CBOR format
         let mut file = read_with_privileges(external_file).unwrap();
         let mut content = Vec::new();
@@ -885,11 +902,11 @@ mod tests {
             LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| Ok(settings.clone()))
                 .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         // Test opening existing file
         let locked_file = LockedSettingsFile::open_read(PathBuf::from(test_file), |_, file| {
-            let versioned: Versioning<RootSettings> = serde_json::from_reader(file)?;
-            Ok(versioned.data)
+            let versioned: RootSettings = serde_json::from_reader(file)?;
+            Ok(versioned)
         })
         .unwrap();
 
@@ -929,11 +946,11 @@ mod tests {
             LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| Ok(settings.clone()))
                 .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         // Test opening existing file with write mode - should work normally for non-immutable files
         let result = LockedSettingsFile::open_write(PathBuf::from(test_file), |_, file| {
-            let versioned: Versioning<RootSettings> = serde_json::from_reader(file)?;
-            Ok(versioned.data)
+            let versioned: RootSettings = serde_json::from_reader(file)?;
+            Ok(versioned)
         });
         match result {
             Ok(locked_file) => {
@@ -1014,11 +1031,11 @@ mod tests {
         })
         .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         // Test opening file with separate config
         let locked_file = LockedSettingsFile::open_read(PathBuf::from(test_file), |_, file| {
-            let versioned: Versioning<RootSettings> = serde_json::from_reader(file)?;
-            Ok(versioned.data)
+            let versioned: RootSettings = serde_json::from_reader(file)?;
+            Ok(versioned)
         })
         .unwrap();
 
@@ -1046,10 +1063,8 @@ mod tests {
 
         // Test opening file with invalid JSON - should fall back to default
         let locked_file = LockedSettingsFile::open_read(PathBuf::from(test_file), |_, file| {
-            match serde_json::from_reader::<_, Versioning<RootSettings>>(file) {
-                Ok(versioned) => Ok(versioned.data),
-                Err(_) => Ok(RootSettings::default()),
-            }
+            serde_json::from_reader::<_, RootSettings>(file)
+                .map_or_else(|_| Ok(RootSettings::default()), Ok)
         })
         .unwrap();
 
@@ -1083,11 +1098,11 @@ mod tests {
             LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| Ok(settings.clone()))
                 .unwrap();
         config.save(StorageMethod::JSON, false).unwrap();
-
+        drop(config); // yes, it is ugly.
         // Test opening file in read-only mode
         let locked_file = LockedSettingsFile::open_read(PathBuf::from(test_file), |_, file| {
-            let versioned: Versioning<RootSettings> = serde_json::from_reader(file)?;
-            Ok(versioned.data)
+            let versioned: RootSettings = serde_json::from_reader(file)?;
+            Ok(versioned)
         })
         .unwrap();
 
@@ -1179,6 +1194,7 @@ mod tests {
             LockedSettingsFile::open_write(PathBuf::from(test_file), |_, _| Ok(settings.clone()))
                 .unwrap();
         locked.save(StorageMethod::JSON, false).unwrap();
+        drop(locked); // yes, it is ugly.
 
         // Read back the file content
         let mut file = File::open(test_file).unwrap();

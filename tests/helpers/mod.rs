@@ -11,47 +11,20 @@ use std::os::unix::process::parent_id;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Once;
+use std::process::Stdio;
 use std::{env, fs};
 
-use nix::unistd::{User, setgid, setgroups, setuid, unlink};
+use capctl::Cap;
+use nix::unistd::User;
+use nix::unistd::getuid;
+use nix::unistd::setgid;
+use nix::unistd::setgroups;
+use nix::unistd::setuid;
 use rar_common::util::StorageMethod;
 
 const TEMP_LIFETIME_BUILD_STATE: &str = "target/tmp/dosr_integration_test_build";
 const RAR_CFG_PATH: &str = "target/rootasrole.json";
 const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
-
-static CLEANUP_REGISTERED: Once = Once::new();
-
-fn register_cleanup() {
-    CLEANUP_REGISTERED.call_once(|| {
-        // Also register for normal exit
-        extern "C" fn cleanup_handler() {
-            cleanup_temp_files();
-        }
-        // Register cleanup to happen at program exit
-        std::panic::set_hook(Box::new(|_| {
-            cleanup_temp_files();
-        }));
-
-        unsafe {
-            libc::atexit(cleanup_handler);
-        }
-    });
-}
-
-fn cleanup_temp_files() {
-    let temp_file = PathBuf::from(TEMP_LIFETIME_BUILD_STATE);
-    if temp_file.exists()
-        && let Err(e) = unlink(&temp_file)
-    {
-        eprintln!(
-            "Warning: Failed to clean up temp file {}: {}",
-            temp_file.display(),
-            e
-        );
-    }
-}
 
 pub struct FileLock {
     file: File,
@@ -131,15 +104,20 @@ fn build_dosr_binary(
     rar_cfg_data_path: &str,
     rar_cfg_type: StorageMethod,
 ) -> Result<(), Box<dyn Error>> {
-    let username = std::env::var("RAR_USER")
-        .or_else(|_| std::env::var("SUDO_USER"))
-        .expect("RAR_USER not set");
+    let user: User = std::env::var("RAR_USER")
+        .ok()
+        .and_then(|s| User::from_name(&s).ok().flatten())
+        .or_else(|| {
+            std::env::var("SUDO_USER")
+                .ok()
+                .and_then(|s| User::from_name(&s).ok().flatten())
+        })
+        .unwrap_or_else(|| {
+            nix::unistd::User::from_uid(getuid())
+                .expect("Failed to get current user")
+                .expect("Current user not found")
+        });
 
-    println!("DEBUG: Recherche de l'utilisateur système nommé : '{username}'");
-
-    let user = User::from_name(&username)
-        .unwrap_or(None)
-        .ok_or_else(|| format!("User '{username}' not found in /etc/passwd"))?;
     let user_name_cstr = CString::new(user.name.clone())
         .inspect_err(|e| eprintln!("Failed to create CString: {e}"))?;
     let groups = nix::unistd::getgrouplist(user_name_cstr.as_c_str(), user.gid)
@@ -162,15 +140,26 @@ fn build_dosr_binary(
     unsafe {
         command.pre_exec(move || {
             let map_err = |e: nix::Error| std::io::Error::from_raw_os_error(e as i32);
-            setgroups(&groups).map_err(map_err)?;
-            setgid(gid).map_err(map_err)?;
-            setuid(uid).map_err(map_err)?;
+            if let Ok(mut current) = capctl::caps::CapState::get_current()
+                && current.permitted.has(Cap::SETUID)
+                && current.permitted.has(Cap::SETGID)
+            {
+                current.effective.add(Cap::SETUID);
+                current.effective.add(Cap::SETGID);
+                setgroups(&groups).map_err(map_err)?;
+                setgid(gid).map_err(map_err)?;
+                setuid(uid).map_err(map_err)?;
+            }
+
             Ok(())
         });
     }
     let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
-        .inspect_err(|e| eprintln!("Failed to execute cargo build: {e}"))?;
+        .inspect_err(|e| eprintln!("Failed to execute cargo build: {e}"));
+    let output = output?;
     if !output.status.success() {
         std::io::stderr().write_all(&output.stderr).ok();
         return Err("Failed to compile dosr binary".into());

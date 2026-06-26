@@ -5,6 +5,36 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug integration test 'integration_tests'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=integration_tests",
+                    "--package=rootasrole",
+                    "--all-features"
+                ]
+            }
+        },
+
+                {
+            "name": "Debug tests",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=rootasrole-core",
+                    "--all-features",
+                    "${input:TestName}",
+                    
+                ]
+            }
+        },
+    
+    
+        {
             "type": "lldb",
             "request": "launch",
             "name": "Launch",
@@ -14,5 +44,12 @@
         }
 
         
+    ],
+    "inputs": [
+        {
+            "id": "TestName",
+            "type": "promptString",
+            "description": "Enter the name of the test to run"
+        }
     ]
 }

@@ -1,5 +1,6 @@
 use std::env;
-use std::io::{self, BufReader, Result as IoResult};
+use std::fs::File;
+use std::io::{self, BufReader, Result as IoResult, read_to_string};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -8,9 +9,7 @@ use rar_common::database::versionning::Versioning;
 use rar_common::file::{LockedSettingsFile, RootSettings};
 use rar_common::util::{RAR_CFG_TYPE, StorageMethod};
 
-use crate::helpers::{
-    FileLock, RAR_CFG_DATA_PATH, RAR_CFG_PATH, ensure_binary_built, register_cleanup,
-};
+use crate::helpers::{FileLock, RAR_CFG_DATA_PATH, RAR_CFG_PATH, ensure_binary_built};
 /// Represents the result of running the dosr command
 #[derive(Debug)]
 pub struct CommandResult {
@@ -25,7 +24,7 @@ pub struct TestRunner {
     binary_path: PathBuf,
     rar_cfg_path: String,
     rar_cfg_type: StorageMethod,
-    _lock: FileLock,
+    lock: FileLock,
 }
 
 struct UserGroupGuard {
@@ -59,6 +58,12 @@ impl Drop for UserGroupGuard {
     }
 }
 
+impl Drop for TestRunner {
+    fn drop(&mut self) {
+        self.lock.file.unlock().expect("Not unlocked");
+    }
+}
+
 #[bon]
 #[allow(clippy::unwrap_used)]
 impl TestRunner {
@@ -72,17 +77,17 @@ impl TestRunner {
         let lock = FileLock::new("target/tmp/dosr_integration.lock")?;
         let binary_path = ensure_binary_built(rar_cfg_path, rar_cfg_data_path, rar_cfg_type)?;
 
-        register_cleanup();
         Ok(Self {
             binary_path,
             rar_cfg_path: rar_cfg_path.to_string(),
             rar_cfg_type,
-            _lock: lock,
+            lock,
         })
     }
 
     /// Run the dosr command with a specific policy fixture
     #[builder]
+    #[allow(clippy::too_many_lines)]
     pub fn run_dosr(
         &self,
         #[builder(start_fn)] args: &[&str],
@@ -91,13 +96,15 @@ impl TestRunner {
         users: Option<&[&str]>,
         groups: Option<&[&str]>,
     ) -> IoResult<CommandResult> {
+        println!("Running {} with args: {args:?}", self.binary_path.display());
         if let Some(data_path) = rar_cfg_data_path {
             let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
                 LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {
                     let settings: Versioning<RootSettings> = match self.rar_cfg_type {
-                        StorageMethod::JSON => serde_json::from_reader(file)?,
-                        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-                            .map_err(io::Error::other)?,
+                        StorageMethod::JSON => serde_json::from_reader(file).unwrap_or_default(),
+                        StorageMethod::CBOR => {
+                            cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
+                        }
                     };
                     Ok(settings)
                 })?;
@@ -108,6 +115,20 @@ impl TestRunner {
                 .settings
                 .get_or_insert_default()
                 .path = Some(data_path.into());
+            settings_file
+                .save(self.rar_cfg_type, false)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        } else {
+            let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
+                LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {
+                    let settings: Versioning<RootSettings> = match self.rar_cfg_type {
+                        StorageMethod::JSON => serde_json::from_reader(file).unwrap_or_default(),
+                        StorageMethod::CBOR => {
+                            cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
+                        }
+                    };
+                    Ok(settings)
+                })?;
             settings_file
                 .save(self.rar_cfg_type, false)
                 .map_err(|e| io::Error::other(e.to_string()))?;
