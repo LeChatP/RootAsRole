@@ -3,17 +3,19 @@ mod helpers;
 #[cfg(test)]
 mod tests {
     use pcre2::bytes::RegexBuilder;
-    use serial_test::serial;
+    use test_log::test;
 
-    use crate::helpers::get_test_runner;
+    use crate::helpers::test_runner::TestRunner;
 
     #[test]
-    #[serial]
     fn test_dosr_help() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--help"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --help");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -22,12 +24,14 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_version() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--version"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --version");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -40,13 +44,15 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_role_selection() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "B", "env"])
-            .fixture_name("tests/fixtures/multi_role.json")
+            .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with invalid role");
         assert!(
             result.success,
@@ -59,12 +65,13 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_task_selection() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "A", "--task", "A_B", "env"])
-            .fixture_name("tests/fixtures/multi_role.json")
+            .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
             .expect("Failed to run dosr with invalid task");
         assert!(
@@ -78,13 +85,15 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_invalid_role() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "C", "env"])
-            .fixture_name("tests/fixtures/multi_role.json")
+            .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with invalid role");
         assert!(!result.success, "Command unexpectedly succeeded");
         assert!(!result.stdout.contains("ROLE="));
@@ -94,12 +103,13 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["-E", "--role", "env", "--task", "allowed", "env"])
-            .fixture_name("tests/fixtures/env_override.json")
+            .rar_cfg_data_path("tests/fixtures/env_override.json")
             .env_vars(&[
                 ("KEEP", ""),
                 ("TZ", "Europe/Paris"),
@@ -107,6 +117,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -121,12 +132,13 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_not_overriden() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "env", "--task", "allowed", "env"])
-            .fixture_name("tests/fixtures/env_override.json")
+            .rar_cfg_data_path("tests/fixtures/env_override.json")
             .env_vars(&[
                 ("KEEP", ""),
                 ("TZ", "Europe/Paris"),
@@ -134,6 +146,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -148,12 +161,13 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_denied() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["-E", "--role", "env", "--task", "denied", "env"])
-            .fixture_name("tests/fixtures/env_override.json")
+            .rar_cfg_data_path("tests/fixtures/env_override.json")
             .env_vars(&[
                 ("KEEP", ""),
                 ("TZ", "Europe/Paris"),
@@ -161,6 +175,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(!result.success, "Command unexpectedly succeeded");
         assert!(!result.stdout.contains("FOO=BAR"));
@@ -172,12 +187,16 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_env_override_denied_not_overriden() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        env_logger::builder()
+            .filter_level(log::LevelFilter::Trace)
+            .build();
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--role", "env", "--task", "denied", "env"])
-            .fixture_name("tests/fixtures/env_override.json")
+            .rar_cfg_data_path("tests/fixtures/env_override.json")
             .env_vars(&[
                 ("KEEP", ""),
                 ("TZ", "Europe/Paris"),
@@ -185,6 +204,7 @@ mod tests {
                 ("FOO", "BAR"),
             ])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with env override");
         assert!(
             result.success,
@@ -199,14 +219,16 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_user() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["-u", "nobody", "id"])
-            .fixture_name("tests/fixtures/user_group.json")
+            .rar_cfg_data_path("tests/fixtures/user_group.json")
             .users(&["nobody"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr -u nobody id");
 
         assert!(result.success, "Command failed: {}", result.stderr);
@@ -215,15 +237,17 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_group() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["-g", "nobody", "id"])
-            .fixture_name("tests/fixtures/user_group.json")
+            .rar_cfg_data_path("tests/fixtures/user_group.json")
             .users(&["nobody"])
             .groups(&["nobody"])
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr -u nobody id");
         if !result.success {
             eprintln!("stderr: {}", result.stderr);
@@ -236,16 +260,16 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_as_user_and_group() {
-        let runner = get_test_runner()
+        let runner = TestRunner::builder()
+            .build()
             .inspect_err(|e| eprintln!("Failed to setup test environment: {e}"))
             .unwrap();
         let result = runner
             .run_dosr(&["-u", "nobody", "-g", "daemon,nobody", "id"])
             .users(&["nobody"])
             .groups(&["nobody", "daemon"])
-            .fixture_name("tests/fixtures/user_group.json")
+            .rar_cfg_data_path("tests/fixtures/user_group.json")
             .env_vars(&[("LANG", "en_US")])
             .call()
             .inspect_err(|e| eprintln!("Failed to run dosr -u nobody -g daemon,nobody id: {e}"))
@@ -275,17 +299,19 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_auth() {
         if env!("RAR_PAM_SERVICE") == "dosr" {
             println!("Skipping test_dosr_auth because RAR_PAM_SERVICE is set to original dosr");
             return;
         }
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["/usr/bin/true"])
-            .fixture_name("tests/fixtures/perform_auth.json")
+            .rar_cfg_data_path("tests/fixtures/perform_auth.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr with auth role");
         assert!(
             result.success,
@@ -299,7 +325,7 @@ mod tests {
         // run dosr -K to delete the timestamp cookie
         let result = runner
             .run_dosr(&["-K"])
-            .fixture_name("tests/fixtures/perform_auth.json")
+            .rar_cfg_data_path("tests/fixtures/perform_auth.json")
             .call()
             .expect("Failed to run dosr with auth role");
         assert!(
@@ -312,13 +338,15 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_dosr_info() {
-        let runner = get_test_runner().expect("Failed to setup test environment");
+        let runner = TestRunner::builder()
+            .build()
+            .expect("Failed to setup test environment");
         let result = runner
             .run_dosr(&["--info", "-r", "A", "cat", "/proc/self/status"])
-            .fixture_name("tests/fixtures/multi_role.json")
+            .rar_cfg_data_path("tests/fixtures/multi_role.json")
             .call()
+            .map_err(|e| eprintln!("{e}"))
             .expect("Failed to run dosr --info");
         assert!(result.success, "Command failed: {}", result.stderr);
         // it must print execution info, not executing the command

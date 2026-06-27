@@ -1,5 +1,6 @@
 use bon::builder;
 use log::debug;
+use rar_common::Cred;
 use serde_json::Value;
 
 use crate::{
@@ -12,8 +13,15 @@ use crate::{
 use super::{Api, ApiEvent, EventKey};
 
 fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
-    if let ApiEvent::BestRoleSettingsFound(cli, role, opt_stack, env_path, settings, matching) =
-        event
+    if let ApiEvent::BestRoleSettingsFound(
+        cli,
+        cred,
+        role,
+        opt_stack,
+        env_path,
+        settings,
+        matching,
+    ) = event
     {
         return match role.role().extra_values.get("parents") {
             Some(Value::Array(parents)) => {
@@ -22,6 +30,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
                     evaluate_parent_role()
                         .parent(parent.as_ref())
                         .cli(cli)
+                        .cred(cred)
                         .role(role)
                         .opt_stack(opt_stack)
                         .settings(settings)
@@ -34,6 +43,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
             Some(Value::String(parent)) => evaluate_parent_role()
                 .parent(parent.as_ref())
                 .cli(cli)
+                .cred(cred)
                 .role(role)
                 .opt_stack(opt_stack)
                 .settings(settings)
@@ -54,6 +64,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
 fn evaluate_parent_role<'a>(
     parent: &str,
     cli: &Cli,
+    cred: &Cred,
     role: &DLinkedRole<'_, 'a>,
     opt_stack: &mut BorrowedOptStack<'a>,
     settings: &mut BestExecSettings,
@@ -62,7 +73,7 @@ fn evaluate_parent_role<'a>(
 ) -> SrResult<()> {
     if let Some(role) = role.config().role(parent) {
         for task in role.tasks() {
-            *matching |= settings.task_settings(cli, &task, opt_stack, env_path)?;
+            *matching |= settings.task_settings(cli, cred, &task, opt_stack, env_path)?;
         }
     }
     Ok(())

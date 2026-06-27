@@ -33,12 +33,17 @@ use rar_common::util::{BOLD, RST, UNDERLINE, drop_effective, subsribe};
 
 use crate::error::SrError;
 use crate::error::SrResult;
-use crate::finder::de::CredOwnedData;
+use crate::finder::de::cred::CredOwnedData;
 
 #[cfg(not(test))]
-const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
-const ROOTASROLE: &str = "target/rootasrole.json";
+pub const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -64,6 +69,9 @@ const USAGE: &str = formatcp!(
   {BOLD}-E, --preserve-env{RST}
           Preserve environment variables if allowed by a matching task
 
+  {BOLD}-D, --chdir <WORKDIR>{RST}
+          Workdir option allows you to specify the working directory for the command
+
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
@@ -81,10 +89,7 @@ const USAGE: &str = formatcp!(
           Print dosr version
 
   {BOLD}-h, --help{RST}
-          Print help (see a summary with '-h')"#,
-    UNDERLINE = UNDERLINE,
-    BOLD = BOLD,
-    RST = RST
+          Print help (see a summary with '-h')"#
 );
 
 #[derive(Debug, Builder)]
@@ -143,6 +148,7 @@ where
     let mut iter = s.into_iter().skip(1);
     let mut role = None;
     let mut task = None;
+    let mut workdir = None;
     let mut user: Option<SUserType> = None;
     let mut group: Option<SGroups> = None;
     let mut env = None;
@@ -174,6 +180,9 @@ where
             }
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
+            }
+            "-D" | "--chdir" => {
+                workdir = iter.next().map(|s| escape_parser_string(s));
             }
             #[cfg(feature = "timeout")]
             "-K" | "--remove-timestamp" => {
@@ -211,6 +220,7 @@ where
         FilterMatcher::builder()
             .maybe_role(role)
             .maybe_task(task)
+            .maybe_workdir(workdir)
             .maybe_env_behavior(env)
             .maybe_user(user)
             .map_err(|e| {
@@ -268,8 +278,13 @@ fn main() {
 fn main_inner() -> SrResult<()> {
     use std::env;
 
-    use crate::{ROOTASROLE, finder::api::Api, pam::start_session};
+    use crate::{
+        RAR_CFG_PATH,
+        finder::api::{Api, register_plugins},
+        pam::start_session,
+    };
     use finder::find_best_exec_settings;
+    use rar_common::util::RAR_CFG_TYPE;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -284,7 +299,7 @@ fn main_inner() -> SrResult<()> {
         println!("{USAGE}");
         return Ok(());
     }
-    let user = make_cred();
+    let user = make_cred().map_err(|_| SrError::SystemError)?;
     if args.del_ts {
         #[cfg(not(feature = "timeout"))]
         {
@@ -302,10 +317,13 @@ fn main_inner() -> SrResult<()> {
             }
         }
     }
+    register_plugins();
     let execcfg = find_best_exec_settings(
         &args,
         &user,
-        &ROOTASROLE.to_string(),
+        RAR_CFG_PATH,
+        RAR_CFG_DATA_PATH,
+        RAR_CFG_TYPE,
         env::vars(),
         env::var("PATH")
             .unwrap_or_default()
@@ -400,6 +418,15 @@ fn main_inner() -> SrResult<()> {
 
     Api::notify(finder::api::ApiEvent::PreExec(&args, &execcfg))?;
 
+    // we set workdir if -D is provided
+    if let Some(workdir) = args.opt_filter.as_ref().and_then(|f| f.workdir.as_ref()) {
+        command_builder.current_dir(workdir);
+    // if no workdir from args, we check if exec settings enforce a workdir
+    } else if let Some(workdir) = execcfg.workdir.as_ref() {
+        command_builder.current_dir(workdir);
+    }
+    // otherwise we keep the same workdir
+
     command_builder.args(cargs.iter());
     command_builder.env_clear();
     command_builder.envs(cfinal_env);
@@ -427,8 +454,11 @@ fn main_inner() -> SrResult<()> {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn make_cred() -> Cred {
-    Cred::builder()
+fn make_cred() -> std::io::Result<Cred> {
+    Ok(Cred::builder()
+        .user()?
+        .groups()?
+        .curdir()?
         .maybe_tty(stat::fstat(stdout()).ok().and_then(|s| {
             if isatty(stdout()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
@@ -436,7 +466,7 @@ fn make_cred() -> Cred {
                 None
             }
         }))
-        .build()
+        .build())
 }
 
 fn set_capabilities(cred: &CredOwnedData, bounding: SBounding) -> SrResult<()> {
@@ -525,7 +555,7 @@ mod tests {
 
     use crate::finder::BestExecSettings;
 
-    use super::finder::de::CredOwnedData;
+    use super::finder::de::cred::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
     use nix::unistd::{Group, Pid, User, getgroups, getuid};
@@ -596,17 +626,21 @@ mod tests {
 
     #[test]
     fn test_make_cred() {
-        let user = make_cred();
-        let gid = unsafe { getgid() };
+        let user = make_cred().unwrap();
         assert_eq!(user.user.uid, getuid());
-        assert_eq!(user.user.gid.as_raw(), gid);
         let groups = getgroups()
             .unwrap()
             .iter()
             .map(|g| Group::from_gid(*g).unwrap().unwrap())
             .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
-        assert_eq!(user.groups, groups);
+        assert_eq!(
+            user.groups
+                .iter()
+                .map(|e| e.left().unwrap().clone())
+                .collect::<Vec<_>>(),
+            groups
+        );
         assert_eq!(user.ppid, Pid::parent());
     }
 

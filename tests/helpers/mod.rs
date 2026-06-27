@@ -1,57 +1,70 @@
-pub mod config_manager;
 pub mod test_runner;
 
 use std::error::Error;
 use std::ffi::CString;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::os::unix::process::parent_id;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Mutex, Once, OnceLock};
+use std::process::Stdio;
 use std::{env, fs};
 
-use nix::sys::wait::WaitStatus;
-use nix::unistd::{User, fork, setgid, setgroups, setuid, unlink};
-
-use crate::helpers::test_runner::TestRunner;
+use capctl::Cap;
+use nix::unistd::User;
+use nix::unistd::getuid;
+use nix::unistd::setgid;
+use nix::unistd::setgroups;
+use nix::unistd::setuid;
+use rar_common::util::StorageMethod;
 
 const TEMP_LIFETIME_BUILD_STATE: &str = "target/tmp/dosr_integration_test_build";
 const RAR_CFG_PATH: &str = "target/rootasrole.json";
-static CLEANUP_REGISTERED: Once = Once::new();
+const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 
-fn register_cleanup() {
-    CLEANUP_REGISTERED.call_once(|| {
-        // Also register for normal exit
-        extern "C" fn cleanup_handler() {
-            cleanup_temp_files();
-        }
-        // Register cleanup to happen at program exit
-        std::panic::set_hook(Box::new(|_| {
-            cleanup_temp_files();
-        }));
-
-        unsafe {
-            libc::atexit(cleanup_handler);
-        }
-    });
+pub struct FileLock {
+    file: File,
 }
 
-fn cleanup_temp_files() {
-    let temp_file = PathBuf::from(TEMP_LIFETIME_BUILD_STATE);
-    if temp_file.exists()
-        && let Err(e) = unlink(&temp_file)
-    {
-        eprintln!(
-            "Warning: Failed to clean up temp file {}: {}",
-            temp_file.display(),
-            e
-        );
+impl FileLock {
+    pub fn new<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
+        // Open or create the lock file without truncating it
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
+
+        let fd = file.as_raw_fd();
+
+        let result = unsafe { libc::flock(fd, libc::LOCK_EX) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        Ok(Self { file })
     }
 }
 
-static GLOBAL_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let fd = self.file.as_raw_fd();
+        unsafe {
+            libc::flock(fd, libc::LOCK_UN);
+        }
+    }
+}
 
-fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn ensure_binary_built(
+    rar_cfg_path: &str,
+    rar_cfg_data_path: &str,
+    rar_cfg_type: StorageMethod,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let pid = parent_id();
 
     let temp_file = PathBuf::from(TEMP_LIFETIME_BUILD_STATE);
@@ -67,31 +80,14 @@ fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     if needs_build && option_env!("SKIP_BUILD").is_none() {
         print!("Building dosr .... ");
-
-        match unsafe { fork() } {
-            Ok(nix::unistd::ForkResult::Parent { child }) => {
-                // Parent process: wait for the child to finish
-                loop {
-                    let wait_status = nix::sys::wait::waitpid(child, None)
-                        .expect("Failed to wait for child process");
-                    if let WaitStatus::Exited(_, code) = wait_status {
-                        if code != 0 {
-                            return Err("Child process failed to build dosr binary".into());
-                        } // else
-                        break;
-                    }
-                }
-            }
-            Ok(nix::unistd::ForkResult::Child) => {
-                if let Err(e) = build_dosr_binary(pid, &temp_file) {
-                    eprintln!("Error during build: {e}");
-                    std::process::exit(1);
-                }
-                std::process::exit(0);
-            }
-            Err(e) => {
-                return Err(format!("Fork failed: {e}").into());
-            }
+        if let Err(e) = build_dosr_binary(
+            pid,
+            &temp_file,
+            rar_cfg_path,
+            rar_cfg_data_path,
+            rar_cfg_type,
+        ) {
+            return Err(format!("Build failed: {e}").into());
         }
     } else {
         print!("Reusing binary ... ");
@@ -101,39 +97,69 @@ fn ensure_binary_built() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok("target/debug/dosr".into())
 }
 
-fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>> {
-    let user = User::from_name(
-        &std::env::var("RAR_USER")
-            .or_else(|_| std::env::var("SUDO_USER"))
-            .expect("RAR_USER not set"),
-    )
-    .unwrap_or(None)
-    .ok_or("User not found")?;
+fn build_dosr_binary(
+    pid: u32,
+    temp_file: &PathBuf,
+    rar_cfg_path: &str,
+    rar_cfg_data_path: &str,
+    rar_cfg_type: StorageMethod,
+) -> Result<(), Box<dyn Error>> {
+    let user: User = std::env::var("RAR_USER")
+        .ok()
+        .and_then(|s| User::from_name(&s).ok().flatten())
+        .or_else(|| {
+            std::env::var("SUDO_USER")
+                .ok()
+                .and_then(|s| User::from_name(&s).ok().flatten())
+        })
+        .unwrap_or_else(|| {
+            nix::unistd::User::from_uid(getuid())
+                .expect("Failed to get current user")
+                .expect("Current user not found")
+        });
+
     let user_name_cstr = CString::new(user.name.clone())
         .inspect_err(|e| eprintln!("Failed to create CString: {e}"))?;
     let groups = nix::unistd::getgrouplist(user_name_cstr.as_c_str(), user.gid)
         .unwrap_or_else(|_| vec![user.gid]);
-    setgroups(&groups).inspect_err(|e| eprintln!("Failed to setgroups: {e}"))?;
-    setgid(user.gid).inspect_err(|e| eprintln!("Failed to setegid: {e}"))?;
-    setuid(user.uid).inspect_err(|e| eprintln!("Failed to seteuid: {e}"))?;
-    unsafe {
-        env::set_var(
+    let uid = user.uid;
+    let gid = user.gid;
+    let home_dir = user.dir;
+    let mut command = Command::new("cargo");
+    command
+        .args(["build", "--bin", "dosr", "--features", "finder"])
+        .env("RAR_CFG_PATH", rar_cfg_path)
+        .env("RAR_CFG_DATA_PATH", rar_cfg_data_path)
+        .env("RAR_CFG_TYPE", rar_cfg_type.to_string())
+        .env("RAR_AUTHENTICATION", "skip")
+        .env(
             "PATH",
             format!("{}:{}/bin", env::var("PATH")?, env!("CARGO_HOME")),
-        );
-        env::set_var("HOME", &user.dir);
-    }
-
-    let cfg_path = PathBuf::from(RAR_CFG_PATH);
-    let output = Command::new("cargo")
-        .args(["build", "--bin", "dosr", "--features", "finder"])
-        .env(
-            "RAR_CFG_PATH",
-            cfg_path.to_str().ok_or("Invalid RAR_CFG_PATH")?,
         )
-        .env("RAR_AUTHENTICATION", "skip")
+        .env("HOME", &home_dir);
+    unsafe {
+        command.pre_exec(move || {
+            let map_err = |e: nix::Error| std::io::Error::from_raw_os_error(e as i32);
+            if let Ok(mut current) = capctl::caps::CapState::get_current()
+                && current.permitted.has(Cap::SETUID)
+                && current.permitted.has(Cap::SETGID)
+            {
+                current.effective.add(Cap::SETUID);
+                current.effective.add(Cap::SETGID);
+                setgroups(&groups).map_err(map_err)?;
+                setgid(gid).map_err(map_err)?;
+                setuid(uid).map_err(map_err)?;
+            }
+
+            Ok(())
+        });
+    }
+    let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
-        .inspect_err(|e| eprintln!("Failed to execute cargo build: {e}"))?;
+        .inspect_err(|e| eprintln!("Failed to execute cargo build: {e}"));
+    let output = output?;
     if !output.status.success() {
         std::io::stderr().write_all(&output.stderr).ok();
         return Err("Failed to compile dosr binary".into());
@@ -141,16 +167,4 @@ fn build_dosr_binary(pid: u32, temp_file: &PathBuf) -> Result<(), Box<dyn Error>
     fs::write(temp_file, pid.to_string())?;
     print!("compiled binary ... ");
     Ok(())
-}
-
-pub fn get_test_runner() -> Result<TestRunner, Box<dyn std::error::Error>> {
-    let _lock = GLOBAL_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("Failed to acquire global lock");
-    let binary_path = ensure_binary_built()?;
-
-    register_cleanup();
-
-    TestRunner::new(binary_path, &PathBuf::from(RAR_CFG_PATH))
 }

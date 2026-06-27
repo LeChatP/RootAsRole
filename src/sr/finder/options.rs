@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::{borrow::Cow, collections::HashMap};
 
 use bon::{Builder, bon, builder};
@@ -8,13 +9,14 @@ use nix::unistd::User;
 use rar_common::database::FilterMatcher;
 use rar_common::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
-    STimeout, SUMask,
+    STimeout, SUMask, WorkdirBehavior,
 };
 use rar_common::database::score::SecurityMin;
 use rar_common::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
+    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST,
 };
 use std::hash::Hash;
 
@@ -73,23 +75,70 @@ pub struct DEnvOptions<'a> {
     pub delete: HashSet<Cow<'a, str>>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(untagged)]
+pub enum DWorkdirEither<'a> {
+    /// This is the equivalent of deny all and fallback to the specified path.
+    #[serde(borrow)]
+    Path(Cow<'a, str>),
+    #[serde(borrow)]
+    Struct(DWorkdirSet<'a>),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct DWorkdirSet<'a> {
+    /// The default behavior for workdir handling. This determines how the "add" and "sub" lists are interpreted.
+    /// - If set to `Allowlist`, only the paths in the "add" list (minus those in the "sub" list) will be allowed as workdirs.
+    /// - If set to `Blacklist`, all paths will be allowed as workdirs except those in the "sub" list.
+    /// - If set to `Inherit`, the behavior will be inherited from parent levels, which can be combined with the above two behaviors.
+    ///
+    /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
+    /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default_behavior: WorkdirBehavior,
+
+    /// The "fallback" field specifies a fallback directory to use as the working directory.
+    /// This will override the current user working directory.
+    /// For example:
+    /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`,
+    /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
+    /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<Cow<'a, str>>,
+
+    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
+    pub add: HashSet<Cow<'a, str>>,
+    #[serde(
+        borrow,
+        default,
+        skip_serializing_if = "HashSet::is_empty",
+        alias = "del"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
+    pub sub: HashSet<Cow<'a, str>>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt<'a> {
     #[serde(skip)]
     pub level: Level,
-    #[serde(borrow, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
     pub path: Option<DPathOptions<'a>>,
-    #[serde(borrow, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
     pub env: Option<DEnvOptions<'a>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<DWorkdirEither<'a>>, // we only need to store the enforced workdir, if existing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,6 +158,7 @@ impl<'a> Opt<'a> {
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
+        workdir: Option<DWorkdirEither<'a>>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Value,
@@ -121,6 +171,7 @@ impl<'a> Opt<'a> {
             bounding,
             authentication,
             execinfo,
+            workdir,
             timeout,
             umask,
             extra_fields,
@@ -192,7 +243,11 @@ impl DEnvOptions<'_> {
         final_set.insert("RAR_UID".into(), current_user.user.uid.to_string());
         final_set.insert("RAR_GID".into(), current_user.user.gid.to_string());
         final_set.insert("RAR_USER".into(), current_user.user.name.clone());
-        final_set.insert("RAR_COMMAND".into(), command);
+        final_set.insert("RAR_COMMAND".into(), command.clone());
+        final_set.insert("SUDO_UID".into(), current_user.user.uid.to_string());
+        final_set.insert("SUDO_GID".into(), current_user.user.gid.to_string());
+        final_set.insert("SUDO_USER".into(), current_user.user.name.clone());
+        final_set.insert("SUDO_COMMAND".into(), command);
         final_set
             .entry("TERM".into())
             .or_insert_with(|| "unknown".into());
@@ -596,6 +651,7 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                 overriden,
                 default_behavior,
             );
+            // we reset as long there is a new default behavior, we don't inherit
             if default_behavior.is_keep() || default_behavior.is_delete() {
                 result.set.clear();
                 result.keep.clear();
@@ -637,10 +693,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .result(&mut result)
             .overriden(&mut overriden)
             .default_behavior(ENV_DEFAULT_BEHAVIOR)
-            .keep(&ENV_KEEP_LIST)
-            .check(&ENV_CHECK_LIST)
-            .delete(&ENV_DELETE_LIST)
-            .set(&ENV_SET_LIST)
+            .keep(&ENV_KEEP_LIST.iter().copied())
+            .check(&ENV_CHECK_LIST.iter().copied())
+            .delete(&ENV_DELETE_LIST.iter().copied())
+            .set(&ENV_SET_LIST.iter().copied())
             .call();
         self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
@@ -707,6 +763,77 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         self.get_opt_iter_rev()
             .find_map(|o| o.umask)
             .unwrap_or(UMASK)
+    }
+    pub fn calc_workdir(&self) -> Option<PathBuf> {
+        self.get_opt_iter_rev()
+            .filter_map(|o| o.workdir.as_ref())
+            .find_map(|w| match w {
+                DWorkdirEither::Path(p) => Some(p.as_ref().into()),
+                DWorkdirEither::Struct(s) => s.fallback.as_ref().map(|f| f.to_string().into()),
+            })
+    }
+    pub fn get_workdir_temp(&self) -> DWorkdirSet<'_> {
+        #[builder]
+        #[allow(clippy::ref_option)] // Because builder do not handle it well.
+        fn assign_workdir_settings(
+            result: &mut DWorkdirSet<'_>,
+            default_behavior: WorkdirBehavior,
+            add: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
+            del: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
+            fallback: &Option<impl AsRef<str>>,
+        ) {
+            // we reset as long there is a new default behavior, we don't inherit
+            if default_behavior.is_allowlist() || default_behavior.is_blacklist() {
+                result.add.clear();
+                result.sub.clear();
+                result.fallback.take();
+            }
+            result.add.extend(
+                add.clone()
+                    .into_iter()
+                    .map(|k| k.as_ref().to_string().into()),
+            );
+            result.sub.extend(
+                del.clone()
+                    .into_iter()
+                    .map(|k| k.as_ref().to_string().into()),
+            );
+            if let Some(fallback) = fallback.as_ref() {
+                result
+                    .fallback
+                    .replace(fallback.as_ref().to_string().into());
+            }
+        }
+        let mut result = DWorkdirSet::default();
+        assign_workdir_settings()
+            .result(&mut result)
+            .default_behavior(WORKDIR_BEHAVIOR)
+            .add(&WORKDIR_ADD_LIST)
+            .del(&WORKDIR_REMOVE_LIST)
+            .fallback(&WORKDIR_FALLBACK)
+            .call();
+        self.get_opt_iter()
+            .filter_map(|o| o.workdir.as_ref())
+            .for_each(|o| match o {
+                DWorkdirEither::Struct(s) => assign_workdir_settings()
+                    .result(&mut result)
+                    .default_behavior(s.default_behavior)
+                    .add(&s.add)
+                    .del(&s.sub)
+                    .fallback(&s.fallback)
+                    .call(),
+                DWorkdirEither::Path(p) => {
+                    let array: [String; 0] = [];
+                    assign_workdir_settings()
+                        .result(&mut result)
+                        .default_behavior(WorkdirBehavior::Allowlist)
+                        .fallback(&Some(p))
+                        .add(&array)
+                        .del(&array)
+                        .call();
+                }
+            });
+        result
     }
 }
 
@@ -869,6 +996,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_calc_env() {
         let env_options = DEnvOptions::builder(EnvBehavior::Delete)
             .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
@@ -886,7 +1014,14 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
@@ -927,7 +1062,14 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(
             result.is_ok(),
@@ -969,7 +1111,14 @@ mod tests {
             ("VAR5", "VALUE5"),
         ];
         let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder().build();
+        let target = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
         let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
         assert!(result.is_err());
     }

@@ -1,17 +1,23 @@
 mod configure;
 mod deploy;
+mod doctor;
 mod installer;
 pub mod util;
 
-use Command::{Build, Configure, Dependencies, Deploy, Install, Uninstall};
+use Command::{Build, Configure, Dependencies, Deploy, Doctor, Install, Uninstall};
+
 use std::process::exit;
 
 use clap::Parser;
-use log::error;
+use log::{debug, error, info};
 use util::OsTarget;
 
 #[derive(Debug, Parser)]
 pub struct Options {
+    /// Print planned actions without executing mutating steps
+    #[clap(long, global = true)]
+    dry_run: bool,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -33,13 +39,24 @@ enum Command {
     Uninstall(installer::UninstallOptions),
     #[cfg(feature = "deploy")]
     Deploy(deploy::MakeOptions),
+    Doctor(doctor::DoctorOptions),
 }
 
 fn main() {
     env_logger::builder()
-        .default_format()
-        .format_module_path(true)
+        .filter_level(log::LevelFilter::Info)
+        .format_module_path(false)
+        .format_file(false)
+        .format_source_path(false)
+        .format_target(false)
         .init();
+    debug!(
+        "Starting xtask with arguments: {:?}",
+        std::env::args().collect::<Vec<_>>()
+    );
+    if std::env::var_os("ROOTASROLE_INSTALLER_NESTED").is_some() {
+        info!("nested install is enabled");
+    }
     let opts = Options::parse();
     let ret = match opts.command {
         Dependencies(opts) => installer::dependencies(&opts),
@@ -48,6 +65,7 @@ fn main() {
         Configure { os } => installer::configure(os),
         Uninstall(opts) => installer::uninstall(&opts),
         Deploy(opts) => deploy::deploy(&opts),
+        Doctor(opts) => doctor::doctor(&opts),
     };
 
     if let Err(e) = ret {

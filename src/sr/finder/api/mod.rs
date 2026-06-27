@@ -1,6 +1,9 @@
 use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
 
-use rar_common::database::score::{CmdMin, Score};
+use rar_common::{
+    Cred,
+    database::score::{CmdMin, Score},
+};
 use serde_json::Value;
 use strum::Display;
 
@@ -52,6 +55,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
     ),
     BestRoleSettingsFound(
         &'f Cli,
+        &'k Cred,
         &'g DLinkedRole<'c, 'a>,
         &'h mut BorrowedOptStack<'a>,
         &'k &'k [&'k str],
@@ -128,7 +132,7 @@ impl Api {
     }
 }
 
-pub(super) fn register_plugins() {
+pub fn register_plugins() {
     #[cfg(feature = "ssd")]
     ssd::register();
     #[cfg(feature = "hashchecker")]

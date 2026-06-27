@@ -216,6 +216,12 @@ mod tests {
         Cred::builder()
             .maybe_tty(Some(0 as dev_t))
             .ppid(Pid::from_raw(1))
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .curdir()
+            .unwrap()
             .build()
     }
 

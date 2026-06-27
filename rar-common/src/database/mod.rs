@@ -19,10 +19,10 @@ pub mod options;
 pub mod ser;
 pub mod structs;
 pub mod versionning;
+pub mod warn;
 
 #[allow(clippy::missing_errors_doc)]
 #[derive(Debug, Default, Builder)]
-#[builder(on(_, overwritable))]
 pub struct FilterMatcher {
     pub role: Option<String>,
     pub task: Option<String>,
@@ -31,6 +31,7 @@ pub struct FilterMatcher {
     pub user: Option<u32>,
     #[builder(with = |s: impl Into<SGroups>| -> Result<_,String> { s.into().try_into() })]
     pub group: Option<Vec<u32>>,
+    pub workdir: Option<String>,
 }
 
 // deserialize the linked hash set

@@ -7,15 +7,15 @@ use indexmap::IndexSet;
 
 use pest_derive::Parser;
 use rar_common::{
-    StorageMethod,
     database::{
         actor::{SActor, SGroups, SUserType},
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
-            SPrivileged, SUMask, TimestampType,
+            SPrivileged, SUMask, TimestampType, WorkdirBehavior,
         },
         structs::{IdTask, SetBehavior},
     },
+    util::StorageMethod,
 };
 
 #[derive(Parser)]
@@ -65,15 +65,20 @@ pub enum TimeoutOpt {
     MaxUsage,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default)]
 pub struct Inputs {
     pub action: InputAction,
     pub editor: bool,
+    pub editor_path: Option<PathBuf>,
+    pub editor_type: Option<StorageMethod>,
     pub setlist_type: Option<SetListType>,
     pub timeout_arg: Option<[bool; 3]>,
     pub timeout_type: Option<TimestampType>,
     pub timeout_duration: Option<Duration>,
     pub timeout_max_usage: Option<u64>,
+    pub policy: bool,
+    pub policy_path: Option<String>,
     pub role_id: Option<String>,
     pub role_type: Option<RoleType>,
     pub actors: Option<Vec<SActor>>,
@@ -97,6 +102,7 @@ pub struct Inputs {
     pub options_auth: Option<SAuthentication>,
     pub options_execinfo: Option<SInfo>,
     pub options_umask: Option<SUMask>,
+    pub options_workdir_policy: Option<WorkdirBehavior>,
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
 }

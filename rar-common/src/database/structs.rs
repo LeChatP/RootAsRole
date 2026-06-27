@@ -23,8 +23,8 @@ use super::{
     options::{Level, Opt, OptBuilder},
 };
 
-#[derive(Deserialize, PartialEq, Eq, Debug, Default)]
-pub struct SConfig {
+#[derive(Deserialize, PartialEq, Eq, Debug, Default, Clone)]
+pub struct SPolicy {
     #[serde(default, deserialize_with = "sconfig_opt", alias = "o")]
     pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, alias = "r")]
@@ -68,7 +68,7 @@ pub struct SRole {
     pub extra_fields: Map<String, Value>,
     #[serde(skip)]
     #[derivative(PartialEq = "ignore")]
-    pub config: Option<Weak<RefCell<SConfig>>>,
+    pub config: Option<Weak<RefCell<SPolicy>>>,
 }
 
 fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
@@ -386,7 +386,7 @@ impl From<CapSet> for SCapabilities {
 // Implementations for Struct navigation
 // ========================
 #[bon]
-impl SConfig {
+impl SPolicy {
     #[builder]
     pub fn new(
         #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
@@ -403,6 +403,11 @@ impl SConfig {
             role.borrow_mut().config = Some(Rc::downgrade(&c));
         }
         c
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_empty() && self.options.is_none() && self.extra_fields.is_empty()
     }
 }
 
@@ -421,7 +426,7 @@ pub trait TaskGetter {
     fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>>;
 }
 
-impl RoleGetter for Rc<RefCell<SConfig>> {
+impl RoleGetter for Rc<RefCell<SPolicy>> {
     fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>> {
         self.as_ref()
             .borrow()
@@ -453,7 +458,7 @@ impl TaskGetter for Rc<RefCell<SRole>> {
     }
 }
 
-impl<S: s_config_builder::State> SConfigBuilder<S> {
+impl<S: s_policy_builder::State> SPolicyBuilder<S> {
     pub fn role(mut self, role: Rc<RefCell<SRole>>) -> Self {
         self.roles.push(role);
         self
@@ -508,7 +513,7 @@ impl SRole {
         s
     }
     #[must_use]
-    pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
+    pub fn config(&self) -> Option<Rc<RefCell<SPolicy>>> {
         self.config.as_ref()?.upgrade()
     }
     #[must_use]
@@ -548,7 +553,7 @@ impl STask {
     }
 }
 
-impl Index<usize> for SConfig {
+impl Index<usize> for SPolicy {
     type Output = Rc<RefCell<SRole>>;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -692,7 +697,7 @@ mod tests {
             ]
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
+        let config: SPolicy = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
@@ -847,7 +852,7 @@ mod tests {
             "unknown": "unknown"
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
+        let config: SPolicy = serde_json::from_str(config).unwrap();
         assert_eq!(config.extra_fields.get("unknown").unwrap(), "unknown");
 
         let binding = config.options.unwrap();
@@ -951,7 +956,7 @@ mod tests {
             ]
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
+        let config: SPolicy = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
@@ -1029,7 +1034,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("role1")
                     .actor(SActor::user("user1").build())
@@ -1103,7 +1108,7 @@ mod tests {
 
     #[test]
     fn test_serialize_operride_behavior_option() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .options(|opt| {
                 opt.env(
                     SEnvOptions::builder(EnvBehavior::Inherit)

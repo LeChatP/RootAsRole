@@ -8,16 +8,17 @@ use landlock::{
 };
 use libseccomp::{ScmpAction, ScmpFilterContext, ScmpSyscall};
 
-use crate::{ROOTASROLE, cli::editor::SYSTEM_EDITOR};
+use crate::{cli::editor::SYSTEM_EDITOR_LIST, util::RAR_CFG_PATH};
 
 pub fn full_program_lock(
     folder: &PathBuf,
+    rar_cfg_data_path: &str,
 ) -> Result<RestrictionStatus, Box<dyn std::error::Error>> {
-    Ok(Ruleset::default()
+    let mut ruleset = Ruleset::default()
         .handle_access(AccessFs::from_all(ABI::V6))?
         .create()?
         .add_rule(PathBeneath::new(
-            PathFd::new(ROOTASROLE)?,
+            PathFd::new(RAR_CFG_PATH)?,
             AccessFs::IoctlDev
                 | AccessFs::ReadFile
                 | AccessFs::WriteFile
@@ -25,13 +26,25 @@ pub fn full_program_lock(
                 | AccessFs::Refer,
         ))?
         .add_rule(PathBeneath::new(
-            PathFd::new(folder)?,
+            PathFd::new(rar_cfg_data_path)?,
             AccessFs::from_all(ABI::V6),
         ))?
         .add_rule(PathBeneath::new(
-            PathFd::new(SYSTEM_EDITOR)?,
-            AccessFs::from_read(ABI::V6),
-        ))?
+            PathFd::new(folder)?,
+            AccessFs::from_all(ABI::V6),
+        ))?;
+
+    //TODO: Add rule allowing the path of the policy
+    for &editor in SYSTEM_EDITOR_LIST {
+        if !editor.is_empty() {
+            ruleset = ruleset.add_rule(PathBeneath::new(
+                PathFd::new(editor)?,
+                AccessFs::from_read(ABI::V6),
+            ))?;
+        }
+    }
+
+    Ok(ruleset
         // Allow locale + terminfo
         .add_rule(PathBeneath::new(
             PathFd::new("/usr/share/locale")?,
@@ -64,86 +77,72 @@ pub fn full_program_lock(
         .restrict_self()?)
 }
 
-pub fn seccomp_lock() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the seccomp filter with the default action to kill the process
-    let mut ctx = ScmpFilterContext::new_filter(ScmpAction::KillProcess)?;
+#[cfg(debug_assertions)]
+const SECCOMP: ScmpAction = ScmpAction::Log;
+#[cfg(not(debug_assertions))]
+const SECCOMP: ScmpAction = ScmpAction::Log;
 
-    let syscalls = [
-        "statx",
-        "openat",
-        "geteuid",
-        "getegid",
-        "capget",
-        "capset",
-        "flock",
-        "ioctl",
-        "read",
-        "write",
-        "lseek",
-        "pselect6",
-        "newfstatat",
-        "timer_settime",
-        "fcntl",
-        "close",
-        "rt_sigaction",
-        "rt_sigprocmask",
-        "mmap",
-        "getrandom",
-        "mkdir",
-        "fstat",
-        "getuid",
-        "getgid",
-        "umask",
-        "unlink",
-        "clone3",
-        "execve",
-        "munmap",
-        "wait4",
-        "brk",
-        "access",
-        "pread64",
-        "arch_prctl",
-        "set_robust_list",
-        "rseq",
-        "mprotect",
-        "rename",
-        "exit_group",
-        "getdents64",
-        "unlinkat",
-        "sigaltstack",
-        "prlimit64",
-        "getcwd",
-        "chdir",
-        "sysinfo",
-        "readlink",
-        "fchdir",
-        "setfsuid",
-        "setfsgid",
-        "futex",
-        "uname",
-        "getpid",
-        "chmod",
-        "fchmod",
-        "madvise",
-        "timer_create",
-        "rt_sigtimedwait",
-        "set_tid_address",
-        "clock_nanosleep",
-        "fsync",
-        "getxattr",
-        "setxattr",
-        "lsetxattr",
-        "fsetxattr",
-        "listxattr",
-        "ftruncate",
-        "truncate",
-        "waitid",
+/// Applies a seccomp filter that blocks process creation and execution syscalls,
+/// as well as some other potentially dangerous syscalls.
+/// This was originally to has a allowlist of syscalls,
+/// but it turns out that some editors (like vim) use a lot of syscalls,
+/// and it's hard to maintain an allowlist without breaking functionality.
+pub fn seccomp_lock() -> std::io::Result<()> {
+    // Allow all by default; explicitly kill process creation/execution.
+    let mut ctx = ScmpFilterContext::new(ScmpAction::Allow).map_err(|e| {
+        std::io::Error::other(format!("Failed to create seccomp filter context: {e}"))
+    })?;
+
+    let blocked_syscalls = [
+        // Blocking forking
+        "fork",
+        "vfork",
+        // Not used by an editor, so they don't need to be allowed.
+        "ptrace",
+        "bpf",
+        "perf_event_open",
+        "keyctl",
+        "add_key",
+        "request_key",
+        "mount",
+        "umount2",
+        "pivot_root",
+        "setns",
+        "unshare",
+        "kexec_load",
+        "kexec_file_load",
+        "reboot",
+        "init_module",
+        "finit_module",
+        "delete_module",
+        "iopl",
+        "ioperm",
+        "syslog",
+        "acct",
+        "quotactl",
+        "swapon",
+        "swapoff",
+        "userfaultfd",
+        "io_uring_setup",
+        "io_uring_enter",
+        "io_uring_register",
+        "process_vm_readv",
+        "process_vm_writev",
     ];
-    for &name in &syscalls {
-        ctx.add_rule(ScmpAction::Allow, ScmpSyscall::from_name(name)?)?;
+    for &name in &blocked_syscalls {
+        ctx.add_rule(
+            SECCOMP,
+            ScmpSyscall::from_name(name).map_err(|e| {
+                std::io::Error::other(format!("Failed to resolve syscall {name}: {e}"))
+            })?,
+        )
+        .map_err(|e| {
+            std::io::Error::other(format!("Failed to add seccomp rule for {name}: {e}"))
+        })?;
     }
 
-    ctx.load()?;
+    ctx.load()
+        .map_err(|e| std::io::Error::other(format!("Failed to load seccomp filter: {e}")))?;
 
     Ok(())
 }

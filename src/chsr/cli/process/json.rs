@@ -8,7 +8,7 @@ use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt}
 use rar_common::database::{
     options::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout, SUMask,
+        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
     },
     structs::{
         IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
@@ -18,7 +18,7 @@ use rar_common::database::{
 use super::perform_on_target_opt;
 
 pub fn list_json(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options: bool,
@@ -57,7 +57,9 @@ fn list_task(
         if let Some(task) = role.as_ref().borrow().task(&task_id) {
             if options {
                 debug!("task {task:?}");
-                let rcopt = OptStack::from_task(&task.clone()).to_opt();
+                let rcopt = OptStack::from_task(&task.clone())
+                    .to_opt()
+                    .map_err(std::io::Error::other)?;
                 let opt = rcopt.as_ref().borrow();
                 if let Some(opttype) = options_type {
                     match opttype {
@@ -85,6 +87,9 @@ fn list_task(
                         OptType::UMask => {
                             println!("{}", serde_json::to_string_pretty(&opt.umask)?);
                         }
+                        OptType::Workdir => {
+                            println!("{}", serde_json::to_string_pretty(&opt.workdir)?);
+                        }
                     }
                 } else {
                     println!("{}", serde_json::to_string_pretty(&rcopt)?);
@@ -96,10 +101,10 @@ fn list_task(
             return Err("Task not found".into());
         }
     } else if options {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&OptStack::from_role(&role.clone()).to_opt())?
-        );
+        let rcopt = OptStack::from_role(&role.clone())
+            .to_opt()
+            .map_err(std::io::Error::other)?;
+        println!("{}", serde_json::to_string_pretty(&rcopt)?);
     } else {
         print_role(role, role_type.unwrap_or(RoleType::All))?;
     }
@@ -155,7 +160,7 @@ fn print_role(
 }
 
 pub fn role_add_del(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     action: InputAction,
     role_id: String,
     role_type: Option<RoleType>,
@@ -209,7 +214,7 @@ pub fn role_add_del(
 }
 
 pub fn task_add_del(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     action: InputAction,
     task_id: IdTask,
@@ -281,7 +286,7 @@ pub fn task_add_del(
 }
 
 pub fn grant_revoke(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     action: InputAction,
     mut actors: Vec<rar_common::database::actor::SActor>,
@@ -319,7 +324,7 @@ pub fn grant_revoke(
 }
 
 pub fn cred_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
@@ -346,7 +351,7 @@ pub fn cred_set(
 }
 
 pub fn cred_unset(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_caps: Option<capctl::CapSet>,
@@ -378,7 +383,7 @@ pub fn cred_unset(
 }
 
 pub fn cred_caps(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     setlist_type: SetListType,
@@ -448,7 +453,7 @@ pub fn cred_caps(
 }
 
 pub fn cred_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cred_policy: rar_common::database::structs::SetBehavior,
@@ -472,7 +477,7 @@ pub fn cred_setpolicy(
 }
 
 pub fn cmd_whitelist_action(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cmd_id: impl IntoIterator<Item = String>,
@@ -530,7 +535,7 @@ pub fn cmd_whitelist_action(
 }
 
 pub fn cmd_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
     cmd_policy: rar_common::database::structs::SetBehavior,
@@ -546,7 +551,7 @@ pub fn cmd_setpolicy(
 }
 
 pub fn env_set_policylist(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_env: &IndexSet<EnvKey>,
@@ -574,12 +579,12 @@ pub fn env_set_policylist(
 }
 
 pub fn set_privileged(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_root: Option<rar_common::database::options::SPrivileged>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o root set privileged");
+    debug!("chsr o root set privileged {options_root:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().root = options_root;
         Ok(())
@@ -588,12 +593,12 @@ pub fn set_privileged(
 }
 
 pub fn set_bounding(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_bounding: Option<rar_common::database::options::SBounding>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o bounding set");
+    debug!("chsr o bounding set {options_bounding:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().bounding = options_bounding;
         Ok(())
@@ -602,12 +607,12 @@ pub fn set_bounding(
 }
 
 pub fn set_authentication(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_auth: Option<rar_common::database::options::SAuthentication>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o auth set");
+    debug!("chsr o auth set {options_auth:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().authentication = options_auth;
         Ok(())
@@ -616,12 +621,12 @@ pub fn set_authentication(
 }
 
 pub fn set_execinfo(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_execinfo: Option<rar_common::database::options::SInfo>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o execinfo set");
+    debug!("chsr o execinfo set {options_execinfo:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().execinfo = options_execinfo;
         Ok(())
@@ -630,12 +635,12 @@ pub fn set_execinfo(
 }
 
 pub fn set_umask(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_umask: Option<SUMask>,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o umask set");
+    debug!("chsr o umask set {options_umask:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().umask = options_umask;
         Ok(())
@@ -644,7 +649,7 @@ pub fn set_umask(
 }
 
 pub fn path_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -688,7 +693,7 @@ pub fn path_set(
 }
 
 pub fn path_purge(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -715,8 +720,45 @@ pub fn path_purge(
     Ok(true)
 }
 
+pub fn workdir_purge(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o workdir purge");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        let workdir_current = binding.workdir.take();
+        let mut workdir_set = match workdir_current {
+            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
+            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
+                fallback: Some(path),
+                ..Default::default()
+            },
+            None => SWorkdirSet::default(),
+        };
+        match setlist_type {
+            Some(SetListType::White) => {
+                if let Some(add) = &mut workdir_set.add {
+                    add.clear();
+                }
+            }
+            Some(SetListType::Black) => {
+                if let Some(sub) = &mut workdir_set.sub {
+                    sub.clear();
+                }
+            }
+            _ => unreachable!("Unknown setlist type"),
+        }
+        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
 pub fn env_whitelist_set(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<&SetListType>,
@@ -748,7 +790,7 @@ pub fn env_whitelist_set(
 }
 
 pub fn unset_timeout(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     timeout_arg: [bool; 3],
@@ -777,7 +819,7 @@ pub fn unset_timeout(
 }
 
 pub fn set_timeout(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     timeout_type: Option<rar_common::database::options::TimestampType>,
@@ -803,7 +845,7 @@ pub fn set_timeout(
 }
 
 pub fn path_setlist2(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -889,8 +931,117 @@ pub fn path_setlist2(
     Ok(true)
 }
 
+pub fn workdir_set_path(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    options_path: &str,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o workdir set path {options_path}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        opt.as_ref().borrow_mut().workdir = Some(SWorkdirEither::Path(options_path.to_string()));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+pub fn workdir_setlist(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    setlist_type: Option<SetListType>,
+    action: InputAction,
+    options_path: &str,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o w set whitelist|blacklist add|del|set path1:path2:path3");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        let workdir_current = binding.workdir.take();
+        let mut workdir_set = match workdir_current {
+            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
+            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
+                fallback: Some(path),
+                ..Default::default()
+            },
+            None => SWorkdirSet::default(),
+        };
+        match setlist_type {
+            Some(SetListType::White) => match action {
+                InputAction::Add => {
+                    workdir_set.add.get_or_insert_with(IndexSet::new).extend(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string),
+                    );
+                }
+                InputAction::Del => {
+                    debug!("workdir.add del {:?}", workdir_set.add);
+                    let hashset = options_path
+                        .split(':')
+                        .map(std::string::ToString::to_string)
+                        .collect::<IndexSet<String>>();
+                    if let Some(paths) = &mut workdir_set.add {
+                        *paths = paths
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<IndexSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
+                }
+                InputAction::Set => {
+                    workdir_set.add = Some(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string)
+                            .collect(),
+                    );
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            Some(SetListType::Black) => match action {
+                InputAction::Add => {
+                    workdir_set.sub.get_or_insert_with(IndexSet::new).extend(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string),
+                    );
+                }
+                InputAction::Del => {
+                    debug!("workdir.del del {:?}", workdir_set.sub);
+                    let hashset = options_path
+                        .split(':')
+                        .map(std::string::ToString::to_string)
+                        .collect::<IndexSet<String>>();
+                    if let Some(paths) = &mut workdir_set.sub {
+                        *paths = paths
+                            .difference(&hashset)
+                            .cloned()
+                            .collect::<IndexSet<String>>();
+                    } else {
+                        warn!("No path to remove from del list");
+                    }
+                }
+                InputAction::Set => {
+                    workdir_set.sub = Some(
+                        options_path
+                            .split(':')
+                            .map(std::string::ToString::to_string)
+                            .collect(),
+                    );
+                }
+                _ => unreachable!("Unknown action {:?}", action),
+            },
+            _ => unreachable!("Unknown setlist type"),
+        }
+        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
+        Ok(())
+    })?;
+    Ok(true)
+}
+
 pub fn path_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_path_policy: PathBehavior,
@@ -910,9 +1061,45 @@ pub fn path_setpolicy(
     .map(|()| true)
 }
 
+pub fn workdir_setpolicy(
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    options_workdir_policy: WorkdirBehavior,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o path setpolicy delete-all");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let workdir = opt.as_ref().borrow_mut().workdir.as_mut().map_or_else(
+            || {
+                SWorkdirEither::Struct(SWorkdirSet {
+                    default_behavior: options_workdir_policy,
+                    fallback: None,
+                    add: None,
+                    sub: None,
+                })
+            },
+            |workdir| match workdir {
+                SWorkdirEither::Path(p) => SWorkdirEither::Struct(SWorkdirSet {
+                    default_behavior: options_workdir_policy,
+                    fallback: Some(p.clone()),
+                    add: None,
+                    sub: None,
+                }),
+                SWorkdirEither::Struct(sworkdir_set) => {
+                    sworkdir_set.default_behavior = options_workdir_policy;
+                    SWorkdirEither::Struct(sworkdir_set.clone())
+                }
+            },
+        );
+        opt.as_ref().borrow_mut().workdir = Some(workdir);
+        Ok(())
+    })
+    .map(|()| true)
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn env_setlist_add(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     setlist_type: Option<SetListType>,
@@ -1039,16 +1226,15 @@ pub fn env_setlist_add(
 }
 
 pub fn env_setpolicy(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SConfig>>,
+    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     options_env_policy: EnvBehavior,
 ) -> Result<bool, Box<dyn Error>> {
-    debug!("chsr o env setpolicy delete-all");
+    debug!("chsr o env setpolicy delete-all {options_env_policy:?}");
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
-        let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        let env = binding.env.get_or_insert_default();
         env.default_behavior = options_env_policy;
         Ok(())
     })?;

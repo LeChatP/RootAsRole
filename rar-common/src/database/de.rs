@@ -325,14 +325,12 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                         }
                     }
                 }
-                if fallback.is_none() {
-                    return Err(de::Error::custom(
-                        "Missing required field 'fallback' in SSetgidSet",
-                    ));
-                }
+                let fallback = fallback.ok_or_else(|| {
+                    de::Error::custom("Missing required field 'fallback' in SSetgidSet")
+                })?;
                 Ok(SSetgidSet {
                     default_behavior,
-                    fallback: fallback.unwrap(),
+                    fallback,
                     add,
                     sub,
                 })

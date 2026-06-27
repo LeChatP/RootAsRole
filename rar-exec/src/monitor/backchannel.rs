@@ -1,5 +1,6 @@
 /// This backchannel uses rkyv instead of sudo-rs implementation because I don't want to maintain a custom serialization format
 /// and rkyv is clearly suitable and performant. I think serde would be too long to setup for this use case.
+use log::{trace, warn};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
@@ -10,29 +11,47 @@ macro_rules! signals {
     (core + [$($extra:expr),* $(,)?]) => {
         &[
             libc::SIGINT,
-            libc::SIGTERM,
             libc::SIGQUIT,
+            libc::SIGTSTP,
+            libc::SIGTERM,
             libc::SIGHUP,
             libc::SIGCONT,
-            libc::SIGTSTP,
+            libc::SIGALRM,
             $($extra),*
         ]
     };
 }
 
 /// Signals that can be forwarded from runner to command.
-pub const FORWARDABLE_SIGNALS: &[libc::c_int] = signals!(core + [libc::SIGUSR1, libc::SIGUSR2]);
+pub const FORWARDABLE_SIGNALS: &[libc::c_int] =
+    signals!(core + [libc::SIGUSR1, libc::SIGUSR2, libc::SIGWINCH]);
 
 /// Signals to register for no-pty execution (runner).
-pub const RUNNER_SIGNALS_NO_PTY: &[libc::c_int] = signals!(core + [libc::SIGCHLD]);
+pub const RUNNER_SIGNALS_NO_PTY: &[libc::c_int] = signals!(
+    core + [
+        libc::SIGPIPE,
+        libc::SIGUSR1,
+        libc::SIGUSR2,
+        libc::SIGCHLD,
+        libc::SIGWINCH
+    ]
+);
 
 /// Signals to register for pty execution (runner).
 pub const RUNNER_SIGNALS_WITH_PTY: &[libc::c_int] =
-    signals!(core + [libc::SIGWINCH, libc::SIGCHLD]);
+    signals!(core + [libc::SIGUSR1, libc::SIGUSR2, libc::SIGCHLD, libc::SIGWINCH]);
 
 /// Signals to register for monitor process.
-pub const MONITOR_SIGNALS: &[libc::c_int] =
-    signals!(core + [libc::SIGUSR1, libc::SIGUSR2, libc::SIGCHLD]);
+pub const MONITOR_SIGNALS: &[libc::c_int] = &[
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGTSTP,
+    libc::SIGTERM,
+    libc::SIGHUP,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGCHLD,
+];
 
 #[inline]
 #[must_use]
@@ -64,11 +83,13 @@ pub struct Backchannel {
 
 impl Backchannel {
     /// # Errors
-    /// Returns an error if the ``UnixStream`` pair cannot be created or if setting non-blocking
+    /// Returns an error if the ``UnixStream`` pair cannot be created
+    ///
+    /// The backchannel sockets are created as BLOCKING. They will be registered with `poll()`,
+    /// which will notify when they're ready. Then they can be read without blocking the event loop.
     pub fn pair() -> io::Result<(Self, Self)> {
         let (a, b) = UnixStream::pair()?;
-        a.set_nonblocking(true)?;
-        b.set_nonblocking(true)?;
+        // Keep both as blocking - poll() will notify when data is available
         Ok((Self { stream: a }, Self { stream: b }))
     }
 
@@ -81,6 +102,7 @@ impl Backchannel {
         }
         #[allow(clippy::cast_possible_truncation)]
         let len = (data.len() as u32).to_le_bytes();
+        trace!("backchannel: write frame len={}", data.len());
         self.stream.write_all(&len)?;
         self.stream.write_all(data)?;
         Ok(())
@@ -92,6 +114,7 @@ impl Backchannel {
         self.stream.read_exact(&mut len_buf)?;
         let len = u32::from_le_bytes(len_buf) as usize;
         if len == 0 || len > MAX_BACKCHANNEL_MESSAGE_SIZE {
+            warn!("backchannel: invalid frame size {len}");
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("invalid backchannel message size: {len} bytes"),
@@ -99,6 +122,7 @@ impl Backchannel {
         }
 
         let mut data = vec![0u8; len];
+        trace!("backchannel: read frame len={len}");
         self.stream.read_exact(&mut data)?;
         Ok(data)
     }
@@ -108,6 +132,7 @@ impl Backchannel {
     pub fn send_monitor_message(&mut self, msg: &MonitorMessage) -> io::Result<()> {
         let data = rkyv::to_bytes::<rkyv::rancor::Error>(msg)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        trace!("backchannel: send monitor message {msg:?}");
         self.write_frame(&data)
     }
 
@@ -116,8 +141,11 @@ impl Backchannel {
     pub fn recv_monitor_message(&mut self) -> io::Result<MonitorMessage> {
         let data = self.read_frame()?;
         // SAFETY: bytes come from our own serializer over a trusted local socket.
-        unsafe { rkyv::from_bytes_unchecked::<MonitorMessage, rkyv::rancor::Error>(&data) }
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        let msg =
+            unsafe { rkyv::from_bytes_unchecked::<MonitorMessage, rkyv::rancor::Error>(&data) }
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        trace!("backchannel: recv monitor message {msg:?}");
+        Ok(msg)
     }
 
     /// # Errors
@@ -125,6 +153,7 @@ impl Backchannel {
     pub fn send_parent_message(&mut self, msg: &ParentMessage) -> io::Result<()> {
         let data = rkyv::to_bytes::<rkyv::rancor::Error>(msg)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        trace!("backchannel: send parent message {msg:?}");
         self.write_frame(&data)
     }
 
@@ -132,8 +161,10 @@ impl Backchannel {
     /// Returns an error if deserialization fails, if reading from the stream fails
     pub fn recv_parent_message(&mut self) -> io::Result<ParentMessage> {
         let data = self.read_frame()?;
-        unsafe { rkyv::from_bytes_unchecked::<ParentMessage, rkyv::rancor::Error>(&data) }
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        let msg = rkyv::from_bytes::<ParentMessage, rkyv::rancor::Error>(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        trace!("backchannel: recv parent message {msg:?}");
+        Ok(msg)
     }
 
     pub const fn get_mut(&mut self) -> &mut UnixStream {
@@ -219,6 +250,33 @@ mod tests {
         let error = receiver
             .read_frame()
             .expect_err("zero-sized frame must fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn backchannel_rejects_truncated_parent_message() {
+        let (mut sender, mut receiver) = Backchannel::pair().expect("create backchannel pair");
+
+        // Serialize a valid message first to get real serialized bytes
+        let msg = ParentMessage::CommandPid(4242);
+        let full_data =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&msg).expect("serialize parent message");
+
+        // Write the full length of the serialized data, but only send part of it
+        #[allow(clippy::cast_possible_truncation)]
+        let truncated_len = (full_data.len() / 2) as u32;
+        sender
+            .get_mut()
+            .write_all(&truncated_len.to_le_bytes())
+            .expect("write truncated frame header");
+        sender
+            .get_mut()
+            .write_all(&full_data[..truncated_len as usize])
+            .expect("write partial frame payload");
+
+        let error = receiver
+            .recv_parent_message()
+            .expect_err("truncated frame must fail gracefully");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }

@@ -4,6 +4,8 @@ use std::{
     os::fd::AsFd,
 };
 
+use log::{debug, trace};
+
 use super::event::{EventHandle, EventRegistry, PollEvent, Process};
 
 use ringbuf::HeapRb;
@@ -107,6 +109,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
         match poll_event {
             PollEvent::Readable => {
                 let bytes_read = self.buffer_lr.read(&mut self.left, registry)?;
+                trace!("pipe: left readable -> {bytes_read} bytes");
                 if bytes_read == 0 {
                     self.buffer_lr.read_handle.ignore(registry);
                 } else if let Some(logger) = &mut self.logger {
@@ -121,7 +124,9 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
                 Ok(())
             }
             PollEvent::Writable => {
-                if self.buffer_rl.write(&mut self.left, registry)? {
+                let did_write = self.buffer_rl.write(&mut self.left, registry)?;
+                trace!("pipe: left writable -> wrote={did_write}");
+                if did_write {
                     self.buffer_rl.read_handle.resume(registry);
                 }
                 Ok(())
@@ -139,6 +144,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
         match poll_event {
             PollEvent::Readable => {
                 let bytes_read = self.buffer_rl.read(&mut self.right, registry)?;
+                trace!("pipe: right readable -> {bytes_read} bytes");
                 if bytes_read == 0 {
                     self.buffer_rl.read_handle.ignore(registry);
                 } else if let Some(logger) = &mut self.logger {
@@ -155,6 +161,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
             PollEvent::Writable => {
                 match self.buffer_lr.write(&mut self.right, registry) {
                     Ok(did_write) => {
+                        trace!("pipe: right writable -> wrote={did_write}");
                         if did_write && !self.background {
                             self.buffer_lr.read_handle.resume(registry);
                         }
@@ -177,6 +184,7 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
     /// # Errors
     /// Returns an error if writing to the left pipe fails, or if logging fails.
     pub fn flush_left(&mut self) -> io::Result<()> {
+        debug!("pipe: flushing left");
         let buffer = &mut self.buffer_rl;
         let source = &mut self.right;
         let sink = &mut self.left;
@@ -185,22 +193,20 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
             res?;
         }
 
-        if buffer.write_handle.is_active() {
-            let mut buf = [0u8; BUFFER_LEN];
-            loop {
-                match source.read(&mut buf) {
-                    Ok(read_bytes) => {
-                        if let Some(logger) = &mut self.logger {
-                            io_logger_sealed::Sealed::log_output(
-                                logger.as_mut(),
-                                &buf[..read_bytes],
-                            );
-                        }
-                        sink.write_all(&buf[..read_bytes])?;
+        let mut buf = [0u8; BUFFER_LEN];
+        loop {
+            match source.read(&mut buf) {
+                Ok(read_bytes) => {
+                    if read_bytes == 0 {
+                        break;
                     }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e),
+                    if let Some(logger) = &mut self.logger {
+                        io_logger_sealed::Sealed::log_output(logger.as_mut(), &buf[..read_bytes]);
+                    }
+                    sink.write_all(&buf[..read_bytes])?;
                 }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e),
             }
         }
         sink.flush()

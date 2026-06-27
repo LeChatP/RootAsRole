@@ -9,12 +9,12 @@ use strum::VariantNames;
 
 use crate::cli::data::{Convertion, RoleType, TaskType};
 use rar_common::{
-    StorageMethod,
     database::{
         actor::{SActor, SGroupType},
-        options::{EnvBehavior, OptType, PathBehavior, TimestampType},
+        options::{EnvBehavior, OptType, PathBehavior, TimestampType, WorkdirBehavior},
         structs::{IdTask, SetBehavior},
     },
+    util::StorageMethod,
 };
 
 use super::data::{InputAction, Inputs, Rule, SetListType, TimeoutOpt};
@@ -163,6 +163,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 unreachable!("Unknown env policy: {}", pair.as_str())
             }
         }
+        Rule::workdir_policy => {
+            inputs.action = InputAction::Set;
+            inputs.options_workdir_policy = Some(WorkdirBehavior::const_parse(pair.as_str()));
+        }
         // === timeout ===
         Rule::time => {
             let mut reversed = pair.as_str().split(':').rev();
@@ -220,6 +224,13 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::opt_timeout_max_usage => {
             inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>()?);
+        }
+        // === file ===
+        Rule::file => {
+            inputs.policy = true;
+        }
+        Rule::policy_path => {
+            inputs.policy_path = Some(pair.as_str().to_string());
         }
         // === roles ===
         Rule::role_id => {
@@ -362,6 +373,9 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::opt_path => {
             inputs.options_type = Some(OptType::Path);
         }
+        Rule::opt_workdir => {
+            inputs.options_type = Some(OptType::Workdir);
+        }
         Rule::opt_show_arg => {
             if pair.as_str() == "all" {
                 inputs.options_type = None;
@@ -443,6 +457,27 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::editor => {
             debug!("Editor mode enabled");
             inputs.editor = true;
+        }
+        Rule::editor_type => {
+            let mut inner = pair.clone().into_inner();
+            inputs.editor_type = Some(
+                inner
+                    .next()
+                    .expect("from_type not found")
+                    .as_str()
+                    .to_lowercase()
+                    .parse()
+                    .inspect_err(|&e| {
+                        warn!(
+                            "Unknown type {}, types available : {}",
+                            e,
+                            StorageMethod::VARIANTS.join(", ")
+                        );
+                    })?,
+            );
+        }
+        Rule::editor_path => {
+            inputs.editor_path = Some(pair.as_str().into());
         }
         _ => {
             debug!("Unmatched rule: {:?}", pair.as_rule());

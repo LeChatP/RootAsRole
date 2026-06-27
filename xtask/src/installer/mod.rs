@@ -4,6 +4,7 @@ pub mod install;
 mod uninstall;
 
 use std::fmt::Write;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::VecDeque, fmt::Display};
 
@@ -15,18 +16,24 @@ use strum::{Display, EnumIs, EnumString};
 use anyhow::anyhow;
 use log::debug;
 
+use crate::util::path_exe_from_env;
 use crate::{
     configure,
-    util::{OsTarget, detect_priv_bin, get_os},
+    util::{OsTarget, detect_priv_bin, get_os, is_dry_run},
 };
 pub const RAR_BIN_PATH: &str = env!("RAR_BIN_PATH");
 pub const SR_DEST: &str = "dosr";
 pub const CHSR_DEST: &str = "chsr";
 
 #[derive(Debug, Parser, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct InstallOptions {
     #[clap(flatten)]
     pub build_opts: BuildOptions,
+
+    /// Hidden flag used internally when install re-executes itself through a privilege escalator
+    #[clap(long, hide = true)]
+    pub nested_install: bool,
 
     /// The OS target for PAM configuration and dependencies installation (if -i is set)
     /// By default, it tries to autodetect it
@@ -44,10 +51,6 @@ pub struct InstallOptions {
     /// Clean the target directory after installing
     #[clap(long, short = 'a')]
     pub clean_after: bool,
-
-    /// The binary to elevate privileges
-    #[clap(long, short = 'p')]
-    pub priv_bin: Option<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -66,8 +69,8 @@ pub struct InstallDependenciesOptions {
     pub dev: bool,
 
     /// The binary to elevate privileges
-    #[clap(long, short = 'p')]
-    pub priv_bin: Option<String>,
+    #[clap(long, short = 'p', visible_alias = "privbin")]
+    pub priv_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Parser)]
@@ -75,6 +78,10 @@ pub struct UninstallOptions {
     /// Delete all configuration files
     #[clap(long, short = 'c')]
     pub clean_config: bool,
+
+    /// Apply filesystem changes (required)
+    #[clap(long)]
+    pub apply: bool,
 
     pub kind: UninstallKind,
 }
@@ -97,7 +104,8 @@ pub enum Profile {
 #[derive(Debug, Parser, Clone)]
 pub struct BuildOptions {
     /// The binary to elevate privileges
-    pub privbin: Option<String>,
+    #[clap(long, short = 'p', visible_alias = "privbin")]
+    pub priv_bin: Option<PathBuf>,
 
     /// Build the target with debug profile (default is release)
     #[clap(short = 'd', long = "debug", default_value_t = Profile::Release, default_missing_value = "debug", num_args = 0)]
@@ -202,7 +210,7 @@ impl FromStr for Toolchain {
         }
         let channel = parts
             .pop_front()
-            .unwrap()
+            .expect("Failed to get channel part from toolchain string")
             .to_lowercase()
             .as_str()
             .parse::<Channel>()?;
@@ -228,22 +236,54 @@ impl FromStr for Toolchain {
 }
 
 pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
+    if is_dry_run() {
+        debug!("Dry-run mode: skipping configure changes");
+        return Ok(());
+    }
     configure::configure(os)
 }
 
 pub fn dependencies(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
+    if is_dry_run() {
+        debug!("Dry-run mode: skipping dependencies installation");
+        return Ok(());
+    }
     dependencies::install(opts)
 }
 
 pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
+    if is_dry_run() {
+        debug!("Dry-run mode: skipping install changes");
+        return Ok(());
+    }
+    if opts.nested_install {
+        unsafe { std::env::set_var("ROOTASROLE_INSTALLER_NESTED", "1") };
+    } else {
+        unsafe { std::env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
+    }
     let os = get_os(opts.os.as_ref())?;
+    let priv_bin = opts
+        .build_opts
+        .priv_bin
+        .clone()
+        .or_else(detect_priv_bin)
+        .and_then(|bin| {
+            path_exe_from_env(
+                &std::env::var_os("PATH")
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .split(':')
+                    .collect::<Vec<_>>(),
+                bin,
+            )
+        });
     if opts.install_dependencies {
         debug!("Installing dependencies");
         dependencies(&InstallDependenciesOptions {
             os: Some(os.clone()),
             install_dependencies: true,
             dev: opts.build,
-            priv_bin: opts.build_opts.privbin.clone().or_else(detect_priv_bin),
+            priv_bin: priv_bin.clone(),
         })?;
     }
     if opts.build {
@@ -251,7 +291,7 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         build(&opts.build_opts)?;
     }
     if install::install(
-        opts.priv_bin.as_ref(),
+        priv_bin.as_deref(),
         opts.build_opts.profile,
         opts.clean_after,
         true,
@@ -269,5 +309,9 @@ pub fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
 }
 
 pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
+    if is_dry_run() {
+        debug!("Dry-run mode: skipping uninstall changes");
+        return Ok(());
+    }
     uninstall::uninstall(opts)
 }

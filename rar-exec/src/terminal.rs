@@ -399,13 +399,15 @@ impl UserTerm {
         };
         let original_oflag = term.c_oflag;
         unsafe { cfmakeraw(&raw mut term) };
+        term.c_iflag |= libc::ICRNL | libc::IXON;
+        term.c_oflag |= libc::OPOST | libc::ONLCR;
         if preserve_oflag {
             term.c_oflag = original_oflag;
         } else {
             term.c_oflag = 0;
         }
         if with_signals {
-            term.c_cflag |= ISIG;
+            term.c_lflag |= ISIG;
         }
 
         unsafe { tcsetattr_nobg(fd, TCSADRAIN, &raw const term) }?;
@@ -462,8 +464,10 @@ impl Drop for UserTerm {
 mod tests {
     use log::warn;
 
+    use crate::pty::Pty;
     use crate::terminal::{self, ProcessId, TermSize, TerminalExt, UserTerm};
     use std::fs::File;
+    use std::os::unix::ffi::OsStrExt;
 
     #[test]
     fn test_terminal_trait_on_file() {
@@ -531,5 +535,15 @@ mod tests {
 
         let (s1, _s2) = UnixStream::pair().expect("Failed to create socket pair");
         assert!(s1.is_pipe_or_socket());
+    }
+
+    #[test]
+    fn test_ttyname_matches_pty_path() {
+        let pty = Pty::open().expect("Failed to open PTY");
+        let ttyname = pty
+            .follower
+            .ttyname()
+            .expect("ttyname should work on pty follower");
+        assert_eq!(ttyname.as_os_str().as_bytes(), pty.path.as_bytes());
     }
 }
