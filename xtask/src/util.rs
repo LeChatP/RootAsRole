@@ -16,6 +16,7 @@ use chrono::Duration;
 use clap::ValueEnum;
 use log::{debug, info};
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use semver::Version;
 use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter, EnumString};
@@ -92,8 +93,21 @@ pub const RED: &str = "\x1B[31m";
 pub const GREEN: &str = "\x1B[32m";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SettingsFile {
+pub struct RootSettings {
+    pub version: Version,
+    #[serde(default)]
     pub storage: Settings,
+    #[serde(default)]
+    #[serde(flatten)]
+    pub policy: Policy,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Policy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
     pub extra_fields: Value,
@@ -113,13 +127,19 @@ pub enum StorageMethod {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+impl Default for StorageMethod {
+    fn default() -> Self {
+        RAR_CFG_TYPE
+            .parse()
+            .expect("Invalid storage method in RAR_CFG_TYPE")
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Settings {
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
     pub extra_fields: Value,
@@ -283,7 +303,14 @@ pub struct Opt {
 }
 
 const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
-pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+pub const RAR_CFG_TYPE: &str = env!("RAR_CFG_TYPE");
+pub const PACKAGE_VERSION: semver::Version = semver::Version::new(
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)),
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MINOR"), 10)),
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_PATCH"), 10)),
+);
 static DRY_RUN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, EnumIs)]

@@ -2,7 +2,7 @@ use anyhow::Context;
 use log::warn;
 use std::fs;
 
-use crate::util::{ImmutableLock, ROOTASROLE, files_are_equal, toggle_lock_config};
+use crate::util::{ImmutableLock, RAR_CFG_PATH, files_are_equal, toggle_lock_config};
 
 use super::{CHSR_DEST, SR_DEST, UninstallOptions, configure::config_state};
 
@@ -21,10 +21,10 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
         }
         if opts.clean_config || config_state()?.is_unchanged() {
             errors.push(
-                toggle_lock_config(&ROOTASROLE.to_string(), &ImmutableLock::Unset)
+                toggle_lock_config(&RAR_CFG_PATH.to_string(), &ImmutableLock::Unset)
                     .context("Error while removing lock from config file"),
             );
-            errors.push(fs::remove_file(ROOTASROLE).context(ROOTASROLE));
+            errors.push(fs::remove_file(RAR_CFG_PATH).context(RAR_CFG_PATH));
         }
     }
     for error in errors {

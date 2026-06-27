@@ -1,22 +1,23 @@
 use std::collections::HashMap;
 use std::env::{self};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
 use std::path::Path;
 
 use anyhow::Context;
 use capctl::Cap;
-use log::{info, warn};
-use nix::unistd::{getresuid, getuid};
+use log::{error, info, warn};
+use nix::unistd::{getresuid, getuid, mkstemp};
 use serde_json::Value;
 use strum::EnumIs;
 
 use crate::util::{
-    ImmutableLock, Opt, OsTarget, ROOTASROLE, SEnvOptions, SPathOptions, STimeout, SettingsFile,
-    cap_effective, convert_string_to_duration, files_are_equal, toggle_lock_config,
+    ImmutableLock, Opt, OsTarget, PACKAGE_VERSION, Policy, RAR_CFG_DATA_PATH, RAR_CFG_PATH,
+    RAR_CFG_TYPE, RootSettings, SEnvOptions, SPathOptions, STimeout, cap_effective,
+    convert_string_to_duration, files_are_equal, toggle_lock_config,
 };
 
-const TEMPLATE: &str = include_str!("../../resources/rootasrole.json");
 pub const PAM_CONFIG_SERVICE: &str = env!("RAR_PAM_SERVICE");
 
 fn is_running_in_container() -> bool {
@@ -53,17 +54,17 @@ fn is_running_in_container() -> bool {
 }
 
 pub fn check_filesystem() -> io::Result<()> {
-    let config = BufReader::new(File::open(ROOTASROLE)?);
-    let mut config: SettingsFile = serde_json::from_reader(config)?;
+    let config = BufReader::new(File::open(RAR_CFG_PATH)?);
+    let mut config: RootSettings = serde_json::from_reader(config)?;
 
     if env!("RAR_CFG_IMMUTABLE") == "true" {
         // Get the filesystem type
-        if let Some(fs_type) = get_filesystem_type(ROOTASROLE)? {
+        if let Some(fs_type) = get_filesystem_type(RAR_CFG_PATH)? {
             match fs_type.as_str() {
                 "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "ocfs2" | "jfs" | "reiserfs" => {
                     info!("{fs_type} is compatble for immutability, setting immutable flag");
                     set_immutable(&mut config, true);
-                    toggle_lock_config(&ROOTASROLE.to_string(), &ImmutableLock::Set)?;
+                    toggle_lock_config(&RAR_CFG_PATH.to_string(), &ImmutableLock::Set)?;
                     return Ok(());
                 }
                 _ => info!("{fs_type} is not compatible for immutability, removing immutable flag"),
@@ -74,17 +75,16 @@ pub fn check_filesystem() -> io::Result<()> {
     }
 
     set_immutable(&mut config, false);
-    File::create(ROOTASROLE)?.write_all(serde_json::to_string_pretty(&config)?.as_bytes())?;
+    File::create(RAR_CFG_PATH)?.write_all(serde_json::to_string_pretty(&config)?.as_bytes())?;
     Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
-fn set_options(content: &mut String) -> io::Result<()> {
-    let mut config: SettingsFile = serde_json::from_str(content)?;
-    config.storage.method = env!("RAR_CFG_TYPE")
+fn set_options(content: &mut RootSettings) {
+    content.storage.method = RAR_CFG_TYPE
         .parse()
         .expect("Check RAR_CFG_TYPE in .cargo/config.toml");
-    if let Some(settings) = &mut config.storage.settings {
+    if let Some(settings) = &mut content.storage.settings {
         if let Some(path) = &mut settings.path {
             *path = env!("RAR_CFG_DATA_PATH").to_string();
         }
@@ -94,7 +94,7 @@ fn set_options(content: &mut String) -> io::Result<()> {
                 .expect("Check RAR_CFG_IMMUTABLE in .cargo/config.toml");
         }
     }
-    config.storage.options = Some(Opt {
+    content.policy.options = Some(Opt {
         timeout: Some(STimeout {
             type_field: Some(
                 env!("RAR_TIMEOUT_TYPE")
@@ -195,11 +195,9 @@ fn set_options(content: &mut String) -> io::Result<()> {
         ),
         extra_fields: Value::Null,
     });
-    *content = serde_json::to_string_pretty(&config)?;
-    Ok(())
 }
 
-fn set_immutable(config: &mut SettingsFile, value: bool) {
+fn set_immutable(config: &mut RootSettings, value: bool) {
     if let Some(settings) = config.storage.settings.as_mut()
         && let Some(mut _immutable) = settings.immutable
     {
@@ -208,6 +206,7 @@ fn set_immutable(config: &mut SettingsFile, value: bool) {
 
     if !value {
         let roles = config
+            .policy
             .extra_fields
             .as_object_mut()
             .expect("Config extra fields should be a JSON object")
@@ -290,13 +289,19 @@ pub enum ConfigState {
 }
 
 fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
-    let status = if Path::new(ROOTASROLE).exists() {
+    let status = if Path::new(RAR_CFG_PATH).exists() {
         config_state()?
     } else {
-        info!("Config file {ROOTASROLE} does not exist, deploying default file");
+        info!("Config file {RAR_CFG_PATH} does not exist, deploying default file");
         // If the target file does not exist, copy the default file
         cap_effective(Cap::DAC_OVERRIDE, true).context("Failed to raise DAC_OVERRIDE")?;
-        deploy_config(ROOTASROLE)?;
+        deploy_config_from_template(
+            File::create(RAR_CFG_PATH)
+                .expect("Failed to create config file")
+                .into_raw_fd(),
+            policy_data_fd(),
+            "resources/rootasrole.json",
+        )?;
         cap_effective(Cap::DAC_OVERRIDE, false).context("Failed to raise DAC_OVERRIDE")?;
         ConfigState::Unchanged
     };
@@ -321,10 +326,54 @@ fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
     Ok(status)
 }
 
+fn policy_data_fd() -> Option<i32> {
+    if RAR_CFG_PATH == RAR_CFG_DATA_PATH {
+        None
+    } else {
+        let path = Path::new(RAR_CFG_DATA_PATH);
+        if path.is_dir() {
+            Some(
+                File::create(path.join("policy.json"))
+                    .expect("Failed to create policy config file")
+                    .into_raw_fd(),
+            )
+        } else if path.is_file() {
+            Some(
+                File::create(RAR_CFG_DATA_PATH)
+                    .expect("Failed to create policy config file")
+                    .into_raw_fd(),
+            )
+        } else if !path.exists() {
+            // check if path ends with .d and create the directory if it does
+            if path.extension().is_some_and(|ext| ext == "d") {
+                fs::create_dir_all(path).expect("Failed to create policy config directory");
+                Some(
+                    File::create(path.join("policy.json"))
+                        .expect("Failed to create policy config file")
+                        .into_raw_fd(),
+                )
+            } else {
+                Some(
+                    File::create(path)
+                        .expect("Failed to create policy config file")
+                        .into_raw_fd(),
+                )
+            }
+        } else {
+            error!(
+                "RAR_CFG_DATA_PATH is neither a file nor a directory, skipping policy config deployment"
+            );
+            panic!(
+                "RAR_CFG_DATA_PATH is neither a file nor a directory, skipping policy config deployment"
+            );
+        }
+    }
+}
+
 pub fn config_state() -> Result<ConfigState, anyhow::Error> {
-    let temporary_config_file = "/tmp/rar.json";
-    deploy_config(temporary_config_file)?;
-    let status = if files_are_equal(temporary_config_file, ROOTASROLE)? {
+    let (fd, temporary_config_file) = mkstemp("/tmp/rootasrole_config.XXXXXX")?;
+    deploy_config_from_template(fd, policy_data_fd(), "resources/rootasrole.json")?;
+    let status = if files_are_equal(&temporary_config_file.to_string_lossy(), RAR_CFG_PATH)? {
         ConfigState::Unchanged
     } else {
         ConfigState::Modified
@@ -333,20 +382,49 @@ pub fn config_state() -> Result<ConfigState, anyhow::Error> {
     Ok(status)
 }
 
-fn deploy_config<P: AsRef<Path>>(config_path: P) -> Result<(), anyhow::Error> {
+fn deploy_config_from_template<P: AsRef<Path>>(
+    config: RawFd,
+    policy_config: Option<RawFd>,
+    template: P,
+) -> Result<(), anyhow::Error> {
     let user = retrieve_real_user()?;
-    let mut content = if let Some(user) = user {
-        TEMPLATE.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name))
+    let template = {
+        let template_file =
+            File::open(template).context("Failed to open the template config file")?;
+        let mut content = String::new();
+        BufReader::new(template_file).read_to_string(&mut content)?;
+        content
+    };
+    let template = if let Some(user) = user {
+        template.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name))
     } else {
         warn!("Failed to get the current user from passwd file, using UID instead");
-        TEMPLATE.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()))
+        template.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()))
     };
-    // deploy execution options on the config file defined in the compilation environment variables
-    set_options(&mut content)?;
-    // Write the config file
-    let mut config = File::create(config_path)?;
-    config.write_all(content.as_bytes())?;
+    let mut template = serde_json::from_str::<RootSettings>(&template)
+        .context("Failed to parse the template config file")?;
+    set_options(&mut template);
+    if let Some(policy_config) = policy_config {
+        // save storage in the config fd
+        // save the extra fields in the policyconfig fd
+        template.policy.version = Some(PACKAGE_VERSION);
+        let mut policy_config = unsafe { File::from_raw_fd(policy_config) };
+        policy_config.write_all(
+            serde_json::to_string_pretty(&template.policy)
+                .context("Failed to serialize the policy config file")?
+                .as_bytes(),
+        )?;
+        policy_config.sync_all()?;
+        template.policy = Policy::default();
+    }
+    let mut config = unsafe { File::from_raw_fd(config) };
+    config.write_all(
+        serde_json::to_string_pretty(&template)
+            .context("Failed to serialize the config file")?
+            .as_bytes(),
+    )?;
     config.sync_all()?;
+
     Ok(())
 }
 
