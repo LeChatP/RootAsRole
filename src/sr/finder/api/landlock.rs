@@ -1,10 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{cell::RefCell, collections::HashMap, io, path::PathBuf};
 
 use bitflags::bitflags;
 use glob::glob;
 use landlock::{
-    Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    ABI, Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreated,
+    RulesetCreatedAttr,
 };
+use rar_exec::orchestrator::{PreExecContext, PreExecStep, Stage};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -34,13 +36,13 @@ impl Serialize for FAccess {
     {
         if serializer.is_human_readable() {
             let mut s = String::new();
-            if self.contains(FAccess::R) {
+            if self.contains(Self::R) {
                 s.push('R');
             }
-            if self.contains(FAccess::W) {
+            if self.contains(Self::W) {
                 s.push('W');
             }
-            if self.contains(FAccess::X) {
+            if self.contains(Self::X) {
                 s.push('X');
             }
             serializer.serialize_str(&s)
@@ -57,7 +59,7 @@ impl<'de> Deserialize<'de> for FAccess {
     {
         struct AccessVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for AccessVisitor {
+        impl serde::de::Visitor<'_> for AccessVisitor {
             type Value = FAccess;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -74,7 +76,7 @@ impl<'de> Deserialize<'de> for FAccess {
                         'R' => access |= FAccess::R,
                         'W' => access |= FAccess::W,
                         'X' => access |= FAccess::X,
-                        _ => return Err(E::custom(format!("invalid access character: {}", c))),
+                        _ => return Err(E::custom(format!("invalid access character: {c}"))),
                     }
                 }
                 Ok(access)
@@ -85,7 +87,7 @@ impl<'de> Deserialize<'de> for FAccess {
                 E: serde::de::Error,
             {
                 FAccess::from_bits(v)
-                    .ok_or_else(|| E::custom(format!("invalid access bitmask: {}", v)))
+                    .ok_or_else(|| E::custom(format!("invalid access bitmask: {v}")))
             }
         }
 
@@ -113,10 +115,11 @@ fn get_landlock_access(access: FAccess) -> BitFlags<AccessFs> {
 
 fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::PreExec(_, settings) = event {
+        LANDLOCK_RULESET.with(|rs| *rs.borrow_mut() = None);
         if let Some(fileset) = settings.cred.extra_values.get("files") {
             let mut whitelist = HashMap::<PathBuf, FAccess>::new();
             if let Some(obj) = fileset.as_object() {
-                for (key, value) in obj.iter() {
+                for (key, value) in obj {
                     let access: FAccess = serde_json::from_value(value.clone())
                         .map_err(|_| SrError::ConfigurationError)?;
                     whitelist.insert(PathBuf::from(key), access);
@@ -129,38 +132,51 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
                 .create()
                 .map_err(|_| SrError::ConfigurationError)?;
 
-            for (path, access) in whitelist.iter() {
+            for (path, access) in &whitelist {
                 let landlock_access = get_landlock_access(*access);
-                match glob(&path.to_string_lossy()) {
-                    Ok(paths) => {
-                        for entry in paths {
-                            if let Ok(p) = entry {
-                                let path_fd =
-                                    PathFd::new(p).map_err(|_| SrError::ConfigurationError)?;
-                                ruleset = ruleset
-                                    .add_rule(PathBeneath::new(path_fd, landlock_access))
-                                    .map_err(|_| SrError::ConfigurationError)?;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
+                if let Ok(paths) = glob(&path.to_string_lossy()) {
+                    for p in paths.flatten() {
+                        let path_fd = PathFd::new(p).map_err(|_| SrError::ConfigurationError)?;
                         ruleset = ruleset
                             .add_rule(PathBeneath::new(path_fd, landlock_access))
                             .map_err(|_| SrError::ConfigurationError)?;
                     }
+                } else {
+                    let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
+                    ruleset = ruleset
+                        .add_rule(PathBeneath::new(path_fd, landlock_access))
+                        .map_err(|_| SrError::ConfigurationError)?;
                 }
             }
-
-            ruleset
-                .restrict_self()
-                .map_err(|_| SrError::ConfigurationError)?;
+            LANDLOCK_RULESET.with(|rs| {
+                *rs.borrow_mut() = Some(ruleset);
+            });
         }
     }
     Ok(())
 }
 
-pub(crate) fn register() {
+thread_local! {
+    static LANDLOCK_RULESET: RefCell<Option<RulesetCreated>> = const { RefCell::new(None) };
+}
+
+pub unsafe fn apply_landlock_step(_: PreExecContext) -> io::Result<()> {
+    LANDLOCK_RULESET.with(|ruleset| {
+        if let Some(ruleset) = ruleset.borrow_mut().take() {
+            ruleset
+                .restrict_self()
+                .map_err(|e| io::Error::other(format!("Failed to apply Landlock ruleset: {e}")))?;
+        }
+        Ok(())
+    })
+}
+
+pub const LANDLOCK_STEP: PreExecStep = PreExecStep {
+    stage: Stage::LOCKDOWN,
+    run: apply_landlock_step,
+};
+
+pub fn register() {
     Api::register(EventKey::PreExec, pre_exec);
 }
 

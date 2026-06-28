@@ -3,13 +3,13 @@ use rar_common::{
     database::score::{CmdMin, CmdOrder},
     util::{all_paths_from_env, match_single_path},
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn match_path(
     env_path: &[&str],
-    user_path: &PathBuf,
+    user_path: &Path,
     role_path: &String,
-    previous_min: &CmdMin,
+    previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
@@ -21,8 +21,8 @@ fn match_path(
         debug!("match_path: user absolute path");
         let min = match_single_path(user_path, role_path);
         if min.better(previous_min) {
-            info!("match_path: found better match {:?}", min);
-            *final_path = Some(user_path.clone());
+            info!("match_path: found better match {min:?}");
+            *final_path = Some(user_path.to_path_buf());
         }
         min
     } else {
@@ -32,7 +32,7 @@ fn match_path(
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
-                if min.better(previous_min) && min.better(&curmin) {
+                if min.better(previous_min) && min.better(curmin) {
                     *final_path = Some(cmd_path.clone());
                     curmin = min;
                     Some(min)
@@ -44,8 +44,8 @@ fn match_path(
                 debug!(
                     "match_path: found better match {:?} with {}",
                     m,
-                    final_path.as_ref().unwrap().display()
-                )
+                    final_path.get_or_insert_default().display()
+                );
             })
             .unwrap_or_default()
     }
@@ -67,7 +67,7 @@ pub(super) fn match_args(
     let commandline = shell_words::join(input_args);
     if role_args.starts_with("\'^") && role_args.ends_with("$\'") {
         evaluate_regex_cmd(role_args.trim_matches('\''), &commandline).inspect_err(|e| {
-            debug!("{:?},No match for args {:?}", e, input_args);
+            debug!("{e:?},No match for args {input_args:?}");
         })
     } else if commandline == role_args {
         Ok(CmdMin::builder().matching().build())
@@ -105,15 +105,20 @@ fn evaluate_regex_cmd(
 /// Check if input command line is matching with role command line and return the score
 fn match_command_line(
     env_path: &[&str],
-    user_path: &PathBuf,
+    user_path: &Path,
     user_args: &[String],
     role_command: &[String],
-    previous_min: &CmdMin,
+    previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     debug!(
-        "match_command_line: env_path={:?}, user_path={:?}, user_args={:?}, role_command={:?}, previous_min={:?}, final_path={:?}",
-        env_path, user_path, user_args, role_command, previous_min, final_path
+        "match_command_line: env_path={:?}, user_path={}, user_args={:?}, role_command={:?}, previous_min={:?}, final_path={:?}",
+        env_path,
+        user_path.display(),
+        user_args,
+        role_command,
+        previous_min,
+        final_path
     );
     if role_command.is_empty() {
         return CmdMin::empty();
@@ -126,7 +131,7 @@ fn match_command_line(
         final_path,
     );
     if result.is_empty() || role_command.len() == 1 {
-        debug!("preresult : {:?}", result);
+        debug!("preresult : {result:?}");
         return result;
     }
     match match_args(user_args, &shell_words::join(&role_command[1..])) {
@@ -137,21 +142,20 @@ fn match_command_line(
             result.union_order(args_result.order);
         }
         Err(err) => {
-            debug!("Error: {}", err);
+            debug!("Error: {err}");
             return CmdMin::empty();
         }
     }
-    debug!("result : {:?}", result);
+    debug!("result : {result:?}");
     result
 }
 
-#[inline(always)]
 pub fn evaluate_command_match(
     env_path: &[&str],
-    cmd_path: &PathBuf,
+    cmd_path: &Path,
     cmd_args: &[String],
     role_cmd: &str,
-    previous_min: &CmdMin,
+    previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     match shell_words::split(role_cmd).map_err(Into::<Box<dyn std::error::Error>>::into) {
@@ -164,7 +168,7 @@ pub fn evaluate_command_match(
             final_path,
         ),
         Err(err) => {
-            warn!("Error: {}", err);
+            warn!("Error: {err}");
             CmdMin::empty()
         }
     }
@@ -187,7 +191,7 @@ mod tests {
             &env_path,
             &cmd_path,
             &role_path,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert_eq!(
@@ -211,7 +215,7 @@ mod tests {
             &env_path,
             &cmd_path,
             &role_path,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(result.matching());
@@ -229,7 +233,7 @@ mod tests {
             &env_path,
             &cmd_path,
             &role_path,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -247,7 +251,7 @@ mod tests {
             &env_path,
             &cmd_path,
             &role_path,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(result.matching());
@@ -265,7 +269,7 @@ mod tests {
             &env_path,
             &cmd_path,
             &role_path,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -373,7 +377,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(result.matching());
@@ -394,7 +398,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -414,7 +418,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -434,7 +438,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(result.matching());
@@ -454,7 +458,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -474,7 +478,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         // Should not match, as the binary is not specified
@@ -495,7 +499,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert_eq!(
@@ -521,7 +525,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             &role_command,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert_eq!(result, CmdMin::empty());
@@ -541,7 +545,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             role_cmd,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(result.matching());
@@ -561,7 +565,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             role_cmd,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert!(!result.matching());
@@ -581,7 +585,7 @@ mod tests {
             &cmd_path,
             &cmd_args,
             role_cmd,
-            &previous_min,
+            previous_min,
             &mut final_path,
         );
         assert_eq!(

@@ -1,14 +1,14 @@
-pub(crate) mod data;
+pub mod data;
 #[cfg(not(tarpaulin_include))]
 #[cfg(feature = "editor")]
-pub(crate) mod editor;
-pub(crate) mod pair;
-pub(crate) mod process;
+pub mod editor;
+pub mod pair;
+pub mod process;
 //TODO: UI miri tests
 #[cfg(not(tarpaulin_include))]
-pub(crate) mod usage;
+pub mod usage;
 
-use std::{cell::RefCell, error::Error, path::PathBuf, rc::Rc};
+use std::{error::Error, path::PathBuf};
 
 use bon::builder;
 use data::{Cli, Inputs, Rule};
@@ -18,14 +18,14 @@ use log::debug;
 use pair::recurse_pair;
 use pest::Parser;
 use process::process_input;
-use rar_common::FullSettings;
+use rar_common::file::FileSettings;
 use usage::print_usage;
 
-use crate::{cli::editor::edit_config, util::escape_parser_string_vec};
+use crate::{cli::editor::start_editing, util::escape_parser_string_vec};
 
 #[builder]
 pub fn main<I, S>(
-    #[builder(start_fn)] storage: Rc<RefCell<FullSettings>>,
+    #[builder(start_fn)] storage: &mut FileSettings,
     #[builder(start_fn)] args: I,
     #[builder(default = RulesetStatus::NotEnforced)] ruleset: RulesetStatus,
     folder: Option<&PathBuf>,
@@ -46,36 +46,44 @@ where
     for pair in args {
         recurse_pair(pair, &mut inputs)?;
     }
-    debug!("Inputs : {:?}", inputs);
+    debug!("Inputs : {inputs:?}");
     if inputs.editor {
         if ruleset == RulesetStatus::NotEnforced {
             return Err("Editor mode requires landlock to be enforced.".into());
         }
-        return edit_config(folder.unwrap(), storage.clone());
+        if let Some(path) = inputs.editor_path {
+            if let Some(storage) = storage.get(&path) {
+                return start_editing(&path, &mut *storage.as_ref().borrow_mut());
+            }
+            let file = FileSettings::read_policy(&path, inputs.editor_type.unwrap_or_default())?;
+            return start_editing(&path, &mut *file.data.data.as_ref().borrow_mut());
+        }
+        return start_editing(
+            folder.expect("implementation error"),
+            &mut *storage.get_root_mut(),
+        );
     }
-    process_input(&storage, inputs)
+    process_input(storage, inputs)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{env::current_dir, fs, io::Write};
+    use std::{cell::RefCell, fs, rc::Rc};
 
-    use linked_hash_set::LinkedHashSet;
+    use indexmap::IndexSet;
     use rar_common::{
+        RemoteStorageSettings, SettingsContent,
         database::{
-            actor::SActor,
-            actor::SGroups,
+            actor::{SActor, SGroups},
             options::*,
             structs::{SCredentials, *},
-            versionning::Versioning,
         },
-        read_full_settings,
-        util::remove_with_privileges,
-        FullSettings, RemoteStorageSettings, SettingsContent, StorageMethod,
+        file::RootSettings,
+        util::{StorageMethod, remove_with_privileges},
     };
     use serde_json::{Map, Value};
 
-    use crate::ROOTASROLE;
+    use crate::util::RAR_CFG_PATH;
 
     use super::*;
     use capctl::Cap;
@@ -87,7 +95,7 @@ mod tests {
 
     impl<F: FnOnce()> Defer<F> {
         pub fn new(f: F) -> Self {
-            Defer(Some(f))
+            Self(Some(f))
         }
     }
 
@@ -105,7 +113,7 @@ mod tests {
 
     // Test helper functions
     struct TestContext {
-        settings: Rc<RefCell<FullSettings>>,
+        settings: FileSettings,
         role_index: usize,
         task_index: usize,
     }
@@ -113,8 +121,9 @@ mod tests {
     impl TestContext {
         fn new(name: &str) -> (Self, Defer<impl FnOnce()>) {
             let defer = setup(name);
-            let path = format!("{}.{}", ROOTASROLE, name);
-            let settings = read_full_settings(&path).expect("Failed to get settings");
+            let path = format!("{RAR_CFG_PATH}.{name}");
+            let settings = FileSettings::write_all(path.clone(), path, StorageMethod::JSON)
+                .expect("should work");
             (
                 Self {
                     settings,
@@ -125,18 +134,18 @@ mod tests {
             )
         }
 
-        fn run_command(&self, command: &str) -> Result<bool, Box<dyn Error>> {
-            main(self.settings.clone(), command.split(" "))
+        fn run_command(&mut self, command: &str) -> Result<bool, Box<dyn Error>> {
+            main(&mut self.settings, command.split(' '))
                 .call()
-                .inspect_err(|e| error!("{}", e))
-                .inspect(|e| debug!("{}", e))
+                .inspect_err(|e| error!("{e}"))
+                .inspect(|e| debug!("{e}"))
         }
 
-        fn assert_command_success(&self, command: &str) {
+        fn assert_command_success(&mut self, command: &str) {
             assert!(self.run_command(command).expect("Command should not fail"));
         }
 
-        fn assert_command_no_change(&self, command: &str) {
+        fn assert_command_no_change(&mut self, command: &str) {
             assert!(!self.run_command(command).expect("Command should not fail"));
         }
 
@@ -153,8 +162,8 @@ mod tests {
                     role_ref.options.as_ref().unwrap().clone()
                 }
                 Level::Global => {
-                    let settings_ref = self.settings.as_ref().borrow();
-                    let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+                    let settings_ref = self.settings.get_root();
+                    let config_ref = settings_ref.config.as_ref().borrow();
                     config_ref.options.as_ref().unwrap().clone()
                 }
                 _ => panic!("Invalid level"),
@@ -162,8 +171,8 @@ mod tests {
         }
 
         fn get_role(&self, role_index: usize) -> Rc<RefCell<SRole>> {
-            let settings_ref = self.settings.as_ref().borrow();
-            let config_ref = settings_ref.config.as_ref().unwrap().as_ref().borrow();
+            let settings_ref = self.settings.get_root();
+            let config_ref = settings_ref.config.as_ref().borrow();
             config_ref[role_index].clone()
         }
 
@@ -193,13 +202,13 @@ mod tests {
         fn assert_actor_exists(&self, actor: &SActor) {
             self.with_role_actors(|actors| {
                 assert!(actors.contains(actor));
-            })
+            });
         }
 
         fn assert_actor_not_exists(&self, actor: &SActor) {
             self.with_role_actors(|actors| {
                 assert!(!actors.contains(actor));
-            })
+            });
         }
 
         fn task_count(&self) -> usize {
@@ -227,72 +236,72 @@ mod tests {
         fn assert_command_default_behavior(&self, expected: Option<SetBehavior>) {
             self.with_task_commands(|commands| {
                 assert_eq!(commands.default, expected);
-            })
+            });
         }
 
         fn assert_command_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(commands.add.contains(command));
-            })
+            });
         }
 
         fn assert_command_not_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(!commands.add.contains(command));
-            })
+            });
         }
 
         fn assert_command_blacklist_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(commands.sub.contains(command));
-            })
+            });
         }
 
         fn assert_command_blacklist_not_contains(&self, command: &SCommand) {
             self.with_task_commands(|commands| {
                 assert!(!commands.sub.contains(command));
-            })
+            });
         }
 
-        fn run_command_vec(&self, args: Vec<&str>) -> Result<bool, Box<dyn Error>> {
-            main(self.settings.clone(), args)
+        fn run_command_vec(&mut self, args: Vec<&str>) -> Result<bool, Box<dyn Error>> {
+            main(&mut self.settings, args)
                 .call()
-                .inspect_err(|e| error!("{}", e))
-                .inspect(|e| debug!("{}", e))
+                .inspect_err(|e| error!("{e}"))
+                .inspect(|e| debug!("{e}"))
         }
 
-        fn assert_command_vec_success(&self, args: Vec<&str>) {
+        fn assert_command_vec_success(&mut self, args: Vec<&str>) {
             assert!(self.run_command_vec(args).expect("Command should not fail"));
         }
 
         fn assert_capability_default_behavior_is_none(&self) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().default_behavior.is_none());
-            })
+            });
         }
 
         fn assert_capability_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().add.has(cap));
-            })
+            });
         }
 
         fn assert_capability_sub_size(&self, expected: usize) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().sub.size(), expected);
-            })
+            });
         }
 
         fn assert_capability_add_size(&self, expected: usize) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().add.size(), expected);
-            })
+            });
         }
 
         fn assert_capability_add_is_empty(&self) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().add.is_empty());
-            })
+            });
         }
 
         fn assert_setuid_is_none(&self) {
@@ -310,25 +319,25 @@ mod tests {
         fn assert_capability_default_behavior(&self, expected: SetBehavior) {
             self.with_task_capabilities(|caps| {
                 assert_eq!(caps.unwrap().default_behavior, expected);
-            })
+            });
         }
 
         fn assert_capability_sub_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(caps.unwrap().sub.has(cap));
-            })
+            });
         }
 
         fn assert_capability_add_not_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(!caps.unwrap().add.has(cap));
-            })
+            });
         }
 
         fn assert_capability_sub_not_has(&self, cap: Cap) {
             self.with_task_capabilities(|caps| {
                 assert!(!caps.unwrap().sub.has(cap));
-            })
+            });
         }
 
         fn with_path_options<F, R>(&self, f: F) -> R
@@ -337,7 +346,7 @@ mod tests {
         {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            f(&task_ref.path.as_ref().unwrap())
+            f(task_ref.path.as_ref().unwrap())
         }
 
         fn assert_path_default_behavior(&self, expected: PathBehavior) {
@@ -348,45 +357,53 @@ mod tests {
 
         fn assert_path_whitelist_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(path_options
-                    .add
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    path_options
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_whitelist_not_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(!path_options
-                    .add
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    !path_options
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_blacklist_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(path_options
-                    .sub
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    path_options
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
         fn assert_path_blacklist_not_contains(&self, path: &str) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
-                assert!(!path_options
-                    .sub
-                    .as_ref()
-                    .unwrap_or(&default)
-                    .contains(&path.to_string()));
+                let default = IndexSet::new();
+                assert!(
+                    !path_options
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
             });
         }
 
@@ -396,7 +413,7 @@ mod tests {
 
         fn assert_path_whitelist_len(&self, expected: usize) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
+                let default = IndexSet::new();
                 assert_eq!(
                     path_options.add.as_ref().unwrap_or(&default).len(),
                     expected
@@ -406,11 +423,112 @@ mod tests {
 
         fn assert_path_blacklist_len(&self, expected: usize) {
             self.with_path_options(|path_options| {
-                let default = LinkedHashSet::new();
+                let default = IndexSet::new();
                 assert_eq!(
                     path_options.sub.as_ref().unwrap_or(&default).len(),
                     expected
                 );
+            });
+        }
+
+        fn with_workdir_set<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&SWorkdirSet) -> R,
+        {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            let workdir = task_ref.workdir.as_ref().expect("workdir expected");
+            match workdir {
+                SWorkdirEither::Struct(workdir_set) => f(workdir_set),
+                SWorkdirEither::Path(_) => panic!("workdir set expected"),
+            }
+        }
+
+        fn assert_workdir_is_path(&self, expected: &str) {
+            let settings_ref = self.opt(Level::Task);
+            let task_ref = settings_ref.as_ref().borrow();
+            let workdir = task_ref.workdir.as_ref().expect("workdir expected");
+            match workdir {
+                SWorkdirEither::Path(path) => assert_eq!(path, expected),
+                SWorkdirEither::Struct(workdir_set) => {
+                    assert_eq!(workdir_set.fallback.as_deref(), Some(expected));
+                }
+            }
+        }
+
+        fn assert_workdir_default_behavior(&self, expected: WorkdirBehavior) {
+            self.with_workdir_set(|workdir_set| {
+                assert_eq!(workdir_set.default_behavior, expected);
+            });
+        }
+
+        fn assert_workdir_whitelist_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    workdir_set
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_whitelist_not_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    !workdir_set
+                        .add
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_blacklist_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    workdir_set
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_blacklist_not_contains(&self, path: &str) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert!(
+                    !workdir_set
+                        .sub
+                        .as_ref()
+                        .unwrap_or(&default)
+                        .contains(&path.to_string())
+                );
+            });
+        }
+
+        fn assert_workdir_whitelist_is_empty(&self) {
+            self.assert_workdir_whitelist_len(0);
+        }
+
+        fn assert_workdir_whitelist_len(&self, expected: usize) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert_eq!(workdir_set.add.as_ref().unwrap_or(&default).len(), expected);
+            });
+        }
+
+        fn assert_workdir_blacklist_len(&self, expected: usize) {
+            self.with_workdir_set(|workdir_set| {
+                let default = IndexSet::new();
+                assert_eq!(workdir_set.sub.as_ref().unwrap_or(&default).len(), expected);
             });
         }
 
@@ -420,57 +538,61 @@ mod tests {
         {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            f(&task_ref.env.as_ref().unwrap())
+            f(task_ref.env.as_ref().unwrap())
         }
 
         fn assert_env_default_behavior_is_delete(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.default_behavior.is_delete());
-            })
+            });
         }
 
         fn assert_env_default_behavior_is_keep(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.default_behavior.is_keep());
-            })
+            });
         }
 
         fn assert_env_default_behavior(&self, expected: EnvBehavior) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.default_behavior, expected);
-            })
+            });
         }
 
         fn assert_env_keep_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .keep
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .keep
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_keep_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.keep.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_delete_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .delete
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .delete
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_delete_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.delete.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_set_key_value(&self, key: &str, value: &str) {
@@ -484,301 +606,312 @@ mod tests {
                         .unwrap(),
                     (&key.to_string(), &value.to_string())
                 );
-            })
+            });
         }
 
         fn assert_env_set_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.set.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_set_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.set.is_none());
-            })
+            });
         }
 
         fn assert_env_set_key_not_exists(&self, key: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .set
-                    .as_ref()
-                    .unwrap()
-                    .get_key_value(key)
-                    .is_none());
-            })
+                assert!(
+                    env_options
+                        .set
+                        .as_ref()
+                        .unwrap()
+                        .get_key_value(key)
+                        .is_none()
+                );
+            });
         }
 
         fn assert_env_keep_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .keep
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .keep
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_keep_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.keep.is_none());
-            })
+            });
         }
 
         fn assert_env_delete_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .delete
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .delete
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_delete_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.delete.is_none());
-            })
+            });
         }
 
         fn assert_env_check_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(env_options
-                    .check
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    env_options
+                        .check
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_check_not_contains(&self, var: &str) {
             self.with_env_options(|env_options| {
-                assert!(!env_options
-                    .check
-                    .as_ref()
-                    .unwrap()
-                    .contains(&var.to_string().into()));
-            })
+                assert!(
+                    !env_options
+                        .check
+                        .as_ref()
+                        .unwrap()
+                        .contains::<EnvKey>(&var.to_string().into())
+                );
+            });
         }
 
         fn assert_env_check_len(&self, expected: usize) {
             self.with_env_options(|env_options| {
                 assert_eq!(env_options.check.as_ref().unwrap().len(), expected);
-            })
+            });
         }
 
         fn assert_env_check_is_none(&self) {
             self.with_env_options(|env_options| {
                 assert!(env_options.check.is_none());
-            })
+            });
         }
 
         // Root option helpers
-        fn assert_root_option(&self, expected: &Option<SPrivileged>) {
+        fn assert_root_option(&self, expected: Option<&SPrivileged>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.root, *expected);
+            assert_eq!(task_ref.root.as_ref(), expected);
         }
 
         // Bounding option helpers
-        fn assert_bounding_option(&self, expected: &Option<SBounding>) {
+        fn assert_bounding_option(&self, expected: Option<&SBounding>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.bounding, *expected);
+            assert_eq!(task_ref.bounding.as_ref(), expected);
         }
 
         // Authentication option helpers
-        fn assert_authentication_option(&self, expected: &Option<SAuthentication>) {
+        fn assert_authentication_option(&self, expected: Option<&SAuthentication>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.authentication, *expected);
+            assert_eq!(task_ref.authentication.as_ref(), expected);
         }
 
         // Execinfo option helpers
-        fn assert_execinfo_option(&self, expected: &Option<SInfo>) {
+        fn assert_execinfo_option(&self, expected: Option<&SInfo>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.execinfo, *expected);
+            assert_eq!(task_ref.execinfo.as_ref(), expected);
         }
 
         // SUMask option helpers
-        fn assert_umask_option(&self, expected: &Option<SUMask>) {
+        fn assert_umask_option(&self, expected: Option<&SUMask>) {
             let settings_ref = self.opt(Level::Task);
             let task_ref = settings_ref.as_ref().borrow();
-            assert_eq!(task_ref.umask, *expected);
+            assert_eq!(task_ref.umask.as_ref(), expected);
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn setup(name: &str) -> Defer<impl FnOnce()> {
-        let file_path = format!("{}.{}", ROOTASROLE, name);
-        let versionned = Versioning::new(
-            FullSettings::builder()
-                .storage(
-                    SettingsContent::builder()
-                        .method(StorageMethod::JSON)
-                        .settings(
-                            RemoteStorageSettings::builder()
-                                .path(file_path.clone())
-                                .not_immutable()
-                                .build(),
-                        )
-                        .build(),
-                )
-                .config(
-                    SConfig::builder()
-                        .options(|opt| {
-                            opt.timeout(
-                                STimeout::builder()
-                                    .type_field(TimestampType::PPID)
-                                    .duration(
-                                        TimeDelta::hours(15)
-                                            .checked_add(&TimeDelta::minutes(30))
-                                            .unwrap()
-                                            .checked_add(&TimeDelta::seconds(30))
-                                            .unwrap(),
-                                    )
-                                    .max_usage(1)
+        let file_path = format!("{RAR_CFG_PATH}.{name}");
+        println!("Setting up test with file path: {file_path}");
+        let mut versionned = FileSettings::builder()
+            .root(
+                file_path.clone().into(),
+                RootSettings::builder()
+                    .storage(
+                        SettingsContent::builder()
+                            .method(StorageMethod::JSON)
+                            .settings(
+                                RemoteStorageSettings::builder()
+                                    .path(file_path.clone())
+                                    .not_immutable()
                                     .build(),
                             )
-                            .path(
-                                SPathOptions::builder(PathBehavior::Delete)
-                                    .add(["path1", "path2"])
-                                    .sub(["path3", "path4"])
-                                    .build(),
-                            )
-                            .env(
-                                SEnvOptions::builder(EnvBehavior::Delete)
-                                    .keep(["env1", "env2"])
-                                    .unwrap()
-                                    .check(["env3", "env4"])
-                                    .unwrap()
-                                    .delete(["env5", "env6"])
-                                    .unwrap()
-                                    .set([("env7", "val7"), ("env8", "val8")])
-                                    .build(),
-                            )
-                            .root(SPrivileged::Privileged)
-                            .bounding(SBounding::Ignore)
-                            .build()
-                        })
-                        .role(
-                            SRole::builder("complete")
-                                .options(|opt| {
-                                    opt.timeout(
-                                        STimeout::builder()
-                                            .type_field(TimestampType::PPID)
-                                            .duration(
-                                                TimeDelta::hours(15)
-                                                    .checked_add(&TimeDelta::minutes(30))
-                                                    .unwrap()
-                                                    .checked_add(&TimeDelta::seconds(30))
-                                                    .unwrap(),
-                                            )
-                                            .max_usage(1)
-                                            .build(),
-                                    )
-                                    .path(
-                                        SPathOptions::builder(PathBehavior::Delete)
-                                            .add(["path1", "path2"])
-                                            .sub(["path3", "path4"])
-                                            .build(),
-                                    )
-                                    .env(
-                                        SEnvOptions::builder(EnvBehavior::Delete)
-                                            .keep(["env1", "env2"])
-                                            .unwrap()
-                                            .check(["env3", "env4"])
-                                            .unwrap()
-                                            .delete(["env5", "env6"])
-                                            .unwrap()
-                                            .set([("env7", "val7"), ("env8", "val8")])
-                                            .build(),
-                                    )
-                                    .root(SPrivileged::Privileged)
-                                    .bounding(SBounding::Ignore)
-                                    .build()
-                                })
-                                .actor(SActor::user(0).build())
-                                .actor(SActor::group(0).build())
-                                .actor(SActor::group(["groupA", "groupB"]).build())
-                                .task(
-                                    STask::builder("t_complete")
-                                        .options(|opt| {
-                                            opt.timeout(
-                                                STimeout::builder()
-                                                    .type_field(TimestampType::PPID)
-                                                    .duration(
-                                                        TimeDelta::hours(15)
-                                                            .checked_add(&TimeDelta::minutes(30))
-                                                            .unwrap()
-                                                            .checked_add(&TimeDelta::seconds(30))
-                                                            .unwrap(),
-                                                    )
-                                                    .max_usage(1)
-                                                    .build(),
-                                            )
-                                            .path(
-                                                SPathOptions::builder(PathBehavior::Delete)
-                                                    .add(["path1", "path2"])
-                                                    .sub(["path3", "path4"])
-                                                    .build(),
-                                            )
-                                            .env(
-                                                SEnvOptions::builder(EnvBehavior::Delete)
-                                                    .keep(["env1", "env2"])
-                                                    .unwrap()
-                                                    .check(["env3", "env4"])
-                                                    .unwrap()
-                                                    .delete(["env5", "env6"])
-                                                    .unwrap()
-                                                    .set([("env7", "val7"), ("env8", "val8")])
-                                                    .build(),
-                                            )
-                                            .root(SPrivileged::Privileged)
-                                            .bounding(SBounding::Ignore)
-                                            .build()
-                                        })
-                                        .commands(
-                                            SCommands::builder(SetBehavior::All)
-                                                .add(["ls".into(), "echo".into()])
-                                                .sub(["cat".into(), "grep".into()])
-                                                .build(),
+                            .build(),
+                    )
+                    .config(
+                        SPolicy::builder()
+                            .options(|opt| {
+                                opt.timeout(
+                                    STimeout::builder()
+                                        .type_field(TimestampType::PPID)
+                                        .duration(
+                                            TimeDelta::hours(15)
+                                                .checked_add(&TimeDelta::minutes(30))
+                                                .unwrap()
+                                                .checked_add(&TimeDelta::seconds(30))
+                                                .unwrap(),
                                         )
-                                        .cred(
-                                            SCredentials::builder()
-                                                .setuid("user1")
-                                                .setgid(SGroupsEither::MandatoryGroups(
-                                                    SGroups::from(["setgid1", "setgid2"]),
-                                                ))
-                                                .capabilities(
-                                                    SCapabilities::builder(SetBehavior::All)
-                                                        .add_cap(Cap::LINUX_IMMUTABLE)
-                                                        .add_cap(Cap::NET_BIND_SERVICE)
-                                                        .sub_cap(Cap::SYS_ADMIN)
-                                                        .sub_cap(Cap::SYS_BOOT)
-                                                        .build(),
-                                                )
-                                                .build(),
-                                        )
+                                        .max_usage(1)
                                         .build(),
                                 )
-                                .build(),
-                        )
-                        .build(),
-                )
-                .build(),
-        );
-        let mut file = std::fs::File::create(file_path.clone()).unwrap_or_else(|_| {
-            panic!(
-                "Failed to create {:?}/{:?} file at",
-                current_dir().unwrap(),
-                file_path
+                                .path(
+                                    SPathOptions::builder(PathBehavior::Delete)
+                                        .add(["path1", "path2"])
+                                        .sub(["path3", "path4"])
+                                        .build(),
+                                )
+                                .env(
+                                    SEnvOptions::builder(EnvBehavior::Delete)
+                                        .keep(["env1", "env2"])
+                                        .unwrap()
+                                        .check(["env3", "env4"])
+                                        .unwrap()
+                                        .delete(["env5", "env6"])
+                                        .unwrap()
+                                        .set([("env7", "val7"), ("env8", "val8")])
+                                        .build(),
+                                )
+                                .root(SPrivileged::Privileged)
+                                .bounding(SBounding::Ignore)
+                                .build()
+                            })
+                            .role(
+                                SRole::builder("complete")
+                                    .options(|opt| {
+                                        opt.timeout(
+                                            STimeout::builder()
+                                                .type_field(TimestampType::PPID)
+                                                .duration(
+                                                    TimeDelta::hours(15)
+                                                        .checked_add(&TimeDelta::minutes(30))
+                                                        .unwrap()
+                                                        .checked_add(&TimeDelta::seconds(30))
+                                                        .unwrap(),
+                                                )
+                                                .max_usage(1)
+                                                .build(),
+                                        )
+                                        .path(
+                                            SPathOptions::builder(PathBehavior::Delete)
+                                                .add(["path1", "path2"])
+                                                .sub(["path3", "path4"])
+                                                .build(),
+                                        )
+                                        .env(
+                                            SEnvOptions::builder(EnvBehavior::Delete)
+                                                .keep(["env1", "env2"])
+                                                .unwrap()
+                                                .check(["env3", "env4"])
+                                                .unwrap()
+                                                .delete(["env5", "env6"])
+                                                .unwrap()
+                                                .set([("env7", "val7"), ("env8", "val8")])
+                                                .build(),
+                                        )
+                                        .root(SPrivileged::Privileged)
+                                        .bounding(SBounding::Ignore)
+                                        .build()
+                                    })
+                                    .actor(SActor::user(0).build())
+                                    .actor(SActor::group(0).build())
+                                    .actor(SActor::group(["groupA", "groupB"]).build())
+                                    .task(
+                                        STask::builder("t_complete")
+                                            .options(|opt| {
+                                                opt.timeout(
+                                                    STimeout::builder()
+                                                        .type_field(TimestampType::PPID)
+                                                        .duration(
+                                                            TimeDelta::hours(15)
+                                                                .checked_add(&TimeDelta::minutes(
+                                                                    30,
+                                                                ))
+                                                                .unwrap()
+                                                                .checked_add(&TimeDelta::seconds(
+                                                                    30,
+                                                                ))
+                                                                .unwrap(),
+                                                        )
+                                                        .max_usage(1)
+                                                        .build(),
+                                                )
+                                                .path(
+                                                    SPathOptions::builder(PathBehavior::Delete)
+                                                        .add(["path1", "path2"])
+                                                        .sub(["path3", "path4"])
+                                                        .build(),
+                                                )
+                                                .env(
+                                                    SEnvOptions::builder(EnvBehavior::Delete)
+                                                        .keep(["env1", "env2"])
+                                                        .unwrap()
+                                                        .check(["env3", "env4"])
+                                                        .unwrap()
+                                                        .delete(["env5", "env6"])
+                                                        .unwrap()
+                                                        .set([("env7", "val7"), ("env8", "val8")])
+                                                        .build(),
+                                                )
+                                                .root(SPrivileged::Privileged)
+                                                .bounding(SBounding::Ignore)
+                                                .build()
+                                            })
+                                            .commands(
+                                                SCommands::builder(SetBehavior::All)
+                                                    .add(["ls".into(), "echo".into()])
+                                                    .sub(["cat".into(), "grep".into()])
+                                                    .build(),
+                                            )
+                                            .cred(
+                                                SCredentials::builder()
+                                                    .setuid("user1")
+                                                    .setgid(SGroupsEither::MandatoryGroups(
+                                                        SGroups::from(["setgid1", "setgid2"]),
+                                                    ))
+                                                    .capabilities(
+                                                        SCapabilities::builder(SetBehavior::All)
+                                                            .add_cap(Cap::LINUX_IMMUTABLE)
+                                                            .add_cap(Cap::NET_BIND_SERVICE)
+                                                            .sub_cap(Cap::SYS_ADMIN)
+                                                            .sub_cap(Cap::SYS_BOOT)
+                                                            .build(),
+                                                    )
+                                                    .build(),
+                                            )
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
             )
-        });
-        let jsonstr = serde_json::to_string_pretty(&versionned).unwrap();
-        file.write_all(jsonstr.as_bytes()).unwrap();
-        file.flush().unwrap();
+            .unwrap()
+            .build();
+        versionned.save_all().unwrap();
         defer(move || {
             remove_with_privileges(file_path).unwrap();
         })
@@ -817,9 +950,13 @@ mod tests {
     // chsr o timeout set --type tty --duration 5:00 --max_usage 1
     // chsr o t unset --type --duration --max_usage
 
+    // chsr o workdir set /home/user
+    // chsr o workdir setpolicy (all|none|inherit)
+    // chsr o workdir (whitelist|blacklist) (add|del|set|purge) /home/user/**
+
     #[test]
     fn test_all_main() {
-        let (ctx, _defer) = TestContext::new("all_main");
+        let (mut ctx, _defer) = TestContext::new("all_main");
 
         // Test --help command (should not change anything)
         ctx.assert_command_no_change("--help");
@@ -832,7 +969,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_show_actors() {
-        let (ctx, _defer) = TestContext::new("r_complete_show_actors");
+        let (mut ctx, _defer) = TestContext::new("r_complete_show_actors");
 
         // Test show commands (should not change anything)
         ctx.assert_command_no_change("r complete show actors");
@@ -844,21 +981,22 @@ mod tests {
     }
     #[test]
     fn test_purge_tasks() {
-        let (ctx, _defer) = TestContext::new("purge_tasks");
+        let (mut ctx, _defer) = TestContext::new("purge_tasks");
 
         // Test purge tasks command (should make changes)
         ctx.assert_command_success("r complete purge tasks");
     }
     #[test]
     fn test_r_complete_purge_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_purge_all");
+        let (mut ctx, _defer) = TestContext::new("r_complete_purge_all");
 
         // Test purge all command (should make changes)
         ctx.assert_command_success("r complete purge all");
     }
     #[test]
     fn test_r_complete_grant_u_user1_g_group1_g_group2_group3() {
-        let (ctx, _defer) = TestContext::new("r_complete_grant_u_user1_g_group1_g_group2_group3");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_grant_u_user1_g_group1_g_group2_group3");
 
         // Test grant command (should make changes)
         ctx.assert_command_success("r complete grant -u user1 -g group1 -g group2&group3");
@@ -878,7 +1016,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_task_t_complete_show_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_show_all");
+        let (mut ctx, _defer) = TestContext::new("r_complete_task_t_complete_show_all");
 
         // Test show commands (should not change anything)
         ctx.assert_command_no_change("r complete task t_complete show all");
@@ -890,14 +1028,14 @@ mod tests {
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cmd() {
-        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cmd");
+        let (mut ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cmd");
 
         // Test purge cmd command (should make changes)
         ctx.assert_command_success("r complete task t_complete purge cmd");
     }
     #[test]
     fn test_r_complete_task_t_complete_purge_cred() {
-        let (ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cred");
+        let (mut ctx, _defer) = TestContext::new("r_complete_task_t_complete_purge_cred");
 
         // Test purge cred command (should make changes)
         ctx.assert_command_success("r complete task t_complete purge cred");
@@ -912,21 +1050,21 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_deny_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_deny_all");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_deny_all");
 
         ctx.assert_command_success("r complete t t_complete cmd setpolicy deny-all");
         ctx.assert_command_default_behavior(Some(SetBehavior::None));
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_setpolicy_allow_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_allow_all");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_cmd_setpolicy_allow_all");
 
         ctx.assert_command_success("r complete t t_complete cmd setpolicy allow-all");
         ctx.assert_command_default_behavior(Some(SetBehavior::All));
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_cmd_whitelist_add_super_command_with_spaces");
 
         let command = SCommand::Simple("super command with spaces".to_string());
@@ -951,7 +1089,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
 
         let command = SCommand::Simple("super command with spaces".to_string());
@@ -973,9 +1111,11 @@ mod tests {
         ctx.assert_command_blacklist_not_contains(&command);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2");
+    fn test_r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2()
+     {
+        let (mut ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_set_caps_cap_dac_override_cap_sys_admin_cap_sys_boot_setuid_user1_setgid_group1_group2",
+        );
 
         // Test cred set command
         ctx.assert_command_success("r complete t t_complete cred set --caps cap_dac_override,cap_sys_admin,cap_sys_boot --setuid user1 --setgid group1,group2");
@@ -998,7 +1138,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_deny_all() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_cred_caps_setpolicy_deny_all");
 
         ctx.assert_command_success("r complete t t_complete cred caps setpolicy deny-all");
@@ -1006,16 +1146,18 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_cred_caps_setpolicy_allow_all() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_cred_caps_setpolicy_allow_all");
 
         ctx.assert_command_success("r complete t t_complete cred caps setpolicy allow-all");
         ctx.assert_capability_default_behavior(SetBehavior::All);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+    fn test_r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot()
+     {
+        let (mut ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_caps_whitelist_add_cap_dac_override_cap_sys_admin_cap_sys_boot",
+        );
 
         ctx.assert_command_success("r complete t t_complete cred caps whitelist add cap_dac_override cap_sys_admin cap_sys_boot");
         ctx.assert_capability_has(Cap::DAC_OVERRIDE);
@@ -1023,9 +1165,11 @@ mod tests {
         ctx.assert_capability_has(Cap::SYS_BOOT);
     }
     #[test]
-    fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot(
-    ) {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot");
+    fn test_r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot()
+     {
+        let (mut ctx, _defer) = TestContext::new(
+            "r_complete_t_t_complete_cred_caps_blacklist_add_cap_dac_override_cap_sys_admin_cap_sys_boot",
+        );
 
         // Test blacklist add
         ctx.assert_command_success("r complete t t_complete cred caps blacklist add cap_dac_override cap_sys_admin cap_sys_boot");
@@ -1049,7 +1193,7 @@ mod tests {
     }
     #[test]
     fn test_options_show_all() {
-        let (ctx, _defer) = TestContext::new("options_show_all");
+        let (mut ctx, _defer) = TestContext::new("options_show_all");
 
         // Test show commands (should not change anything)
         ctx.assert_command_no_change("options show all");
@@ -1058,7 +1202,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_options_show_env() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_options_show_env");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_options_show_env");
 
         // Test show commands (should not change anything)
         ctx.assert_command_no_change("r complete t t_complete options show env");
@@ -1070,14 +1214,15 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_delete_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_setpolicy_delete_all");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_path_setpolicy_delete_all");
 
         ctx.assert_command_success("r complete t t_complete o path setpolicy delete-all");
         ctx.assert_path_default_behavior(PathBehavior::Delete);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_setpolicy_keep_unsafe() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_o_path_setpolicy_keep_unsafe");
 
         ctx.assert_command_success("r complete t t_complete o path setpolicy keep-unsafe");
@@ -1092,7 +1237,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_whitelist_add() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_whitelist_add");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_whitelist_add");
 
         // Test whitelist add
         ctx.assert_command_success("r complete t t_complete o path whitelist add /usr/bin:/bin");
@@ -1134,13 +1279,78 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_path_blacklist_purge() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_blacklist_purge");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_path_blacklist_purge");
 
         ctx.assert_command_success("r complete t t_complete o path blacklist purge");
     }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_set() {
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_set");
+
+        ctx.assert_command_success("r complete t t_complete o workdir set /home/user");
+        ctx.assert_workdir_is_path("/home/user");
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_setpolicy() {
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_setpolicy");
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy all");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Blacklist);
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy none");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Allowlist);
+
+        ctx.assert_command_success("r complete t t_complete o workdir setpolicy inherit");
+        ctx.assert_workdir_default_behavior(WorkdirBehavior::Inherit);
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_whitelist_add() {
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_whitelist_add");
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist add /home/user");
+        ctx.assert_workdir_whitelist_contains("/home/user");
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist del /home/user");
+        ctx.assert_workdir_whitelist_not_contains("/home/user");
+
+        ctx.assert_command_success(
+            "r complete t t_complete o workdir whitelist set /home/user:/tmp",
+        );
+        ctx.assert_workdir_whitelist_contains("/home/user");
+        ctx.assert_workdir_whitelist_contains("/tmp");
+        ctx.assert_workdir_whitelist_len(2);
+
+        ctx.assert_command_success("r complete t t_complete o workdir whitelist purge");
+        ctx.assert_workdir_whitelist_is_empty();
+    }
+
+    #[test]
+    fn test_r_complete_t_t_complete_o_workdir_blacklist_add() {
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_workdir_blacklist_add");
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist set /home/user");
+        ctx.assert_workdir_blacklist_contains("/home/user");
+        ctx.assert_workdir_blacklist_len(1);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist add /tmp");
+        ctx.assert_workdir_blacklist_contains("/tmp");
+        ctx.assert_workdir_blacklist_len(2);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist del /home/user");
+        ctx.assert_workdir_blacklist_not_contains("/home/user");
+        ctx.assert_workdir_blacklist_contains("/tmp");
+        ctx.assert_workdir_blacklist_len(1);
+
+        ctx.assert_command_success("r complete t t_complete o workdir blacklist purge");
+        ctx.assert_workdir_blacklist_len(0);
+    }
     #[test]
     fn test_r_complete_t_t_complete_o_env_keep_only_myvar_var2() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_keep_only_MYVAR_VAR2");
 
         ctx.assert_command_success("r complete t t_complete o env keep-only MYVAR,VAR2");
         ctx.assert_env_default_behavior_is_delete();
@@ -1150,7 +1360,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_delete_only_myvar_var2() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_o_env_delete_only_MYVAR_VAR2");
 
         ctx.assert_command_success("r complete t t_complete o env delete-only MYVAR,VAR2");
@@ -1161,7 +1371,7 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_set_myvar_value_var2_value2() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_o_env_set_MYVAR_value_VAR2_value2");
 
         ctx.assert_command_success(
@@ -1173,11 +1383,11 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_add_myvar_value_var2_value2() {
-        let (ctx, _defer) =
+        let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_o_env_add_MYVAR_value_VAR2_value2");
 
         // Test setlist set
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist set VAR3=value3"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist set VAR3=value3");
 
         // Test setlist add
         ctx.assert_command_success(
@@ -1189,39 +1399,42 @@ mod tests {
         ctx.assert_env_set_len(3);
 
         // Test setlist del
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist del MYVAR,VAR2"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist del MYVAR,VAR2");
         ctx.assert_env_set_len(1);
         ctx.assert_env_set_key_not_exists("MYVAR");
         ctx.assert_env_set_key_not_exists("VAR2");
 
         // Test setlist purge
-        ctx.assert_command_success(r#"r complete t t_complete o env setlist purge"#);
+        ctx.assert_command_success(r"r complete t t_complete o env setlist purge");
         ctx.assert_env_set_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_delete_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_delete_all");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_setpolicy_delete_all");
 
         ctx.assert_command_success("r complete t t_complete o env setpolicy delete-all");
         ctx.assert_env_default_behavior(EnvBehavior::Delete);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_keep_all() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_keep_all");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_setpolicy_keep_all");
 
         ctx.assert_command_success("r complete t t_complete o env setpolicy keep-all");
         ctx.assert_env_default_behavior(EnvBehavior::Keep);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_setpolicy_inherit() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_inherit");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_setpolicy_inherit");
 
         ctx.assert_command_success("r complete t t_complete o env setpolicy inherit");
         ctx.assert_env_default_behavior(EnvBehavior::Inherit);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_add_myvar() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_whitelist_add_MYVAR");
 
         // Test whitelist add
         ctx.assert_command_success("r complete t t_complete o env whitelist add MYVAR");
@@ -1240,14 +1453,15 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_whitelist_purge() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_purge");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_whitelist_purge");
 
         ctx.assert_command_success("r complete t t_complete o env whitelist purge");
         ctx.assert_env_keep_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_add_myvar() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_blacklist_add_MYVAR");
 
         // Test blacklist add
         ctx.assert_command_success("r complete t t_complete o env blacklist add MYVAR");
@@ -1259,7 +1473,8 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_set_myvar() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_blacklist_set_MYVAR");
 
         ctx.assert_command_success("r complete t t_complete o env blacklist set MYVAR");
         ctx.assert_env_delete_contains("MYVAR");
@@ -1267,14 +1482,15 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_blacklist_purge() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_purge");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_blacklist_purge");
 
         ctx.assert_command_success("r complete t t_complete o env blacklist purge");
         ctx.assert_env_delete_is_none();
     }
     #[test]
     fn test_r_complete_t_t_complete_o_env_checklist_add_myvar() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
+        let (mut ctx, _defer) =
+            TestContext::new("r_complete_t_t_complete_o_env_checklist_add_MYVAR");
 
         // Test checklist add
         ctx.assert_command_success("r complete t t_complete o env checklist add MYVAR");
@@ -1298,91 +1514,91 @@ mod tests {
     }
     #[test]
     fn test_r_complete_t_t_complete_o_root_privileged() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_root_privileged");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_root_privileged");
 
         // Test root privileged
         ctx.assert_command_success("r complete t t_complete o root privileged");
-        ctx.assert_root_option(&Some(SPrivileged::Privileged));
+        ctx.assert_root_option(Some(&SPrivileged::Privileged));
 
         debug!("=====");
         // Test root user
         ctx.assert_command_success("r complete t t_complete o root user");
-        ctx.assert_root_option(&Some(SPrivileged::User));
+        ctx.assert_root_option(Some(&SPrivileged::User));
 
         debug!("=====");
         // Test root unset
         ctx.assert_command_success("r complete t t_complete o root unset");
-        ctx.assert_root_option(&None);
+        ctx.assert_root_option(None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_strict() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_strict");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_strict");
 
         ctx.assert_command_success("r complete t t_complete o bounding strict");
-        ctx.assert_bounding_option(&Some(SBounding::Strict));
+        ctx.assert_bounding_option(Some(&SBounding::Strict));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_ignore() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_ignore");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_ignore");
 
         ctx.assert_command_success("r complete t t_complete o bounding ignore");
-        ctx.assert_bounding_option(&Some(SBounding::Ignore));
+        ctx.assert_bounding_option(Some(&SBounding::Ignore));
     }
     #[test]
     fn test_r_complete_t_t_complete_o_bounding_inherit() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_inherit");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_bounding_inherit");
 
         ctx.assert_command_success("r complete t t_complete o bounding unset");
-        ctx.assert_bounding_option(&None);
+        ctx.assert_bounding_option(None);
     }
     #[test]
     fn test_r_complete_t_t_complete_o_auth_skip() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_auth_skip");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_auth_skip");
 
         // Test auth skip
         ctx.assert_command_success("r complete t t_complete o auth skip");
-        ctx.assert_authentication_option(&Some(SAuthentication::Skip));
+        ctx.assert_authentication_option(Some(&SAuthentication::Skip));
 
         debug!("=====");
         // Test auth perform
         ctx.assert_command_success("r complete t t_complete o auth perform");
-        ctx.assert_authentication_option(&Some(SAuthentication::Perform));
+        ctx.assert_authentication_option(Some(&SAuthentication::Perform));
 
         debug!("=====");
         // Test auth unset
         ctx.assert_command_success("r complete t t_complete o auth unset");
-        ctx.assert_authentication_option(&None);
+        ctx.assert_authentication_option(None);
     }
 
     #[test]
     fn test_r_complete_t_t_complete_o_execinfo() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_execinfo");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_execinfo");
 
         // Test execinfo set
         ctx.assert_command_success("r complete t t_complete o execinfo show");
-        ctx.assert_execinfo_option(&Some(SInfo::Show));
+        ctx.assert_execinfo_option(Some(&SInfo::Show));
 
         ctx.assert_command_success("r complete t t_complete o execinfo hide");
-        ctx.assert_execinfo_option(&Some(SInfo::Hide));
+        ctx.assert_execinfo_option(Some(&SInfo::Hide));
 
         debug!("=====");
         // Test execinfo unset
         ctx.assert_command_success("r complete t t_complete o execinfo unset");
-        ctx.assert_execinfo_option(&None);
+        ctx.assert_execinfo_option(None);
     }
 
     #[test]
     fn test_r_complete_t_t_complete_o_umask() {
-        let (ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_umask");
+        let (mut ctx, _defer) = TestContext::new("r_complete_t_t_complete_o_umask");
 
         // Test umask set
         ctx.assert_command_success("r complete t t_complete o umask 027");
-        ctx.assert_umask_option(&Some(0o27.into()));
+        ctx.assert_umask_option(Some(&0o27.into()));
 
         debug!("=====");
         // Test umask unset
         ctx.assert_command_success("r complete t t_complete o umask unset");
-        ctx.assert_umask_option(&None);
+        ctx.assert_umask_option(None);
     }
 
     fn normalize_json_object(value: Value) -> Value {
@@ -1408,42 +1624,39 @@ mod tests {
             .filter_level(log::LevelFilter::Debug)
             .is_test(true)
             .try_init();
-        let (ctx, _defer) = TestContext::new("convert");
+        let (mut ctx, _defer) = TestContext::new("convert");
 
-        ctx.assert_command_success(&format!("convert cbor {}.convert.bin", ROOTASROLE));
-        ctx.assert_command_success(&format!("convert json {}.convert.json.1", ROOTASROLE));
+        ctx.assert_command_success(&format!("convert cbor {RAR_CFG_PATH}.convert.bin"));
+        ctx.assert_command_success(&format!("convert json {RAR_CFG_PATH}.convert.json.1"));
 
-        assert!(fs::metadata(format!("{}.convert.bin", ROOTASROLE)).is_ok());
+        assert!(fs::metadata(format!("{RAR_CFG_PATH}.convert.bin")).is_ok());
 
         ctx.assert_command_success(&format!(
-            "convert --from cbor {0}.convert.bin json {0}.convert.json",
-            ROOTASROLE
+            "convert --from cbor {RAR_CFG_PATH}.convert.bin json {RAR_CFG_PATH}.convert.json"
         ));
-        assert!(fs::metadata(format!("{}.convert.json", ROOTASROLE)).is_ok());
+        assert!(fs::metadata(format!("{RAR_CFG_PATH}.convert.json")).is_ok());
         assert_eq!(
             normalize_json_object(
                 serde_json::from_str::<Value>(
-                    &fs::read_to_string(format!("{}.convert.json", ROOTASROLE)).unwrap()
+                    &fs::read_to_string(format!("{RAR_CFG_PATH}.convert.json")).unwrap()
                 )
                 .unwrap()
             ),
             normalize_json_object(
                 serde_json::from_str::<Value>(
-                    &fs::read_to_string(format!("{}.convert.json.1", ROOTASROLE)).unwrap()
+                    &fs::read_to_string(format!("{RAR_CFG_PATH}.convert.json.1")).unwrap()
                 )
                 .unwrap()
             )
         );
 
         ctx.assert_command_success(&format!(
-            "convert --reconfigure cbor {}.reconfigure.convert.bin",
-            ROOTASROLE
+            "convert --reconfigure cbor {RAR_CFG_PATH}.reconfigure.convert.bin"
         ));
 
         assert_eq!(
             ctx.settings
-                .as_ref()
-                .borrow()
+                .get_root()
                 .storage
                 .settings
                 .as_ref()
@@ -1453,10 +1666,10 @@ mod tests {
                 .unwrap()
                 .to_str()
                 .unwrap(),
-            format!("{}.reconfigure.convert.bin", ROOTASROLE)
+            format!("{RAR_CFG_PATH}.reconfigure.convert.bin")
         );
 
-        fs::remove_file(format!("{}.convert.bin", ROOTASROLE)).unwrap();
-        fs::remove_file(format!("{}.convert.json", ROOTASROLE)).unwrap();
+        fs::remove_file(format!("{RAR_CFG_PATH}.convert.bin")).unwrap();
+        fs::remove_file(format!("{RAR_CFG_PATH}.convert.json")).unwrap();
     }
 }

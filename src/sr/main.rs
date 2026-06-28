@@ -1,38 +1,49 @@
 mod error;
 mod finder;
 pub mod pam;
+mod pre_exec;
 #[cfg(feature = "timeout")]
 mod timeout;
 
 use bon::Builder;
 use capctl::{Cap, CapState};
 use const_format::formatcp;
-use finder::BestExecSettings;
-use nix::{sys::stat, unistd::isatty};
+use nix::{
+    sys::stat,
+    unistd::{Uid, User, isatty},
+};
+use rar_common::database::options::SBounding;
 use rar_common::util::{escape_parser_string, initialize_capabilities, with_privileges};
 use rar_common::{
+    Cred,
     database::{
+        FilterMatcher,
         actor::{SGroupType, SGroups, SUserType},
         options::EnvBehavior,
-        FilterMatcher,
     },
-    Cred,
 };
 
 use log::{debug, error};
 use pam::PAM_PROMPT;
-use pty_process::blocking::{Command, Pty};
+use std::{io, process::Command};
 use std::{io::stdout, path::PathBuf};
 
-use rar_common::util::{activates_no_new_privs, drop_effective, subsribe, BOLD, RST, UNDERLINE};
+use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
+use rar_common::util::{BOLD, RST, UNDERLINE, drop_effective, subsribe};
 
 use crate::error::SrError;
 use crate::error::SrResult;
+use crate::finder::de::cred::CredOwnedData;
 
 #[cfg(not(test))]
-const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
-const ROOTASROLE: &str = "target/rootasrole.json";
+pub const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -40,7 +51,7 @@ const ROOTASROLE: &str = "target/rootasrole.json";
 //It is designed to be used in a multi-user environment,
 //where users can be assigned to different roles,
 //and each role has a set of rights to execute commands.";
-
+#[allow(clippy::needless_raw_string_hashes)]
 const USAGE: &str = formatcp!(
     r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [COMMAND]...
 
@@ -57,6 +68,9 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-E, --preserve-env{RST}
           Preserve environment variables if allowed by a matching task
+
+  {BOLD}-D, --chdir <WORKDIR>{RST}
+          Workdir option allows you to specify the working directory for the command
 
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
@@ -75,13 +89,11 @@ const USAGE: &str = formatcp!(
           Print dosr version
 
   {BOLD}-h, --help{RST}
-          Print help (see a summary with '-h')"#,
-    UNDERLINE = UNDERLINE,
-    BOLD = BOLD,
-    RST = RST
+          Print help (see a summary with '-h')"#
 );
 
 #[derive(Debug, Builder)]
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
     /// Role option allows you to select a specific role to use.
     opt_filter: Option<FilterMatcher>,
@@ -102,7 +114,7 @@ struct Cli {
     /// A non-absolute path to the command that needs to be found in the PATH
     cmd_path: PathBuf,
 
-    #[builder(default, with = |i : impl IntoIterator<Item = impl Into<String>> | i.into_iter().map(|s| s.into()).collect())]
+    #[builder(default, with = |i : impl IntoIterator<Item = impl Into<String>> | i.into_iter().map(std::convert::Into::into).collect())]
     /// Command arguments
     cmd_args: Vec<String>,
 
@@ -117,17 +129,14 @@ struct Cli {
 
 impl Default for Cli {
     fn default() -> Self {
-        Cli::builder().prompt(PAM_PROMPT).build()
+        Self::builder().prompt(PAM_PROMPT).build()
     }
 }
 
 const CAPABILITIES_ERROR: &str =
     "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
 fn cap_effective_error(caplist: &str) -> String {
-    format!(
-        "Unable to toggle {} privilege. {}",
-        caplist, CAPABILITIES_ERROR
-    )
+    format!("Unable to toggle {caplist} privilege. {CAPABILITIES_ERROR}")
 }
 
 fn getopt<S, I>(s: I) -> SrResult<Cli>
@@ -139,6 +148,7 @@ where
     let mut iter = s.into_iter().skip(1);
     let mut role = None;
     let mut task = None;
+    let mut workdir = None;
     let mut user: Option<SUserType> = None;
     let mut group: Option<SGroups> = None;
     let mut env = None;
@@ -154,7 +164,7 @@ where
                     SGroups::Multiple(
                         s.as_ref()
                             .split(',')
-                            .map(|g| g.into())
+                            .map(std::convert::Into::into)
                             .collect::<Vec<SGroupType>>(),
                     )
                 });
@@ -170,6 +180,9 @@ where
             }
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
+            }
+            "-D" | "--chdir" => {
+                workdir = iter.next().map(|s| escape_parser_string(s));
             }
             #[cfg(feature = "timeout")]
             "-K" | "--remove-timestamp" => {
@@ -196,10 +209,10 @@ where
                 if arg.as_ref().starts_with('-') {
                     error!("Unknown option: {}", arg.as_ref());
                     return Err(SrError::InvalidAgruments);
-                } else {
-                    args.cmd_path = arg.as_ref().into();
-                    break;
                 }
+                //else
+                args.cmd_path = arg.as_ref().into();
+                break;
             }
         }
     }
@@ -207,15 +220,16 @@ where
         FilterMatcher::builder()
             .maybe_role(role)
             .maybe_task(task)
+            .maybe_workdir(workdir)
             .maybe_env_behavior(env)
             .maybe_user(user)
             .map_err(|e| {
-                error!("Error parsing user: {}", e);
+                error!("Error parsing user: {e}");
                 SrError::InvalidAgruments
             })?
             .maybe_group(group)
             .map_err(|e| {
-                error!("Error parsing group: {}", e);
+                error!("Error parsing group: {e}");
                 SrError::InvalidAgruments
             })?
             .build(),
@@ -229,21 +243,19 @@ where
 #[cfg(not(tarpaulin_include))]
 fn main() {
     if let Err(e) = subsribe("sr") {
-        eprintln!("sr: Failed to initialize logging: {}", e);
+        eprintln!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
     if let Err(e) = main_inner() {
-        eprintln!("sr: {}", e);
-
-        use nix::unistd::{Uid, User};
-        if let SrError::InsufficientPrivileges = e {
-            error!("Insufficient privileges to run sr. {}", CAPABILITIES_ERROR);
-        } else if let SrError::AuthenticationFailed = e {
+        eprintln!("dosr: {e}");
+        if e == SrError::InsufficientPrivileges {
+            error!("Insufficient privileges to run sr. {CAPABILITIES_ERROR}");
+        } else if e == SrError::AuthenticationFailed {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
                 User::from_uid(Uid::current())
                     .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
-                    .unwrap_or(Uid::current().to_string()),
+                    .unwrap_or_else(|_| Uid::current().to_string()),
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
             );
             eprintln!("This incident is reported.");
@@ -252,7 +264,7 @@ fn main() {
                 "User '{}' got a '{}' when trying running '''{}'''",
                 User::from_uid(Uid::current())
                     .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
-                    .unwrap_or(Uid::current().to_string()),
+                    .unwrap_or_else(|_| Uid::current().to_string()),
                 e,
                 std::env::args().skip(1).collect::<Vec<_>>().join(" ")
             );
@@ -262,27 +274,32 @@ fn main() {
 }
 
 #[cfg(not(tarpaulin_include))]
+#[allow(clippy::too_many_lines)]
 fn main_inner() -> SrResult<()> {
     use std::env;
 
-    use crate::{pam::check_auth, ROOTASROLE};
+    use crate::{
+        RAR_CFG_PATH,
+        finder::api::{Api, register_plugins},
+        pam::start_session,
+    };
     use finder::find_best_exec_settings;
-    use nix::sys::stat::umask;
+    use rar_common::util::RAR_CFG_TYPE;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
     let args = std::env::args();
     if args.len() < 2 {
-        println!("{}", USAGE);
+        println!("{USAGE}");
         return Ok(());
     }
     let args = getopt(args)?;
 
     if args.help {
-        println!("{}", USAGE);
+        println!("{USAGE}");
         return Ok(());
     }
-    let user = make_cred();
+    let user = make_cred().map_err(|_| SrError::SystemError)?;
     if args.del_ts {
         #[cfg(not(feature = "timeout"))]
         {
@@ -292,7 +309,7 @@ fn main_inner() -> SrResult<()> {
         #[cfg(feature = "timeout")]
         {
             timeout::clear_cookies(&user).map_err(|e| {
-                error!("Failed to clear timestamp cookies: {}", e);
+                error!("Failed to clear timestamp cookies: {e}");
                 SrError::InsufficientPrivileges
             })?;
             if args.cmd_path.as_os_str().is_empty() {
@@ -300,10 +317,13 @@ fn main_inner() -> SrResult<()> {
             }
         }
     }
+    register_plugins();
     let execcfg = find_best_exec_settings(
         &args,
         &user,
-        &ROOTASROLE.to_string(),
+        RAR_CFG_PATH,
+        RAR_CFG_DATA_PATH,
+        RAR_CFG_TYPE,
         env::vars(),
         env::var("PATH")
             .unwrap_or_default()
@@ -312,15 +332,17 @@ fn main_inner() -> SrResult<()> {
             .as_slice(),
     )?;
 
-    debug!("Best exec settings: {:?}", execcfg);
+    debug!("Best exec settings: {execcfg:?}");
 
-    check_auth(&execcfg.auth, &execcfg.timeout, &user, &args)?;
+    let _session = start_session(&execcfg.auth, &execcfg.timeout, &user, &args)?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
         error!(
-            "User {} tried to execute command : {:?} {:?} without the permission.",
-            &user.user.name, args.cmd_path, args.cmd_args
+            "User {} tried to execute command : {} {:?} without the permission.",
+            &user.user.name,
+            args.cmd_path.display(),
+            args.cmd_args
         );
 
         std::process::exit(1);
@@ -336,14 +358,7 @@ fn main_inner() -> SrResult<()> {
                 &execcfg.role
             }
         );
-        println!(
-            "Task: {}",
-            if let Some(task) = &execcfg.task {
-                task.as_str()
-            } else {
-                "None"
-            }
-        );
+        println!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
         print!(
             "Execute as user: {}",
             if let Some(u) = execcfg.cred.setuid {
@@ -359,86 +374,91 @@ fn main_inner() -> SrResult<()> {
                 .map(|g| format!("{} ({})", g.name, g.gid))
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!("{}", groups);
+            println!("{groups}");
         } else {
             println!(" your current group(s)");
         }
         println!(
             "With capabilities: {}",
-            if execcfg.cred.caps.is_none() {
-                "None".to_string()
-            } else if *execcfg.cred.caps.as_ref().unwrap() == !CapSet::empty() {
-                "All capabilities".to_string()
-            } else {
-                execcfg
-                    .cred
-                    .caps
-                    .unwrap()
-                    .into_iter()
-                    .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
-                    .trim_end()
-                    .to_string()
-            }
+            execcfg.cred.caps.map_or_else(
+                || "None".to_string(),
+                |caps| if caps == !CapSet::empty() {
+                    "All capabilities".to_string()
+                } else {
+                    caps.into_iter()
+                        .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
+                        .trim_end()
+                        .to_string()
+                }
+            )
         );
-        println!("Command: {:?} {:?}", execcfg.final_path, args.cmd_args);
+        println!(
+            "Command: {} {:?}",
+            execcfg.final_path.display(),
+            args.cmd_args
+        );
         std::process::exit(0);
     }
 
-    // disable root
-    if execcfg.root.is_user() {
-        activates_no_new_privs().expect("Failed to activate no new privs");
-    }
+    // Build the command
+    let mut command_builder = Command::new(&execcfg.final_path);
+
+    configure_pre_exec(
+        execcfg.umask.0,
+        execcfg.cred.clone(),
+        execcfg.bounding,
+        execcfg.root.is_user(),
+    );
 
     debug!("setuid : {:?}", execcfg.cred.setuid);
 
-    umask(execcfg.umask.into());
-
-    setuid_setgid(&execcfg)?;
-
-    set_capabilities(&execcfg)?;
-
-    let pty = Pty::new().expect("Failed to create pty");
-
-    debug!(
-        "Command: {:?} {:?}",
-        execcfg.final_path,
-        args.cmd_args.join(" ")
-    );
     let cargs = args.cmd_args.clone();
     let cfinal_path = execcfg.final_path.clone();
-    let cfinal_env = execcfg.env.clone();
-    let command = unsafe {
-        Command::new(&execcfg.final_path)
-            .pre_exec(move || {
-                use crate::finder::api::{Api, ApiEvent};
-                Api::notify(ApiEvent::PreExec(&args, &execcfg)).map_err(|e| {
-                    error!("Failed to notify pre-exec event: {}", e);
-                    std::io::Error::new(std::io::ErrorKind::Other, "Failed to notify pre-exec")
-                })?;
-                Ok(())
-            })
-            .args(cargs.iter())
-            .env_clear()
-            .envs(cfinal_env)
-            .stdin(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn(&pty.pts().expect("Failed to get pts"))
-    };
-    let mut command = match command {
-        Ok(command) => command,
+    let cfinal_env = execcfg.clone().env;
+
+    Api::notify(finder::api::ApiEvent::PreExec(&args, &execcfg))?;
+
+    // we set workdir if -D is provided
+    if let Some(workdir) = args.opt_filter.as_ref().and_then(|f| f.workdir.as_ref()) {
+        command_builder.current_dir(workdir);
+    // if no workdir from args, we check if exec settings enforce a workdir
+    } else if let Some(workdir) = execcfg.workdir.as_ref() {
+        command_builder.current_dir(workdir);
+    }
+    // otherwise we keep the same workdir
+
+    command_builder.args(cargs.iter());
+    command_builder.env_clear();
+    command_builder.envs(cfinal_env);
+    // We don't set stdin/out/err here, the runner handles it via PTY
+
+    // Create logger
+    let logger = rar_exec::runner::SimpleFileLogger::new("/tmp/dosr-session.log")
+        .ok()
+        .map(|l| Box::new(l) as Box<dyn rar_exec::pipe::IoLogger>);
+
+    debug!(
+        "Command (via Runner): {} {:?}",
+        cfinal_path.display(),
+        cargs.join(" ")
+    );
+
+    let status = match rar_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, logger) {
+        Ok(status) => status,
         Err(e) => {
-            error!("{}", e);
-            eprintln!("sr: {} : {}", cfinal_path.display(), e);
+            error!("{e}");
+            eprintln!("dosr: {} : {}", cfinal_path.display(), e);
             std::process::exit(1);
         }
     };
-    let status = command.wait().expect("Failed to wait for command");
     std::process::exit(status.code().unwrap_or(1));
 }
 
-fn make_cred() -> Cred {
-    Cred::builder()
+fn make_cred() -> std::io::Result<Cred> {
+    Ok(Cred::builder()
+        .user()?
+        .groups()?
+        .curdir()?
         .maybe_tty(stat::fstat(stdout()).ok().and_then(|s| {
             if isatty(stdout()).ok().unwrap_or(false) {
                 Some(s.st_rdev)
@@ -446,22 +466,24 @@ fn make_cred() -> Cred {
                 None
             }
         }))
-        .build()
+        .build())
 }
 
-fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
+fn set_capabilities(cred: &CredOwnedData, bounding: SBounding) -> SrResult<()> {
     //set capabilities
-    let caps = execcfg.cred.caps.unwrap_or_default();
+    let caps = cred.caps.unwrap_or_default();
     // case where capabilities are more than bounding set
-    let bounding = capctl::bounding::probe();
-    if bounding & caps != caps {
-        error!("Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session.");
+    let sbounding = capctl::bounding::probe();
+    if sbounding & caps != caps {
+        error!(
+            "Unable to setup the execution environment: There are more capabilities in this task than the current bounding set! You may are in a container or already in a RootAsRole session."
+        );
         return Err(SrError::InsufficientPrivileges);
     }
     initialize_capabilities(&[Cap::SETPCAP])
         .inspect_err(|_| error!("{}", cap_effective_error("setpcap")))?;
     let mut capstate = CapState::empty();
-    if execcfg.bounding.is_strict() {
+    if bounding.is_strict() {
         for cap in (!caps).iter() {
             capctl::bounding::drop(cap).expect("Failed to set bounding cap");
         }
@@ -469,7 +491,7 @@ fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
     capstate.effective.clear();
     capstate.permitted = caps;
     capstate.inheritable = caps;
-    debug!("caps : {:?}", caps);
+    debug!("caps : {caps:?}");
     capstate.set_current().expect("Failed to set current cap");
     for cap in caps.iter() {
         capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
@@ -477,20 +499,17 @@ fn set_capabilities(execcfg: &BestExecSettings) -> SrResult<()> {
     Ok(())
 }
 
-fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
-    let gid = execcfg
-        .cred
+fn setuid_setgid(cred: &CredOwnedData) -> SrResult<()> {
+    let gid = cred
         .setgroups
         .as_ref()
         .and_then(|g| g.first().cloned())
         .map(|g| g.gid.as_raw());
     with_privileges(&[Cap::SETUID, Cap::SETGID], || {
         capctl::cap_set_ids(
-            execcfg.cred.setuid.as_ref().map(|u| u.uid.as_raw()),
+            cred.setuid.as_ref().map(|u| u.uid.as_raw()),
             gid,
-            execcfg
-                .cred
-                .setgroups
+            cred.setgroups
                 .as_ref()
                 .map(|g| g.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>())
                 .as_deref(),
@@ -503,14 +522,43 @@ fn setuid_setgid(execcfg: &BestExecSettings) -> SrResult<()> {
     })
 }
 
+fn close_restrictive_fds() -> io::Result<()> {
+    // Close all FDs > 2
+    debug!("Closing restrictive FDs");
+    let mut fds = Vec::new();
+    let read_dir = std::fs::read_dir("/proc/self/fd")?;
+    let mut error = false;
+    for entry in read_dir.flatten() {
+        if let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() {
+            if fd > 2 {
+                fds.push(fd);
+            } else {
+                error!("Failed to read fd entry: {entry:?}");
+                error = true;
+            }
+        }
+    }
+
+    for fd in fds {
+        let _ = nix::unistd::close(fd);
+    }
+    if error {
+        Err(io::Error::other("Failed to read some fd entries"))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use super::finder::de::CredOwnedData;
+    use crate::finder::BestExecSettings;
+
+    use super::finder::de::cred::CredOwnedData;
     use capctl::{Cap, CapSet};
     use libc::getgid;
-    use nix::unistd::{getgroups, getuid, Group, Pid, User};
+    use nix::unistd::{Group, Pid, User, getgroups, getuid};
     use rar_common::database::options::SBounding;
 
     use super::*;
@@ -578,17 +626,21 @@ mod tests {
 
     #[test]
     fn test_make_cred() {
-        let user = make_cred();
-        let gid = unsafe { getgid() };
+        let user = make_cred().unwrap();
         assert_eq!(user.user.uid, getuid());
-        assert_eq!(user.user.gid.as_raw(), gid);
         let groups = getgroups()
             .unwrap()
             .iter()
             .map(|g| Group::from_gid(*g).unwrap().unwrap())
             .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
-        assert_eq!(user.groups, groups);
+        assert_eq!(
+            user.groups
+                .iter()
+                .map(|e| e.left().unwrap().clone())
+                .collect::<Vec<_>>(),
+            groups
+        );
         assert_eq!(user.ppid, Pid::parent());
     }
 
@@ -608,13 +660,15 @@ mod tests {
                                 .unwrap()
                                 .unwrap(),
                         )
-                        .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into())
-                            .unwrap()
-                            .unwrap()])
+                        .setgroups(vec![
+                            Group::from_gid(get_non_root_gid(0).unwrap().into())
+                                .unwrap()
+                                .unwrap(),
+                        ])
                         .build(),
                 )
                 .build();
-            setuid_setgid(&execcfg).unwrap();
+            setuid_setgid(&execcfg.cred).unwrap();
             assert_eq!(getuid(), execcfg.cred.setuid.unwrap().uid);
             if let Some(gid) = execcfg.cred.setgroups.as_ref().and_then(|g| g.first()) {
                 assert_eq!(unsafe { getgid() }, gid.gid.as_raw());
@@ -639,7 +693,7 @@ mod tests {
             capset.add(Cap::SETGID);
             capset.add(Cap::SETPCAP);
             execcfg.cred.caps = Some(capset);
-            set_capabilities(&execcfg).unwrap();
+            set_capabilities(&execcfg.cred, execcfg.bounding).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(capset.permitted.has(Cap::SETUID));
             assert!(capset.permitted.has(Cap::SETGID));
@@ -655,7 +709,7 @@ mod tests {
             assert!(capctl::ambient::probe().unwrap().has(Cap::SETPCAP));
             execcfg.cred.caps = None;
             execcfg.bounding = SBounding::Strict;
-            set_capabilities(&execcfg).unwrap();
+            set_capabilities(&execcfg.cred, execcfg.bounding).unwrap();
             let capset = CapState::get_current().unwrap();
             assert!(!capset.permitted.has(Cap::SETUID));
         }
@@ -671,14 +725,16 @@ mod tests {
                             .unwrap()
                             .unwrap(),
                     )
-                    .setgroups(vec![Group::from_gid(get_non_root_gid(0).unwrap().into())
-                        .unwrap()
-                        .unwrap()])
+                    .setgroups(vec![
+                        Group::from_gid(get_non_root_gid(0).unwrap().into())
+                            .unwrap()
+                            .unwrap(),
+                    ])
                     .build(),
             )
             .build();
         // We expect this to fail if we don't have privileges, but we want to execute the code before the failure.
-        let _ = setuid_setgid(&execcfg);
+        let _ = setuid_setgid(&execcfg.cred);
     }
 
     #[test]
@@ -688,6 +744,6 @@ mod tests {
         capset.add(Cap::SETUID);
         execcfg.cred.caps = Some(capset);
         // We expect this to fail or succeed depending on environment, but we want to execute the code.
-        let _ = set_capabilities(&execcfg);
+        let _ = set_capabilities(&execcfg.cred, execcfg.bounding);
     }
 }

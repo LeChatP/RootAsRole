@@ -7,6 +7,7 @@ use libc::{EACCES, EFAULT, EINVAL, ENOENT, EPERM};
 
 /// Critical security program errors with minimal information exposure
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(u8)]
 pub enum SrError {
     /// Invalid arguments provided
     InvalidAgruments,
@@ -26,11 +27,11 @@ pub enum SrError {
 
 impl Termination for SrError {
     fn report(self) -> ExitCode {
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_sign_loss)]
         ExitCode::from(match self {
-            Self::InvalidAgruments => EINVAL,
-            Self::AuthenticationFailed => EACCES,
-            Self::ConfigurationError => EINVAL,
-            Self::InsufficientPrivileges => EACCES,
+            Self::InvalidAgruments | Self::ConfigurationError => EINVAL,
+            Self::AuthenticationFailed | Self::InsufficientPrivileges => EACCES,
             Self::ExecutionFailed => ENOENT,
             Self::SystemError => EFAULT,
             Self::PermissionDenied => EPERM,
@@ -50,7 +51,7 @@ impl fmt::Display for SrError {
             Self::SystemError => "System error",
             Self::InvalidAgruments => "Invalid arguments",
         };
-        write!(f, "{}", msg)
+        write!(f, "{msg}")
     }
 }
 
@@ -63,34 +64,34 @@ pub type SrResult<T> = Result<T, SrError>;
 impl From<std::io::Error> for SrError {
     fn from(err: std::io::Error) -> Self {
         match err.kind() {
-            std::io::ErrorKind::PermissionDenied => SrError::PermissionDenied,
-            std::io::ErrorKind::NotFound => SrError::ExecutionFailed,
-            _ => SrError::SystemError,
+            std::io::ErrorKind::PermissionDenied => Self::PermissionDenied,
+            std::io::ErrorKind::NotFound => Self::ExecutionFailed,
+            _ => Self::SystemError,
         }
     }
 }
 
 impl From<capctl::Error> for SrError {
     fn from(_: capctl::Error) -> Self {
-        SrError::InsufficientPrivileges
+        Self::InsufficientPrivileges
     }
 }
 
 impl From<serde_json::Error> for SrError {
     fn from(_: serde_json::Error) -> Self {
-        SrError::ConfigurationError
+        Self::ConfigurationError
     }
 }
 
 impl<E> From<cbor4ii::serde::DecodeError<E>> for SrError {
     fn from(_: cbor4ii::serde::DecodeError<E>) -> Self {
-        SrError::ConfigurationError
+        Self::ConfigurationError
     }
 }
 
 impl<E> From<cbor4ii::serde::EncodeError<E>> for SrError {
     fn from(_: cbor4ii::serde::EncodeError<E>) -> Self {
-        SrError::ConfigurationError
+        Self::ConfigurationError
     }
 }
 
@@ -124,7 +125,7 @@ mod tests {
     fn test_error_debug() {
         // Ensure Debug trait is properly derived
         let error = SrError::AuthenticationFailed;
-        assert_eq!(format!("{:?}", error), "AuthenticationFailed");
+        assert_eq!(format!("{error:?}"), "AuthenticationFailed");
     }
 
     #[test]
@@ -138,6 +139,8 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_sign_loss)]
     fn test_termination_exit_codes() {
         assert_eq!(
             SrError::InvalidAgruments.report(),
@@ -221,7 +224,7 @@ mod tests {
         // The exact error type depends on the IO error, but it should convert properly
         match result.unwrap_err() {
             SrError::ExecutionFailed | SrError::SystemError | SrError::PermissionDenied => {}
-            other => panic!("Unexpected error type: {:?}", other),
+            other => panic!("Unexpected error type: {other:?}"),
         }
     }
 

@@ -1,10 +1,27 @@
 use std::mem;
 
-use pest::{error::LineColLocation, RuleType};
+#[cfg(not(debug_assertions))]
+use konst::eq_str;
+use pest::{RuleType, error::LineColLocation};
 
 use rar_common::util::escape_parser_string;
 
-fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
+#[cfg(not(test))]
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+#[cfg(test)]
+pub const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
+
+#[cfg(debug_assertions)]
+pub const RAR_CFG_IMMUTABLE: bool = false;
+#[cfg(not(debug_assertions))]
+pub const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
+
+const fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
 where
     R: RuleType,
 {
@@ -32,7 +49,7 @@ where
 
             Some(end)
         }
-        _ => None,
+        LineColLocation::Pos(_) => None,
     };
     let offset = start - 1;
     let line_chars = error.line().chars();
@@ -53,7 +70,7 @@ where
             underline.push('^');
         }
     } else {
-        underline.push_str("^---")
+        underline.push_str("^---");
     }
 
     underline

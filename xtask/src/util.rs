@@ -16,6 +16,7 @@ use chrono::Duration;
 use clap::ValueEnum;
 use log::{debug, info};
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
+use semver::Version;
 use serde::{Deserialize, Serialize, de};
 use serde_json::Value;
 use strum::{Display, EnumIs, EnumIter, EnumString};
@@ -53,7 +54,6 @@ impl OsTarget {
             .map(str::to_ascii_lowercase)
             .collect()
     }
-
     /// # Errors
     ///
     /// Will return an error if the OS cannot be detected or is unsupported
@@ -70,10 +70,16 @@ impl OsTarget {
         for file in glob::glob("/etc/*-release")? {
             let file = file?;
             let os = std::fs::read_to_string(&file)?.to_ascii_lowercase();
-            if let Some(target) = crate::installer::dependencies::os_target_from_identifiers(
-                os.split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_'),
-            )? {
-                return Ok(target);
+            if os.contains("debian") {
+                return Ok(Self::Debian);
+            } else if os.contains("ubuntu") {
+                return Ok(Self::Ubuntu);
+            } else if os.contains("fedora") {
+                return Ok(Self::Fedora);
+            } else if os.contains("arch") {
+                return Ok(Self::ArchLinux);
+            } else if os.contains("redhat") || os.contains("rhel") {
+                return Ok(Self::RedHat);
             }
         }
         Err(anyhow!("Unsupported OS"))
@@ -87,8 +93,21 @@ pub const RED: &str = "\x1B[31m";
 pub const GREEN: &str = "\x1B[32m";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SettingsFile {
+pub struct RootSettings {
+    pub version: Version,
+    #[serde(default)]
     pub storage: Settings,
+    #[serde(default)]
+    #[serde(flatten)]
+    pub policy: Policy,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Policy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
     pub extra_fields: Value,
@@ -108,13 +127,19 @@ pub enum StorageMethod {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+impl Default for StorageMethod {
+    fn default() -> Self {
+        RAR_CFG_TYPE
+            .parse()
+            .expect("Invalid storage method in RAR_CFG_TYPE")
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Settings {
     pub method: StorageMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<RemoteStorageSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: Option<Opt>,
     #[serde(default)]
     #[serde(flatten)]
     pub extra_fields: Value,
@@ -278,7 +303,14 @@ pub struct Opt {
 }
 
 const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
-pub const ROOTASROLE: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+pub const RAR_CFG_TYPE: &str = env!("RAR_CFG_TYPE");
+pub const PACKAGE_VERSION: semver::Version = semver::Version::new(
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)),
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_MINOR"), 10)),
+    konst::result::unwrap!(u64::from_str_radix(env!("CARGO_PKG_VERSION_PATCH"), 10)),
+);
 static DRY_RUN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, EnumIs)]
@@ -424,13 +456,14 @@ fn shell_quote(arg: &str) -> String {
 }
 
 fn shell_quote_command(command: &Command) -> String {
-    format!("{} {}",
+    format!(
+        "{} {}",
         command.get_program().to_string_lossy(),
         command
-        .get_args()
-        .map(|arg| shell_quote(arg.to_string_lossy().as_ref()))
-        .collect::<Vec<_>>()
-        .join(" ")
+            .get_args()
+            .map(|arg| shell_quote(arg.to_string_lossy().as_ref()))
+            .collect::<Vec<_>>()
+            .join(" ")
     )
 }
 
@@ -443,8 +476,12 @@ pub fn run_checked(command: &mut Command, action: &str) -> Result<(), anyhow::Er
     Ok(())
 }
 
-fn log_command_execution(command: & Command, action: &str) {
-    info!("{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}", shell_quote_command(command), action);
+fn log_command_execution(command: &Command, action: &str) {
+    info!(
+        "{BOLD}Running:{RED} {}{RST}\n{BOLD}  Objective -->{RST}{GREEN} {}{RST}",
+        shell_quote_command(command),
+        action
+    );
 }
 
 /// # Errors
@@ -470,23 +507,30 @@ pub fn output_checked(command: &mut Command, action: &str) -> Result<Output, any
 /// # Errors
 /// Will return an error if the file cannot be opened, if the immutable flag cannot be set
 pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: &ImmutableLock) -> io::Result<()> {
-    let file = open_with_privileges(file)?;
-    let mut val = 0;
-    let fd = file.as_raw_fd();
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if lock.is_unset() {
-        val &= !(FS_IMMUTABLE_FL);
-    } else {
-        val |= FS_IMMUTABLE_FL;
-    }
+    if file.as_ref().is_dir() {
+        for entry in fs::read_dir(file)? {
+            let entry = entry?;
+            toggle_lock_config(&entry.path(), lock)?;
+        }
+    } else if file.as_ref().is_file() {
+        let file = open_with_privileges(file)?;
+        let mut val = 0;
+        let fd = file.as_raw_fd();
+        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if lock.is_unset() {
+            val &= !(FS_IMMUTABLE_FL);
+        } else {
+            val |= FS_IMMUTABLE_FL;
+        }
 
-    immutable_required_privileges(&file, true)?;
-    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
-        return Err(std::io::Error::last_os_error());
+        immutable_required_privileges(&file, true)?;
+        if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        immutable_required_privileges(&file, false)?;
     }
-    immutable_required_privileges(&file, false)?;
     Ok(())
 }
 
@@ -593,18 +637,15 @@ pub fn is_run0_command(priv_bin: &Path) -> bool {
 }
 
 pub fn path_exe_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Option<PathBuf> {
-    env_path
-        .iter()
-        .find_map(|dir| {
-            let full_path = Path::new(dir).join(&exe_name);
-            debug!("Checking path: {}", full_path.display());
-            full_path.is_file().then_some(full_path).and_then(|path| {
-                if path.is_symlink() {
-                    fs::read_link(path)
-                    .ok()
-                } else {
-                    path.canonicalize().ok()
-                }
-            })
+    env_path.iter().find_map(|dir| {
+        let full_path = Path::new(dir).join(&exe_name);
+        debug!("Checking path: {}", full_path.display());
+        full_path.is_file().then_some(full_path).and_then(|path| {
+            if path.is_symlink() {
+                fs::read_link(path).ok()
+            } else {
+                path.canonicalize().ok()
+            }
         })
+    })
 }

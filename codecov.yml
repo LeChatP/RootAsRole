@@ -4,6 +4,8 @@ ignore:
   - "legacy/*"
   - "legacy/**"
   - "src/descriptions.rs"
+  - "src/chsr/security.rs"
+  - "src/chsr/cli/usage.rs"
 coverage:
   range: 50..70
   round: down

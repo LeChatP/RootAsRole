@@ -7,22 +7,23 @@ mod cli;
 mod security;
 mod util;
 
-#[cfg(not(test))]
-const ROOTASROLE: &str = env!("RAR_CFG_PATH");
-#[cfg(test)]
-const ROOTASROLE: &str = "target/rootasrole.json";
-
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{env::temp_dir, fs::OpenOptions};
+    use std::env::temp_dir;
 
-    use crate::cli::editor::defer;
+    use crate::{
+        cli::editor::defer,
+        util::{RAR_CFG_DATA_PATH, RAR_CFG_PATH},
+    };
     use ::landlock::{RestrictionStatus, RulesetStatus};
     use capctl::Cap;
-    use log::{error, warn};
-    use rar_common::{util::definitive_drop, LockedSettingsFile};
+    use log::{debug, error, warn};
+    use rar_common::{
+        file::FileSettings,
+        util::{RAR_CFG_TYPE, definitive_drop},
+    };
 
-    use crate::security::{full_program_lock, seccomp_lock};
+    use crate::security::full_program_lock;
 
     subsribe("chsr")?;
     // Drop privileges we don't need
@@ -40,37 +41,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::remove_dir_all(&folder);
     });
 
+    let mut settings = FileSettings::write_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE)
+        .expect("Error on config read");
+
     // Apply Landlock restrictions
-    let ruleset_status = match full_program_lock(&folder) {
+    let ruleset_status = match full_program_lock(
+        &folder,
+        settings
+            .get_root()
+            .storage
+            .settings
+            .as_ref()
+            .and_then(|s| s.path.as_ref())
+            .and_then(|p| p.to_str())
+            .unwrap_or(RAR_CFG_DATA_PATH),
+    ) {
         Ok(RestrictionStatus { ruleset, .. }) => ruleset,
         Err(e) => {
-            warn!("Failed to apply landlock policy: {:#}", e);
+            warn!("Failed to apply landlock policy: {e:#}");
             RulesetStatus::NotEnforced
         }
     };
 
-    // Then apply seccomp restrictions
-    seccomp_lock()?;
-
-    let mut settings = LockedSettingsFile::open(
-        ROOTASROLE,
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .to_owned(),
-        true,
-    )
-    .expect("Error on config read");
-
-    if cli::main(settings.data.clone(), std::env::args().skip(1))
+    if cli::main(&mut settings, std::env::args().skip(1))
         .ruleset(ruleset_status)
         .folder(&folder)
         .call()
-        .map_err(|e| error!("Unable to edit policy : {}", e))
+        .map_err(|e| error!("Unable to edit policy : {e}"))
         .is_ok_and(|b| b)
     {
-        settings.save()
+        debug!("Saving configuration");
+        settings.save_all()
     } else {
         Ok(())
     }

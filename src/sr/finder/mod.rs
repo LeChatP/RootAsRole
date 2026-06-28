@@ -3,132 +3,205 @@
 /// Only the settings that are needed are kept in memory
 use std::{
     collections::HashMap,
+    fs,
     io::BufReader,
     path::{Path, PathBuf},
 };
 
-use api::{register_plugins, Api, ApiEvent};
+use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
 use options::BorrowedOptStack;
 use rar_common::{
+    Cred,
     database::{
-        actor::DGroups,
-        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
-        score::{CmdMin, CmdOrder, Score},
+        actor::{DGroupType, DGroups},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, WorkdirBehavior},
+        score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
     },
-    util::{all_paths_from_env, read_with_privileges},
-    Cred, StorageMethod,
+    util::{StorageMethod, WORKDIR_BEHAVIOR, all_paths_from_env, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
-    error::{SrError, SrResult},
-    finder::de::CredOwnedData,
     Cli,
+    error::{SrError, SrResult},
+    finder::{
+        de::{cred::CredOwnedData, settings::read_storage},
+        options::DWorkdirSet,
+    },
 };
 
-pub(crate) mod api;
+pub mod api;
 mod cmd;
-pub(crate) mod de;
+pub mod de;
 mod options;
 
 #[derive(Debug, Default, Clone, Builder)]
 pub struct BestExecSettings {
     #[builder(default)]
+    /// The final matching score. Evaluated over several fields, see `Score`
     pub score: Score,
+
     #[builder(default)]
+    /// The execution path, canonalized and sanitized
     pub final_path: PathBuf,
+
     #[builder(default)]
+    /// The Owned version of credentials needed for switching user and set capabilities
     pub cred: CredOwnedData,
+
+    ///The task name matched in the policy
     pub task: Option<String>,
+
     #[builder(default)]
+    /// The role name matched in the policy
     pub role: String,
     #[builder(default)]
+    /// The final set of environment variable to keep/set
     pub env: HashMap<String, String>,
     #[builder(default)]
+    /// The PATH variable is managed indepedently given the policy
     pub env_path: Vec<String>,
+    /// The working directory to set, if specified in policy
+    pub workdir: Option<PathBuf>,
     #[builder(default)]
+    /// Whether the Linux Capabilities are [bounded](https://www.man7.org/linux/man-pages/man7/capabilities.7.html)
     pub bounding: SBounding,
     #[builder(default)]
+    /// Information about whether the user should re-authenticate
     pub timeout: STimeout,
     #[builder(default)]
+    /// Information about whether the user should authenticate or bypass it
     pub auth: SAuthentication,
     #[builder(default)]
+    /// Is root id has it's privileges or not? If not, root is going to be a simple user
     pub root: SPrivileged,
     #[builder(default)]
+    /// Setting umask
     pub umask: SUMask,
 }
 
+/// This functions is the main entrace to lookup at the security policy.
+/// It efficiently check the policy based on the user args, skips unnecessary policy info etc.
+/// The main focus here is to avoid at maximum any allocation.
+/// # Returns
+/// When a policy match was found, it returns all needed information, otherwise, it returns an ``SrError``.
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
-    path: &'a P,
+    rar_cfg_path: P,
+    rar_cfg_data_path: P,
+    rar_cfg_type: StorageMethod,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     env_path: &[&str],
 ) -> SrResult<BestExecSettings>
 where
     P: AsRef<Path>,
 {
-    register_plugins();
-    let settings_file = rar_common::get_settings(path).map_err(|e| {
-        debug!("Policy unreachable: {}", e);
-        SrError::ConfigurationError
-    })?;
-    let config_finder_deserializer = ConfigFinderDeserializer {
-        cli,
-        cred,
-        env_path,
+    let env_vars: Vec<(String, String)> = env_vars
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+    let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
+    let file_path = settings_file
+        .data
+        .data
+        .settings
+        .unwrap_or_default()
+        .path
+        .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
+    let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
+        let config_finder_deserializer = ConfigFinderDeserializer {
+            cli,
+            cred,
+            env_path,
+        };
+        let file = read_with_privileges(file_path)?;
+        let reader = BufReader::new(file);
+        match settings_file.data.data.method {
+            StorageMethod::CBOR => {
+                let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
+                Ok(BestExecSettings::retrieve_settings(
+                    cli,
+                    cred,
+                    &config_finder_deserializer
+                        .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
+                        .map_err(|e| {
+                            debug!("Error deserializing CBOR: {e}");
+                            SrError::ConfigurationError
+                        })?,
+                    env_vars.iter().cloned(),
+                    env_path,
+                )?)
+            }
+            StorageMethod::JSON => {
+                let io_reader = serde_json::de::IoRead::new(reader);
+                Ok(BestExecSettings::retrieve_settings(
+                    cli,
+                    cred,
+                    &config_finder_deserializer
+                        .deserialize(&mut serde_json::Deserializer::new(io_reader))
+                        .map_err(|e| {
+                            debug!("Error deserializing JSON: {e}");
+                            SrError::ConfigurationError
+                        })?,
+                    env_vars.iter().cloned(),
+                    env_path,
+                )?)
+            }
+        }
     };
-    match settings_file.storage.method {
-        StorageMethod::CBOR => {
-            let file_path = settings_file
-                .storage
-                .settings
-                .unwrap_or_default()
-                .path
-                .ok_or(SrError::ConfigurationError)?;
-            let file = read_with_privileges(&file_path)?;
-            let reader = BufReader::new(file); // Use BufReader for efficient streaming
-            let mut io_reader = cbor4ii::core::utils::IoReader::new(reader); // Use IoReader for streaming
-            Ok(BestExecSettings::retrieve_settings(
-                cli,
-                cred,
-                &config_finder_deserializer
-                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                    .map_err(|e| {
-                        debug!("Error deserializing CBOR: {}", e);
-                        SrError::ConfigurationError
-                    })?,
-                env_vars,
-                env_path,
-            )?)
+
+    if file_path.is_dir() {
+        let mut entries: Vec<PathBuf> = fs::read_dir(&file_path)
+            .map_err(|e| {
+                debug!(
+                    "Failed to read policy directory {}: {e}",
+                    file_path.display()
+                );
+                SrError::ConfigurationError
+            })?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .collect();
+        entries.sort();
+
+        let mut best: Option<BestExecSettings> = None;
+        let mut parsed_any = false;
+
+        for entry in entries {
+            let result = parse_file(&entry);
+            match result {
+                Ok(settings) => {
+                    parsed_any = true;
+                    if best.as_ref().is_none_or(|best_settings| {
+                        settings.score.better_fully(&best_settings.score)
+                    }) {
+                        best = Some(settings);
+                    }
+                }
+                Err(SrError::PermissionDenied) => {
+                    parsed_any = true;
+                }
+                Err(err) => {
+                    debug!("Skipping policy file {}: {err}", entry.display());
+                }
+            }
         }
-        StorageMethod::JSON => {
-            let file_path = settings_file
-                .storage
-                .settings
-                .unwrap_or_default()
-                .path
-                .ok_or(SrError::ConfigurationError)?;
-            let file = read_with_privileges(&file_path)?;
-            let reader = BufReader::new(file);
-            let io_reader = serde_json::de::IoRead::new(reader);
-            Ok(BestExecSettings::retrieve_settings(
-                cli,
-                cred,
-                &config_finder_deserializer
-                    .deserialize(&mut serde_json::Deserializer::new(io_reader))
-                    .map_err(|e| {
-                        debug!("Error deserializing JSON: {}", e);
-                        SrError::ConfigurationError
-                    })?,
-                env_vars,
-                env_path,
-            )?)
-        }
+
+        return best.ok_or({
+            if parsed_any {
+                SrError::PermissionDenied
+            } else {
+                SrError::ConfigurationError
+            }
+        });
     }
+
+    parse_file(&file_path)
 }
 
 impl BestExecSettings {
@@ -143,9 +216,10 @@ impl BestExecSettings {
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.clone());
         for role in data.roles() {
-            matching |= result.role_settings(cli, &role, &mut opt_stack, env_path)?;
+            matching |= result.role_settings(cli, cred, &role, &mut opt_stack, env_path)?;
             Api::notify(ApiEvent::BestRoleSettingsFound(
                 cli,
+                cred,
                 &role,
                 &mut opt_stack,
                 &env_path,
@@ -157,17 +231,17 @@ impl BestExecSettings {
             return Err(SrError::PermissionDenied);
         }
         result.env = opt_stack
-            .calc_temp_env(opt_stack.calc_override_behavior(), &cli.opt_filter)
+            .calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref())
             .calc_final_env(
                 env_vars,
                 opt_stack.calc_path(env_path),
                 cred,
-                &result.cred.setuid,
+                result.cred.setuid.as_ref(),
                 format!(
                     "{}{}",
                     cli.cmd_path.display(),
                     if cli.cmd_args.is_empty() {
-                        "".into()
+                        String::new()
                     } else {
                         format!(" {}", cli.cmd_args.join(" "))
                     }
@@ -178,12 +252,14 @@ impl BestExecSettings {
         result.timeout = opt_stack.calc_timeout();
         result.root = opt_stack.calc_privileged();
         result.umask = opt_stack.calc_umask();
+        result.workdir = opt_stack.calc_workdir();
         Ok(result)
     }
 
     pub fn role_settings<'c, 'a>(
         &mut self,
         cli: &'c Cli,
+        cred: &'c Cred,
         data: &DLinkedRole<'c, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
@@ -194,7 +270,7 @@ impl BestExecSettings {
         }
         let mut res = false;
         for task in data.tasks() {
-            res |= self.task_settings(cli, &task, opt_stack, env_path)?;
+            res |= self.task_settings(cli, cred, &task, opt_stack, env_path)?;
         }
         Ok(res)
     }
@@ -205,9 +281,11 @@ impl BestExecSettings {
         Ok(res)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn task_settings<'t, 'a>(
         &mut self,
         cli: &'t Cli,
+        cred: &'t Cred,
         data: &DLinkedTask<'t, '_, 'a>,
         opt_stack: &mut BorrowedOptStack<'a>,
         env_path: &[&str],
@@ -223,7 +301,29 @@ impl BestExecSettings {
             .as_ref()
             .is_some_and(|f| f.env_behavior.is_some() && !temp_opt_stack.calc_override_behavior())
         {
-            debug!("task_settings: deny task due to inherited from role or config env_override requirement");
+            debug!(
+                "task_settings: deny task due to inherited from role or config env_override requirement"
+            );
+            return Ok(false);
+        }
+        let result = temp_opt_stack.get_workdir_temp();
+        if cli
+            .opt_filter
+            .as_ref()
+            .and_then(|f| f.workdir.as_ref())
+            .is_some_and(|w| Self::allowed_workdir(&result, w.as_str()).is_false())
+        {
+            debug!(
+                "task_settings: deny task due to the user wanted to execute to a specific folder, which do not match to settings"
+            );
+            return Ok(false);
+        }
+        if Self::allowed_workdir(&result, cred.curdir.as_os_str().to_string_lossy().as_ref())
+            .is_false()
+        {
+            debug!(
+                "task_settings: deny task due to the current directory do not match to allowed settings"
+            );
             return Ok(false);
         }
         if cli.info && temp_opt_stack.calc_info().is_hide() {
@@ -234,7 +334,10 @@ impl BestExecSettings {
             let t_env_path = opt_stack.calc_path(env_path);
             for command in commands.del() {
                 if self.command_settings(
-                    &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    &t_env_path
+                        .iter()
+                        .map(std::string::String::as_str)
+                        .collect::<Vec<_>>(),
                     cli,
                     &command,
                 )? {
@@ -245,17 +348,21 @@ impl BestExecSettings {
                 debug!("default behavior is all");
                 let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
-                debug!("{:?}", &cli.cmd_path);
+                debug!("{}", &cli.cmd_path.display());
                 if let Ok(path) = cli.cmd_path.canonicalize() {
                     self.final_path = path;
                 } else {
-                    self.final_path = all_paths_from_env(
-                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                        &cli.cmd_path,
-                    )
-                    .first()
-                    .ok_or(SrError::ExecutionFailed)?
-                    .to_path_buf();
+                    self.final_path.clone_from(
+                        all_paths_from_env(
+                            &t_env_path
+                                .iter()
+                                .map(std::string::String::as_str)
+                                .collect::<Vec<_>>(),
+                            &cli.cmd_path,
+                        )
+                        .first()
+                        .ok_or(SrError::ExecutionFailed)?,
+                    );
                 }
                 self.score.cmd_min = CmdMin::builder()
                     .matching()
@@ -264,7 +371,10 @@ impl BestExecSettings {
             } else {
                 for command in commands.add() {
                     if self.command_settings(
-                        &t_env_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                        &t_env_path
+                            .iter()
+                            .map(std::string::String::as_str)
+                            .collect::<Vec<_>>(),
                         cli,
                         &command,
                     )? {
@@ -275,8 +385,8 @@ impl BestExecSettings {
             }
             f_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
-            debug!("final_path already found: {:?}", final_path);
-            found = self.update_command_score(final_path.to_path_buf(), data.score.cmd_min);
+            debug!("final_path already found: {}", final_path.display());
+            found = self.update_command_score(final_path.clone(), data.score.cmd_min);
         }
         let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
         Api::notify(ApiEvent::BestTaskSettingsFound(
@@ -287,20 +397,20 @@ impl BestExecSettings {
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
             self.env_path = f_env_path
-                .unwrap_or(opt_stack.calc_path(env_path))
+                .unwrap_or_else(|| opt_stack.calc_path(env_path))
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
             self.score = score;
             self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
             self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
                 DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
-                DGroups::Multiple(g) => g.iter().filter_map(|g| g.fetch_group()).collect(),
+                DGroups::Multiple(g) => g.iter().filter_map(DGroupType::fetch_group).collect(),
             });
             self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
-            debug!("resulting settings: {:?}", self);
+            debug!("resulting settings: {self:?}");
         }
 
         Ok(found)
@@ -312,7 +422,7 @@ impl BestExecSettings {
         cli: &'d Cli,
         data: &DLinkedCommand<'d, '_, '_, '_, '_>,
     ) -> SrResult<bool> {
-        debug!("env_path: {:?}", env_path);
+        debug!("env_path: {env_path:?}");
         Ok(match &**data {
             de::DCommand::Simple(role_cmd) => {
                 let mut final_path = None;
@@ -321,14 +431,10 @@ impl BestExecSettings {
                     &cli.cmd_path,
                     &cli.cmd_args,
                     role_cmd,
-                    &self.score.cmd_min,
+                    self.score.cmd_min,
                     &mut final_path,
                 );
-                if let Some(final_path) = final_path {
-                    self.update_command_score(final_path, cmd_min)
-                } else {
-                    false
-                }
+                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
             }
             de::DCommand::Complex(value) => {
                 let mut cmd_min = CmdMin::empty();
@@ -341,13 +447,30 @@ impl BestExecSettings {
                     &mut cmd_min,
                     &mut final_path,
                 ))?;
-                if let Some(final_path) = final_path {
-                    self.update_command_score(final_path, cmd_min)
-                } else {
-                    false
-                }
+                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
             }
         })
+    }
+
+    /// This function takes a workdir path, and returns whether it is allowed based on the workdir settings.
+    fn allowed_workdir(result: &DWorkdirSet<'_>, workdir: &str) -> HardenedBool {
+        // Apply logic based on final behavior
+        match result.default_behavior {
+            WorkdirBehavior::Allowlist => {
+                // Block all except what is in "add" minus "sub"
+                let is_in_add = result.add.iter().any(|path| path.as_ref() == workdir);
+                let is_in_sub = result.sub.iter().any(|path| path.as_ref() == workdir);
+                hardened_bool_from_bool(is_in_add && !is_in_sub)
+            }
+            WorkdirBehavior::Blacklist => {
+                // Allow all except what is in "sub"
+                hardened_bool_from_bool(!result.sub.iter().any(|path| path.as_ref() == workdir))
+            }
+            WorkdirBehavior::Inherit => {
+                // Should not happen after union, but default to WORKDIR_BEHAVIOR
+                hardened_bool_from_bool(WORKDIR_BEHAVIOR.is_blacklist())
+            }
+        }
     }
 
     fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
@@ -355,7 +478,7 @@ impl BestExecSettings {
             "update_command_score: current score {:?}, new score {:?}",
             self.score.cmd_min, res
         );
-        if res.better(&self.score.cmd_min) {
+        if res.better(self.score.cmd_min) {
             debug!("better");
             self.score.cmd_min = res;
             self.final_path = final_path;
@@ -372,17 +495,18 @@ mod tests {
     use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
     use capctl::CapSet;
+    use rar_common::database::FilterMatcher;
     use rar_common::database::options::{EnvBehavior, Level, SInfo};
     use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
     use rar_common::database::structs::SetBehavior;
-    use rar_common::database::FilterMatcher;
     use serde_json::Value;
     use std::path::PathBuf;
 
-    use crate::finder::de::CredData;
-    use crate::finder::options::{DEnvOptions, Opt};
     use crate::Cli;
+    use crate::finder::de::cred::CredData;
+    use crate::finder::options::{DEnvOptions, Opt};
     use rar_common::Cred;
+    use test_log::test;
 
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
@@ -393,7 +517,14 @@ mod tests {
     }
 
     fn dummy_cred() -> Cred {
-        Cred::builder().build()
+        Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build()
     }
 
     fn dummy_dconfigfinder<'a>() -> DConfigFinder<'a> {
@@ -421,9 +552,11 @@ mod tests {
                                     .add(vec![
                                         DCommand::simple("/usr/bin/ls ^.*$"),
                                         DCommand::complex(Value::Object(
-                                            [("key".to_string(), Value::String("value".into()))]
-                                                .into_iter()
-                                                .collect::<serde_json::Map<String, Value>>(),
+                                            std::iter::once((
+                                                "key".to_string(),
+                                                Value::String("value".into()),
+                                            ))
+                                            .collect::<serde_json::Map<String, Value>>(),
                                         )),
                                     ])
                                     .build(),
@@ -516,11 +649,12 @@ mod tests {
     fn test_role_settings_calls_actors_and_tasks() {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let data = binding.roles().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(None);
         let env_path = &["/bin"];
-        let result = best.role_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
     }
 
@@ -538,14 +672,15 @@ mod tests {
     fn test_task_settings_sets_fields_on_found() {
         let mut best = BestExecSettings::default();
         let cli = dummy_cli();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok_and(|r| r));
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test");
         assert!(best.task == Some("0".to_string()));
         assert!(best.cred.caps.is_some());
@@ -623,6 +758,7 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().next().unwrap();
@@ -630,7 +766,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
@@ -642,6 +778,7 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
@@ -650,7 +787,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -662,16 +799,17 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test", "role was {}", best.role);
         assert!(best.task == Some("1".to_string()));
     }
@@ -683,15 +821,16 @@ mod tests {
             .cmd_args(vec!["-l".to_string()])
             .info()
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }
@@ -708,6 +847,7 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let binding = binding.tasks().next().unwrap();
@@ -715,7 +855,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }
@@ -731,6 +871,7 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         // Now test with the second task which does not have info hide
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
@@ -739,7 +880,7 @@ mod tests {
         let data = binding;
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.task_settings(&cli, &data, &mut opt_stack, env_path);
+        let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
@@ -755,16 +896,17 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         // Now try best.role_settings to ensure full flow works
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test", "role was {}", best.role);
         assert!(best.task == Some("1".to_string()));
     }
@@ -780,15 +922,16 @@ mod tests {
                     .build(),
             )
             .build();
+        let cred = dummy_cred();
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
         let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
         let env_path = &["/usr/bin"];
-        let result = best.role_settings(&cli, &binding, &mut opt_stack, env_path);
+        let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
         assert!(result.unwrap());
-        assert!(best.final_path == PathBuf::from("/usr/bin/ls"));
+        assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
     }

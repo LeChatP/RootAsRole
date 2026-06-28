@@ -1,39 +1,31 @@
-## Installation
+# Installation
 
-### Prerequisites
+For production-like setups, prefer distro packaging. Source install is useful for testing and development.
 
-Install git
+## Prerequisites
 
-### How to build
+- Linux system with PAM
+- Rust toolchain (if building from source)
+- Administrative rights (`sudo` or equivalent)
 
-  1. git clone <https://github.com/LeChatP/RootAsRole>
-  1. cd RootAsRole
-  1. cargo xtask install -bip sudo
+## Build and install from source
 
-<div class="warning">
-<b>
-The installation process requires CAP_SETFCAP privileges and also grants full privileges to the user who installs, making them privileged by default.</b>
+```bash
+git clone https://github.com/LeChatP/RootAsRole
+cd RootAsRole
+cargo xtask install -bip sudo
+```
 
-</div>
+## What the installer does
 
-### What does the installation script do?
+`cargo xtask install -bip sudo` performs:
 
-The installation script parameters explaination:
-- cargo xtask install -bip sudo
-  - (-b) Builds the project
-  - (-i) Installs necessary dependencies
-  - (-p) Use the `sudo` command to perform administrative tasks
+- dependency installation when required
+- project build
+- deployment of `dosr` and `chsr`
+- capability/ownership setup for `dosr`
+- installation of PAM config for `dosr`
+- installation of `/etc/security/rootasrole.json`
+- immutable flag setup on policy file when supported by the filesystem
 
-Install script does the following:
-- Dependency Step :
-  - Installing necessary dependencies considering if compiling from source.
-- Build Step :
-  - Building dosr and chsr binaries
-- Install Step : 
-  - Copying dosr and chsr binaries to /usr/bin
-  - Setting all capabilities on /usr/bin/dosr
-  - Setting owners and permissions on /usr/bin/dosr
-- Configuration Step :
-  - Deploying /etc/pam.d/dosr for PAM configuration
-  - Deploying /etc/security/rootasrole.json for configuration
-  - Setting immutable on /etc/security/rootasrole.json if filesytem supports it
+> Warning: this installer runs with high administrative power. Review and tighten policy before multi-user deployment.

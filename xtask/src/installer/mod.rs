@@ -290,7 +290,12 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         debug!("Building sr and chsr");
         build(&opts.build_opts)?;
     }
-    if install::install(priv_bin.as_deref(), opts.build_opts.profile, opts.clean_after, true)?
+    if install::install(
+        priv_bin.as_deref(),
+        opts.build_opts.profile,
+        opts.clean_after,
+        true,
+    )?
     .is_yes()
     {
         Ok(())

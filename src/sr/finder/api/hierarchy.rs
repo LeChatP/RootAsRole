@@ -1,27 +1,36 @@
 use bon::builder;
 use log::debug;
+use rar_common::Cred;
 use serde_json::Value;
 
 use crate::{
-    error::SrResult,
-    finder::{de::DLinkedRole, options::BorrowedOptStack, BestExecSettings},
     Cli,
+    error::SrResult,
+    finder::{BestExecSettings, de::DLinkedRole, options::BorrowedOptStack},
 };
 
 /// This module is not thread-safe.
 use super::{Api, ApiEvent, EventKey};
 
 fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
-    if let ApiEvent::BestRoleSettingsFound(cli, role, opt_stack, env_path, settings, matching) =
-        event
+    if let ApiEvent::BestRoleSettingsFound(
+        cli,
+        cred,
+        role,
+        opt_stack,
+        env_path,
+        settings,
+        matching,
+    ) = event
     {
-        return match role.role()._extra_values.get("parents") {
+        return match role.role().extra_values.get("parents") {
             Some(Value::Array(parents)) => {
                 let mut parents = parents.iter();
                 while let Some(Value::String(parent)) = parents.next() {
                     evaluate_parent_role()
                         .parent(parent.as_ref())
                         .cli(cli)
+                        .cred(cred)
                         .role(role)
                         .opt_stack(opt_stack)
                         .settings(settings)
@@ -34,6 +43,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
             Some(Value::String(parent)) => evaluate_parent_role()
                 .parent(parent.as_ref())
                 .cli(cli)
+                .cred(cred)
                 .role(role)
                 .opt_stack(opt_stack)
                 .settings(settings)
@@ -41,7 +51,7 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
                 .env_path(env_path)
                 .call(),
             Some(v) => {
-                debug!("Invalid parent value: {:?}", v);
+                debug!("Invalid parent value: {v:?}");
                 Err(crate::error::SrError::ConfigurationError)
             }
             None => Ok(()),
@@ -53,18 +63,19 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
 #[builder]
 fn evaluate_parent_role<'a>(
     parent: &str,
-    cli: &mut &Cli,
-    role: &mut &DLinkedRole<'_, 'a>,
+    cli: &Cli,
+    cred: &Cred,
+    role: &DLinkedRole<'_, 'a>,
     opt_stack: &mut BorrowedOptStack<'a>,
-    settings: &mut &mut BestExecSettings,
-    matching: &mut &mut bool,
+    settings: &mut BestExecSettings,
+    matching: &mut bool,
     env_path: &[&str],
 ) -> SrResult<()> {
     if let Some(role) = role.config().role(parent) {
         for task in role.tasks() {
-            **matching |= settings.task_settings(cli, &task, opt_stack, env_path)?;
+            *matching |= settings.task_settings(cli, cred, &task, opt_stack, env_path)?;
         }
-    };
+    }
     Ok(())
 }
 
