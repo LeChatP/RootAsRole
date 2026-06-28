@@ -6,8 +6,9 @@ title = "RootAsRole Documentation"
 description = "Practical documentation for RootAsRole"
 
 [output.html]
-git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/main/book"
-edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/main/book/{path}"
+git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/master/book"
+edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{path}"
+additional-css = ["src/theme/book.css"]
 
 [preprocessor.graphviz]
 command = "mdbook-graphviz"

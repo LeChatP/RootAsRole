@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./RootAsRolev2.svg" width=30%>
+  <img src="./assets/logo/svg/color/logo-mascot-full.svg" width=50%>
  </p>
  <p align="center">
   
@@ -13,7 +13,6 @@
 
 
 </p>
-<!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
 # RootAsRole — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
@@ -149,7 +148,7 @@ RootAsRole **3.1.0** introduced **CBOR** support, significantly boosting perform
 When using **Ansible** (or any automation tool), every task that uses `become: true` will invoke `dosr` on the target host.
 With **RootAsRole (RaR)**, each role and task introduces additional access control logic --- this doesn’t slow you down.
 
-💡 **Here’s the reality**: You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
+💡 You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
 
 That means:
 - You can define thousands of fine-grained rules
@@ -196,9 +195,15 @@ These publications starts from the initial proof of concept to the current produ
 * Rémi Venant: <remi.venant@gmail.com>
 * Guillaume Daumas : <guillaume.daumas@univ-tlse3.fr>
 
-## 🖼️ Logo
+## 🖼️ Logo & Mascot
 
-This logo were generated using DALL-E 2 AI, for any license issue or plagiarism, please note that is not intentionnal and don't hesitate to contact us.
+The project's mascot and logos were created entirely by hand by [Eva La Fougère](https://www.karde.me/evalafougere)!
+
+The mascot and its variants are licensed under CC BY-ND 4.0 and the copyright belongs to Eva La Fougère.
+
+The mascot serves as the visual identity of the official RootAsRole project. It must not be used by third-party projects, derivative works, or forks as their primary visual identity in a manner that could create confusion with the official project or suggest endorsement by the RootAsRole project.
+
+![CC BY-ND 4.0](https://mirrors.creativecommons.org/presskit/buttons/88x31/svg/by-nd.svg)
 
 ## 📜 Licence notice
 
@@ -211,3 +216,9 @@ This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airb
 
 
 ## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
+<!-- markdownlint-capture -->
+<!-- markdownlint-disable -->
+<p align="center">
+  <img src="./assets/logo/svg/color/logo-vertical.svg" width=30%>
+ </p>
+<!-- markdownlint-restore -->
