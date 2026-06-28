@@ -1,8 +1,0 @@
-.sidebar-scrollbox::before {
-    content: "";
-    display: block;
-    height: 100px;
-    background: url("/assets/logo/svg/color/logo-mascot-stare.svg") no-repeat center;
-    background-size: contain;
-    margin: 10px 0;
-}

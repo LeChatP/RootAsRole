@@ -1,0 +1,52 @@
+.sidebar-scrollbox::before {
+    content: "";
+    display: block;
+    height: 100px;
+    background: url("/assets/logo/svg/color/logo-mascot-stare.svg") no-repeat center;
+    background-size: contain;
+    margin: 10px 0;
+}
+
+
+blockquote.caroot-stare {
+    position: relative;
+    padding-left: 80px;
+    border-left: 4px solid #f97316;
+    min-height: 60px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+blockquote.caroot-stare::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    width: 60px;
+    height: 60px;
+    background-image: url('/assets/logo/svg/color/stare.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    bottom: 0;
+}
+
+/* Styling for the Caroot blockquote */
+blockquote.caroot {
+    position: relative;
+    padding-left: 80px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    border-left: 4px solid #169af9;
+    min-height: 60px;
+}
+
+blockquote.caroot:after {
+    content: "";
+    position: absolute;
+    left: 20px;
+    width: 60px;
+    height: 80px;
+    background-image: url('/assets/logo/svg/color/mascot.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    bottom: 0;
+}

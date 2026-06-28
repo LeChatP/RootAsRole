@@ -197,7 +197,7 @@ These publications starts from the initial proof of concept to the current produ
 
 ## 🖼️ Logo & Mascot
 
-The project's mascot and logos were created entirely by hand by [Eva La Fougère](https://www.karde.me/evalafougere)!
+The project's mascot and logos were created entirely by hand by [Eva La Fougère](https://www.karde.me/evalafougere?utm_source=rootasrole&utm_medium=docs&utm_content=readme)!
 
 The mascot and its variants are licensed under CC BY-ND 4.0 and the copyright belongs to Eva La Fougère.
 
