@@ -187,14 +187,6 @@ Use [gensr](https://github.com/LeChatP/RootAsRole-gensr) for Ansible to:
 
 These publications starts from the initial proof of concept to the current production-ready version, covering design, implementation, security analysis, and real-world deployment.
 
-## 👥 Contributors
-
-* Eddie Billoir : <eddie.billoir@gmail.com>
-* Ahmad Samer Wazan : <ahmad.wazan@zu.ac.ae>
-* Romain Laborde : <laborde@irit.fr>
-* Rémi Venant: <remi.venant@gmail.com>
-* Guillaume Daumas : <guillaume.daumas@univ-tlse3.fr>
-
 ## 🖼️ Logo & Mascot
 
 The project's mascot and logos were created entirely by hand by [Eva La Fougère](https://www.karde.me/evalafougere?utm_source=rootasrole&utm_medium=docs&utm_content=readme)!
@@ -213,6 +205,9 @@ We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Ind
 ## 🧪 Sponsored research
 
 This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airbus PROTECT** through an industrial PhD during 2022 and 2025.
+
+## [Letter on AI policy, position and usage](./AI_LETTER.md)
+
 
 
 ## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
