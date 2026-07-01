@@ -1,9 +1,7 @@
 {
     "rust-analyzer.linkedProjects": [
-        //"sudoers-reader/Cargo.toml",
         "Cargo.toml",
         "rar-common/Cargo.toml",
-        //"./capable/Cargo.toml"
     ],
     "c-cpp-flylint.clang.includePaths": [
         "${workspaceFolder}/src"
@@ -23,7 +21,6 @@
         "-A", "clippy::should_implement_trait",
         "-D", "warnings"
     ],
-    // Optional: Enable all experimental features for stricter type checking/linting
     "rust-analyzer.diagnostics.experimental.enable": true
 
 }
