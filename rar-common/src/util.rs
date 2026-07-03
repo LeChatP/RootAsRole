@@ -91,10 +91,12 @@ pub const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
 pub const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
     string::split(env!("RAR_ENV_SET_LIST"), "\n"),
         filter_map(|s| {
-            if let Some((key,value)) = string::split_once(s, '=') {
+            if string::trim_matches(s, ' ').is_empty() {
+                None
+            } else if let Some((key,value)) = string::split_once(s, '=') {
                 Some((str::trim_ascii(key),str::trim_ascii(value)))
             } else {
-                None
+                panic!("Invalid ENV_SET_LIST entry, must be in the form KEY=VALUE");
             }
         })
 );
