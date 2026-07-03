@@ -1,10 +1,7 @@
 {
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
-        "rar-common/Cargo.toml",
-    ],
-    "c-cpp-flylint.clang.includePaths": [
-        "${workspaceFolder}/src"
+        "rar-common/Cargo.toml"
     ],
     "terminal.integrated.env.linux": {
         "PROFILE" : "debug",
