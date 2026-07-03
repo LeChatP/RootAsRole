@@ -18,4 +18,4 @@ RootAsRole reaches a major stabilization milestone with the modernized execution
 
 Documentation is refocused on operational usage, policy clarity, and contributor architecture. A comprehensive PhD thesis @@billo2025 consolidates the research foundation and design rationale for the project.
 
-A new mascot, CaRoot, is introduced to personify the project and make it more approachable. CaRoot was designed by EvaLaFougère, a talented artist! Her work is available on her [website](https://www.karde.me/evalafougere?utm_source=rootasrole&utm_medium=docs&utm_content=history).
+A new mascot, CaRoot, is introduced to personify the project and make it fancy. CaRoot was designed by EvaLaFougère, a talented artist! Her work is available on her [website](https://www.karde.me/evalafougere?utm_source=rootasrole&utm_medium=docs&utm_content=history).

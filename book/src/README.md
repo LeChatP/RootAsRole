@@ -15,7 +15,7 @@ So the practical question became: how do we delegate admin work without delegati
 
 - Apply PoLAP in day-to-day operations.
 - Delegate tasks, not unrestricted identities.
-- Use capabilities when enough; avoid full root when not needed.
+- Never give full root rights when not needed.
 - Keep policy explicit and auditable.
 
 ## Core components
@@ -28,7 +28,7 @@ So the practical question became: how do we delegate admin work without delegati
 
 Linux already has strong primitives (permissions, ACLs, capabilities, MAC), but composing them coherently for co-administration is difficult. In practice, complexity often leads to over-permissioned shortcuts.
 
-RootAsRole is my attempt to make that tractable: a policy-driven orchestrator that keeps delegation fine-grained and execution just-in-time.
+RootAsRole is the attempt to make that tractable: a policy-driven orchestrator that keeps delegation fine-grained and execution just-in-time.
 
 Start with [Installation](guide/installation.md), then follow [First Policy in 10 Minutes](getting-started/quickstart.md).
 

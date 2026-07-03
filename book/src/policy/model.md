@@ -37,10 +37,6 @@ Options are resolved from global to role to task.
 
 This lets you keep broad defaults while tightening sensitive tasks.
 
-## Recommended modeling style
-
-- Keep one operational intent per task.
-- Keep capability allow-lists short.
-- Avoid broad command wildcards in production.
-- Use role boundaries to separate teams and duties.
-- Use plugins (role hierarchy, separation of duties) only when needed.
+<blockquote class="caroot">
+Enforcing the Fail-safe default principle by Saltzer & Scroeder also implies enforcing the most strict security options at the top-level of the configuration and overriding only at the lowest according to needs!
+</blockquote>
