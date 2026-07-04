@@ -62,9 +62,14 @@ impl HiddenInput {
 impl Drop for HiddenInput {
     #[cfg_attr(tarpaulin, ignore)]
     fn drop(&mut self) {
-        // Set the the mode back to normal
+        // Set the mode back to normal and discard unread inputs
+        // See GHSA-c978-wq47-pvvw.
         unsafe {
-            tcsetattr(self.tty.as_raw_fd(), TCSANOW, &raw const self.term_orig);
+            libc::tcsetattr(
+                self.tty.as_raw_fd(),
+                libc::TCSAFLUSH,
+                &raw const self.term_orig,
+            );
         }
     }
 }
