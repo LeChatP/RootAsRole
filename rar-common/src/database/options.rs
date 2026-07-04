@@ -379,6 +379,10 @@ impl SPrivileged {
     pub const fn is_privileged(&self) -> bool {
         matches!(self, Self::Privileged)
     }
+    #[must_use]
+    pub const fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
 }
 
 impl FromStr for SPrivileged {
