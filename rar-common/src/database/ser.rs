@@ -93,7 +93,7 @@ impl Serialize for SetBehavior {
         S: serde::Serializer,
     {
         if serializer.is_human_readable() {
-            serializer.serialize_str(&self.to_string())
+            serializer.serialize_str(&format!("{self}"))
         } else {
             serializer.serialize_u32(*self as u32)
         }

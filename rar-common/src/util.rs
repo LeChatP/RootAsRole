@@ -1,8 +1,11 @@
+use core::fmt;
 use std::{
+    fmt::Display,
     fs::{File, OpenOptions},
     io::{self, ErrorKind, Write},
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use capctl::{Cap, CapSet, ParseCapError};
@@ -17,7 +20,6 @@ use nix::{
     unistd::{Gid, Group},
 };
 use serde::{Deserialize, Serialize};
-use strum::EnumString;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
@@ -158,25 +160,28 @@ pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
 pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
     result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
 
-#[derive(
-    Serialize,
-    Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Copy,
-    EnumString,
-    strum::VariantNames,
-    strum::EnumIs,
-    strum::Display,
-)]
+pub const TIMEOUT_MAX_USAGE: u64 =
+    result::unwrap_or!(u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"), 10), 0);
+
+pub const BOUNDING: SBounding = SBounding::const_parse(env!("RAR_BOUNDING"));
+
+pub const AUTHENTICATION: SAuthentication =
+    SAuthentication::const_parse(env!("RAR_AUTHENTICATION"));
+
+pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
+
+pub const UMASK: SUMask = SUMask(result::unwrap_or!(
+    u16::from_str_radix(env!("RAR_UMASK"), 10),
+    0o022
+));
+
+pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum StorageMethod {
-    #[strum(ascii_case_insensitive)]
     JSON,
-    #[strum(ascii_case_insensitive)]
     CBOR,
     //    SQLite,
     //    PostgreSQL,
@@ -190,6 +195,7 @@ impl Default for StorageMethod {
 }
 
 impl StorageMethod {
+    pub const VARIANTS: &'static [&str] = &["cbor", "json"];
     /// # Panics
     /// Panics if the string does not correspond to a valid storage method.
     #[must_use]
@@ -198,6 +204,36 @@ impl StorageMethod {
             _ if eq_str(s, "cbor") | eq_str(s, "CBOR") => Self::CBOR,
             _ if eq_str(s, "json") | eq_str(s, "JSON") => Self::JSON,
             _ => panic!("fail to parse StorageMethod from string: invalid value"),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_cbor(&self) -> bool {
+        matches!(self, Self::CBOR)
+    }
+    #[must_use]
+    pub const fn is_json(&self) -> bool {
+        matches!(self, Self::JSON)
+    }
+}
+
+impl Display for StorageMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CBOR => write!(f, "cbor"),
+            Self::JSON => write!(f, "json"),
+        }
+    }
+}
+
+impl FromStr for StorageMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "cbor" => Ok(Self::CBOR),
+            "json" => Ok(Self::JSON),
+            _ => Err(format!("Invalid StorageMethod value: {s}")),
         }
     }
 }
@@ -287,23 +323,6 @@ const fn convert_string_to_duration(
         hours * 3600 + minutes * 60 + seconds,
     )))
 }
-
-pub const TIMEOUT_MAX_USAGE: u64 =
-    result::unwrap_or!(u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"), 10), 0);
-
-pub const BOUNDING: SBounding = SBounding::const_parse(env!("RAR_BOUNDING"));
-
-pub const AUTHENTICATION: SAuthentication =
-    SAuthentication::const_parse(env!("RAR_AUTHENTICATION"));
-
-pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
-
-pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    u16::from_str_radix(env!("RAR_UMASK"), 10),
-    0o022
-));
-
-pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
 
 #[macro_export]
 macro_rules! upweak {

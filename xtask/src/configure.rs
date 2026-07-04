@@ -9,21 +9,34 @@ use capctl::Cap;
 use log::{info, warn};
 use nix::unistd::{getresuid, getuid};
 use serde_json::Value;
-use strum::EnumIs;
 
 // (Assuming your crate imports remain the same)
 use crate::util::{
-    ImmutableLock, Opt, OsTarget, PACKAGE_VERSION, Policy, RAR_CFG_DATA_PATH, RAR_CFG_PATH,
-    RAR_CFG_TYPE, RootSettings, SEnvOptions, SPathOptions, STimeout, cap_effective,
-    convert_string_to_duration, toggle_lock_config,
+    ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST, ENV_OVERRIDE_BEHAVIOR,
+    ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, INFO,
+    ImmutableLock, Opt, OsTarget, PACKAGE_VERSION, PAM_CONFIG_SERVICE, Policy, RAR_AUTHENTICATION,
+    RAR_BOUNDING, RAR_CFG_DATA_PATH, RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE,
+    RAR_USER_CONSIDERED, RootSettings, SEnvOptions, SPathOptions, STimeout, SWorkdirSet,
+    TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST_SLICE,
+    WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST_SLICE, cap_effective,
+    toggle_lock_config,
 };
 
-pub const PAM_CONFIG_SERVICE: &str = env!("RAR_PAM_SERVICE");
-
-#[derive(Debug, EnumIs)]
+#[derive(Debug)]
 pub enum ConfigState {
     Unchanged,
     Modified,
+}
+
+impl ConfigState {
+    #[must_use]
+    pub const fn is_modified(&self) -> bool {
+        matches!(self, Self::Modified)
+    }
+    #[must_use]
+    pub const fn is_unchanged(&self) -> bool {
+        matches!(self, Self::Unchanged)
+    }
 }
 
 pub fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
@@ -114,55 +127,39 @@ fn set_immutable(config: &mut RootSettings, value: bool) {
 
 #[allow(clippy::too_many_lines)]
 fn set_options(content: &mut RootSettings) {
-    content.storage.method = RAR_CFG_TYPE
-        .parse()
-        .expect("Check RAR_CFG_TYPE in .cargo/config.toml");
+    content.storage.method = RAR_CFG_TYPE;
     if let Some(settings) = &mut content.storage.settings {
         if let Some(path) = &mut settings.path {
-            *path = env!("RAR_CFG_DATA_PATH").to_string();
+            *path = RAR_CFG_DATA_PATH.to_string();
         }
         if let Some(immutable) = &mut settings.immutable {
-            *immutable = env!("RAR_CFG_IMMUTABLE")
-                .parse()
-                .expect("Check RAR_CFG_IMMUTABLE in .cargo/config.toml");
+            *immutable = RAR_CFG_IMMUTABLE;
         }
     }
     content.policy.options = Some(Opt {
         timeout: Some(STimeout {
-            type_field: Some(
-                env!("RAR_TIMEOUT_TYPE")
-                    .parse()
-                    .expect("Check RAR_TIMEOUT_TYPE in .cargo/config.toml"),
-            ),
-            duration: convert_string_to_duration(env!("RAR_TIMEOUT_DURATION"))
-                .expect("Check RAR_TIMEOUT_DURATION in .cargo/config.toml"),
-            max_usage: if env!("RAR_TIMEOUT_MAX_USAGE").is_empty() {
-                None
-            } else {
-                Some(
-                    env!("RAR_TIMEOUT_MAX_USAGE")
-                        .parse()
-                        .expect("Check RAR_TIMEOUT_MAX_USAGE in .cargo/config.toml"),
-                )
-            },
+            type_field: Some(TIMEOUT_TYPE),
+            duration: Some(TIMEOUT_DURATION),
+            max_usage: TIMEOUT_MAX_USAGE,
             extra_fields: Value::Null,
         }),
         path: Some(SPathOptions {
-            default_behavior: env!("RAR_PATH_DEFAULT")
-                .parse()
-                .expect("Check RAR_PATH_DEFAULT in .cargo/config.toml"),
+            default_behavior: ENV_PATH_BEHAVIOR,
             add: Some(
-                env!("RAR_PATH_ADD_LIST")
-                    .split(':')
+                ENV_PATH_ADD_LIST_SLICE
+                    .iter()
                     .map(std::string::ToString::to_string)
                     .collect(),
             ),
-            sub: if env!("RAR_PATH_REMOVE_LIST").is_empty() {
+            sub: if ENV_PATH_REMOVE_LIST_SLICE.len() == 1
+                && ENV_PATH_REMOVE_LIST_SLICE[0].is_empty()
+            {
                 None
             } else {
                 Some(
-                    env!("RAR_PATH_REMOVE_LIST")
-                        .split(':')
+                    ENV_PATH_REMOVE_LIST_SLICE
+                        .iter()
+                        .copied()
                         .map(std::string::ToString::to_string)
                         .collect(),
                 )
@@ -170,62 +167,72 @@ fn set_options(content: &mut RootSettings) {
             extra_fields: Value::Null,
         }),
         env: Some(SEnvOptions {
-            default_behavior: env!("RAR_ENV_DEFAULT")
-                .parse()
-                .expect("Check RAR_ENV_DEFAULT in .cargo/config.toml"),
-            override_behavior: if env!("RAR_ENV_OVERRIDE_BEHAVIOR")
-                .parse()
-                .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml")
-            {
-                Some(
-                    env!("RAR_ENV_OVERRIDE_BEHAVIOR")
-                        .parse()
-                        .expect("Check RAR_ENV_OVERRIDE_BEHAVIOR in .cargo/config.toml"),
-                )
+            default_behavior: ENV_DEFAULT_BEHAVIOR,
+            override_behavior: if ENV_OVERRIDE_BEHAVIOR {
+                Some(ENV_OVERRIDE_BEHAVIOR)
             } else {
                 None
             },
             keep: Some(
-                env!("RAR_ENV_KEEP_LIST")
-                    .split(',')
+                ENV_KEEP_LIST
+                    .iter()
+                    .copied()
                     .map(std::string::ToString::to_string)
                     .collect(),
             ),
             check: Some(
-                env!("RAR_ENV_CHECK_LIST")
-                    .split(',')
+                ENV_CHECK_LIST
+                    .iter()
+                    .copied()
                     .map(std::string::ToString::to_string)
                     .collect(),
             ),
             delete: Some(
-                env!("RAR_ENV_DELETE_LIST")
-                    .split(',')
+                ENV_DELETE_LIST
+                    .iter()
+                    .copied()
                     .map(std::string::ToString::to_string)
                     .collect(),
             ),
-            set: if env!("RAR_ENV_SET_LIST").is_empty() {
+            set: if ENV_SET_LIST.is_empty() {
                 HashMap::new()
             } else {
-                serde_json::from_str(env!("RAR_ENV_SET_LIST"))
-                    .expect("Check RAR_ENV_SET_LIST in .cargo/config.toml")
+                ENV_SET_LIST
+                    .iter()
+                    .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                    .collect()
             },
             extra_fields: Value::Null,
         }),
-        root: Some(
-            env!("RAR_USER_CONSIDERED")
-                .parse()
-                .expect("Check RAR_USER_CONSIDERED in .cargo/config.toml"),
-        ),
-        bounding: Some(
-            env!("RAR_BOUNDING")
-                .parse()
-                .expect("Check RAR_BOUNDING in .cargo/config.toml"),
-        ),
-        authentication: Some(
-            env!("RAR_AUTHENTICATION")
-                .parse()
-                .expect("Check RAR_AUTHENTICATION in .cargo/config.toml"),
-        ),
+        workdir: Some(SWorkdirSet {
+            default_behavior: WORKDIR_BEHAVIOR,
+            add: Some(
+                WORKDIR_ADD_LIST_SLICE
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect(),
+            ),
+            sub: if WORKDIR_REMOVE_LIST_SLICE.len() == 1 && WORKDIR_REMOVE_LIST_SLICE[0].is_empty()
+            {
+                None
+            } else {
+                Some(
+                    WORKDIR_REMOVE_LIST_SLICE
+                        .iter()
+                        .copied()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
+                )
+            },
+            fallback: WORKDIR_FALLBACK
+                .as_ref()
+                .map(std::string::ToString::to_string),
+        }),
+        execinfo: Some(INFO),
+        umask: Some(UMASK),
+        root: Some(RAR_USER_CONSIDERED),
+        bounding: Some(RAR_BOUNDING),
+        authentication: Some(RAR_AUTHENTICATION),
         extra_fields: Value::Null,
     });
 }
@@ -248,7 +255,7 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
     set_options(&mut settings);
 
     // 3. Handle Immutability
-    let is_immutable = if env!("RAR_CFG_IMMUTABLE") == "true" {
+    let is_immutable = if RAR_CFG_IMMUTABLE {
         get_filesystem_type(RAR_CFG_PATH)?.map_or_else(
             || {
                 info!("Failed to get filesystem type, removing immutable flag");

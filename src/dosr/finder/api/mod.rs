@@ -5,7 +5,6 @@ use rar_common::{
     database::score::{CmdMin, Score},
 };
 use serde_json::Value;
-use strum::Display;
 
 use crate::{Cli, error::SrResult};
 
@@ -34,7 +33,7 @@ pub struct Api {
     callbacks: HashMap<EventKey, Vec<Box<EventCallbackFunction>>>,
 }
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, Display)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
 pub enum EventKey {
     BestGlobalSettings,
     BestRoleSettings,

@@ -8,11 +8,10 @@ use log::debug;
 use nix::unistd::{Gid, Group, User};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use strum::EnumIs;
 
 use crate::util::{Either, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, either_to_gid};
 
-#[derive(Serialize, Debug, EnumIs, Clone, PartialEq, Eq, strum::Display)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum SGenericActorType {
     Id(u32),
@@ -20,10 +19,28 @@ pub enum SGenericActorType {
 }
 
 impl SGenericActorType {
-    fn as_str(&self) -> Cow<'_, str> {
+    #[must_use]
+    pub fn as_str(&self) -> Cow<'_, str> {
         match self {
             Self::Id(id) => Cow::Owned(id.to_string()),
             Self::Name(name) => Cow::Borrowed(name),
+        }
+    }
+    #[must_use]
+    pub const fn is_id(&self) -> bool {
+        matches!(self, Self::Id(_))
+    }
+    #[must_use]
+    pub const fn is_name(&self) -> bool {
+        matches!(self, Self::Name(_))
+    }
+}
+
+impl Display for SGenericActorType {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Id(id) => write!(f, "{id}"),
+            Self::Name(name) => write!(f, "{name}"),
         }
     }
 }
@@ -31,7 +48,7 @@ impl SGenericActorType {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SUserType(SGenericActorType);
 
-#[derive(Deserialize, Serialize, Debug, EnumIs, Clone, PartialEq, Eq, strum::Display)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum DGenericActorType<'a> {
     Id(u32),
@@ -190,12 +207,23 @@ impl Display for DUserType<'_> {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, EnumIs)]
+#[derive(Serialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 #[repr(u32)]
 pub enum SGroups {
     Single(SGroupType) = HARDENED_ENUM_VALUE_0,
     Multiple(Vec<SGroupType>) = HARDENED_ENUM_VALUE_1,
+}
+
+impl SGroups {
+    #[must_use]
+    pub const fn is_single(&self) -> bool {
+        matches!(self, Self::Single(_))
+    }
+    #[must_use]
+    pub const fn is_multiple(&self) -> bool {
+        matches!(self, Self::Multiple(_))
+    }
 }
 
 impl Display for SGroups {
@@ -215,11 +243,28 @@ impl Display for SGroups {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, EnumIs, strum::Display)]
+#[derive(Serialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum DGroups<'a> {
     Single(#[serde(borrow)] DGroupType<'a>),
     Multiple(#[serde(borrow)] Cow<'a, [DGroupType<'a>]>),
+}
+
+impl Display for DGroups<'_> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Single(group) => write!(f, "[{group}]"),
+            Self::Multiple(groups) => {
+                let mut result = String::new();
+                for group in groups.iter() {
+                    let _ = write!(result, "{group}, ");
+                }
+                result.pop(); // Remove last comma
+                result.pop(); // Remove last space
+                write!(f, "[{result}]")
+            }
+        }
+    }
 }
 
 impl SGroups {
@@ -726,7 +771,7 @@ impl PartialEq<Vec<SGroupType>> for SGroups {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SActor {
     #[serde(rename = "user")]
@@ -751,23 +796,46 @@ pub enum SActor {
     Unknown(Value),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, strum::Display)]
+impl SActor {
+    #[must_use]
+    pub const fn is_user(&self) -> bool {
+        matches!(self, Self::User { .. })
+    }
+    #[must_use]
+    pub const fn is_group(&self) -> bool {
+        matches!(self, Self::Group { .. })
+    }
+    #[must_use]
+    pub const fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown(_))
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum DActor<'a> {
     #[serde(rename = "user")]
-    #[strum(to_string = "User {id}")]
     User {
         #[serde(borrow, alias = "name")]
         id: DUserType<'a>,
     },
     #[serde(rename = "group")]
-    #[strum(to_string = "Group {groups}")]
     Group {
         #[serde(borrow, alias = "names", alias = "name", alias = "id")]
         groups: DGroups<'a>,
     },
     #[serde(untagged)]
     Unknown(Value),
+}
+
+impl Display for DActor<'_> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::User { id } => write!(f, "User: {id}"),
+            Self::Group { groups } => write!(f, "Group: {groups}"),
+            Self::Unknown(unknown) => write!(f, "Unknown: {unknown}"),
+        }
+    }
 }
 
 #[bon]

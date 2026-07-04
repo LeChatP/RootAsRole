@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use bon::Builder;
-use strum::EnumIs;
 
 use crate::util::{
     HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2, HARDENED_ENUM_VALUE_3,
@@ -10,7 +9,7 @@ use crate::util::{
 
 use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, EnumIs, Default)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
 #[repr(u32)]
 // Matching user groups for the role
 pub enum ActorMatchMin {
@@ -20,12 +19,38 @@ pub enum ActorMatchMin {
     NoMatch = HARDENED_ENUM_VALUE_2,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, EnumIs, Default)]
+impl ActorMatchMin {
+    #[must_use]
+    pub const fn is_user_match(&self) -> bool {
+        matches!(self, Self::UserMatch)
+    }
+    #[must_use]
+    pub const fn is_group_match(&self) -> bool {
+        matches!(self, Self::GroupMatch(_))
+    }
+    #[must_use]
+    pub const fn is_no_match(&self) -> bool {
+        matches!(self, Self::NoMatch)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 #[repr(u32)]
 pub enum HardenedBool {
     #[default]
     False = HARDENED_ENUM_VALUE_0,
     True = HARDENED_ENUM_VALUE_1,
+}
+
+impl HardenedBool {
+    #[must_use]
+    pub const fn is_true(&self) -> bool {
+        matches!(self, Self::True)
+    }
+    #[must_use]
+    pub const fn is_false(&self) -> bool {
+        matches!(self, Self::False)
+    }
 }
 
 #[inline]

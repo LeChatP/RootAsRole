@@ -1,7 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf};
 
 use bon::Builder;
-use derivative::Derivative;
 use log::debug;
 use rar_common::{
     Cred,
@@ -16,7 +15,6 @@ use serde::{
     de::{DeserializeSeed, IgnoredAny, Visitor},
 };
 use serde_json::Value;
-use strum::EnumIs;
 
 use crate::{
     Cli,
@@ -44,8 +42,7 @@ pub struct DConfigFinder<'a> {
 }
 
 #[cfg_attr(test, derive(Builder))]
-#[derive(Debug, Derivative)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DRoleFinder<'a> {
     #[cfg_attr(test, builder(default))]
     pub user_min: ActorMatchMin,
@@ -58,7 +55,7 @@ pub struct DRoleFinder<'a> {
     pub extra_values: HashMap<Cow<'a, str>, Value>,
 }
 
-#[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum IdTask<'a> {
     Name(#[serde(borrow)] Cow<'a, str>),
@@ -74,8 +71,7 @@ impl Display for IdTask<'_> {
     }
 }
 
-#[derive(Debug, Derivative, Builder)]
-#[derivative(PartialEq, Eq)]
+#[derive(Debug, Builder, PartialEq, Eq)]
 pub struct DTaskFinder<'a> {
     pub id: IdTask<'a>,
     #[builder(default)]
@@ -98,7 +94,7 @@ pub struct DCommandList<'a> {
     pub del: Cow<'a, [DCommand<'a>]>,
 }
 
-#[derive(Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum DCommand<'a> {
     Simple(#[serde(borrow)] Cow<'a, str>),

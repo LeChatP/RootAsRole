@@ -1,16 +1,15 @@
 use bon::{Builder, bon};
 use capctl::{Cap, CapSet};
-use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, EnumString, FromRepr};
 
 use std::{
     cell::RefCell,
     error::Error,
-    fmt,
+    fmt::{self, Display},
     ops::{Index, Not},
     rc::{Rc, Weak},
+    str::FromStr,
 };
 
 use crate::{
@@ -47,9 +46,8 @@ where
     )
 }
 
-#[derive(Deserialize, Debug, Derivative, Default)]
+#[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
-#[derivative(PartialEq, Eq)]
 pub struct SRole {
     #[serde(alias = "n", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
@@ -67,9 +65,20 @@ pub struct SRole {
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub extra_fields: Map<String, Value>,
     #[serde(skip)]
-    #[derivative(PartialEq = "ignore")]
     pub config: Option<Weak<RefCell<SPolicy>>>,
 }
+
+impl PartialEq for SRole {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.actors == other.actors
+            && self.tasks == other.tasks
+            && self.options == other.options
+            && self.extra_fields == other.extra_fields
+    }
+}
+
+impl Eq for SRole {}
 
 fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
 where
@@ -85,7 +94,7 @@ where
     )
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),
@@ -116,8 +125,7 @@ pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
         && cmds.extra_fields.is_empty()
 }
 
-#[derive(Deserialize, Debug, Derivative, Default)]
-#[derivative(PartialEq, Eq)]
+#[derive(Deserialize, Debug, Default)]
 pub struct STask {
     #[serde(alias = "n", default, skip_serializing_if = "IdTask::is_number")]
     pub name: IdTask,
@@ -147,9 +155,21 @@ pub struct STask {
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     pub extra_fields: Map<String, Value>,
     #[serde(skip)]
-    #[derivative(PartialEq = "ignore")]
     pub role: Option<Weak<RefCell<SRole>>>,
 }
+
+impl PartialEq for STask {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.purpose == other.purpose
+            && self.cred == other.cred
+            && self.commands == other.commands
+            && self.options == other.options
+            && self.extra_fields == other.extra_fields
+    }
+}
+
+impl Eq for STask {}
 
 fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
 where
@@ -240,15 +260,54 @@ pub struct SSetuidSet {
     pub sub: Vec<SUserType>,
 }
 
-#[derive(PartialEq, Eq, Display, Debug, EnumIs, Clone, Copy, FromRepr, EnumString)]
-#[strum(serialize_all = "lowercase")]
-#[derive(Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 #[repr(u32)]
 pub enum SetBehavior {
     #[default]
     None = HARDENED_ENUM_VALUE_0,
     All = HARDENED_ENUM_VALUE_1,
 }
+
+impl SetBehavior {
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+    #[must_use]
+    pub const fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+    #[must_use]
+    pub const fn from_repr(value: u32) -> Option<Self> {
+        match value {
+            HARDENED_ENUM_VALUE_0 => Some(Self::None),
+            HARDENED_ENUM_VALUE_1 => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+impl Display for SetBehavior {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::All => write!(f, "all"),
+        }
+    }
+}
+
+impl FromStr for SetBehavior {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(Self::None),
+            "all" => Ok(Self::All),
+            _ => Err(format!("Invalid SetBehavior value: {s}")),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SGroupsEither {
@@ -323,7 +382,7 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum SCommand {
     Simple(String),

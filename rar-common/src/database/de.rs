@@ -19,7 +19,6 @@ use serde::{
     de::{self, MapAccess, SeqAccess, Visitor},
 };
 use serde_json::Map;
-use strum::Display;
 
 impl<'de> Deserialize<'de> for SetBehavior {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -109,7 +108,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
     {
         struct SCapabilitiesVisitor;
 
-        #[derive(Deserialize, Display)]
+        #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "kebab-case")]
         enum Field {
             #[serde(alias = "d", alias = "default_behavior")]
@@ -274,7 +273,7 @@ impl<'de> Deserialize<'de> for SSetgidSet {
     {
         struct SSetgidSetVisitor;
 
-        #[derive(Deserialize, Display)]
+        #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "kebab-case")]
         enum Field {
             #[serde(alias = "d", alias = "default_behavior")]
@@ -373,7 +372,7 @@ impl<'de> Deserialize<'de> for SCommands {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize, Display)]
+        #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "kebab-case")]
         enum Fields {
             #[serde(alias = "d", alias = "default_behavior")]

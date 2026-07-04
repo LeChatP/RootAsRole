@@ -5,7 +5,6 @@ use chrono::Duration;
 use indexmap::IndexSet;
 use log::{debug, warn};
 use pest::iterators::Pair;
-use strum::VariantNames;
 
 use crate::cli::data::{Convertion, RoleType, TaskType};
 use rar_common::{
@@ -83,7 +82,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 .as_str()
                 .to_lowercase()
                 .parse()
-                .inspect_err(|&e| {
+                .inspect_err(|e| {
                     warn!(
                         "Unknown type {}, types available : {}",
                         e,
@@ -103,7 +102,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .as_str()
                     .to_lowercase()
                     .parse()
-                    .inspect_err(|&e| {
+                    .inspect_err(|e| {
                         warn!(
                             "Unknown type {}, types available : {}",
                             e,
@@ -467,7 +466,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .as_str()
                     .to_lowercase()
                     .parse()
-                    .inspect_err(|&e| {
+                    .inspect_err(|e| {
                         warn!(
                             "Unknown type {}, types available : {}",
                             e,

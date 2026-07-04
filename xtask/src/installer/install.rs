@@ -10,7 +10,6 @@ use log::{debug, error, info, warn};
 use nix::NixPath;
 use nix::sys::stat::{Mode, fchmod};
 use nix::unistd::{Gid, Uid};
-use strum::EnumIs;
 
 use crate::installer::Profile;
 use crate::util::{
@@ -193,10 +192,22 @@ fn setfcap() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[derive(Debug, EnumIs)]
+#[derive(Debug)]
 pub enum Elevated {
     Yes,
     No,
+}
+
+impl Elevated {
+    #[must_use]
+    pub const fn is_yes(&self) -> bool {
+        matches!(self, Self::Yes)
+    }
+
+    #[must_use]
+    pub const fn is_no(&self) -> bool {
+        matches!(self, Self::No)
+    }
 }
 
 fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyhow::Error> {

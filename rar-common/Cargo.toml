@@ -11,7 +11,6 @@ keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
 
 [dependencies]
 libc = { version= "0.2", default-features = false, features = ["std"] }
-strum = { version = "0.26", default-features = false, features = ["derive", "std"] }
 semver = { version = "1.0", default-features = false, features = ["std", "serde"] }
 nix = { version = "0.30", features = ["user","process", "signal", "fs", "hostname"] }
 capctl = { version= "0.2", default-features = false, features = ["std", "serde"] }
@@ -21,7 +20,6 @@ serde_json = { version= "1.0", default-features = false, features = ["std"] }
 glob = { version = "0.3", default-features = false, optional = true }
 bitflags = { version = "2.9", default-features = false }
 indexmap = { version = "2.13", default-features = false, features = ["std"] }
-derivative = { version= "2.2", default-features = false }
 chrono = { version= "0.4", default-features = false }
 log = { version= "0.4", default-features = false }
 syslog = { version= "6.0", default-features = false }

@@ -19,7 +19,6 @@ use nix::sys::stat::Mode;
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, EnumIter, EnumString, FromRepr};
 
 use log::debug;
 
@@ -49,7 +48,7 @@ pub enum Level {
     Task,
 }
 
-#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display, EnumIs)]
+#[derive(Debug, Clone, Copy)]
 pub enum OptType {
     Path,
     Env,
@@ -62,10 +61,7 @@ pub enum OptType {
     Workdir,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u32)]
@@ -77,10 +73,26 @@ pub enum PathBehavior {
     Inherit = HARDENED_ENUM_VALUE_3,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+impl PathBehavior {
+    #[must_use]
+    pub const fn is_delete(&self) -> bool {
+        matches!(self, Self::Delete)
+    }
+    #[must_use]
+    pub const fn is_keep_safe(&self) -> bool {
+        matches!(self, Self::KeepSafe)
+    }
+    #[must_use]
+    pub const fn is_keep_unsafe(&self) -> bool {
+        matches!(self, Self::KeepUnsafe)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u8)]
@@ -133,10 +145,7 @@ pub struct SPathOptions {
     pub sub: Option<IndexSet<String>>,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u32)]
@@ -147,10 +156,36 @@ pub enum EnvBehavior {
     Inherit = HARDENED_ENUM_VALUE_2,
 }
 
-#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+impl EnvBehavior {
+    #[must_use]
+    pub const fn is_delete(&self) -> bool {
+        matches!(self, Self::Delete)
+    }
+    #[must_use]
+    pub const fn is_keep(&self) -> bool {
+        matches!(self, Self::Keep)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
+    }
+}
+
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum EnvKeyType {
     Wildcarded,
     Normal,
+}
+
+impl EnvKeyType {
+    #[must_use]
+    pub const fn is_wildcarded(&self) -> bool {
+        matches!(self, Self::Wildcarded)
+    }
+    #[must_use]
+    pub const fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal)
+    }
 }
 
 #[derive(Eq, Hash, PartialEq, Serialize, Debug, Clone, Builder)]
@@ -219,7 +254,7 @@ pub enum SWorkdirEither {
     Struct(SWorkdirSet),
 }
 
-#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Default)]
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, Clone, Copy, Default)]
 #[repr(u32)]
 pub enum WorkdirBehavior {
     #[serde(rename = "none")]
@@ -242,6 +277,19 @@ impl WorkdirBehavior {
             _ if eq_str(input, "inherit") => Self::Inherit,
             _ => panic!("fail to parse WorkdirBehavior"),
         }
+    }
+
+    #[must_use]
+    pub const fn is_allowlist(&self) -> bool {
+        matches!(self, Self::Allowlist)
+    }
+    #[must_use]
+    pub const fn is_blacklist(&self) -> bool {
+        matches!(self, Self::Blacklist)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
     }
 }
 
@@ -285,15 +333,44 @@ pub struct SWorkdirSet {
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
 }
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum SBounding {
     Strict = HARDENED_ENUM_VALUE_0,
     Ignore = HARDENED_ENUM_VALUE_2,
+}
+
+impl SBounding {
+    #[must_use]
+    pub const fn is_strict(&self) -> bool {
+        matches!(self, Self::Strict)
+    }
+    #[must_use]
+    pub const fn is_ignore(&self) -> bool {
+        matches!(self, Self::Ignore)
+    }
+}
+
+impl Display for SBounding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Strict => write!(f, "strict"),
+            Self::Ignore => write!(f, "ignore"),
+        }
+    }
+}
+
+impl FromStr for SBounding {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "strict" => Ok(Self::Strict),
+            "ignore" => Ok(Self::Ignore),
+            _ => Err(format!("Invalid SBounding value: {s}")),
+        }
+    }
 }
 
 impl Default for SBounding {
@@ -302,15 +379,35 @@ impl Default for SBounding {
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum SPrivileged {
     User = HARDENED_ENUM_VALUE_0,
     Privileged = HARDENED_ENUM_VALUE_1,
+}
+
+impl SPrivileged {
+    #[must_use]
+    pub const fn is_privileged(&self) -> bool {
+        matches!(self, Self::Privileged)
+    }
+    #[must_use]
+    pub const fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
+impl FromStr for SPrivileged {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "user" => Ok(Self::User),
+            "privileged" => Ok(Self::Privileged),
+            _ => Err(format!("Invalid SPrivileged value: {s}")),
+        }
+    }
 }
 
 impl Default for SPrivileged {
@@ -319,15 +416,35 @@ impl Default for SPrivileged {
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum SAuthentication {
     Perform = HARDENED_ENUM_VALUE_0,
     Skip = HARDENED_ENUM_VALUE_1,
+}
+
+impl SAuthentication {
+    #[must_use]
+    pub const fn is_perform(&self) -> bool {
+        matches!(self, Self::Perform)
+    }
+    #[must_use]
+    pub const fn is_skip(&self) -> bool {
+        matches!(self, Self::Skip)
+    }
+}
+
+impl FromStr for SAuthentication {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "perform" => Ok(Self::Perform),
+            "skip" => Ok(Self::Skip),
+            _ => Err(format!("Invalid SAuthentication value: {s}")),
+        }
+    }
 }
 
 impl Default for SAuthentication {
@@ -396,10 +513,7 @@ impl From<u16> for SUMask {
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 #[repr(u32)]
@@ -407,6 +521,29 @@ pub enum SInfo {
     #[default]
     Hide = HARDENED_ENUM_VALUE_0,
     Show = HARDENED_ENUM_VALUE_1,
+}
+
+impl SInfo {
+    #[must_use]
+    pub const fn is_hide(&self) -> bool {
+        matches!(self, Self::Hide)
+    }
+    #[must_use]
+    pub const fn is_show(&self) -> bool {
+        matches!(self, Self::Show)
+    }
+}
+
+impl FromStr for SInfo {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "hide" => Ok(Self::Hide),
+            "show" => Ok(Self::Show),
+            _ => Err(format!("Invalid SInfo value: {s}")),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
