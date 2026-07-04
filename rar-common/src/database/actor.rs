@@ -26,23 +26,6 @@ impl SGenericActorType {
             Self::Name(name) => Cow::Borrowed(name),
         }
     }
-    #[must_use]
-    pub const fn is_id(&self) -> bool {
-        matches!(self, Self::Id(_))
-    }
-    #[must_use]
-    pub const fn is_name(&self) -> bool {
-        matches!(self, Self::Name(_))
-    }
-}
-
-impl Display for SGenericActorType {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::Id(id) => write!(f, "{id}"),
-            Self::Name(name) => write!(f, "{name}"),
-        }
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -220,10 +203,6 @@ impl SGroups {
     pub const fn is_single(&self) -> bool {
         matches!(self, Self::Single(_))
     }
-    #[must_use]
-    pub const fn is_multiple(&self) -> bool {
-        matches!(self, Self::Multiple(_))
-    }
 }
 
 impl Display for SGroups {
@@ -248,23 +227,6 @@ impl Display for SGroups {
 pub enum DGroups<'a> {
     Single(#[serde(borrow)] DGroupType<'a>),
     Multiple(#[serde(borrow)] Cow<'a, [DGroupType<'a>]>),
-}
-
-impl Display for DGroups<'_> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::Single(group) => write!(f, "[{group}]"),
-            Self::Multiple(groups) => {
-                let mut result = String::new();
-                for group in groups.iter() {
-                    let _ = write!(result, "{group}, ");
-                }
-                result.pop(); // Remove last comma
-                result.pop(); // Remove last space
-                write!(f, "[{result}]")
-            }
-        }
-    }
 }
 
 impl SGroups {
@@ -826,16 +788,6 @@ pub enum DActor<'a> {
     },
     #[serde(untagged)]
     Unknown(Value),
-}
-
-impl Display for DActor<'_> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Self::User { id } => write!(f, "User: {id}"),
-            Self::Group { groups } => write!(f, "Group: {groups}"),
-            Self::Unknown(unknown) => write!(f, "Unknown: {unknown}"),
-        }
-    }
 }
 
 #[bon]

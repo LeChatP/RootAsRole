@@ -287,10 +287,6 @@ impl WorkdirBehavior {
     pub const fn is_blacklist(&self) -> bool {
         matches!(self, Self::Blacklist)
     }
-    #[must_use]
-    pub const fn is_inherit(&self) -> bool {
-        matches!(self, Self::Inherit)
-    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
@@ -352,15 +348,6 @@ impl SBounding {
     }
 }
 
-impl Display for SBounding {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Strict => write!(f, "strict"),
-            Self::Ignore => write!(f, "ignore"),
-        }
-    }
-}
-
 impl FromStr for SBounding {
     type Err = String;
 
@@ -392,10 +379,6 @@ impl SPrivileged {
     pub const fn is_privileged(&self) -> bool {
         matches!(self, Self::Privileged)
     }
-    #[must_use]
-    pub const fn is_user(&self) -> bool {
-        matches!(self, Self::User)
-    }
 }
 
 impl FromStr for SPrivileged {
@@ -425,10 +408,6 @@ pub enum SAuthentication {
 }
 
 impl SAuthentication {
-    #[must_use]
-    pub const fn is_perform(&self) -> bool {
-        matches!(self, Self::Perform)
-    }
     #[must_use]
     pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)
@@ -527,10 +506,6 @@ impl SInfo {
     #[must_use]
     pub const fn is_hide(&self) -> bool {
         matches!(self, Self::Hide)
-    }
-    #[must_use]
-    pub const fn is_show(&self) -> bool {
-        matches!(self, Self::Show)
     }
 }
 

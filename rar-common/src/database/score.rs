@@ -21,14 +21,6 @@ pub enum ActorMatchMin {
 
 impl ActorMatchMin {
     #[must_use]
-    pub const fn is_user_match(&self) -> bool {
-        matches!(self, Self::UserMatch)
-    }
-    #[must_use]
-    pub const fn is_group_match(&self) -> bool {
-        matches!(self, Self::GroupMatch(_))
-    }
-    #[must_use]
     pub const fn is_no_match(&self) -> bool {
         matches!(self, Self::NoMatch)
     }
@@ -43,10 +35,6 @@ pub enum HardenedBool {
 }
 
 impl HardenedBool {
-    #[must_use]
-    pub const fn is_true(&self) -> bool {
-        matches!(self, Self::True)
-    }
     #[must_use]
     pub const fn is_false(&self) -> bool {
         matches!(self, Self::False)
