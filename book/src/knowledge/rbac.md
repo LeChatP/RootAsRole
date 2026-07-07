@@ -1,17 +1,35 @@
-# What is Role-Based Access Control Model?
+# RBAC for RootAsRole
 
-Role-Based Access Control (RBAC) is a access control model that grants access to resources based on a user's role within an organization @@ferraioloProposedNISTStandard2001. This model makes it easier to manage user-centric access control policies. Indeed, this design allows to simply the distribution of user's responsibilities and better organize the access control policies in this context.
+RootAsRole uses a role-centric model because admin delegation is first an assignment problem: who can run which privileged action, under which credentials @@sandhuRoleBasedAccessControl1996 @@ferraioloProposedNISTStandard2001.
 
-# What about Attribute-based Access Control Model ?
+## Why RBAC is the right baseline here
 
-Attribute-Based Access Control (ABAC) is a more flexible model that grants access based on attributes of the user, the resource, the actions, and the environment by applying constraints on them. This design allows to implement generic access control policies. However, ABAC does not solve the problem of managing user-centric responsibilities access control policies. Indeed, ABAC allow to define generic policies, but not to manage them correctly given specific access control need. However, As ABAC can define a generic policy, it can be used to implement RBAC @@jinRABACRoleCentricAttributeBased2012, Bell-Lapadula (for confidentiality) @@balamuruganHoneyBeeBehaviour2015 or even Biba (for integrity) access control models @@kashmarAccessControlModels2020.
+In practice, RootAsRole policies are built around stable responsibilities (operators, backup admins, deployment roles). This is where RBAC is strong:
 
-So ABAC is allowing to reach multiple access control properties by implementing multiple specific access control models. However, not respecting precisely these models designs may not reach the expected security properties.
+- explicit user/group to role assignment
+- permission grouping by operational task
+- easier review and audit than per-user privilege rules
 
-# So why not use ABAC instead of RBAC for RootAsRole?
+This design choice is consistent with the RootAsRole research and implementation trajectory @@wazanRootAsRoleSecureAlternative2021 @@wazanRootAsRoleSecurityModule2022 @@billoirImplementingPrincipleLeast2023.
 
-RootAsRole wants to delegate administrative responsibilities to severals users with more respect on the principle of least privilege. This means that RootAsRole access control policy is more user-centric, and thus, RBAC is more adapted to this context.
+## Mapping RBAC concepts to RootAsRole objects
 
-# Is it possible to use ABAC with RootAsRole?
+- `role`: administrative responsibility unit
+- `actors`: users/groups allowed to activate the role
+- `task`: execution context within the role
+- `commands`: authorized command patterns
+- `cred`: Linux privilege materialization (`setuid`, `setgid`, capabilities)
+- `options`: execution constraints (environment, path handling, auth, timeout, bounding set policy)
 
-Today, it requires some development to integrate RootAsRole in an ABAC implementation. However, RootAsRole will never implement ABAC by itself, so RootAsRole would requires to implement RBAC (with RootAsRole information) in the ABAC solution.
+This mapping keeps policy readable while preserving least-privilege execution control @@billoirImplementingPrincipleLeast2024.
+
+## Practical SOTA direction for the project
+
+For this project, the next step is to improve how RBAC policies are maintained:
+
+1. reduce policy ambiguity (role/task overlap)
+2. enforce stricter separation constraints (SSD/DSD-ready design)
+3. improve role hierarchy usage to avoid policy duplication
+4. keep capability assignment minimal and reviewable
+
+This keeps policy governance aligned with RBAC foundations and Linux privilege engineering constraints @@sandhuRoleBasedAccessControl1996 @@ferraioloProposedNISTStandard2001 @@billoirImplementingPrincipleLeast2024.

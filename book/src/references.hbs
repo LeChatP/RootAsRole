@@ -6,7 +6,7 @@
 
 {{!-- citation --}}
 <summary class="citation">
-{{#if authors}}{{#each authors}}{{this}}{{#unless @last}}, {{/unless}}{{/each}} - {{/if}}{{#if title}}{{#if url}}<a href="{{url}}" target="_blank">{{/if}}{{title}}{{#if url}}</a>{{/if}} - {{/if}}{{#if pub_year}}{{pub_year}}.{{/if}}
+{{#if authors}}{{#each authors}}{{#if this.[0]}}{{this.[0]}}{{#if this.[1]}}, {{this.[1]}}{{/if}}{{else}}{{this}}{{/if}}{{#unless @last}}, {{/unless}}{{/each}} - {{/if}}{{#if title}}{{#if url}}<a href="{{url}}" target="_blank">{{/if}}{{title}}{{#if url}}</a>{{/if}} - {{/if}}{{#if pub_year}}{{pub_year}}.{{/if}}
 </summary>
 
 {{!-- summary/abstract --}}

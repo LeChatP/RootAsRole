@@ -10,7 +10,7 @@ use log::debug;
 
 use crate::{
     installer::{self, InstallDependenciesOptions, Profile, dependencies::install_dependencies},
-    util::{OsTarget, detect_priv_bin, get_os, output_checked, run_checked},
+    util::{OsTarget, PACKAGE_VERSION, detect_priv_bin, get_os, output_checked, run_checked},
 };
 
 use super::setup_maint_scripts;
@@ -61,7 +61,7 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
 
  -- Eddie Billoir <lechatp@outlook.fr>  {date}
 ",
-        version = env!("CARGO_PKG_VERSION"),
+        version = PACKAGE_VERSION,
         dist = "unstable",
         urgency = "low",
         changes =

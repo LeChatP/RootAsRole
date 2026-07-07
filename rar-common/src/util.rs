@@ -1,23 +1,29 @@
+use core::fmt;
 use std::{
+    fmt::Display,
     fs::{File, OpenOptions},
     io::{self, ErrorKind, Write},
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
-use capctl::{prctl, CapState};
 use capctl::{Cap, CapSet, ParseCapError};
+use capctl::{CapState, prctl};
 
 use chrono::Duration;
-use konst::{iter, option, result, string};
+use konst::{eq_str, iter, option, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
-use nix::fcntl::{Flock, FlockArg};
-use serde::Serialize;
+use nix::{
+    fcntl::{Flock, FlockArg},
+    unistd::{Gid, Group},
+};
+use serde::{Deserialize, Serialize};
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
-    TimestampType,
+    TimestampType, WorkdirBehavior,
 };
 
 #[cfg(feature = "finder")]
@@ -31,16 +37,30 @@ pub const RED: &str = "\x1B[31m";
 // Hardened enum values used for critical enums to mitigate attacks like Rowhammer.
 // See for example https://arxiv.org/pdf/2309.02545.pdf
 // The values are copied from https://github.com/sudo-project/sudo/commit/7873f8334c8d31031f8cfa83bd97ac6029309e4f#diff-b8ac7ab4c3c4a75aed0bb5f7c5fd38b9ea6c81b7557f775e46c6f8aa115e02cd
-pub const HARDENED_ENUM_VALUE_0: u32 = 0x052a2925; // 0101001010100010100100100101
-pub const HARDENED_ENUM_VALUE_1: u32 = 0x0ad5d6da; // 1010110101011101011011011010
-pub const HARDENED_ENUM_VALUE_2: u32 = 0x69d61fc8; // 1101001110101100001111111001000
-pub const HARDENED_ENUM_VALUE_3: u32 = 0x1629e037; // 0010110001010011110000000110111
-pub const HARDENED_ENUM_VALUE_4: u32 = 0x1fc8d3ac; // 11111110010001101001110101100
+pub const HARDENED_ENUM_VALUE_0: u32 = 0x052a_2925; // 0101001010100010100100100101
+pub const HARDENED_ENUM_VALUE_1: u32 = 0x0ad5_d6da; // 1010110101011101011011011010
+pub const HARDENED_ENUM_VALUE_2: u32 = 0x69d6_1fc8; // 1101001110101100001111111001000
+pub const HARDENED_ENUM_VALUE_3: u32 = 0x1629_e037; // 0010110001010011110000000110111
+pub const HARDENED_ENUM_VALUE_4: u32 = 0x1fc8_d3ac; // 11111110010001101001110101100
 
-pub const ENV_PATH_BEHAVIOR: PathBehavior = result::unwrap_or!(
-    PathBehavior::try_parse(env!("RAR_PATH_DEFAULT")),
-    PathBehavior::Delete
-);
+#[cfg(not(test))]
+pub(super) const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+#[cfg(test)]
+pub(super) const RAR_CFG_PATH: &str = "target/rootasrole.json";
+
+#[cfg(not(test))]
+pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+#[cfg(test)]
+pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
+
+#[cfg(debug_assertions)]
+pub(super) const RAR_CFG_IMMUTABLE: bool = false;
+#[cfg(not(debug_assertions))]
+pub(super) const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
+
+pub const RAR_CFG_TYPE: StorageMethod = StorageMethod::const_parse(env!("RAR_CFG_TYPE"));
+
+pub const ENV_PATH_BEHAVIOR: PathBehavior = PathBehavior::const_parse(env!("RAR_PATH_DEFAULT"));
 
 pub const ENV_PATH_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_PATH_ADD_LIST"), ":"),
@@ -53,10 +73,7 @@ pub const ENV_PATH_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
 );
 
 //=== ENV ===
-pub const ENV_DEFAULT_BEHAVIOR: EnvBehavior = result::unwrap_or!(
-    EnvBehavior::try_parse(env!("RAR_ENV_DEFAULT")),
-    EnvBehavior::Delete
-);
+pub const ENV_DEFAULT_BEHAVIOR: EnvBehavior = EnvBehavior::const_parse(env!("RAR_ENV_DEFAULT"));
 
 pub const ENV_KEEP_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
     string::split(env!("RAR_ENV_KEEP_LIST"), ","),
@@ -76,10 +93,12 @@ pub const ENV_DELETE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
 pub const ENV_SET_LIST_SLICE: &[(&str, &str)] = &iter::collect_const!((&str, &str) =>
     string::split(env!("RAR_ENV_SET_LIST"), "\n"),
         filter_map(|s| {
-            if let Some((key,value)) = string::split_once(s, '=') {
+            if string::trim_matches(s, ' ').is_empty() {
+                None
+            } else if let Some((key,value)) = string::split_once(s, '=') {
                 Some((str::trim_ascii(key),str::trim_ascii(value)))
             } else {
-                None
+                panic!("Invalid ENV_SET_LIST entry, must be in the form KEY=VALUE");
             }
         })
 );
@@ -89,24 +108,21 @@ pub const ENV_OVERRIDE_BEHAVIOR: bool = result::unwrap_or!(
     false
 );
 
-pub static ENV_KEEP_LIST: [&str; ENV_KEEP_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
+pub static ENV_KEEP_LIST: &[&str; ENV_KEEP_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_KEEP_LIST_SLICE));
 
-pub static ENV_CHECK_LIST: [&str; ENV_CHECK_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
+pub static ENV_CHECK_LIST: &[&str; ENV_CHECK_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_CHECK_LIST_SLICE));
 
-pub static ENV_DELETE_LIST: [&str; ENV_DELETE_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
+pub static ENV_DELETE_LIST: &[&str; ENV_DELETE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_DELETE_LIST_SLICE));
 
-pub static ENV_SET_LIST: [(&str, &str); ENV_SET_LIST_SLICE.len()] =
-    *result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
+pub static ENV_SET_LIST: &[(&str, &str); ENV_SET_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(ENV_SET_LIST_SLICE));
 
 //=== STimeout ===
 
-pub const TIMEOUT_TYPE: TimestampType = result::unwrap_or!(
-    TimestampType::try_parse(env!("RAR_TIMEOUT_TYPE")),
-    TimestampType::PPID
-);
+pub const TIMEOUT_TYPE: TimestampType = TimestampType::const_parse(env!("RAR_TIMEOUT_TYPE"));
 
 pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
     result::unwrap_or!(
@@ -115,6 +131,156 @@ pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
     ),
     Duration::seconds(5)
 );
+
+pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
+    assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));
+
+const fn assert_valid_workdir_behavior(e: WorkdirBehavior) -> WorkdirBehavior {
+    match e {
+        WorkdirBehavior::Inherit => panic!("Workdir behavior cannot be inherit"),
+        e => e,
+    }
+}
+
+pub const WORKDIR_FALLBACK: Option<&str> = option_env!("RAR_WORKDIR_FALLBACK");
+
+pub const WORKDIR_ADD_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_ADD_LIST"), ","),
+        map(str::trim_ascii),
+);
+
+pub const WORKDIR_REMOVE_LIST_SLICE: &[&str] = &iter::collect_const!(&str =>
+    string::split(env!("RAR_WORKDIR_REMOVE_LIST"), ","),
+        map(str::trim_ascii),
+);
+
+pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_ADD_LIST_SLICE));
+
+pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
+    result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
+
+pub const TIMEOUT_MAX_USAGE: u64 =
+    result::unwrap_or!(u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"), 10), 0);
+
+pub const BOUNDING: SBounding = SBounding::const_parse(env!("RAR_BOUNDING"));
+
+pub const AUTHENTICATION: SAuthentication =
+    SAuthentication::const_parse(env!("RAR_AUTHENTICATION"));
+
+pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
+
+pub const UMASK: SUMask = SUMask(result::unwrap_or!(
+    u16::from_str_radix(env!("RAR_UMASK"), 10),
+    0o022
+));
+
+pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[serde(rename_all = "lowercase")]
+#[repr(u8)]
+pub enum StorageMethod {
+    JSON,
+    CBOR,
+    //    SQLite,
+    //    PostgreSQL,
+    //    MySQL,
+}
+
+impl Default for StorageMethod {
+    fn default() -> Self {
+        RAR_CFG_TYPE
+    }
+}
+
+impl StorageMethod {
+    pub const VARIANTS: &'static [&str] = &["cbor", "json"];
+    /// # Panics
+    /// Panics if the string does not correspond to a valid storage method.
+    #[must_use]
+    pub const fn const_parse(s: &str) -> Self {
+        match s {
+            _ if eq_str(s, "cbor") | eq_str(s, "CBOR") => Self::CBOR,
+            _ if eq_str(s, "json") | eq_str(s, "JSON") => Self::JSON,
+            _ => panic!("fail to parse StorageMethod from string: invalid value"),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_cbor(&self) -> bool {
+        matches!(self, Self::CBOR)
+    }
+    #[must_use]
+    pub const fn is_json(&self) -> bool {
+        matches!(self, Self::JSON)
+    }
+}
+
+impl Display for StorageMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CBOR => write!(f, "cbor"),
+            Self::JSON => write!(f, "json"),
+        }
+    }
+}
+
+impl FromStr for StorageMethod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "cbor" => Ok(Self::CBOR),
+            "json" => Ok(Self::JSON),
+            _ => Err(format!("Invalid StorageMethod value: {s}")),
+        }
+    }
+}
+
+/// `Either` is a type that represents either type A ([`Left`]) or type B ([`Right`]).
+#[derive(Debug, Hash, Copy, Clone)]
+#[must_use]
+pub enum Either<L, R> {
+    /// Contains the Left value
+    Left(L),
+    /// Contains the Right value
+    Right(R),
+}
+impl<L, R> Either<L, R> {
+    pub const fn left(&self) -> Option<&L> {
+        match self {
+            Self::Left(l) => Some(l),
+            Self::Right(_) => None,
+        }
+    }
+    pub const fn right(&self) -> Option<&R> {
+        match self {
+            Self::Left(_) => None,
+            Self::Right(r) => Some(r),
+        }
+    }
+    pub fn map<T>(&self, left: impl Fn(&L) -> T, right: impl Fn(&R) -> T) -> T {
+        match self {
+            Self::Left(l) => left(l),
+            Self::Right(r) => right(r),
+        }
+    }
+}
+
+impl<L, R> From<Result<L, R>> for Either<L, R> {
+    fn from(value: Result<L, R>) -> Self {
+        match value {
+            Ok(l) => Self::Left(l),
+            Err(r) => Self::Right(r),
+        }
+    }
+}
+
+#[must_use]
+pub fn either_to_gid(either: &Either<Group, Gid>) -> Gid {
+    either.map(|l| l.gid, |r| *r)
+}
 
 #[derive(Debug)]
 struct DurationParseError;
@@ -128,30 +294,27 @@ const fn convert_string_to_duration(
     s: &str,
 ) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
     let mut parts = string::split(s, ':');
-    let hours = match parts.next() {
-        Some(h) => h,
-        None => return Err(DurationParseError),
+    let Some(hours) = parts.next() else {
+        return Err(DurationParseError);
     };
-    let minutes = match parts.next() {
-        Some(m) => m,
-        None => return Err(DurationParseError),
+    let Some(minutes) = parts.next() else {
+        return Err(DurationParseError);
     };
-    let seconds = match parts.next() {
-        Some(sec) => sec,
-        None => return Err(DurationParseError),
+    let Some(seconds) = parts.next() else {
+        return Err(DurationParseError);
     };
 
-    let hours: i64 = if let Ok(hours) = i64::from_str_radix(hours,10) {
+    let hours: i64 = if let Ok(hours) = i64::from_str_radix(hours, 10) {
         hours
     } else {
         return Err(DurationParseError);
     };
-    let minutes: i64 = if let Ok(minutes) = i64::from_str_radix(minutes,10) {
+    let minutes: i64 = if let Ok(minutes) = i64::from_str_radix(minutes, 10) {
         minutes
     } else {
         return Err(DurationParseError);
     };
-    let seconds: i64 = if let Ok(seconds) = i64::from_str_radix(seconds,10) {
+    let seconds: i64 = if let Ok(seconds) = i64::from_str_radix(seconds, 10) {
         seconds
     } else {
         return Err(DurationParseError);
@@ -160,34 +323,6 @@ const fn convert_string_to_duration(
         hours * 3600 + minutes * 60 + seconds,
     )))
 }
-
-pub const TIMEOUT_MAX_USAGE: u64 = result::unwrap_or!(
-    u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"),10),
-    0
-);
-
-pub const BOUNDING: SBounding = result::unwrap_or!(
-    SBounding::try_parse(env!("RAR_BOUNDING")),
-    SBounding::Strict
-);
-
-pub const AUTHENTICATION: SAuthentication = result::unwrap_or!(
-    SAuthentication::try_parse(env!("RAR_AUTHENTICATION")),
-    SAuthentication::Perform
-);
-
-pub const PRIVILEGED: SPrivileged = result::unwrap_or!(
-    SPrivileged::try_parse(env!("RAR_USER_CONSIDERED")),
-    SPrivileged::User
-);
-
-pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    u16::from_str_radix(env!("RAR_UMASK"),10),
-    0o022
-));
-
-pub const INFO: SInfo =
-    result::unwrap_or!(SInfo::try_parse(env!("RAR_EXEC_INFO_DISPLAY")), SInfo::Hide);
 
 #[macro_export]
 macro_rules! upweak {
@@ -217,8 +352,10 @@ macro_rules! rc_refcell {
     };
 }
 
-const FS_IMMUTABLE_FL: u32 = 0x00000010;
+const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
 
+/// # Errors
+/// Returns an error if the internal function fails, or if the file
 pub fn immutable_required_privileges<F, R>(file: &File, f: F) -> std::io::Result<R>
 where
     F: FnOnce() -> std::io::Result<R>,
@@ -249,6 +386,8 @@ pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
 
 /// Perform a writing operation on a writable opened file descriptor with the immutable flag set
 /// The function will temporarily remove the immutable flag, perform the operation and set it back
+/// # Errors
+/// Returns an error if the file cannot be unlocked, if the operation fails, or if the file cannot be locked again
 pub fn with_mutable_config<F, R>(file: &mut File, f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut File) -> io::Result<R>,
@@ -260,6 +399,8 @@ where
     res
 }
 
+/// # Errors
+/// Returns an error if the file cannot be locked
 pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
     immutable_required_privileges(file, || {
         if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
@@ -270,6 +411,8 @@ pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if the file cannot be unlocked
 pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
     let mut val = 0;
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
@@ -289,6 +432,8 @@ pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
     Ok(val)
 }
 
+/// # Errors
+/// Returns an error if the file cannot be checked for immutability, or if the file is not immutable and `return_err` is true
 pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     let mut val = 0;
     let fd = file.as_raw_fd();
@@ -307,7 +452,9 @@ pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     Ok(())
 }
 
-//parse string iterator to capset
+/// Parse string iterator to capset
+/// # Errors
+/// Returns an error if any of the strings cannot be parsed to a valid capability
 pub fn parse_capset_iter<'a, I>(iter: I) -> Result<CapSet, ParseCapError>
 where
     I: Iterator<Item = &'a str>,
@@ -326,7 +473,8 @@ where
 }
 
 /// Reference every capabilities that lead to almost a direct privilege escalation
-pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
+#[must_use]
+pub fn capabilities_are_exploitable(caps: CapSet) -> bool {
     caps.has(Cap::SYS_ADMIN)
         || caps.has(Cap::SYS_PTRACE)
         || caps.has(Cap::SYS_MODULE)
@@ -344,14 +492,18 @@ pub fn capabilities_are_exploitable(caps: &CapSet) -> bool {
         || caps.has(Cap::MKNOD)
 }
 
+#[must_use]
 pub fn optimized_serialize_capset(capset: &CapSet) -> u64 {
     // convert capset to u64
     let bits: u64 = capset.iter().fold(0, |acc, cap| acc | (1 << (cap as u64)));
     bits
 }
 
+/// # Errors
+/// Returns an error if any of the bits in the u64 do not correspond to a valid system capability
+/// Or if dropping any of the capabilities is not permitted by the current capability state
 pub fn definitive_drop(needed: &[Cap]) -> Result<(), capctl::Error> {
-    let capset = !CapSet::from_iter(needed.iter().cloned());
+    let capset = !needed.iter().copied().collect::<CapSet>();
     capctl::ambient::clear()?;
     let mut current = CapState::get_current()?;
     current.permitted -= capset;
@@ -384,44 +536,49 @@ pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec
         .iter()
         .filter_map(|dir| {
             let full_path = Path::new(dir).join(&exe_name);
-            debug!("Checking path: {:?}", full_path);
+            debug!("Checking path: {}", full_path.display());
             full_path.is_file().then_some(full_path)
         })
         .collect()
 }
 
 #[cfg(feature = "finder")]
-pub fn match_single_path(cmd_path: &PathBuf, role_path: &str) -> CmdMin {
-    if !role_path.ends_with(cmd_path.to_str().unwrap()) || !role_path.starts_with("/") {
-        // the files could not be the same
+#[must_use]
+pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
+    let Some(cmd_path_str) = cmd_path.to_str() else {
+        return CmdMin::default();
+    };
+    if !role_path.ends_with(cmd_path_str) || !role_path.starts_with('/') {
         return CmdMin::default();
     }
     let mut match_status = CmdMin::default();
-    debug!("Matching path {:?} with {:?}", cmd_path, role_path);
+    debug!("Matching path {} with {role_path:?}", cmd_path.display());
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
     } else if cfg!(feature = "glob") {
         use glob::Pattern;
-        if let Ok(pattern) = Pattern::new(role_path) {
-            if pattern.matches_path(cmd_path) {
-                use crate::database::score::CmdOrder;
-                match_status.union_order(CmdOrder::WildcardPath);
-            }
+        if let Ok(pattern) = Pattern::new(&format!("^{role_path}$"))
+            && pattern.matches_path(cmd_path)
+        {
+            use crate::database::score::CmdOrder;
+            match_status.union_order(CmdOrder::WildcardPath);
         }
     }
     if !match_status.matching() {
         debug!(
-            "No match for path ``{:?}`` for evaluated path : ``{:?}``",
-            cmd_path, role_path
+            "No match for path ``{}`` for evaluated path : ``{role_path:?}``",
+            cmd_path.display()
         );
     }
     match_status
 }
 
 #[cfg(debug_assertions)]
+/// # Errors
+/// Returns an error if the logger fails to initialize
 pub fn subsribe(_: &str) -> io::Result<()> {
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Trace)
         .format_module_path(true)
         .init();
     Ok(())
@@ -440,24 +597,37 @@ pub fn subsribe(tool: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if dropping the effective capabilities fails
 pub fn drop_effective() -> Result<(), capctl::Error> {
     stated_drop_effective(CapState::get_current()?)
 }
 
+/// # Errors
+/// Returns an error if dropping the effective capabilities fails
 pub fn stated_drop_effective(mut current: CapState) -> Result<(), capctl::Error> {
     current.effective.clear();
     current.set_current()
 }
 
+/// # Errors
+/// Returns an error if obtaining the current capability state fails
 pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     let mut current = CapState::get_current()?;
-    current.effective.add_all(cap.iter().cloned());
+    current.effective.add_all(cap.iter().copied());
     current
         .set_current()
-        .inspect_err(|e| debug!("initialize_capabilities error: {}", e))?;
+        .inspect_err(|e| debug!("initialize_capabilities error: {e}"))?;
     Ok(current)
 }
 
+/// Temporarily add capabilities to the effective set to perform an operation, then drop them again
+/// # Errors
+/// Returns an error if obtaining the current capability state fails,
+/// if adding the capabilities to the effective set fails,
+/// if setting the new capability state fails,
+/// if the operation fails,
+/// or if dropping the effective capabilities at the end
 pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> std::io::Result<R>
 where
     F: FnOnce() -> std::io::Result<R>,
@@ -468,25 +638,48 @@ where
     res
 }
 
+/// # Errors
+/// Returns an error if getting the capabilities state fails
 pub fn has_privileges(cap: &[Cap]) -> Result<bool, capctl::Error> {
     let current = CapState::get_current()?;
     Ok(cap.iter().all(|c| current.permitted.has(*c)))
 }
 
+/// # Errors
+/// Returns an error if setting ``no_new_privs`` fails
 pub fn activates_no_new_privs() -> Result<(), capctl::Error> {
     prctl::set_no_new_privs()
 }
 
-pub fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+/// # Errors
+/// Returns an error if the internal write operation fails
+pub fn write_config<T: Serialize>(
+    settings: &T,
+    file: &mut impl Write,
+    method: StorageMethod,
+) -> std::io::Result<()> {
+    match method {
+        StorageMethod::JSON => write_json_config(settings, file),
+        StorageMethod::CBOR => write_cbor_config(settings, file),
+    }
+}
+
+/// # Errors
+/// Returns an error if the internal write operation fails
+fn write_json_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
     serde_json::to_writer_pretty(file, &settings)?;
     Ok(())
 }
 
-pub fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
+/// # Errors
+/// Returns an error if the internal write operation fails
+fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::io::Result<()> {
     cbor4ii::serde::to_writer(file, &settings)
-        .map_err(|e| std::io::Error::other(format!("Failed to write cbor config: {}", e)))
+        .map_err(|e| std::io::Error::other(format!("Failed to write cbor config: {e}")))
 }
 
+/// # Errors
+/// Returns an error if the file cannot be created with the required privileges
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     std::fs::File::create(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -496,9 +689,12 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     })
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened with the required privileges,
+/// or if locking the file fails
 pub fn open_lock_with_privileges<P: AsRef<Path>>(
     p: P,
-    options: OpenOptions,
+    options: &OpenOptions,
     lock: FlockArg,
 ) -> std::io::Result<Flock<File>> {
     options
@@ -521,8 +717,10 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
         .and_then(|file| Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?))
 }
 
+/// # Errors
+/// Returns an error if the file cannot be opened with the required privileges
 pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
-    debug!("Opening file {:?}", p.as_ref());
+    debug!("Opening file {}", p.as_ref().display());
     std::fs::File::open(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
             return Err(e);
@@ -540,6 +738,9 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     })
 }
 
+/// # Errors
+/// Returns an error if the process does not have the required privileges to remove the file
+/// or if the internal remove operation fails
 pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::remove_file(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -553,6 +754,8 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     })
 }
 
+/// # Errors
+/// Returns an error if the process does not have the required privileges to create the directories
 pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::create_dir_all(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -579,7 +782,7 @@ mod test {
 
     impl<F: FnOnce()> Defer<F> {
         pub fn new(f: F) -> Self {
-            Defer(Some(f))
+            Self(Some(f))
         }
     }
 
@@ -619,52 +822,52 @@ mod test {
     fn test_capabilities_are_exploitable() {
         let mut capset = CapSet::empty();
         capset.add(Cap::SYS_ADMIN);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SYS_PTRACE);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SYS_MODULE);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::DAC_READ_SEARCH);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::DAC_OVERRIDE);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::FOWNER);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::CHOWN);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SETUID);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SETGID);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SETFCAP);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SYS_RAWIO);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::LINUX_IMMUTABLE);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SYS_CHROOT);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::SYS_BOOT);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::MKNOD);
-        assert!(capabilities_are_exploitable(&capset));
+        assert!(capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::WAKE_ALARM);
-        assert!(!capabilities_are_exploitable(&capset));
+        assert!(!capabilities_are_exploitable(capset));
     }
 
     #[test]
@@ -705,28 +908,33 @@ mod test {
                 .unwrap();
             }
         });
-        assert!(with_privileges(&[Cap::LINUX_IMMUTABLE], || {
-            let mut val = 0;
-            assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } == 0);
-            val |= FS_IMMUTABLE_FL;
-            immutable_required_privileges(&file, || {
-                if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
+        assert!(
+            with_privileges(&[Cap::LINUX_IMMUTABLE], || {
+                let mut val = 0;
+                assert!(
+                    unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } == 0
+                );
+                val |= FS_IMMUTABLE_FL;
+                immutable_required_privileges(&file, || {
+                    if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                })
             })
-        })
-        .and_then(|_| {
-            assert_eq!(
-                File::create(&path).unwrap_err().kind(),
-                ErrorKind::PermissionDenied
-            );
-            with_mutable_config(&mut file, |file| {
-                file.write_all(b"Test content")?;
-                Ok(())
+            .and_then(|()| {
+                assert_eq!(
+                    File::create(&path).unwrap_err().kind(),
+                    ErrorKind::PermissionDenied
+                );
+                with_mutable_config(&mut file, |file| {
+                    file.write_all(b"Test content")?;
+                    Ok(())
+                })
             })
-        })
-        .is_ok());
+            .is_ok()
+        );
     }
 
     #[test]

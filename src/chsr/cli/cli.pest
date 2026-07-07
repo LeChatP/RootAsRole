@@ -1,5 +1,5 @@
 cli  = { SOI ~ args ~ EOI }
-args = { help | convert_op | list | role | editor | options_operations }
+args = { help | convert_op | list | file | role | editor_op | options_operations }
 
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
@@ -20,6 +20,13 @@ all       = { "all" }
 
 name = @{ (!WHITESPACE ~ ANY)+ }
 
+// ========================
+// editor
+// ========================
+editor_op = { editor ~ editor_type? ~ editor_path? }
+editor_type = { "--type" ~ convert_type }
+editor_path = @{ name }
+
 
 // ========================
 // convert
@@ -31,6 +38,16 @@ to   = { convert_type ~ path }
 convert_type = { "json" | "cbor" }
 convert_reconfigure = { "--reconfigure" | "-r" }
 
+// ========================
+// file
+// ========================
+
+// chsr file /path/to/file role r1 create
+// chsr f /path/to/file show (all|role|options)
+
+file      = { ("file" | "f") ~ (list | file_ops) }
+file_ops = { policy_path ~ (list | role | options_operations) }
+policy_path = @{ name }
 
 // ========================
 // role
@@ -128,7 +145,7 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // options
 // ========================
 
-// chsr (r r1) (t t1) options show (all|path|env|root|bounding)
+// chsr (f /foo/bar) (r r1) (t t1) options show (all|path|env|root|bounding)
 // chsr o path set /usr/bin:/bin this regroups setpolicy delete and whitelist set
 // chsr o path setpolicy (delete-all|keep-all|inherit)
 // chsr o path (whitelist|blacklist) (add|del|set|purge) /usr/bin:/bin
@@ -145,7 +162,7 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o t unset --type --duration --max_usage
 
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
+opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
 opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout"  }
@@ -157,6 +174,11 @@ opt_path_setpolicy = _{ setpolicy ~ path_policy }
 path_policy        =  { "delete-all" | "keep-safe" | "keep-unsafe" | "inherit" }
 opt_path_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
 path               =  @{ name }
+
+opt_workdir = { ("workdir" | "w") ~ opt_workdir_args }
+opt_workdir_args = _{ (setpolicy ~ workdir_policy) | (opt_workdir_listing) | (set ~ path) }
+opt_workdir_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path) | purge) }
+workdir_policy = { "all" | "none" | "inherit" }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
 opt_env_args    = _{ opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }

@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 use crate::{
     installer::{self, InstallDependenciesOptions, Profile},

@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use bon::Builder;
 use capctl::CapSet;
 use chrono::Duration;
-use linked_hash_set::LinkedHashSet;
+use indexmap::IndexSet;
 
 use pest_derive::Parser;
 use rar_common::{
@@ -11,32 +11,32 @@ use rar_common::{
         actor::{SActor, SGroups, SUserType},
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
-            SPrivileged, SUMask, TimestampType,
+            SPrivileged, SUMask, TimestampType, WorkdirBehavior,
         },
         structs::{IdTask, SetBehavior},
     },
-    StorageMethod,
+    util::StorageMethod,
 };
 
 #[derive(Parser)]
 #[grammar = "chsr/cli/cli.pest"]
 pub struct Cli;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RoleType {
     All,
     Actors,
     Tasks,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TaskType {
     All,
     Commands,
     Credentials,
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
 pub enum InputAction {
     Help,
     List,
@@ -49,7 +49,7 @@ pub enum InputAction {
     None,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SetListType {
     White,
     Black,
@@ -57,7 +57,7 @@ pub enum SetListType {
     Set,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
 pub enum TimeoutOpt {
     Duration = 0,
@@ -65,15 +65,20 @@ pub enum TimeoutOpt {
     MaxUsage,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default)]
 pub struct Inputs {
     pub action: InputAction,
     pub editor: bool,
+    pub editor_path: Option<PathBuf>,
+    pub editor_type: Option<StorageMethod>,
     pub setlist_type: Option<SetListType>,
     pub timeout_arg: Option<[bool; 3]>,
     pub timeout_type: Option<TimestampType>,
     pub timeout_duration: Option<Duration>,
     pub timeout_max_usage: Option<u64>,
+    pub policy: bool,
+    pub policy_path: Option<String>,
     pub role_id: Option<String>,
     pub role_type: Option<RoleType>,
     pub actors: Option<Vec<SActor>>,
@@ -89,7 +94,7 @@ pub struct Inputs {
     pub options_type: Option<OptType>,
     pub options_path: Option<String>,
     pub options_path_policy: Option<PathBehavior>,
-    pub options_key_env: Option<LinkedHashSet<EnvKey>>,
+    pub options_key_env: Option<IndexSet<EnvKey>>,
     pub options_env_values: Option<HashMap<String, String>>,
     pub options_env_policy: Option<EnvBehavior>,
     pub options_root: Option<SPrivileged>,
@@ -97,6 +102,7 @@ pub struct Inputs {
     pub options_auth: Option<SAuthentication>,
     pub options_execinfo: Option<SInfo>,
     pub options_umask: Option<SUMask>,
+    pub options_workdir_policy: Option<WorkdirBehavior>,
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
 }

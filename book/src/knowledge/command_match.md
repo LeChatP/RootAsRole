@@ -1,20 +1,22 @@
 # RootAsRole Command matching
 
-A command in a RootAsRole policy is splitted in two parts : the command path and the command arguments. 
+A command entry in RootAsRole has two parts: command path and command arguments.
 
-The command path is the absolute path of the executable to run. It can be exact (like `/usr/bin/ls`), or wildcarded (like `/usr/bin/*` or even `**` for every files, obviously dangerous).
-The command arguments can be either :
-* a regular expression that must start with `^` and end with `$` to match the whole arguments string (like `^-l( -a)?$` to match `-l` or `-l -a` but not `-a -l`),
-* a simple space-separated list of arguments, that is matching exactly
+The command path is the executable path. It can be exact (for example `/usr/bin/ls`) or wildcarded (for example `/usr/bin/*`). A complete wildcard (`**`) is possible but usually too permissive for production.
 
-Note that we differentiate between a command with `^.*$` and one with `^reg.*ex$` : the first one is a full regex command, while the second one is a regex command with fixed arguments. The first one is less precise than the second one. This enter to the conflict resolution algorithm explained in the next section.
+Arguments can be:
+
+* a regular expression that starts with `^` and ends with `$` so the full argument string is matched (for example `^-l( -a)?$` matches `-l` or `-l -a`, but not `-a -l`),
+* an exact space-separated argument list.
+
+RootAsRole distinguishes `^.*$` from a constrained regex such as `^reg.*ex$`: the first means “any arguments”, the second is more specific. That specificity matters during conflict resolution.
 
 ## Role Conflict resolution
 
-As you may know with this RBAC model, it is possible for multiple roles to reference the same command for the same users. Since we do not ask by default the role to use, our tool applies an smart policy to choose a role using user, group, command entry and least privilege criteria. We apply a partial order comparison algorithm @@abedinDetectionResolutionAnomalies2006 to decide which role should be chosen :
+With RBAC, multiple roles can match the same command for the same actor. Because role selection is not always explicit, RootAsRole applies a deterministic least-privilege policy and a partial-order comparison @@abedinDetectionResolutionAnomalies2006 to select a candidate:
 
-* Find all the roles that match the user id assignment or the group id, and the command input
-* Within the matching roles, select the one that is the most precise and least privileged :
+* Find all roles matching user/group assignment and command input.
+* Within matching roles, select the most precise and least privileged candidate:
    1. exact command is more precise than command with regex argument
    1. command with regex argument is more precise than a wildcarded command path
    1. wildcarded command path is more precise than wildcarded command path and regex args
@@ -37,4 +39,9 @@ As you may know with this RBAC model, it is possible for multiple roles to refer
    1. user assignment is more precise than the combination of group assignment
    1. the combination of group assignment is more precise than single group assignment
 
-After these step, if two roles are conflicting, these roles are considered equal. In this case if execution settings are totally equal, no matter which role is chosen, it execute the asked command. If execution settings are different, there is a conflict, so configurator is being warned that roles could be in conflict and these could not be reached without specifing precisely the role to choose (with `--role` or/and `--task` option). In such cases, we highly recommend to review the design of the configured access control.
+After these steps, if two candidates are still equal:
+
+- if execution settings are identical, execution can proceed,
+- if execution settings differ, RootAsRole reports a conflict and requires explicit selection (`--role` and/or `--task`).
+
+When that happens, it is usually a policy design smell and worth refactoring.

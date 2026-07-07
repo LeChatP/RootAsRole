@@ -1,10 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    path::Path,
-    process::ExitStatus,
-    sync::OnceLock,
-};
+use std::{borrow::Cow, collections::HashMap, path::Path, process::ExitStatus, sync::OnceLock};
 
 use anyhow::Context;
 use capctl::CapState;
@@ -75,10 +69,7 @@ fn os_from_key(key: &str) -> Option<OsTarget> {
     }
 }
 
-fn os_from_identifier(
-    manifest: &DependenciesManifest<'_>,
-    identifier: &str,
-) -> Option<OsTarget> {
+fn os_from_identifier(manifest: &DependenciesManifest<'_>, identifier: &str) -> Option<OsTarget> {
     let identifier = identifier.trim().to_ascii_lowercase();
     if let Some(target) = os_from_key(&identifier)
         && manifest.targets.contains_key(identifier.as_str())
@@ -133,7 +124,9 @@ fn compose_command(
     base: &[Cow<'_, str>],
 ) -> Result<Vec<String>, anyhow::Error> {
     if base.is_empty() {
-        return Err(anyhow::anyhow!("Invalid package-manager command in deps.json"));
+        return Err(anyhow::anyhow!(
+            "Invalid package-manager command in deps.json"
+        ));
     }
 
     let mut command = Vec::new();
@@ -156,7 +149,6 @@ fn compose_command(
                 return Ok(command);
             }
             command.push(priv_bin.to_string_lossy().into_owned());
-            
         } else {
             return Err(anyhow::anyhow!("Privileged binary is required"));
         }
@@ -180,7 +172,10 @@ fn update_package_manager(os: &OsTarget, priv_bin: Option<&Path>) -> Result<(), 
     let manifest = dependencies_manifest()?;
     let target = resolve_target(manifest, os)?;
     let command = compose_command(priv_bin, target.package_manager.refresh.as_slice())?;
-    log::info!("Updating package manager with command: {}", command.join(" "));
+    log::info!(
+        "Updating package manager with command: {}",
+        command.join(" ")
+    );
     run_checked(
         std::process::Command::new(&command[0]).args(&command[1..]),
         "update package manager",
@@ -204,7 +199,8 @@ fn get_dependencies<'a>(
 }
 
 fn is_priv_bin_necessary() -> Result<bool, anyhow::Error> {
-    if geteuid().is_root() { // as long root own files/folders, it should not need capabilities.
+    if geteuid().is_root() {
+        // as long root own files/folders, it should not need capabilities.
         return Ok(false);
     }
     let mut state = CapState::get_current()?;

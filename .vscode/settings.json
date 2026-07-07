@@ -1,16 +1,23 @@
 {
     "rust-analyzer.linkedProjects": [
-        //"sudoers-reader/Cargo.toml",
         "Cargo.toml",
-        "rar-common/Cargo.toml",
-        //"./capable/Cargo.toml"
-    ],
-    "c-cpp-flylint.clang.includePaths": [
-        "${workspaceFolder}/src"
+        "rar-common/Cargo.toml"
     ],
     "terminal.integrated.env.linux": {
         "PROFILE" : "debug",
         "RUST_BACKTRACE" : "1",
     },
-    "rust-analyzer.checkOnSave": true
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.cargo.features": "all",
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.extraArgs": [
+        "--",
+        "-W", "clippy::pedantic",
+        "-W", "clippy::nursery",
+        "-A", "clippy::similar_names",
+        "-A", "clippy::should_implement_trait",
+        "-D", "warnings"
+    ],
+    "rust-analyzer.diagnostics.experimental.enable": true
+
 }

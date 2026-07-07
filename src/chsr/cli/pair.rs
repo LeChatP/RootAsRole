@@ -1,23 +1,22 @@
 use std::{collections::HashMap, error::Error, str::FromStr};
 
-use capctl::{Cap, CapSet};
+use capctl::Cap;
 use chrono::Duration;
-use linked_hash_set::LinkedHashSet;
+use indexmap::IndexSet;
 use log::{debug, warn};
 use pest::iterators::Pair;
-use strum::VariantNames;
 
-use crate::cli::data::{RoleType, TaskType};
+use crate::cli::data::{Convertion, RoleType, TaskType};
 use rar_common::{
     database::{
         actor::{SActor, SGroupType},
-        options::{EnvBehavior, OptType, PathBehavior, TimestampType},
+        options::{EnvBehavior, OptType, PathBehavior, TimestampType, WorkdirBehavior},
         structs::{IdTask, SetBehavior},
     },
-    StorageMethod,
+    util::StorageMethod,
 };
 
-use super::data::*;
+use super::data::{InputAction, Inputs, Rule, SetListType, TimeoutOpt};
 
 type MatchingFunction = dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>;
 
@@ -37,6 +36,7 @@ pub fn recurse_pair(pair: Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn
     recurse_pair_with_action(pair, inputs, &match_pair)
 }
 
+#[allow(clippy::too_many_lines)]
 fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Error>> {
     match pair.as_rule() {
         Rule::help => {
@@ -74,27 +74,26 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::to => {
             let mut inner = pair.clone().into_inner();
-            let temp_convertion = Default::default();
+            let temp_convertion = Convertion::default();
             let convertion = inputs.convertion.get_or_insert(temp_convertion);
-            println!("to: {}", pair.as_str());
             convertion.to_type = inner
                 .next()
-                .unwrap()
+                .ok_or("No type specified for convertion")?
                 .as_str()
                 .to_lowercase()
                 .parse()
-                .inspect_err(|&e| {
+                .inspect_err(|e| {
                     warn!(
                         "Unknown type {}, types available : {}",
                         e,
                         StorageMethod::VARIANTS.join(", ")
                     );
                 })?;
-            convertion.to = inner.next().expect("to_value not found").as_str().into();
+            convertion.to = inner.next().ok_or("to_value not found")?.as_str().into();
         }
         Rule::from => {
             let mut inner = pair.clone().into_inner();
-            let temp_convertion = Default::default();
+            let temp_convertion = Convertion::default();
             let convertion = inputs.convertion.get_or_insert(temp_convertion);
             convertion.from_type = Some(
                 inner
@@ -103,7 +102,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .as_str()
                     .to_lowercase()
                     .parse()
-                    .inspect_err(|&e| {
+                    .inspect_err(|e| {
                         warn!(
                             "Unknown type {}, types available : {}",
                             e,
@@ -163,12 +162,21 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 unreachable!("Unknown env policy: {}", pair.as_str())
             }
         }
+        Rule::workdir_policy => {
+            inputs.action = InputAction::Set;
+            inputs.options_workdir_policy = Some(WorkdirBehavior::const_parse(pair.as_str()));
+        }
         // === timeout ===
         Rule::time => {
             let mut reversed = pair.as_str().split(':').rev();
-            let mut duration: Duration =
-                Duration::try_seconds(reversed.next().unwrap().parse::<i64>().unwrap_or(0))
-                    .unwrap_or_default();
+            let mut duration: Duration = Duration::try_seconds(
+                reversed
+                    .next()
+                    .ok_or("No seconds in time")?
+                    .parse::<i64>()
+                    .unwrap_or(0),
+            )
+            .unwrap_or_default();
             if let Some(mins) = reversed.next() {
                 duration = duration
                     .checked_add(
@@ -214,7 +222,14 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.timeout_arg.replace(timeout_arg);
         }
         Rule::opt_timeout_max_usage => {
-            inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>().unwrap());
+            inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>()?);
+        }
+        // === file ===
+        Rule::file => {
+            inputs.policy = true;
+        }
+        Rule::policy_path => {
+            inputs.policy_path = Some(pair.as_str().to_string());
         }
         // === roles ===
         Rule::role_id => {
@@ -233,47 +248,37 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         // === actors ===
         Rule::user => {
-            if inputs.actors.is_none() {
-                inputs.actors = Some(Vec::new());
-            }
             for pair in pair.clone().into_inner() {
                 debug!("user {:?}", pair.as_str());
                 inputs
                     .actors
-                    .as_mut()
-                    .unwrap()
+                    .get_or_insert_default()
                     .push(SActor::user(pair.as_str()).build());
             }
         }
+
         Rule::group => {
-            if inputs.actors.is_none() {
-                inputs.actors = Some(Vec::new());
-            }
-            let mut vec: Vec<String> = Vec::new();
-            fn inner_recurse(pair: Pair<Rule>, vec: &mut Vec<String>) {
+            fn inner_recurse(pair: &Pair<Rule>, vec: &mut Vec<String>) {
                 for pair in pair.clone().into_inner() {
                     if pair.as_rule() == Rule::actor_name {
                         vec.push(pair.as_str().into());
                     }
-                    inner_recurse(pair, vec);
+                    inner_recurse(&pair, vec);
                 }
             }
+            let mut vec: Vec<String> = Vec::new();
             for pair in pair.clone().into_inner() {
-                inner_recurse(pair.clone(), &mut vec);
+                inner_recurse(&pair, &mut vec);
             }
             if vec.is_empty() {
                 warn!("No group specified");
             } else if vec.len() == 1 {
-                if inputs.actors.is_none() {
-                    inputs.actors = Some(Vec::new());
-                }
                 inputs
                     .actors
-                    .as_mut()
-                    .unwrap()
+                    .get_or_insert_default()
                     .push(SActor::group(vec[0].as_str()).build());
             } else {
-                inputs.actors.as_mut().unwrap().push(
+                inputs.actors.get_or_insert_default().push(
                     SActor::group(
                         vec.iter()
                             .map(|s| SGroupType::from(s.as_str()))
@@ -305,14 +310,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         // === credentials ===
         Rule::capability => {
-            if inputs.cred_caps.is_none() {
-                let caps = CapSet::empty();
-                inputs.cred_caps = Some(caps);
-            }
             if let Ok(cap) = Cap::from_str(pair.as_str()) {
-                inputs.cred_caps.as_mut().unwrap().add(cap);
+                inputs.cred_caps.get_or_insert_default().add(cap);
             } else {
-                warn!("Unknown capability: {}", pair.as_str())
+                warn!("Unknown capability: {}", pair.as_str());
             }
         }
         Rule::cred_u => {
@@ -345,22 +346,22 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.options_type = Some(OptType::Env);
         }
         Rule::opt_env_listing => {
-            inputs.options_key_env = Some(LinkedHashSet::new());
+            inputs.options_key_env = Some(IndexSet::new());
         }
         Rule::opt_env_setlisting => {
             inputs.setlist_type = Some(SetListType::Set);
             inputs.options_env_values = Some(HashMap::new());
-            inputs.options_key_env = Some(LinkedHashSet::new());
+            inputs.options_key_env = Some(IndexSet::new());
         }
         Rule::opt_env_keep => {
             inputs.action = InputAction::Set;
             inputs.options_env_policy = Some(EnvBehavior::Delete);
-            inputs.options_key_env = Some(LinkedHashSet::new());
+            inputs.options_key_env = Some(IndexSet::new());
         }
         Rule::opt_env_delete => {
             inputs.action = InputAction::Set;
             inputs.options_env_policy = Some(EnvBehavior::Keep);
-            inputs.options_key_env = Some(LinkedHashSet::new());
+            inputs.options_key_env = Some(IndexSet::new());
         }
         Rule::opt_env_set => {
             inputs.action = InputAction::Set;
@@ -370,6 +371,9 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
 
         Rule::opt_path => {
             inputs.options_type = Some(OptType::Path);
+        }
+        Rule::opt_workdir => {
+            inputs.options_type = Some(OptType::Workdir);
         }
         Rule::opt_show_arg => {
             if pair.as_str() == "all" {
@@ -400,22 +404,26 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::env_key_value => {
             if let Some(options_env_values) = inputs.options_env_values.as_mut() {
                 let mut inner = pair.clone().into_inner();
-                let key = inner.next().unwrap().as_str().to_string();
-                let value = inner
+                let key = inner
                     .next()
-                    .unwrap()
-                    .into_inner()
-                    .next()
-                    .unwrap()
+                    .expect("env_key_value parsing must have a key, implementation error")
                     .as_str()
                     .to_string();
-                debug!("env_key_value: {}={}", key, value);
+                let value = inner
+                    .next()
+                    .expect("env_key_value parsing must have a value, implementation error")
+                    .into_inner()
+                    .next()
+                    .expect("env_key_value parsing must have a value, implementation error")
+                    .as_str()
+                    .to_string();
+                debug!("env_key_value: {key}={value}");
                 options_env_values.insert(key, value);
             }
         }
         Rule::env_key => {
             if let Some(options_env) = inputs.options_key_env.as_mut() {
-                options_env.insert_if_absent(pair.as_str().into());
+                options_env.insert(pair.as_str().into());
             }
         }
         Rule::opt_root_args => {
@@ -449,6 +457,27 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             debug!("Editor mode enabled");
             inputs.editor = true;
         }
+        Rule::editor_type => {
+            let mut inner = pair.clone().into_inner();
+            inputs.editor_type = Some(
+                inner
+                    .next()
+                    .expect("from_type not found")
+                    .as_str()
+                    .to_lowercase()
+                    .parse()
+                    .inspect_err(|e| {
+                        warn!(
+                            "Unknown type {}, types available : {}",
+                            e,
+                            StorageMethod::VARIANTS.join(", ")
+                        );
+                    })?,
+            );
+        }
+        Rule::editor_path => {
+            inputs.editor_path = Some(pair.as_str().into());
+        }
         _ => {
             debug!("Unmatched rule: {:?}", pair.as_rule());
         }
@@ -458,15 +487,14 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
 
 #[cfg(test)]
 mod test {
-    use pest::Parser;
-
     use crate::{
         cli::{
-            data::RoleType,
-            pair::{recurse_pair, Cli, InputAction, Rule},
+            data::{Cli, RoleType},
+            pair::{InputAction, Rule, recurse_pair},
         },
         util::underline,
     };
+    use pest::Parser;
 
     use rar_common::{
         database::actor::SActor,
@@ -476,7 +504,7 @@ mod test {
     use super::Inputs;
 
     fn make_args(args: &str) -> String {
-        shell_words::join(shell_words::split(args).unwrap())
+        shell_words::join(shell_words::split(args).expect("Failed to split args"))
     }
 
     fn get_inputs(args: &str) -> Inputs {

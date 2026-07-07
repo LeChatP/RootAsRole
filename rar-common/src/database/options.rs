@@ -1,3 +1,4 @@
+use core::panic;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::num::ParseIntError;
@@ -5,18 +6,19 @@ use std::result::Result;
 use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
-use bon::{bon, Builder};
+use bon::{Builder, bon};
 use chrono::Duration;
 
+use indexmap::IndexSet;
 use konst::eq_str;
-use linked_hash_set::LinkedHashSet;
 
+#[cfg(feature = "pcre2")]
+use log::warn;
 use nix::sys::stat::Mode;
 #[cfg(feature = "pcre2")]
 use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, EnumIter, EnumString, FromRepr};
 
 use log::debug;
 
@@ -28,11 +30,11 @@ use crate::util::{
     HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK,
 };
 
-use super::{deserialize_duration, is_default, serialize_duration, FilterMatcher};
+use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
-    structs::{SConfig, SRole, STask},
+    structs::{SPolicy, SRole, STask},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -46,7 +48,7 @@ pub enum Level {
     Task,
 }
 
-#[derive(Debug, Clone, Copy, FromRepr, EnumIter, Display)]
+#[derive(Debug, Clone, Copy)]
 pub enum OptType {
     Path,
     Env,
@@ -56,12 +58,10 @@ pub enum OptType {
     Authentication,
     ExecInfo,
     UMask,
+    Workdir,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u32)]
@@ -73,10 +73,26 @@ pub enum PathBehavior {
     Inherit = HARDENED_ENUM_VALUE_3,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone, Copy, Display, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+impl PathBehavior {
+    #[must_use]
+    pub const fn is_delete(&self) -> bool {
+        matches!(self, Self::Delete)
+    }
+    #[must_use]
+    pub const fn is_keep_safe(&self) -> bool {
+        matches!(self, Self::KeepSafe)
+    }
+    #[must_use]
+    pub const fn is_keep_unsafe(&self) -> bool {
+        matches!(self, Self::KeepUnsafe)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u8)]
@@ -102,7 +118,7 @@ pub struct STimeout {
     #[serde(default)]
     #[serde(flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
@@ -117,7 +133,7 @@ pub struct SPathOptions {
         serialize_with = "lhs_serialize"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
-    pub add: Option<LinkedHashSet<String>>,
+    pub add: Option<IndexSet<String>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -126,17 +142,10 @@ pub struct SPathOptions {
         alias = "del"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
-    pub sub: Option<LinkedHashSet<String>>,
+    pub sub: Option<IndexSet<String>>,
 }
 
-// ...existing code...
-impl SPathOptions {}
-// ...existing code...
-
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 #[repr(u32)]
@@ -147,10 +156,36 @@ pub enum EnvBehavior {
     Inherit = HARDENED_ENUM_VALUE_2,
 }
 
-#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+impl EnvBehavior {
+    #[must_use]
+    pub const fn is_delete(&self) -> bool {
+        matches!(self, Self::Delete)
+    }
+    #[must_use]
+    pub const fn is_keep(&self) -> bool {
+        matches!(self, Self::Keep)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
+    }
+}
+
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum EnvKeyType {
     Wildcarded,
     Normal,
+}
+
+impl EnvKeyType {
+    #[must_use]
+    pub const fn is_wildcarded(&self) -> bool {
+        matches!(self, Self::Wildcarded)
+    }
+    #[must_use]
+    pub const fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal)
+    }
 }
 
 #[derive(Eq, Hash, PartialEq, Serialize, Debug, Clone, Builder)]
@@ -167,6 +202,7 @@ impl std::fmt::Display for EnvKey {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SEnvOptions {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
@@ -187,38 +223,141 @@ pub struct SEnvOptions {
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub keep: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub keep: Option<IndexSet<EnvKey>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub check: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub check: Option<IndexSet<EnvKey>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "lhs_deserialize_envkey",
         serialize_with = "lhs_serialize_envkey"
     )]
-    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = LinkedHashSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
-    pub delete: Option<LinkedHashSet<EnvKey>>,
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
+    pub delete: Option<IndexSet<EnvKey>>,
     #[serde(default, flatten)]
     #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[serde(untagged)]
+pub enum SWorkdirEither {
+    /// This is the equivalent of deny all and fallback to the specified path.
+    Path(String),
+    Struct(SWorkdirSet),
+}
+
+#[derive(Serialize, Hash, Deserialize, PartialEq, Eq, Debug, Clone, Copy, Default)]
+#[repr(u32)]
+pub enum WorkdirBehavior {
+    #[serde(rename = "none")]
+    Allowlist = HARDENED_ENUM_VALUE_0, // Deny all except for the listed ones in "add" minus "sub" ofc
+    #[serde(rename = "all")]
+    Blacklist = HARDENED_ENUM_VALUE_1, // Allow all except for the listed ones in "sub"
+    #[default]
+    #[serde(rename = "inherit")]
+    Inherit = HARDENED_ENUM_VALUE_2, // Inherit from parent levels, which can be combined with the above two behaviors.
+}
+
+impl WorkdirBehavior {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
+        match input {
+            _ if eq_str(input, "all") => Self::Blacklist,
+            _ if eq_str(input, "none") => Self::Allowlist,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse WorkdirBehavior"),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_allowlist(&self) -> bool {
+        matches!(self, Self::Allowlist)
+    }
+    #[must_use]
+    pub const fn is_blacklist(&self) -> bool {
+        matches!(self, Self::Blacklist)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct SWorkdirSet {
+    /// The default behavior for workdir handling. This determines how the "add" and "sub" lists are interpreted.
+    /// - If set to `Allowlist`, only the paths in the "add" list (minus those in the "sub" list) will be allowed as workdirs.
+    /// - If set to `Blacklist`, all paths will be allowed as workdirs except those in the "sub" list.
+    /// - If set to `Inherit`, the behavior will be inherited from parent levels, which can be combined with the above two behaviors.
+    ///
+    /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
+    /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
+    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[builder(start_fn)]
+    pub default_behavior: WorkdirBehavior,
+
+    /// The "fallback" field specifies a fallback directory to use as the working directory.
+    /// This will override the current user working directory.
+    /// For example:
+    /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`,
+    /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
+    /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub add: Option<IndexSet<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lhs_deserialize",
+        serialize_with = "lhs_serialize",
+        alias = "del"
+    )]
+    #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
+    pub sub: Option<IndexSet<String>>,
+}
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[repr(u32)]
 pub enum SBounding {
     Strict = HARDENED_ENUM_VALUE_0,
     Ignore = HARDENED_ENUM_VALUE_2,
+}
+
+impl SBounding {
+    #[must_use]
+    pub const fn is_strict(&self) -> bool {
+        matches!(self, Self::Strict)
+    }
+    #[must_use]
+    pub const fn is_ignore(&self) -> bool {
+        matches!(self, Self::Ignore)
+    }
+}
+
+impl FromStr for SBounding {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "strict" => Ok(Self::Strict),
+            "ignore" => Ok(Self::Ignore),
+            _ => Err(format!("Invalid SBounding value: {s}")),
+        }
+    }
 }
 
 impl Default for SBounding {
@@ -227,15 +366,35 @@ impl Default for SBounding {
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum SPrivileged {
     User = HARDENED_ENUM_VALUE_0,
     Privileged = HARDENED_ENUM_VALUE_1,
+}
+
+impl SPrivileged {
+    #[must_use]
+    pub const fn is_privileged(&self) -> bool {
+        matches!(self, Self::Privileged)
+    }
+    #[must_use]
+    pub const fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
+impl FromStr for SPrivileged {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "user" => Ok(Self::User),
+            "privileged" => Ok(Self::Privileged),
+            _ => Err(format!("Invalid SPrivileged value: {s}")),
+        }
+    }
 }
 
 impl Default for SPrivileged {
@@ -244,15 +403,31 @@ impl Default for SPrivileged {
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum SAuthentication {
     Perform = HARDENED_ENUM_VALUE_0,
     Skip = HARDENED_ENUM_VALUE_1,
+}
+
+impl SAuthentication {
+    #[must_use]
+    pub const fn is_skip(&self) -> bool {
+        matches!(self, Self::Skip)
+    }
+}
+
+impl FromStr for SAuthentication {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "perform" => Ok(Self::Perform),
+            "skip" => Ok(Self::Skip),
+            _ => Err(format!("Invalid SAuthentication value: {s}")),
+        }
+    }
 }
 
 impl Default for SAuthentication {
@@ -279,7 +454,7 @@ impl Default for SUMask {
 
 impl From<SUMask> for Mode {
     fn from(umask: SUMask) -> Self {
-        Mode::from_bits_truncate(umask.0 as u32)
+        Self::from_bits_truncate(u32::from(umask.0))
     }
 }
 
@@ -291,11 +466,12 @@ impl FromStr for SUMask {
     }
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // Function used by serde, must take a reference
 fn serialize_umask<S>(value: &u16, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(&format!("{:03o}", value))
+    serializer.serialize_str(&format!("{value:03o}"))
 }
 
 fn deserialize_umask<'de, D>(deserializer: D) -> Result<u16, D::Error>
@@ -316,14 +492,11 @@ impl From<SUMask> for u16 {
 
 impl From<u16> for SUMask {
     fn from(val: u16) -> Self {
-        SUMask(val)
+        Self(val)
     }
 }
 
-#[derive(
-    Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Display, Clone, Copy, EnumString,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 #[repr(u32)]
@@ -333,35 +506,56 @@ pub enum SInfo {
     Show = HARDENED_ENUM_VALUE_1,
 }
 
+impl SInfo {
+    #[must_use]
+    pub const fn is_hide(&self) -> bool {
+        matches!(self, Self::Hide)
+    }
+}
+
+impl FromStr for SInfo {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "hide" => Ok(Self::Hide),
+            "show" => Ok(Self::Show),
+            _ => Err(format!("Invalid SInfo value: {s}")),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt {
     #[serde(skip)]
     pub level: Level,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<SPathOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<SEnvOptions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<SWorkdirEither>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[bon]
 impl Opt {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(start_fn)] level: Level,
         path: Option<SPathOptions>,
         env: Option<SEnvOptions>,
@@ -369,11 +563,12 @@ impl Opt {
         bounding: Option<SBounding>,
         authentication: Option<SAuthentication>,
         execinfo: Option<SInfo>,
+        workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
         umask: Option<SUMask>,
-        #[builder(default)] _extra_fields: Map<String, Value>,
+        #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Self {
-        Opt {
+        Self {
             level,
             path,
             env,
@@ -381,12 +576,17 @@ impl Opt {
             bounding,
             authentication,
             execinfo,
+            workdir,
             timeout,
             umask,
-            _extra_fields,
+            extra_fields,
         }
     }
 
+    /// # Panics
+    /// Panics if any of the default values defined in config.toml are invalid.
+    /// This should never happen, as the defaults are hardcoded and tested.
+    #[must_use]
     pub fn level_default() -> Self {
         Self::builder(Level::Default)
             .root(PRIVILEGED)
@@ -396,14 +596,15 @@ impl Opt {
             .execinfo(INFO)
             .umask(UMASK)
             .env(
+                #[allow(clippy::unwrap_used)]
                 SEnvOptions::builder(ENV_DEFAULT_BEHAVIOR)
-                    .keep(ENV_KEEP_LIST)
+                    .keep(ENV_KEEP_LIST.iter().copied())
                     .unwrap()
-                    .check(ENV_CHECK_LIST)
+                    .check(ENV_CHECK_LIST.iter().copied())
                     .unwrap()
-                    .delete(ENV_DELETE_LIST)
+                    .delete(ENV_DELETE_LIST.iter().copied())
                     .unwrap()
-                    .set(ENV_SET_LIST)
+                    .set(ENV_SET_LIST.iter().copied())
                     .override_behavior(ENV_OVERRIDE_BEHAVIOR)
                     .build(),
             )
@@ -418,8 +619,9 @@ impl Opt {
 }
 
 impl SPathOptions {
+    #[must_use]
     pub fn level_default() -> Self {
-        SPathOptions::builder(ENV_PATH_BEHAVIOR)
+        Self::builder(ENV_PATH_BEHAVIOR)
             .add(ENV_PATH_ADD_LIST_SLICE)
             .sub(ENV_PATH_REMOVE_LIST_SLICE)
             .build()
@@ -444,7 +646,7 @@ fn is_valid_env_name(s: &str) -> bool {
 
 #[cfg(feature = "pcre2")]
 fn is_regex(s: &str) -> bool {
-    Regex::new(&format!("^{}$", s)).is_ok()
+    Regex::new(&format!("^{s}$")).is_ok()
 }
 
 #[cfg(not(feature = "pcre2"))]
@@ -453,22 +655,24 @@ fn is_regex(_s: &str) -> bool {
 }
 
 impl EnvKey {
+    /// # Errors
+    /// Returns an error if the provided string is not a valid environment variable name
+    /// or a valid regex (if regex support is enabled).
     pub fn new(s: String) -> Result<Self, String> {
         //debug!("Creating env key: {}", s);
         if is_valid_env_name(&s) {
-            Ok(EnvKey {
+            Ok(Self {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
         } else if is_regex(&s) {
-            Ok(EnvKey {
+            Ok(Self {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
             Err(format!(
-                "env key {}, must be a valid env, or a valid regex",
-                s
+                "env key {s}, must be a valid env, or a valid regex"
             ))
         }
     }
@@ -488,13 +692,13 @@ impl From<EnvKey> for String {
 
 impl From<String> for EnvKey {
     fn from(s: String) -> Self {
-        EnvKey::new(s).expect("Invalid env key")
+        Self::new(s).expect("Invalid env key")
     }
 }
 
 impl From<&str> for EnvKey {
     fn from(s: &str) -> Self {
-        EnvKey::new(s.into()).expect("Invalid env key")
+        Self::new(s.into()).expect("Invalid env key")
     }
 }
 
@@ -504,7 +708,7 @@ impl<'de> Deserialize<'de> for EnvKey {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        EnvKey::new(s).map_err(serde::de::Error::custom)
+        Self::new(s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -512,7 +716,7 @@ trait EnvSet {
     fn env_matches(&self, wildcarded: &EnvKey) -> bool;
 }
 
-impl EnvSet for LinkedHashSet<EnvKey> {
+impl EnvSet for IndexSet<EnvKey> {
     fn env_matches(&self, needle: &EnvKey) -> bool {
         self.iter().any(|s| match s.env_type {
             EnvKeyType::Normal => s == needle,
@@ -521,26 +725,36 @@ impl EnvSet for LinkedHashSet<EnvKey> {
     }
 }
 
-impl EnvSet for Option<LinkedHashSet<EnvKey>> {
+impl EnvSet for Option<IndexSet<EnvKey>> {
     fn env_matches(&self, needle: &EnvKey) -> bool {
         self.as_ref().is_some_and(|set| set.env_matches(needle))
     }
 }
 
 #[cfg(feature = "pcre2")]
-fn check_wildcarded(wildcarded: &EnvKey, s: &String) -> bool {
-    Regex::new(&format!("^{}$", wildcarded.value)) // convert to regex
-        .unwrap()
-        .is_match(s.as_bytes())
-        .is_ok_and(|m| m)
+fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
+    let pattern = format!("^{}$", wildcarded.value);
+    match Regex::new(&pattern) {
+        Ok(regex) => match regex.is_match(s.as_bytes()) {
+            Ok(is_match) => is_match,
+            Err(err) => {
+                warn!("Regex match error for '{pattern}': {err}");
+                false
+            }
+        },
+        Err(err) => {
+            warn!("Invalid regex '{pattern}': {err}");
+            false
+        }
+    }
 }
 
 #[cfg(not(feature = "pcre2"))]
-fn check_wildcarded(_wildcarded: &EnvKey, _s: &String) -> bool {
+fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
     true
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConstParseError(pub &'static str);
 use std::fmt::{self, Display};
 
@@ -553,82 +767,97 @@ impl Display for ConstParseError {
     }
 }
 
-impl ConstParseError {
-    const fn panic(&self) -> ! {
-        panic!("failed to parse a const")
-    }
-}
-
 impl PathBehavior {
-    pub const fn try_parse(input: &str) -> std::result::Result<PathBehavior, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``PathBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "delete") => Ok(PathBehavior::Delete),
-            _ if eq_str(input, "keep_safe") => Ok(PathBehavior::KeepSafe),
-            _ if eq_str(input, "keep_unsafe") => Ok(PathBehavior::KeepUnsafe),
-            _ if eq_str(input, "inherit") => Ok(PathBehavior::Inherit),
-            _ => ConstParseError("PathBehavior").panic(),
+            _ if eq_str(input, "delete") => Self::Delete,
+            _ if eq_str(input, "keep_safe") => Self::KeepSafe,
+            _ if eq_str(input, "keep_unsafe") => Self::KeepUnsafe,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse PathBehavior"),
         }
     }
 }
 
 impl EnvBehavior {
-    pub const fn try_parse(input: &str) -> std::result::Result<EnvBehavior, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``EnvBehavior`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "delete") => Ok(EnvBehavior::Delete),
-            _ if eq_str(input, "keep") => Ok(EnvBehavior::Keep),
-            _ if eq_str(input, "inherit") => Ok(EnvBehavior::Inherit),
-            _ => ConstParseError("EnvBehavior").panic(),
+            _ if eq_str(input, "delete") => Self::Delete,
+            _ if eq_str(input, "keep") => Self::Keep,
+            _ if eq_str(input, "inherit") => Self::Inherit,
+            _ => panic!("fail to parse EnvBehavior"),
         }
     }
 }
 
 impl SPrivileged {
-    pub const fn try_parse(input: &str) -> std::result::Result<SPrivileged, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SPrivileged`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "user") => Ok(SPrivileged::User),
-            _ if eq_str(input, "privileged") => Ok(SPrivileged::Privileged),
-            _ => ConstParseError("SPrivileged").panic(),
+            _ if eq_str(input, "user") => Self::User,
+            _ if eq_str(input, "privileged") => Self::Privileged,
+            _ => panic!("fail to parse SPrivileged"),
         }
     }
 }
 
 impl SInfo {
-    pub const fn try_parse(input: &str) -> std::result::Result<SInfo, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SInfo`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "hide") => Ok(SInfo::Hide),
-            _ if eq_str(input, "show") => Ok(SInfo::Show),
-            _ => ConstParseError("SInfo").panic(),
+            _ if eq_str(input, "hide") => Self::Hide,
+            _ if eq_str(input, "show") => Self::Show,
+            _ => panic!("fail to parse SInfo"),
         }
     }
 }
 
 impl TimestampType {
-    pub const fn try_parse(input: &str) -> std::result::Result<TimestampType, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``TimestampType`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "ppid") => Ok(TimestampType::PPID),
-            _ if eq_str(input, "tty") => Ok(TimestampType::TTY),
-            _ if eq_str(input, "uid") => Ok(TimestampType::UID),
-            _ => ConstParseError("TimestampType").panic(),
+            _ if eq_str(input, "ppid") => Self::PPID,
+            _ if eq_str(input, "tty") => Self::TTY,
+            _ if eq_str(input, "uid") => Self::UID,
+            _ => panic!("fail to parse TimestampType"),
         }
     }
 }
 
 impl SBounding {
-    pub const fn try_parse(input: &str) -> std::result::Result<SBounding, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SBounding`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "strict") => Ok(SBounding::Strict),
-            _ if eq_str(input, "ignore") => Ok(SBounding::Ignore),
-            _ => ConstParseError("SBounding").panic(),
+            _ if eq_str(input, "strict") => Self::Strict,
+            _ if eq_str(input, "ignore") => Self::Ignore,
+            _ => panic!("fail to parse SBounding"),
         }
     }
 }
 
 impl SAuthentication {
-    pub const fn try_parse(input: &str) -> std::result::Result<SAuthentication, ConstParseError> {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``SAuthentication`` variants.
+    pub const fn const_parse(input: &str) -> Self {
         match input {
-            _ if eq_str(input, "perform") => Ok(SAuthentication::Perform),
-            _ if eq_str(input, "skip") => Ok(SAuthentication::Skip),
-            _ => ConstParseError("SAuthentication").panic(),
+            _ if eq_str(input, "perform") => Self::Perform,
+            _ if eq_str(input, "skip") => Self::Skip,
+            _ => panic!("fail to parse SAuthentication"),
         }
     }
 }
@@ -636,17 +865,18 @@ impl SAuthentication {
 // === Defaults based on config.toml ===
 impl Default for Opt {
     fn default() -> Self {
-        Opt {
+        Self {
             level: Level::None,
-            ..Opt::level_default()
+            ..Self::level_default()
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] //Maybe used for other binaries
+#[derive(Debug, Clone)]
 pub struct OptStack {
     pub(crate) stack: [Option<Rc<RefCell<Opt>>>; 5],
-    roles: Option<Rc<RefCell<SConfig>>>,
+    roles: Option<Rc<RefCell<SPolicy>>>,
     role: Option<Rc<RefCell<SRole>>>,
     task: Option<Rc<RefCell<STask>>>,
 }
@@ -661,7 +891,7 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
     }
     fn with_task(
         self,
-        task: Rc<RefCell<STask>>,
+        task: &Rc<RefCell<STask>>,
     ) -> OptStackBuilder<
         opt_stack_builder::SetTask<opt_stack_builder::SetRole<opt_stack_builder::SetRoles<S>>>,
     >
@@ -671,48 +901,50 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
         <S as opt_stack_builder::State>::Task: opt_stack_builder::IsUnset,
     {
         self.with_role(
-            task.as_ref()
-                .borrow()
-                ._role
+            &task
                 .as_ref()
-                .unwrap()
+                .borrow()
+                .role
+                .as_ref()
+                .expect("task must belong to a role")
                 .upgrade()
-                .unwrap(),
+                .expect("role should not be dropped before task"),
         )
-        .task(task.to_owned())
-        .opt(task.as_ref().borrow().options.to_owned())
+        .task(task.clone())
+        .opt(task.as_ref().borrow().options.clone())
     }
     fn with_role(
         self,
-        role: Rc<RefCell<SRole>>,
+        role: &Rc<RefCell<SRole>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRole<opt_stack_builder::SetRoles<S>>>
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
         <S as opt_stack_builder::State>::Role: opt_stack_builder::IsUnset,
     {
         self.with_roles(
-            role.as_ref()
-                .borrow()
-                ._config
+            &role
                 .as_ref()
-                .unwrap()
+                .borrow()
+                .config
+                .as_ref()
+                .expect("role must belong to a config")
                 .upgrade()
-                .unwrap(),
+                .expect("config should not be dropped before role"),
         )
-        .role(role.to_owned())
-        .opt(role.as_ref().borrow().options.to_owned())
+        .role(role.clone())
+        .opt(role.as_ref().borrow().options.clone())
     }
 
     fn with_roles(
         self,
-        roles: Rc<RefCell<SConfig>>,
+        roles: &Rc<RefCell<SPolicy>>,
     ) -> OptStackBuilder<opt_stack_builder::SetRoles<S>>
     where
         <S as opt_stack_builder::State>::Roles: opt_stack_builder::IsUnset,
     {
         self.with_default()
-            .roles(roles.to_owned())
-            .opt(roles.as_ref().borrow().options.to_owned())
+            .roles(roles.clone())
+            .opt(roles.as_ref().borrow().options.clone())
     }
 
     fn with_default(self) -> Self {
@@ -723,35 +955,35 @@ impl<S: opt_stack_builder::State> OptStackBuilder<S> {
 #[bon]
 impl OptStack {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(field)] stack: [Option<Rc<RefCell<Opt>>>; 5],
-        roles: Option<Rc<RefCell<SConfig>>>,
+        roles: Option<Rc<RefCell<SPolicy>>>,
         role: Option<Rc<RefCell<SRole>>>,
         task: Option<Rc<RefCell<STask>>>,
     ) -> Self {
-        OptStack {
+        Self {
             stack,
             roles,
             role,
             task,
         }
     }
-    pub fn from_task(task: Rc<RefCell<STask>>) -> Self {
-        OptStack::builder().with_task(task).build()
+    pub fn from_task(task: &Rc<RefCell<STask>>) -> Self {
+        Self::builder().with_task(task).build()
     }
-    pub fn from_role(role: Rc<RefCell<SRole>>) -> Self {
-        OptStack::builder().with_role(role).build()
+    pub fn from_role(role: &Rc<RefCell<SRole>>) -> Self {
+        Self::builder().with_role(role).build()
     }
-    pub fn from_roles(roles: Rc<RefCell<SConfig>>) -> Self {
-        OptStack::builder().with_roles(roles).build()
+    pub fn from_roles(roles: &Rc<RefCell<SPolicy>>) -> Self {
+        Self::builder().with_roles(roles).build()
     }
 
     fn find_in_options<F: Fn(&Opt) -> Option<(Level, V)>, V>(&self, f: F) -> Option<(Level, V)> {
         for opt in self.stack.iter().rev() {
             if let Some(opt) = opt.to_owned() {
                 let res = f(&opt.as_ref().borrow());
-                if res.is_some() {
-                    debug!("res: {:?}", res.as_ref().unwrap().0);
+                if let Some((lvl, _)) = res {
+                    debug!("res: {lvl:?}");
                     return res;
                 }
             }
@@ -760,7 +992,7 @@ impl OptStack {
     }
 
     fn iter_in_options<F: FnMut(&Opt)>(&self, mut f: F) {
-        for opt in self.stack.iter() {
+        for opt in &self.stack {
             if let Some(opt) = opt.to_owned() {
                 f(&opt.as_ref().borrow());
             }
@@ -769,10 +1001,10 @@ impl OptStack {
 
     fn get_final_path(&self) -> SPathOptions {
         let mut final_behavior = PathBehavior::Delete;
-        let default = LinkedHashSet::new();
-        let final_add = rc_refcell!(LinkedHashSet::new());
+        let default = IndexSet::new();
+        let final_add = rc_refcell!(IndexSet::new());
         // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(LinkedHashSet::new());
+        let final_sub = rc_refcell!(IndexSet::new());
         self.iter_in_options(|opt| {
             let final_add_clone = Rc::clone(&final_add);
             let final_sub_clone = Rc::clone(&final_sub);
@@ -788,7 +1020,7 @@ impl OptStack {
                     }
                     PathBehavior::Inherit => {
                         if final_behavior.is_delete() {
-                            let union: LinkedHashSet<String> = final_add_clone
+                            let union: IndexSet<String> = final_add_clone
                                 .as_ref()
                                 .borrow()
                                 .union(p.add.as_ref().unwrap_or(&default))
@@ -798,7 +1030,7 @@ impl OptStack {
                             final_add_clone.as_ref().borrow_mut().extend(union);
                             debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
                         } else {
-                            let union: LinkedHashSet<String> = final_sub_clone
+                            let union: IndexSet<String> = final_sub_clone
                                 .as_ref()
                                 .borrow()
                                 .union(p.sub.as_ref().unwrap_or(&default))
@@ -817,7 +1049,6 @@ impl OptStack {
         SPathOptions::builder(final_behavior)
             .add(
                 final_add
-                    .clone()
                     .as_ref()
                     .borrow()
                     .iter()
@@ -826,7 +1057,6 @@ impl OptStack {
             )
             .sub(
                 final_sub
-                    .clone()
                     .as_ref()
                     .borrow()
                     .iter()
@@ -836,12 +1066,12 @@ impl OptStack {
             .build()
     }
 
-    fn get_final_env(&self, cmd_filter: Option<FilterMatcher>) -> SEnvOptions {
+    fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> Result<SEnvOptions, String> {
         let mut final_behavior = EnvBehavior::default();
         let mut final_set = HashMap::new();
-        let mut final_keep = LinkedHashSet::new();
-        let mut final_check = LinkedHashSet::new();
-        let mut final_delete = LinkedHashSet::new();
+        let mut final_keep = IndexSet::new();
+        let mut final_check = IndexSet::new();
+        let mut final_delete = IndexSet::new();
         let overriden_behavior = cmd_filter.as_ref().and_then(|f| f.env_behavior);
         self.iter_in_options(|opt| {
             if let Some(p) = opt.env.borrow().as_ref() {
@@ -851,126 +1081,119 @@ impl OptStack {
                         final_keep = p
                             .keep
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
-
-                                !p.check.env_matches(e) || !p.delete.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_check = p
                             .check
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e))
-                                //||
-                                !p.delete.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.delete.env_matches(e))
                             .cloned()
                             .collect();
                         final_delete = p
                             .delete
                             .as_ref()
-                            .unwrap_or(&LinkedHashSet::new())
-                            .iter()
-                            .filter(|e| {
-                                //p.set.as_ref().is_some_and(|set| !set.env_matches(e)) ||
-                                !p.check.env_matches(e)
-                            })
+                            .into_iter()
+                            .flatten()
+                            .filter(|e| !p.check.env_matches(e))
                             .cloned()
                             .collect();
                         if let Some(set) = &p.set {
-                            final_set = set.clone();
+                            final_set.clone_from(set);
                         }
-                        debug!("check: {:?}", final_check);
+                        debug!("check: {final_check:?}");
                         p.default_behavior
                     }
                     EnvBehavior::Inherit => {
-                        final_keep = final_keep
-                            .union(p.keep.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
-                        final_check = final_check
-                            .union(p.check.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
-                        final_delete = final_delete
-                            .union(p.delete.as_ref().unwrap_or(&LinkedHashSet::new()))
-                            .cloned()
-                            .collect();
+                        if let Some(keep) = &p.keep {
+                            final_keep.extend(keep.iter().cloned());
+                        }
+                        if let Some(check) = &p.check {
+                            final_check.extend(check.iter().cloned());
+                        }
+                        if let Some(delete) = &p.delete {
+                            final_delete.extend(delete.iter().cloned());
+                        }
                         if let Some(set) = &p.set {
                             final_set.extend(set.clone());
                         }
-                        debug!("check: {:?}", final_check);
+                        debug!("check: {final_check:?}");
                         final_behavior
                     }
                 };
             }
         });
-        SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
+        let builder = SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
             .set(final_set)
             .keep(final_keep)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env keep list: {err}"))?
             .check(final_check)
-            .unwrap()
+            .map_err(|err| format!("Failed to set env check list: {err}"))?
             .delete(final_delete)
-            .unwrap()
-            .build()
+            .map_err(|err| format!("Failed to set env delete list: {err}"))?;
+        Ok(builder.build())
     }
 
     fn get_level(&self) -> Level {
-        let (level, _) = self
+        let (level, ()) = self
             .find_in_options(|opt| Some((opt.level, ())))
             .unwrap_or((Level::None, ()));
         level
     }
 
-    pub fn to_opt(&self) -> Rc<RefCell<Opt>> {
-        rc_refcell!(Opt::builder(self.get_level())
-            .path(self.get_final_path())
-            .env(self.get_final_env(None))
-            .maybe_root(
-                self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
-                    .map(|(_, root)| root),
-            )
-            .maybe_bounding(
-                self.find_in_options(|opt| opt.bounding.map(|bounding| (opt.level, bounding)))
-                    .map(|(_, bounding)| bounding),
-            )
-            .maybe_authentication(
-                self.find_in_options(|opt| {
-                    opt.authentication
-                        .map(|authentication| (opt.level, authentication))
-                })
-                .map(|(_, authentication)| authentication),
-            )
-            .maybe_timeout(
-                self.find_in_options(|opt| opt.timeout.clone().map(|timeout| (opt.level, timeout)))
-                    .map(|(_, timeout)| timeout),
-            )
-            .build())
+    /// # Errors
+    /// Returns an error if any environment option builder step fails.
+    pub fn to_opt(&self) -> Result<Rc<RefCell<Opt>>, String> {
+        Ok(rc_refcell!(
+            Opt::builder(self.get_level())
+                .path(self.get_final_path())
+                .env(self.get_final_env(None)?)
+                .maybe_root(
+                    self.find_in_options(|opt| opt.root.map(|root| (opt.level, root)))
+                        .map(|(_, root)| root),
+                )
+                .maybe_bounding(
+                    self.find_in_options(|opt| opt.bounding.map(|bounding| (opt.level, bounding)))
+                        .map(|(_, bounding)| bounding),
+                )
+                .maybe_authentication(
+                    self.find_in_options(|opt| {
+                        opt.authentication
+                            .map(|authentication| (opt.level, authentication))
+                    })
+                    .map(|(_, authentication)| authentication),
+                )
+                .maybe_timeout(
+                    self.find_in_options(|opt| opt
+                        .timeout
+                        .clone()
+                        .map(|timeout| (opt.level, timeout)))
+                        .map(|(_, timeout)| timeout),
+                )
+                .build()
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use serde_test::Token;
     use serde_test::assert_de_tokens;
     use serde_test::assert_de_tokens_error;
     use serde_test::assert_tokens;
-    use serde_test::Token;
 
     use super::super::options::*;
     use super::super::structs::*;
 
-    fn env_key_set_equal<I, J>(a: I, b: J) -> bool
+    fn env_key_set_equal<'a, I, J>(a: I, b: J) -> bool
     where
-        I: IntoIterator<Item = EnvKey>,
-        J: IntoIterator<Item = EnvKey>,
+        I: IntoIterator<Item = &'a EnvKey>,
+        J: IntoIterator<Item = &'a EnvKey>,
     {
         let mut a_vec: Vec<_> = a.into_iter().collect();
         let mut b_vec: Vec<_> = b.into_iter().collect();
@@ -995,7 +1218,7 @@ mod tests {
 
     #[test]
     fn test_find_in_options() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .options(|opt| {
@@ -1017,7 +1240,7 @@ mod tests {
                 .build()
             })
             .build();
-        let options = OptStack::from_role(config.as_ref().borrow().roles[0].clone());
+        let options = OptStack::from_role(&config.as_ref().borrow().roles[0].clone());
         let res: Option<(Level, SPathOptions)> =
             options.find_in_options(|opt| opt.path.clone().map(|value| (opt.level, value)));
         assert_eq!(
@@ -1033,7 +1256,7 @@ mod tests {
 
     #[test]
     fn test_env_global_to_task() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1070,19 +1293,24 @@ mod tests {
                 .build()
             })
             .build();
-        let binding = OptStack::from_task(config.task("test", 1).unwrap()).to_opt();
+        let binding = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let options = binding.as_ref().borrow();
         let res = &options.env.as_ref().unwrap().keep;
-        assert!(res
-            .as_ref()
-            .unwrap_or(&LinkedHashSet::new())
-            .contains(&EnvKey::from("env1")));
+        assert!(
+            res.as_ref()
+                .into_iter()
+                .flatten()
+                .any(|x| x == &EnvKey::from("env1"))
+        );
     }
 
     // test to_opt() for OptStack
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_to_opt() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1161,9 +1389,9 @@ mod tests {
                 .build()
             })
             .build();
-        let default = LinkedHashSet::new();
-        let stack = OptStack::from_roles(config.clone());
-        let opt = stack.to_opt();
+        let default = IndexSet::new();
+        let stack = OptStack::from_roles(&config);
+        let opt = stack.to_opt().expect("Failed to build global options");
         let global_options = opt.as_ref().borrow();
         assert_eq!(
             global_options.path.as_ref().unwrap().default_behavior,
@@ -1191,9 +1419,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env2")]
+            vec![&EnvKey::from("env2")]
         ));
         assert_eq!(
             global_options
@@ -1202,8 +1431,8 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
-                .iter()
+                .into_iter()
+                .flatten()
                 .map(|e| e.clone().into())
                 .collect::<Vec<String>>(),
             vec!["env2".to_string()]
@@ -1222,7 +1451,9 @@ mod tests {
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::TTY
         );
-        let opt = OptStack::from_role(config.clone().role("test").unwrap()).to_opt();
+        let opt = OptStack::from_role(&config.role("test").unwrap())
+            .to_opt()
+            .expect("Failed to build role options");
         let role_options = opt.as_ref().borrow();
         assert_eq!(
             role_options.path.as_ref().unwrap().default_behavior,
@@ -1250,9 +1481,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env1")]
+            vec![&EnvKey::from("env1")]
         ));
         assert_eq!(role_options.root.unwrap(), SPrivileged::Privileged);
         assert_eq!(role_options.bounding.unwrap(), SBounding::Strict);
@@ -1265,7 +1497,9 @@ mod tests {
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
             TimestampType::PPID
         );
-        let opt = OptStack::from_task(config.task("test", 1).unwrap()).to_opt();
+        let opt = OptStack::from_task(&config.task("test", 1).unwrap())
+            .to_opt()
+            .expect("Failed to build task options");
         let task_options = opt.as_ref().borrow();
         assert_eq!(
             task_options.path.as_ref().unwrap().default_behavior,
@@ -1293,9 +1527,10 @@ mod tests {
                 .unwrap()
                 .keep
                 .as_ref()
-                .unwrap_or(&LinkedHashSet::new())
+                .into_iter()
+                .flatten()
                 .clone(),
-            vec![EnvKey::from("env1"), EnvKey::from("env3")]
+            vec![&EnvKey::from("env1"), &EnvKey::from("env3")]
         ));
         assert_eq!(task_options.root.unwrap(), SPrivileged::User);
         assert_eq!(task_options.bounding.unwrap(), SBounding::Strict);
@@ -1326,7 +1561,7 @@ mod tests {
 
     #[test]
     fn test_get_final_env_set_inherit() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1360,8 +1595,8 @@ mod tests {
                 .build()
             })
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
         assert_eq!(
             options
@@ -1370,8 +1605,9 @@ mod tests {
                 .unwrap()
                 .set
                 .as_ref()
-                .unwrap_or(&HashMap::new())
-                .get("env1")
+                .into_iter()
+                .flatten()
+                .find_map(|(key, v)| if key == "env1" { Some(v) } else { None })
                 .unwrap(),
             "value3"
         );
@@ -1379,7 +1615,7 @@ mod tests {
 
     #[test]
     fn test_get_final_path_inherit() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(
@@ -1413,45 +1649,51 @@ mod tests {
                 .build()
             })
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
-        let opt = stack.to_opt();
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
+        let opt = stack.to_opt().expect("Failed to build task options");
         let options = opt.as_ref().borrow();
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path1"));
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path2"));
-        assert!(options
-            .path
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .contains("/path3"));
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path1")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path2")
+        );
+        assert!(
+            options
+                .path
+                .as_ref()
+                .unwrap()
+                .sub
+                .as_ref()
+                .unwrap()
+                .contains("/path3")
+        );
     }
 
     #[test]
     fn test_find_in_options_none() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("test")
                     .task(STask::builder(1).build())
                     .build(),
             )
             .build();
-        let stack = OptStack::from_task(config.task("test", 1).unwrap());
+        let stack = OptStack::from_task(&config.task("test", 1).unwrap());
         let res: Option<(Level, SPathOptions)> = stack.find_in_options(|_| None);
         assert_eq!(res, None);
     }
@@ -1463,11 +1705,31 @@ mod tests {
         assert!(env_key.is_err());
         assert_eq!(
             env_key.unwrap_err(),
-            format!(
-                "env key {}, must be a valid env, or a valid regex",
-                invalid_env
-            )
+            format!("env key {invalid_env}, must be a valid env, or a valid regex")
         );
+    }
+
+    #[test]
+    fn test_envkey_parsing_and_display() {
+        let env_key = EnvKey::new("TEST_VALUE".to_string()).expect("valid environment key");
+        assert_eq!(env_key.to_string(), "TEST_VALUE");
+        assert_eq!(EnvKey::from("TEST_VALUE"), env_key);
+        assert_eq!(String::from(env_key), "TEST_VALUE");
+    }
+
+    #[test]
+    fn test_const_parse_helpers() {
+        assert_eq!(PathBehavior::const_parse("delete"), PathBehavior::Delete);
+        assert_eq!(
+            PathBehavior::const_parse("keep_safe"),
+            PathBehavior::KeepSafe
+        );
+        assert_eq!(EnvBehavior::const_parse("keep"), EnvBehavior::Keep);
+        assert_eq!(SPrivileged::const_parse("user"), SPrivileged::User);
+        assert_eq!(SInfo::const_parse("show"), SInfo::Show);
+        assert_eq!(TimestampType::const_parse("tty"), TimestampType::TTY);
+        assert_eq!(SBounding::const_parse("strict"), SBounding::Strict);
+        assert_eq!(SAuthentication::const_parse("skip"), SAuthentication::Skip);
     }
 
     #[test]
@@ -1575,18 +1837,8 @@ mod tests {
     #[test]
     fn test_sumask_debug() {
         let umask = SUMask(0o22);
-        let debug_str = format!("{:?}", umask);
+        let debug_str = format!("{umask:?}");
         assert_eq!(debug_str, "SUMask(18)"); // 0o22 = 18 in decimal
-    }
-
-    #[test]
-    fn test_sumask_copy_clone() {
-        let umask1 = SUMask(0o644);
-        let umask2 = umask1; // Copy
-        let umask3 = umask1.clone(); // Clone
-
-        assert_eq!(umask1, umask2);
-        assert_eq!(umask1, umask3);
     }
 
     #[test]

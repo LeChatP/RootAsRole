@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./RootAsRolev2.svg" width=30%>
+  <img src="./assets/logo/svg/color/logo-mascot-full.svg" width=50%>
  </p>
  <p align="center">
   
@@ -13,7 +13,6 @@
 
 
 </p>
-<!-- The project version is managed on json file in resources/rootasrole.json -->
 <!-- markdownlint-restore -->
 
 # RootAsRole — A better alternative to `sudo(-rs)`/`su` • ⚡ Blazing fast • 🛡️ Memory-safe • 🔐 Security-oriented
@@ -81,7 +80,7 @@ you can also use `yay` AUR manager or any other one you like. Please __**vote**_
 
 ### Prerequisites
 
-* [Rust](https://www.rust-lang.org/tools/install) >= 1.83.0
+* [Rust](https://www.rust-lang.org/tools/install) >= 1.88.0
   * You can install Rust by running the following command:
     ```sh
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -149,7 +148,7 @@ RootAsRole **3.1.0** introduced **CBOR** support, significantly boosting perform
 When using **Ansible** (or any automation tool), every task that uses `become: true` will invoke `dosr` on the target host.
 With **RootAsRole (RaR)**, each role and task introduces additional access control logic --- this doesn’t slow you down.
 
-💡 **Here’s the reality**: You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
+💡 You can reach the performance of **1 `sudo` rule** with **~4000 RaR rules**.
 
 That means:
 - You can define thousands of fine-grained rules
@@ -176,17 +175,27 @@ Use [gensr](https://github.com/LeChatP/RootAsRole-gensr) for Ansible to:
 
 * Linux kernel >= 4.3
 
-## 👥 Contributors
+## 📖 Research & Publications
 
-* Eddie Billoir : <eddie.billoir@gmail.com>
-* Ahmad Samer Wazan : <ahmad.wazan@zu.ac.ae>
-* Romain Laborde : <laborde@irit.fr>
-* Rémi Venant: <remi.venant@gmail.com>
-* Guillaume Daumas : <guillaume.daumas@univ-tlse3.fr>
+- **PhD Thesis** (2025): [Orchestrating and enforcing the principle of least administrative privileges in Linux systems](https://theses.fr/2025TLSES223) — E. Billoir
+- **Conference** (2025): [No Root, No Problem: Automating Linux Least Privilege and Securing Ansible Deployments](https://doi.org/10.1007/978-3-032-07894-0_3) — ESORICS 2025
+- **Conference** (2024): [Enhancing Secure Deployment with Ansible: A Focus on Least Privilege and Automation for Linux](https://dl.acm.org/doi/10.1145/3664476.3670929) — ARES 2024
+- **Journal Article** (2024): [Implementing the Principle of Least Administrative Privilege on Operating Systems: Challenges and Perspectives](https://doi.org/10.1007/s12243-024-01033-5) — Annals of Telecommunications
+- **Conference** (2023): [Implementing the Principle of Least Privilege Using Linux Capabilities: Challenges and Perspectives](https://ieeexplore.ieee.org/document/10339753/) — CSNet 2023
+- **Journal Article** (2022): [RootAsRole: a security module to manage the administrative privileges for Linux](https://linkinghub.elsevier.com/retrieve/pii/S0167404822003753) — Computers & Security
+- **Conference** (2021): [RootAsRole: Towards a Secure Alternative to sudo/su Commands for Home Users and SME Administrators](https://link.springer.com/10.1007/978-3-030-78120-0\_13) — SACMAT 2021
 
-## 🖼️ Logo
+These publications starts from the initial proof of concept to the current production-ready version, covering design, implementation, security analysis, and real-world deployment.
 
-This logo were generated using DALL-E 2 AI, for any license issue or plagiarism, please note that is not intentionnal and don't hesitate to contact us.
+## 🖼️ Logo & Mascot
+
+The project's mascot and logos were created entirely by hand by [Eva La Fougère](https://www.karde.me/evalafougere?utm_source=rootasrole&utm_medium=docs&utm_content=readme)!
+
+The mascot and its variants are licensed under CC BY-ND 4.0 and the copyright belongs to Eva La Fougère.
+
+The mascot serves as the visual identity of the official RootAsRole project. It must not be used by third-party projects, derivative works, or forks as their primary visual identity in a manner that could create confusion with the official project or suggest endorsement by the RootAsRole project.
+
+![CC BY-ND 4.0](https://mirrors.creativecommons.org/presskit/buttons/88x31/svg/by-nd.svg)
 
 ## 📜 Licence notice
 
@@ -197,5 +206,14 @@ We have included cutils.rs, securemem.rs to make work the rpassword.rs file. Ind
 
 This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airbus PROTECT** through an industrial PhD during 2022 and 2025.
 
+## [Letter on AI policy, position and usage](./AI_LETTER.md)
+
+
 
 ## [Link to References](https://lechatp.github.io/RootAsRole/bibliography.html)
+<!-- markdownlint-capture -->
+<!-- markdownlint-disable -->
+<p align="center">
+  <img src="./assets/logo/svg/color/logo-vertical.svg" width=30%>
+ </p>
+<!-- markdownlint-restore -->

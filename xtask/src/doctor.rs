@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use log::{info, warn};
 
-use crate::util::{ROOTASROLE, detect_priv_bin, get_os};
+use crate::util::{RAR_CFG_PATH, detect_priv_bin, get_os};
 
 #[derive(Debug, Parser)]
 pub struct DoctorOptions {
@@ -76,10 +76,10 @@ pub fn doctor(opts: &DoctorOptions) -> Result<(), anyhow::Error> {
         }
     }
 
-    if fs::metadata(ROOTASROLE).is_ok() {
-        info!("Configuration file exists: {ROOTASROLE}");
+    if fs::metadata(RAR_CFG_PATH).is_ok() {
+        info!("Configuration file exists: {RAR_CFG_PATH}");
     } else {
-        warn!("Configuration file does not exist yet: {ROOTASROLE}");
+        warn!("Configuration file does not exist yet: {RAR_CFG_PATH}");
     }
 
     Ok(())

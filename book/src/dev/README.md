@@ -1,3 +1,5 @@
 # For Developers
 
-If you wish to know more about RootAsRole core implementation, you can check the AI generated documentation proposed by the website deepwiki : <https://deepwiki.com/LeChatP/RootAsRole>. This documentation is obviously not fully accurate and some charts are hasardeous, but some parts are well described and can help you to understand the project. We will use some charts here to confirm the AI generated documentation in the future.
+Start with the [Architecture Overview](../architecture/overview.md) page in this book.
+
+DeepWiki can help for quick orientation, but treat it as secondary material and verify details against source code.

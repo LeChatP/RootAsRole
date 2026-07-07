@@ -10,15 +10,16 @@ use log::{debug, error, info, warn};
 use nix::NixPath;
 use nix::sys::stat::{Mode, fchmod};
 use nix::unistd::{Gid, Uid};
-use strum::EnumIs;
 
 use crate::installer::Profile;
-use crate::util::{BOLD, RED, RST, change_dir_to_project_root, detect_priv_bin, is_run0_command, is_su_command, run_checked};
+use crate::util::{
+    BOLD, RED, RST, change_dir_to_project_root, detect_priv_bin, is_run0_command, is_su_command,
+    run_checked,
+};
 use anyhow::{Context, anyhow};
 
 use super::{CHSR_DEST, RAR_BIN_PATH, SR_DEST};
 use crate::util::cap_clear;
-
 
 fn shell_quote(arg: &str) -> String {
     if arg
@@ -191,10 +192,22 @@ fn setfcap() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[derive(Debug, EnumIs)]
+#[derive(Debug)]
 pub enum Elevated {
     Yes,
     No,
+}
+
+impl Elevated {
+    #[must_use]
+    pub const fn is_yes(&self) -> bool {
+        matches!(self, Self::Yes)
+    }
+
+    #[must_use]
+    pub const fn is_no(&self) -> bool {
+        matches!(self, Self::No)
+    }
 }
 
 fn cap_effective(state: &mut capctl::CapState, cap: Cap) -> Result<(), anyhow::Error> {
@@ -286,22 +299,19 @@ pub fn install(
                 command.arg("--debug");
             }
         }
-        run_checked(
-            &mut command,
-            "run privileged installer",
-        )
-        .context("Failed to run privileged binary")
-        .map_err(|e| {
-            error!("{e}");
-            anyhow::Error::msg(format!(
-                "Failed to run privileged binary. Please run {} as an administrator.",
-                current_exe()
-                    .unwrap_or_else(|_| PathBuf::from_str("the command")
-                        .expect("Failed to get current exe path"))
-                    .to_str()
-                    .expect("Failed to convert current exe path to string")
-            ))
-        })?;
+        run_checked(&mut command, "run privileged installer")
+            .context("Failed to run privileged binary")
+            .map_err(|e| {
+                error!("{e}");
+                anyhow::Error::msg(format!(
+                    "Failed to run privileged binary. Please run {} as an administrator.",
+                    current_exe()
+                        .unwrap_or_else(|_| PathBuf::from_str("the command")
+                            .expect("Failed to get current exe path"))
+                        .to_str()
+                        .expect("Failed to convert current exe path to string")
+                ))
+            })?;
         return Ok(Elevated::Yes);
     }
     unsafe { env::remove_var("ROOTASROLE_INSTALLER_NESTED") };

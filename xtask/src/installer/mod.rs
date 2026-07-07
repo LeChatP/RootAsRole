@@ -11,7 +11,6 @@ use std::{collections::VecDeque, fmt::Display};
 use chrono::{Datelike, NaiveDate, Utc};
 use clap::{Parser, ValueEnum};
 use semver::Version;
-use strum::{Display, EnumIs, EnumString};
 
 use anyhow::anyhow;
 use log::debug;
@@ -86,19 +85,55 @@ pub struct UninstallOptions {
     pub kind: UninstallKind,
 }
 
-#[derive(Clone, Debug, ValueEnum, EnumIs, EnumString, Display)]
-#[strum(serialize_all = "lowercase")]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum UninstallKind {
     All,
     Sr,
     Capable,
 }
 
-#[derive(Debug, Copy, Clone, EnumIs, EnumString, Display)]
-#[strum(serialize_all = "lowercase")]
+impl UninstallKind {
+    #[must_use]
+    pub const fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+
+    #[must_use]
+    pub const fn is_sr(&self) -> bool {
+        matches!(self, Self::Sr)
+    }
+
+    #[must_use]
+    pub const fn is_capable(&self) -> bool {
+        matches!(self, Self::Capable)
+    }
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum)]
 pub enum Profile {
     Release,
     Debug,
+}
+
+impl Profile {
+    #[must_use]
+    pub const fn is_release(self) -> bool {
+        matches!(self, Self::Release)
+    }
+
+    #[must_use]
+    pub const fn is_debug(self) -> bool {
+        matches!(self, Self::Debug)
+    }
+}
+
+impl Display for Profile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Release => write!(f, "release"),
+            Self::Debug => write!(f, "debug"),
+        }
+    }
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -156,7 +191,7 @@ impl Default for Toolchain {
     }
 }
 
-#[derive(Debug, Clone, EnumIs, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Channel {
     Stable,
     Beta,
@@ -290,7 +325,12 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
         debug!("Building sr and chsr");
         build(&opts.build_opts)?;
     }
-    if install::install(priv_bin.as_deref(), opts.build_opts.profile, opts.clean_after, true)?
+    if install::install(
+        priv_bin.as_deref(),
+        opts.build_opts.profile,
+        opts.clean_after,
+        true,
+    )?
     .is_yes()
     {
         Ok(())

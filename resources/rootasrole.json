@@ -1,72 +1,5 @@
 {
-    "version": "3.3.0",
-    "storage": {
-        "method": "json",
-        "settings": {
-            "immutable": true,
-            "path": "/etc/security/rootasrole.json"
-        }
-    },
-    "options": {
-        "timeout": {
-            "type": "ppid",
-            "duration": "00:05:00"
-        },
-        "path": {
-            "default": "delete",
-            "add": [
-                "/usr/local/sbin",
-                "/usr/local/bin",
-                "/usr/sbin",
-                "/usr/bin",
-                "/sbin",
-                "/bin",
-                "/snap/bin"
-            ]
-        },
-        "env": {
-            "default": "delete",
-            "override_behavior": false,
-            "keep": [
-                "HOME",
-                "USER",
-                "LOGNAME",
-                "COLORS",
-                "DISPLAY",
-                "HOSTNAME",
-                "KRB5CCNAME",
-                "LS_COLORS",
-                "PS1",
-                "PS2",
-                "XAUTHORY",
-                "XAUTHORIZATION",
-                "XDG_CURRENT_DESKTOP"
-            ],
-            "check": [
-                "COLORTERM",
-                "LANG",
-                "LANGUAGE",
-                "LC_.*",
-                "LINGUAS",
-                "TERM",
-                "TZ"
-            ],
-            "delete": [
-                "PS4",
-                "SHELLOPTS",
-                "PERLLIB",
-                "PERL5LIB",
-                "PERL5OPT",
-                "PYTHONINSPECT"
-            ],
-            "set": {}
-        },
-        "authentication": "perform",
-        "root": "user",
-        "bounding": "strict",
-        "umask": "022",
-        "execinfo": "hide"
-    },
+    "version": "4.0.0",
     "roles": [
         {
             "name": "r_root",
@@ -82,6 +15,14 @@
             ],
             "tasks": [
                 {
+                    "options": {
+                        "workdir": {
+                            "default": "all"
+                        },
+                        "env": {
+                            "override_behavior": true
+                        }
+                    },
                     "name": "t_root",
                     "purpose": "access to every commands",
                     "cred": {
@@ -95,17 +36,10 @@
                         },
                         "capabilities": {
                             "default": "all",
-                            "sub": [
-                                "CAP_LINUX_IMMUTABLE"
-                            ]
+                            "sub": ["CAP_LINUX_IMMUTABLE"]
                         }
                     },
-                    "commands": "all",
-                    "options": {
-                        "env": {
-                            "override_behavior": true
-                        }
-                    }
+                    "commands": "all"
                 },
                 {
                     "name": "t_chsr",
@@ -113,13 +47,9 @@
                     "cred": {
                         "setuid": "root",
                         "setgid": "root",
-                        "capabilities": [
-                            "CAP_LINUX_IMMUTABLE"
-                        ]
+                        "capabilities": ["CAP_LINUX_IMMUTABLE"]
                     },
-                    "commands": [
-                        "/usr/bin/chsr ^.*$"
-                    ]
+                    "commands": ["/usr/bin/chsr ^.*$"]
                 }
             ]
         }

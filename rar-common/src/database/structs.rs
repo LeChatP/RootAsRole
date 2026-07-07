@@ -1,16 +1,15 @@
-use bon::{bon, Builder};
+use bon::{Builder, bon};
 use capctl::{Cap, CapSet};
-use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use strum::{Display, EnumIs, EnumString, FromRepr};
 
 use std::{
     cell::RefCell,
     error::Error,
-    fmt,
+    fmt::{self, Display},
     ops::{Index, Not},
     rc::{Rc, Weak},
+    str::FromStr,
 };
 
 use crate::{
@@ -23,14 +22,14 @@ use super::{
     options::{Level, Opt, OptBuilder},
 };
 
-#[derive(Deserialize, PartialEq, Eq, Debug, Default)]
-pub struct SConfig {
+#[derive(Deserialize, PartialEq, Eq, Debug, Default, Clone)]
+pub struct SPolicy {
     #[serde(default, deserialize_with = "sconfig_opt", alias = "o")]
     pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, alias = "r")]
     pub roles: Vec<Rc<RefCell<SRole>>>,
     #[serde(default, flatten)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 fn sconfig_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
@@ -38,17 +37,17 @@ where
     D: Deserializer<'de>,
 {
     let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
-    if let Some(opt) = opt {
-        opt.as_ref().borrow_mut().level = Level::Global;
-        Ok(Some(opt))
-    } else {
-        Ok(None)
-    }
+    opt.map_or_else(
+        || Ok(None),
+        |opt| {
+            opt.as_ref().borrow_mut().level = Level::Global;
+            Ok(Some(opt))
+        },
+    )
 }
 
-#[derive(Deserialize, Debug, Derivative, Default)]
+#[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
-#[derivative(PartialEq, Eq)]
 pub struct SRole {
     #[serde(alias = "n", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
@@ -64,26 +63,38 @@ pub struct SRole {
     )]
     pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
     #[serde(skip)]
-    #[derivative(PartialEq = "ignore")]
-    pub _config: Option<Weak<RefCell<SConfig>>>,
+    pub config: Option<Weak<RefCell<SPolicy>>>,
 }
+
+impl PartialEq for SRole {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.actors == other.actors
+            && self.tasks == other.tasks
+            && self.options == other.options
+            && self.extra_fields == other.extra_fields
+    }
+}
+
+impl Eq for SRole {}
 
 fn srole_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
-    if let Some(opt) = opt {
-        opt.as_ref().borrow_mut().level = Level::Role;
-        Ok(Some(opt))
-    } else {
-        Ok(None)
-    }
+    opt.map_or_else(
+        || Ok(None),
+        |opt| {
+            opt.as_ref().borrow_mut().level = Level::Role;
+            Ok(Some(opt))
+        },
+    )
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum IdTask {
     Name(String),
@@ -92,15 +103,15 @@ pub enum IdTask {
 
 impl Default for IdTask {
     fn default() -> Self {
-        IdTask::Number(0)
+        Self::Number(0)
     }
 }
 
 impl std::fmt::Display for IdTask {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            IdTask::Name(name) => write!(f, "{}", name),
-            IdTask::Number(id) => write!(f, "{}", id),
+            Self::Name(name) => write!(f, "{name}"),
+            Self::Number(id) => write!(f, "{id}"),
         }
     }
 }
@@ -108,14 +119,13 @@ impl std::fmt::Display for IdTask {
 pub(super) fn cmds_is_default(cmds: &SCommands) -> bool {
     cmds.default
         .as_ref()
-        .is_none_or(|b| *b == Default::default())
+        .is_none_or(|b| *b == SetBehavior::default())
         && cmds.add.is_empty()
         && cmds.sub.is_empty()
-        && cmds._extra_fields.is_empty()
+        && cmds.extra_fields.is_empty()
 }
 
-#[derive(Deserialize, Debug, Derivative, Default)]
-#[derivative(PartialEq, Eq)]
+#[derive(Deserialize, Debug, Default)]
 pub struct STask {
     #[serde(alias = "n", default, skip_serializing_if = "IdTask::is_number")]
     pub name: IdTask,
@@ -143,23 +153,36 @@ pub struct STask {
     )]
     pub options: Option<Rc<RefCell<Opt>>>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
     #[serde(skip)]
-    #[derivative(PartialEq = "ignore")]
-    pub _role: Option<Weak<RefCell<SRole>>>,
+    pub role: Option<Weak<RefCell<SRole>>>,
 }
+
+impl PartialEq for STask {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.purpose == other.purpose
+            && self.cred == other.cred
+            && self.commands == other.commands
+            && self.options == other.options
+            && self.extra_fields == other.extra_fields
+    }
+}
+
+impl Eq for STask {}
 
 fn stask_opt<'de, D>(deserializer: D) -> Result<Option<Rc<RefCell<Opt>>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let opt: Option<Rc<RefCell<Opt>>> = Option::deserialize(deserializer)?;
-    if let Some(opt) = opt {
-        opt.as_ref().borrow_mut().level = Level::Task;
-        Ok(Some(opt))
-    } else {
-        Ok(None)
-    }
+    opt.map_or_else(
+        || Ok(None),
+        |opt| {
+            opt.as_ref().borrow_mut().level = Level::Task;
+            Ok(Some(opt))
+        },
+    )
 }
 
 #[cfg_attr(test, derive(Clone))]
@@ -176,7 +199,7 @@ pub struct SCredentials {
     pub capabilities: Option<SCapabilities>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -188,25 +211,25 @@ pub enum SUserEither {
 
 impl From<SUserType> for SUserEither {
     fn from(actor: SUserType) -> Self {
-        SUserEither::MandatoryUser(actor)
+        Self::MandatoryUser(actor)
     }
 }
 
 impl From<SSetuidSet> for SUserEither {
     fn from(set: SSetuidSet) -> Self {
-        SUserEither::UserSelector(set)
+        Self::UserSelector(set)
     }
 }
 
 impl From<&str> for SUserEither {
     fn from(name: &str) -> Self {
-        SUserEither::MandatoryUser(name.into())
+        Self::MandatoryUser(name.into())
     }
 }
 
 impl From<u32> for SUserEither {
     fn from(id: u32) -> Self {
-        SUserEither::MandatoryUser(id.into())
+        Self::MandatoryUser(id.into())
     }
 }
 
@@ -237,15 +260,54 @@ pub struct SSetuidSet {
     pub sub: Vec<SUserType>,
 }
 
-#[derive(PartialEq, Eq, Display, Debug, EnumIs, Clone, Copy, FromRepr, EnumString)]
-#[strum(serialize_all = "lowercase")]
-#[derive(Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 #[repr(u32)]
 pub enum SetBehavior {
     #[default]
     None = HARDENED_ENUM_VALUE_0,
     All = HARDENED_ENUM_VALUE_1,
 }
+
+impl SetBehavior {
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+    #[must_use]
+    pub const fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+    #[must_use]
+    pub const fn from_repr(value: u32) -> Option<Self> {
+        match value {
+            HARDENED_ENUM_VALUE_0 => Some(Self::None),
+            HARDENED_ENUM_VALUE_1 => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+impl Display for SetBehavior {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::All => write!(f, "all"),
+        }
+    }
+}
+
+impl FromStr for SetBehavior {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(Self::None),
+            "all" => Ok(Self::All),
+            _ => Err(format!("Invalid SetBehavior value: {s}")),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum SGroupsEither {
@@ -256,25 +318,25 @@ pub enum SGroupsEither {
 
 impl From<SGroups> for SGroupsEither {
     fn from(group: SGroups) -> Self {
-        SGroupsEither::MandatoryGroups(group)
+        Self::MandatoryGroups(group)
     }
 }
 
 impl From<SSetgidSet> for SGroupsEither {
     fn from(set: SSetgidSet) -> Self {
-        SGroupsEither::GroupSelector(set)
+        Self::GroupSelector(set)
     }
 }
 
 impl From<&str> for SGroupsEither {
     fn from(name: &str) -> Self {
-        SGroupsEither::MandatoryGroup(name.into())
+        Self::MandatoryGroup(name.into())
     }
 }
 
 impl From<u32> for SGroupsEither {
     fn from(id: u32) -> Self {
-        SGroupsEither::MandatoryGroup(id.into())
+        Self::MandatoryGroup(id.into())
     }
 }
 
@@ -306,7 +368,7 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
         self.add.add(cap);
         self
     }
-    pub fn add_all(mut self, set: CapSet) -> Self {
+    pub const fn add_all(mut self, set: CapSet) -> Self {
         self.add = set;
         self
     }
@@ -314,13 +376,13 @@ impl<S: s_capabilities_builder::State> SCapabilitiesBuilder<S> {
         self.sub.add(cap);
         self
     }
-    pub fn sub_all(mut self, set: CapSet) -> Self {
+    pub const fn sub_all(mut self, set: CapSet) -> Self {
         self.sub = set;
         self
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, EnumIs, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
 pub enum SCommand {
     Simple(String),
@@ -333,7 +395,7 @@ pub struct SCommands {
     pub default: Option<SetBehavior>,
     pub add: Vec<SCommand>,
     pub sub: Vec<SCommand>,
-    pub _extra_fields: Map<String, Value>,
+    pub extra_fields: Map<String, Value>,
 }
 
 // ------------------------
@@ -342,31 +404,31 @@ pub struct SCommands {
 
 impl From<usize> for IdTask {
     fn from(id: usize) -> Self {
-        IdTask::Number(id)
+        Self::Number(id)
     }
 }
 
 impl From<String> for IdTask {
     fn from(name: String) -> Self {
-        IdTask::Name(name)
+        Self::Name(name)
     }
 }
 
 impl From<&str> for IdTask {
     fn from(name: &str) -> Self {
-        IdTask::Name(name.to_string())
+        Self::Name(name.to_string())
     }
 }
 
 impl From<&str> for SCommand {
     fn from(name: &str) -> Self {
-        SCommand::Simple(name.to_string())
+        Self::Simple(name.to_string())
     }
 }
 
 impl From<CapSet> for SCapabilities {
     fn from(capset: CapSet) -> Self {
-        SCapabilities {
+        Self {
             add: capset,
             ..Default::default()
         }
@@ -383,28 +445,35 @@ impl From<CapSet> for SCapabilities {
 // Implementations for Struct navigation
 // ========================
 #[bon]
-impl SConfig {
+impl SPolicy {
     #[builder]
     pub fn new(
         #[builder(field)] roles: Vec<Rc<RefCell<SRole>>>,
         #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Global))))]
         options: Option<Rc<RefCell<Opt>>>,
-        _extra_fields: Option<Map<String, Value>>,
+        extra_fields: Option<Map<String, Value>>,
     ) -> Rc<RefCell<Self>> {
-        let c = Rc::new(RefCell::new(SConfig {
+        let c = Rc::new(RefCell::new(Self {
             roles: roles.clone(),
-            options: options.clone(),
-            _extra_fields: _extra_fields.unwrap_or_default().clone(),
+            options,
+            extra_fields: extra_fields.unwrap_or_default(),
         }));
-        for role in &roles {
-            role.borrow_mut()._config = Some(Rc::downgrade(&c));
+        for role in roles {
+            role.borrow_mut().config = Some(Rc::downgrade(&c));
         }
         c
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_empty() && self.options.is_none() && self.extra_fields.is_empty()
     }
 }
 
 pub trait RoleGetter {
     fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>>;
+    /// # Errors
+    /// Returns an error if the role or task is not found.
     fn task<T: Into<IdTask>>(
         &self,
         role: &str,
@@ -416,7 +485,7 @@ pub trait TaskGetter {
     fn task(&self, name: &IdTask) -> Option<Rc<RefCell<STask>>>;
 }
 
-impl RoleGetter for Rc<RefCell<SConfig>> {
+impl RoleGetter for Rc<RefCell<SPolicy>> {
     fn role(&self, name: &str) -> Option<Rc<RefCell<SRole>>> {
         self.as_ref()
             .borrow()
@@ -433,7 +502,7 @@ impl RoleGetter for Rc<RefCell<SConfig>> {
         let name = name.into();
         self.role(role)
             .and_then(|role| role.as_ref().borrow().task(&name).cloned())
-            .ok_or_else(|| format!("Task {} not found in role {}", name, role).into())
+            .ok_or_else(|| format!("Task {name} not found in role {role}").into())
     }
 }
 
@@ -448,7 +517,7 @@ impl TaskGetter for Rc<RefCell<SRole>> {
     }
 }
 
-impl<S: s_config_builder::State> SConfigBuilder<S> {
+impl<S: s_policy_builder::State> SPolicyBuilder<S> {
     pub fn role(mut self, role: Rc<RefCell<SRole>>) -> Self {
         self.roles.push(role);
         self
@@ -487,24 +556,26 @@ impl SRole {
         #[builder(field)] actors: Vec<SActor>,
         #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Role))))]
         options: Option<Rc<RefCell<Opt>>>,
-        #[builder(default)] _extra_fields: Map<String, Value>,
+        #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Rc<RefCell<Self>> {
-        let s = Rc::new(RefCell::new(SRole {
+        let s = Rc::new(RefCell::new(Self {
             name,
             actors,
             tasks,
             options,
-            _extra_fields,
-            _config: None,
+            extra_fields,
+            config: None,
         }));
-        for task in s.as_ref().borrow_mut().tasks.iter() {
-            task.borrow_mut()._role = Some(Rc::downgrade(&s));
+        for task in &s.as_ref().borrow_mut().tasks {
+            task.borrow_mut().role = Some(Rc::downgrade(&s));
         }
         s
     }
-    pub fn config(&self) -> Option<Rc<RefCell<SConfig>>> {
-        self._config.as_ref()?.upgrade()
+    #[must_use]
+    pub fn config(&self) -> Option<Rc<RefCell<SPolicy>>> {
+        self.config.as_ref()?.upgrade()
     }
+    #[must_use]
     pub fn task(&self, name: &IdTask) -> Option<&Rc<RefCell<STask>>> {
         self.tasks
             .iter()
@@ -522,25 +593,26 @@ impl STask {
         #[builder(default)] commands: SCommands,
         #[builder(with = |f : impl Fn(OptBuilder) -> Opt | rc_refcell!(f(Opt::builder(Level::Task))))]
         options: Option<Rc<RefCell<Opt>>>,
-        #[builder(default)] _extra_fields: Map<String, Value>,
-        _role: Option<Weak<RefCell<SRole>>>,
+        #[builder(default)] extra_fields: Map<String, Value>,
+        role: Option<Weak<RefCell<SRole>>>,
     ) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(STask {
+        Rc::new(RefCell::new(Self {
             name,
             purpose,
             cred,
             commands,
             options,
-            _extra_fields,
-            _role,
+            extra_fields,
+            role,
         }))
     }
+    #[must_use]
     pub fn role(&self) -> Option<Rc<RefCell<SRole>>> {
-        self._role.as_ref()?.upgrade()
+        self.role.as_ref()?.upgrade()
     }
 }
 
-impl Index<usize> for SConfig {
+impl Index<usize> for SPolicy {
     type Output = Rc<RefCell<SRole>>;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -559,22 +631,23 @@ impl Index<usize> for SRole {
 #[bon]
 impl SCommands {
     #[builder]
-    pub fn new(
+    pub const fn new(
         #[builder(start_fn)] default: SetBehavior,
         #[builder(default, with = FromIterator::from_iter)] add: Vec<SCommand>,
         #[builder(default, with = FromIterator::from_iter)] sub: Vec<SCommand>,
-        #[builder(default, with = <_>::from_iter)] _extra_fields: Map<String, Value>,
+        #[builder(default, with = <_>::from_iter)] extra_fields: Map<String, Value>,
     ) -> Self {
-        SCommands {
+        Self {
             default: Some(default),
             add,
             sub,
-            _extra_fields,
+            extra_fields,
         }
     }
 }
 
 impl SCapabilities {
+    #[must_use]
     pub fn to_capset(&self) -> CapSet {
         let mut capset = match self.default_behavior {
             SetBehavior::All => capctl::bounding::probe() & CapSet::not(CapSet::empty()),
@@ -601,7 +674,7 @@ mod tests {
 
     use capctl::Cap;
     use chrono::Duration;
-    use linked_hash_set::LinkedHashSet;
+    use indexmap::IndexSet;
 
     use crate::{
         as_borrow,
@@ -616,6 +689,7 @@ mod tests {
 
     use super::*;
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_deserialize() {
         let config = r#"
@@ -682,32 +756,37 @@ mod tests {
             ]
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
+        let config: SPolicy = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
-        let default = LinkedHashSet::new();
-        assert!(path
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .front()
-            .is_some_and(|s| s == "path_add"));
+        let default = IndexSet::new();
+        assert!(
+            path.add
+                .as_ref()
+                .unwrap_or(&default)
+                .first()
+                .is_some_and(|s| s == "path_add")
+        );
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
         assert!(env.override_behavior.is_some_and(|b| b));
-        assert!(env
-            .keep
-            .as_ref()
-            .unwrap_or(&LinkedHashSet::new())
-            .front()
-            .is_some_and(|s| s == "keep_env"));
-        assert!(env
-            .check
-            .as_ref()
-            .unwrap_or(&LinkedHashSet::new())
-            .front()
-            .is_some_and(|s| s == "check_env"));
+        assert!(
+            env.keep
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .next()
+                .is_some_and(|s| s == "keep_env")
+        );
+        assert!(
+            env.check
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .next()
+                .is_some_and(|s| s == "check_env")
+        );
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
@@ -721,7 +800,7 @@ mod tests {
             actor0,
             &SActor::User {
                 id: Some("user1".into()),
-                _extra_fields: Map::default()
+                extra_fields: Map::default()
             }
         );
         let actor1 = &config.roles[0].as_ref().borrow().actors[1];
@@ -731,9 +810,9 @@ mod tests {
                     assert_eq!(&groups[0], "group1");
                     assert_eq!(groups[1], 1000);
                 }
-                _ => panic!("unexpected actor group type"),
+                SGroups::Single(_) => panic!("unexpected actor group type"),
             },
-            _ => panic!("unexpected actor {:?}", actor1),
+            _ => panic!("unexpected actor {actor1:?}"),
         }
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
@@ -761,6 +840,8 @@ mod tests {
         assert_eq!(commands.add[0], SCommand::Simple("cmd1".into()));
         assert_eq!(commands.sub[0], SCommand::Simple("cmd2".into()));
     }
+
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_unknown_fields() {
         let config = r#"
@@ -830,22 +911,22 @@ mod tests {
             "unknown": "unknown"
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
-        assert_eq!(config._extra_fields.get("unknown").unwrap(), "unknown");
+        let config: SPolicy = serde_json::from_str(config).unwrap();
+        assert_eq!(config.extra_fields.get("unknown").unwrap(), "unknown");
 
         let binding = config.options.unwrap();
         let options = binding.as_ref().borrow();
         let env = &options.env.as_ref().unwrap();
-        assert_eq!(env._extra_fields.get("unknown").unwrap(), "unknown");
-        assert_eq!(options._extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(env.extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(options.extra_fields.get("unknown").unwrap(), "unknown");
         let timeout = options.timeout.as_ref().unwrap();
-        assert_eq!(timeout._extra_fields.get("unknown").unwrap(), "unknown");
-        assert_eq!(config._extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(timeout.extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(config.extra_fields.get("unknown").unwrap(), "unknown");
         let actor0 = &as_borrow!(config.roles[0]).actors[0];
         match actor0 {
-            SActor::User { id, _extra_fields } => {
+            SActor::User { id, extra_fields } => {
                 assert_eq!(id.as_ref().unwrap(), "user1");
-                assert_eq!(_extra_fields.get("unknown").unwrap(), "unknown");
+                assert_eq!(extra_fields.get("unknown").unwrap(), "unknown");
             }
             _ => panic!("unexpected actor type"),
         }
@@ -862,7 +943,7 @@ mod tests {
             config.roles[0].as_ref().borrow()[0]
                 .as_ref()
                 .borrow()
-                ._extra_fields
+                .extra_fields
                 .get("unknown")
                 .as_ref()
                 .unwrap()
@@ -872,11 +953,12 @@ mod tests {
         );
         let role = config.roles[0].as_ref().borrow();
         let cred = &role[0].as_ref().borrow().cred;
-        assert_eq!(cred._extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(cred.extra_fields.get("unknown").unwrap(), "unknown");
         let commands = &as_borrow!(role[0]).commands;
-        assert_eq!(commands._extra_fields.get("unknown").unwrap(), "unknown");
+        assert_eq!(commands.extra_fields.get("unknown").unwrap(), "unknown");
     }
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_deserialize_alias() {
         let config = r#"
@@ -933,31 +1015,34 @@ mod tests {
             ]
         }
         "#;
-        let config: SConfig = serde_json::from_str(config).unwrap();
+        let config: SPolicy = serde_json::from_str(config).unwrap();
         let options = config.options.as_ref().unwrap().as_ref().borrow();
         let path = options.path.as_ref().unwrap();
         assert_eq!(path.default_behavior, PathBehavior::Delete);
-        let default = LinkedHashSet::new();
-        assert!(path
-            .add
-            .as_ref()
-            .unwrap_or(&default)
-            .front()
-            .is_some_and(|s| s == "path_add"));
+        let default = IndexSet::new();
+        assert!(
+            path.add
+                .as_ref()
+                .unwrap_or(&default)
+                .first()
+                .is_some_and(|s| s == "path_add")
+        );
         let env = options.env.as_ref().unwrap();
         assert_eq!(env.default_behavior, EnvBehavior::Delete);
-        assert!(env
-            .keep
-            .as_ref()
-            .unwrap()
-            .front()
-            .is_some_and(|s| s == "keep_env"));
-        assert!(env
-            .check
-            .as_ref()
-            .unwrap()
-            .front()
-            .is_some_and(|s| s == "check_env"));
+        assert!(
+            env.keep
+                .as_ref()
+                .unwrap()
+                .first()
+                .is_some_and(|s| s == "keep_env")
+        );
+        assert!(
+            env.check
+                .as_ref()
+                .unwrap()
+                .first()
+                .is_some_and(|s| s == "check_env")
+        );
         assert!(options.root.as_ref().unwrap().is_privileged());
         assert!(options.bounding.as_ref().unwrap().is_ignore());
         assert_eq!(options.authentication, Some(SAuthentication::Skip));
@@ -980,9 +1065,9 @@ mod tests {
                     assert_eq!(groups[0], SGroupType::from("group1"));
                     assert_eq!(groups[1], SGroupType::from(1000));
                 }
-                _ => panic!("unexpected actor group type"),
+                SGroups::Single(_) => panic!("unexpected actor group type"),
             },
-            _ => panic!("unexpected actor {:?}", actor1),
+            _ => panic!("unexpected actor {actor1:?}"),
         }
         let role = config.roles[0].as_ref().borrow();
         assert_eq!(as_borrow!(role[0]).purpose.as_ref().unwrap(), "purpose1");
@@ -1008,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .role(
                 SRole::builder("role1")
                     .actor(SActor::user("user1").build())
@@ -1082,7 +1167,7 @@ mod tests {
 
     #[test]
     fn test_serialize_operride_behavior_option() {
-        let config = SConfig::builder()
+        let config = SPolicy::builder()
             .options(|opt| {
                 opt.env(
                     SEnvOptions::builder(EnvBehavior::Inherit)
