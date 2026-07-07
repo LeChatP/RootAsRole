@@ -27,7 +27,7 @@ use crate::{cli::editor::start_editing, util::escape_parser_string_vec};
 pub fn main<I, S>(
     #[builder(start_fn)] storage: &mut FileSettings,
     #[builder(start_fn)] args: I,
-    #[builder(default = RulesetStatus::NotEnforced)] ruleset: RulesetStatus,
+    #[builder(default = &RulesetStatus::NotEnforced)] ruleset: &RulesetStatus,
     folder: Option<&PathBuf>,
 ) -> Result<bool, Box<dyn Error>>
 where
@@ -48,7 +48,7 @@ where
     }
     debug!("Inputs : {inputs:?}");
     if inputs.editor {
-        if ruleset == RulesetStatus::NotEnforced {
+        if ruleset == &RulesetStatus::NotEnforced {
             return Err("Editor mode requires landlock to be enforced.".into());
         }
         if let Some(path) = inputs.editor_path {

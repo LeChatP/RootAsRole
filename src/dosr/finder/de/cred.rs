@@ -702,6 +702,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_setgroupsdeserializerreturn_filter() {
         let gid1 = get_non_root_gid(0).unwrap();
         let gid2 = get_non_root_gid(1).unwrap();

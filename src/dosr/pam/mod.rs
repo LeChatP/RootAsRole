@@ -2,9 +2,9 @@ use std::{borrow::Cow, ffi::CStr};
 
 use bon::Builder;
 use log::{debug, error, info, warn};
-use nonstick::{
-    AuthnFlags, ConversationAdapter, ErrorCode, Result as PamResult, Transaction,
-    TransactionBuilder,
+use nonstick2::{
+    AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, Result as PamResult,
+    TransactionBuilder, conv::Demux, libpam::SessionActive,
 };
 use pcre2::bytes::RegexBuilder;
 
@@ -32,7 +32,7 @@ const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
 pub(crate) const PAM_PROMPT: &str = "Password: ";
 
 #[derive(Builder)]
-struct SrConversationHandler<'a> {
+pub struct SrConversationHandler<'a> {
     #[builder(into)]
     username: Option<Cow<'a, str>>,
     #[builder(default = "Password: ", into)]
@@ -127,25 +127,12 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
-pub struct PamSession<T: Transaction> {
-    _txn: T,
-}
-
-impl<T: Transaction> Drop for PamSession<T> {
-    fn drop(&mut self) {
-        // TODO: Enable session closing when nonstick library support it
-        // if let Err(e) = self.txn.close_session(AuthnFlags::SILENT) {
-        //     error!("Failed to close PAM session: {}", e);
-        // }
-    }
-}
-
 pub(super) fn start_session<'a>(
-    authentication: &SAuthentication,
+    authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
     cli: &Cli,
-) -> SrResult<PamSession<impl Transaction + 'a>> {
+) -> SrResult<LibPamTransaction<Demux<SrConversationHandler<'a>>, SessionActive>> {
     let need_password_auth = if authentication.is_skip() {
         warn!("Skipping password authentication (PAM session-only mode).");
         false
@@ -167,7 +154,7 @@ pub(super) fn start_session<'a>(
         .use_stdin(cli.stdin)
         .build();
 
-    let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
+    let txn = TransactionBuilder::new_with_service(PAM_SERVICE)
         .username(&user.user.name)
         .build(conv.into_conversation())
         .map_err(|e| {
@@ -175,17 +162,35 @@ pub(super) fn start_session<'a>(
             SrError::SystemError
         })?;
 
-    if need_password_auth {
-        txn.authenticate(AuthnFlags::SILENT).map_err(|e| {
-            error!("Authentication failed: {e}");
+    let txn = if need_password_auth {
+        txn.authenticate(AuthnFlags::SILENT)
+            .map_err(|e| {
+                error!("Authentication failed: {}", e.1);
+                SrError::AuthenticationFailed
+            })?
+            .account_management(AuthnFlags::SILENT)
+            .map_err(|e| {
+                error!("Authentication failed: {}", e.1);
+                SrError::AuthenticationFailed
+            })?
+    } else {
+        txn.account_management(AuthnFlags::SILENT).map_err(|e| {
+            error!("Account management failed: {}", e.1);
             SrError::AuthenticationFailed
-        })?;
-    }
+        })?
+    };
 
-    txn.account_management(AuthnFlags::SILENT).map_err(|e| {
-        error!("Account management failed: {e}");
-        SrError::AuthenticationFailed
-    })?;
+    let txn = txn
+        .establish_credentials()
+        .map_err(|e| {
+            error!("Failed to establish credentials: {}", e.1);
+            SrError::SystemError
+        })?
+        .open_session()
+        .map_err(|e| {
+            error!("Failed to open session: {}", e.1);
+            SrError::SystemError
+        })?;
 
     #[cfg(feature = "timeout")]
     {
@@ -195,7 +200,7 @@ pub(super) fn start_session<'a>(
         })?;
     }
 
-    Ok(PamSession { _txn: txn })
+    Ok(txn)
 }
 
 #[cfg(test)]
@@ -238,7 +243,7 @@ mod tests {
     fn pam_ready(user: &Cred) -> bool {
         let conv = SrConversationHandler::builder().no_interact(true).build();
 
-        let Ok(mut txn) = TransactionBuilder::new_with_service(PAM_SERVICE)
+        let Ok(txn) = TransactionBuilder::new_with_service(PAM_SERVICE)
             .username(&user.user.name)
             .build(conv.into_conversation())
         else {
@@ -325,7 +330,7 @@ mod tests {
 
         // When authentication is skipped, it should always succeed
         let cli = Cli::builder().prompt("Password: ").build();
-        let result = start_session(&authentication, &timeout, &user, &cli);
+        let result = start_session(authentication, &timeout, &user, &cli);
         assert!(result.is_ok());
     }
 
@@ -342,7 +347,7 @@ mod tests {
         let user = create_test_user();
 
         let cli = Cli::builder().prompt("Password: ").build();
-        let _ = start_session(&authentication, &timeout, &user, &cli);
+        let _ = start_session(authentication, &timeout, &user, &cli);
     }
 
     #[test]
@@ -430,7 +435,7 @@ mod tests {
 
         let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(start_session(&auth, &timeout_ppid, &user, &cli).is_ok());
-        assert!(start_session(&auth, &timeout_tty, &user, &cli).is_ok());
+        assert!(start_session(auth, &timeout_ppid, &user, &cli).is_ok());
+        assert!(start_session(auth, &timeout_tty, &user, &cli).is_ok());
     }
 }

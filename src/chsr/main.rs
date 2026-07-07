@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if cli::main(&mut settings, std::env::args().skip(1))
-        .ruleset(ruleset_status)
+        .ruleset(&ruleset_status)
         .folder(&folder)
         .call()
         .map_err(|e| error!("Unable to edit policy : {e}"))

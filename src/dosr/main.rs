@@ -334,7 +334,8 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Best exec settings: {execcfg:?}");
 
-    let _session = start_session(&execcfg.auth, &execcfg.timeout, &user, &args)?;
+    // Let the PAM session live until the end of the program
+    let session = start_session(execcfg.auth, &execcfg.timeout, &user, &args)?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
@@ -451,6 +452,8 @@ fn main_inner() -> SrResult<()> {
             std::process::exit(1);
         }
     };
+    // drop PAM session here for underlining to the compiler that the session ends here.
+    drop(session);
     std::process::exit(status.code().unwrap_or(1));
 }
 

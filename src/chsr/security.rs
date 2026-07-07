@@ -73,7 +73,7 @@ pub fn full_program_lock(
             AccessFs::from_read(ABI::V6),
         ))?
         .set_compatibility(landlock::CompatLevel::BestEffort)
-        .set_no_new_privs(true)
+        .no_new_privs(true)
         .restrict_self()?)
 }
 
