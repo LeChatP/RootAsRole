@@ -187,5 +187,5 @@ They represent discovered execution requirements and are useful in IaC/security 
 
 See also:
 
-- [chsr command overview](README.md)
+- [chsr command overview](index.md)
 - [File Format Conversion](convert.md)
