@@ -6,6 +6,7 @@ title = "RootAsRole Documentation"
 description = "Practical documentation for RootAsRole"
 
 [output.html]
+site-url = "/RootAsRole/"
 git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/master/book"
 edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{path}"
 theme = "theme"
