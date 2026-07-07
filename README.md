@@ -1,7 +1,7 @@
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./assets/logo/svg/color/logo-mascot-full.svg" width=50%>
+  <img src="./book/src/assets/logo/svg/color/logo-mascot-full.svg" width=50%>
  </p>
  <p align="center">
   
@@ -214,6 +214,6 @@ This project was initiated by **IRIT** and sponsored by both **IRIT** and **Airb
 <!-- markdownlint-capture -->
 <!-- markdownlint-disable -->
 <p align="center">
-  <img src="./assets/logo/svg/color/logo-vertical.svg" width=30%>
+  <img src="./book/src/assets/logo/svg/color/logo-vertical.svg" width=30%>
  </p>
 <!-- markdownlint-restore -->
