@@ -2,7 +2,7 @@
     content: "";
     display: block;
     height: 100px;
-    background: url("/assets/logo/svg/color/logo-mascot-stare.svg") no-repeat center;
+    background: url("./assets/logo/svg/color/logo-mascot-stare.svg") no-repeat center;
     background-size: contain;
     margin: 10px 0;
 }
@@ -23,7 +23,7 @@ blockquote.caroot-stare::after {
     left: 10px;
     width: 60px;
     height: 60px;
-    background-image: url('/assets/logo/svg/color/stare.svg');
+    background-image: url('./assets/logo/svg/color/stare.svg');
     background-size: contain;
     background-repeat: no-repeat;
     bottom: 0;
@@ -45,7 +45,7 @@ blockquote.caroot:after {
     left: 20px;
     width: 60px;
     height: 80px;
-    background-image: url('/assets/logo/svg/color/mascot.svg');
+    background-image: url('./assets/logo/svg/color/mascot.svg');
     background-size: contain;
     background-repeat: no-repeat;
     bottom: 0;
