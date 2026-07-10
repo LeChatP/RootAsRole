@@ -1,5 +1,9 @@
 # Architecture Overview
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 RootAsRole has a combinaison of several designs for profiting of several advantages : Performance, organisational means and technical enforcement precision.
 
 ## Binaries

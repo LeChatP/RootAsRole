@@ -1,5 +1,9 @@
 # `chsr`
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 `chsr` is the policy administration tool for RootAsRole.
 
 Use it to manage roles, tasks, command rules, credentials, and options.
