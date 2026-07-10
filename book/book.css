@@ -1,3 +1,16 @@
+@import "assets/css/excon.css";
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Excon-Variable', sans-serif;
+    font-weight: 900;
+}
+
+h1.menu-title {
+    color: #dc7228;
+    margin-bottom: 10px;
+    font-weight: 900;
+}
+
 .sidebar-scrollbox::before {
     content: "";
     display: block;
@@ -49,4 +62,8 @@ blockquote.caroot:after {
     background-size: contain;
     background-repeat: no-repeat;
     bottom: 0;
+}
+
+.part-title {
+    font-family: 'Excon-Bold', sans-serif;
 }
