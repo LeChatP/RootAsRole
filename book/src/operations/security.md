@@ -1,5 +1,9 @@
 # Security Model
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 RootAsRole enforces delegated privilege. In practice, policy quality is the main security boundary.
 
 ## Security controls

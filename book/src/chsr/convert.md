@@ -1,5 +1,9 @@
 # File Format Conversion
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 `chsr convert` converts RootAsRole policy storage between JSON and CBOR.
 
 ## Supported formats

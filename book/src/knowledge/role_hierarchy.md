@@ -1,5 +1,9 @@
 # Role hierarchy in RootAsRole
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 Role hierarchy is a standard RBAC mechanism used to reduce policy duplication while preserving semantic clarity @@sandhuRoleBasedAccessControl1996 @@ferraioloProposedNISTStandard2001.
 
 In RootAsRole, hierarchy is useful when several roles share a common base (for example diagnostic commands), while child roles add stricter or domain-specific tasks.

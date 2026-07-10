@@ -1,5 +1,9 @@
 # FAQ
 
+<blockquote class="caroot-stare">
+This section is currently under construction.
+</blockquote>
+
 Common issues seen during installation, policy authoring, and runtime testing.
 
 ## Why not `cargo install rootasrole`?

@@ -1,35 +1,8 @@
-# Introduction
+# The RootAsRole project
 
-RootAsRole comes from my PhD work on least administrative privilege.
+*by Eddie Billoir*
 
-The initial motivation was simple: in many production environments, administrators still receive broad and persistent root access, even when they only need a narrow set of actions.
+This is the documentation for the RootAsRole project, assuming that you want to use the latest version of the project.
+If you are looking for older versions, please refer to the github history of the project.
 
-That creates two problems at the same time:
-
-- intentional abuse by insiders with too much privilege,
-- unintentional compromise through supply-chain or tooling issues.
-
-So the practical question became: how do we delegate admin work without delegating full root?
-
-## Project objectives
-
-- Apply PoLAP in day-to-day operations.
-- Delegate tasks, not unrestricted identities.
-- Never give full root rights when not needed.
-- Keep policy explicit and auditable.
-
-## Core components
-
-- `dosr`: runs a command only if a role/task match is found.
-- `chsr`: creates and maintains policy, roles, tasks, and execution options.
-- `capable`: helps observe capability requirements during validation and tests.
-
-## Why another tool?
-
-Linux already has strong primitives (permissions, ACLs, capabilities, MAC), but composing them coherently for co-administration is difficult. In practice, complexity often leads to over-permissioned shortcuts.
-
-RootAsRole is the attempt to make that tractable: a policy-driven orchestrator that keeps delegation fine-grained and execution just-in-time.
-
-Start with [Installation](guide/installation.md), then follow [First Policy in 10 Minutes](getting-started/quickstart.md).
-
-For internals, see [Architecture Overview](architecture/overview.md).
+In this book, you'll find CaRoot, our mascott! It'll give advices all along you read the documentation.

@@ -1,5 +1,9 @@
 # RootAsRole Command matching
 
+<blockquote class="caroot-stare">
+This section is outdated
+</blockquote>
+
 A command entry in RootAsRole has two parts: command path and command arguments.
 
 The command path is the executable path. It can be exact (for example `/usr/bin/ls`) or wildcarded (for example `/usr/bin/*`). A complete wildcard (`**`) is possible but usually too permissive for production.

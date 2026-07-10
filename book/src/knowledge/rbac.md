@@ -1,5 +1,9 @@
 # RBAC for RootAsRole
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 RootAsRole uses a role-centric model because admin delegation is first an assignment problem: who can run which privileged action, under which credentials @@sandhuRoleBasedAccessControl1996 @@ferraioloProposedNISTStandard2001.
 
 ## Why RBAC is the right baseline here

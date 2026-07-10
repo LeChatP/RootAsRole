@@ -1,5 +1,9 @@
 # `capable`
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 `capable` is a helper utility used during policy design and testing.
 
 It observes capability requests made by a command and helps build a minimal capability allow-list.

@@ -1,5 +1,9 @@
 # Linux capabilities and RootAsRole
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 Linux capabilities split superuser privileges into explicit units. This is the technical basis that allows RootAsRole to enforce least privilege during command execution @@wazanRootAsRoleSecurityModule2022 @@billoirImplementingPrincipleLeast2023.
 
 ## Why this is central to the project

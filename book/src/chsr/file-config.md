@@ -1,5 +1,9 @@
 # Configuration File Format
 
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
 This page documents the RootAsRole policy file, usually `/etc/security/rootasrole.json`.
 
 Use `chsr` for routine edits. Keep manual JSON editing for advanced workflows and reviewed changes.

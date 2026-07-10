@@ -1,50 +1,43 @@
 # Summary
 
-[The RootAsRole project](rootasrole.md)
-[Introduction](README.md)
+- [The RootAsRole project](README.md)
+- [Introduction](intro.md)
+- [Features](features.md)
+- [Compatibility](compatibility.md)
+- [Comparison with other tools](comparison.md)
 
 # Getting Started
 
 - [Installation](guide/installation.md)
-- [First Policy in 10 Minutes](getting-started/quickstart.md)
+- [Quickstart: First Policy in 10 Minutes](getting-started/quickstart.md)
 
-# CLI Reference
+# CLI Tools
+  - [`dosr`](dosr/README.md)
+    - [`Performance`](dosr/performance.md)
+  - [`chsr`](chsr/README.md)
+  - [`capable`](capable/README.md)
 
-- [`dosr`](dosr/README.md)
-- [`chsr`](chsr/README.md)
-- [`capable`](capable/README.md)
+# Policy & Configuration
+  - [Policy Model and Inheritance](policy/model.md)
+  - [Configuration File Format](chsr/file-config.md)
+  - [File Format Conversion (JSON/CBOR)](chsr/convert.md)
 
-# Policy Reference
-
-- [Policy Model and Inheritance](policy/model.md)
-- [Configuration File Format](chsr/file-config.md)
-- [File Format Conversion (JSON/CBOR)](chsr/convert.md)
-
-# Operations
-
-- [Security Model](operations/security.md)
-- [FAQ](faq.md)
-
-# Developer Guide
+# Deep Dives & Architecture
 
 - [Architecture Overview](architecture/overview.md)
+- [Security Model](operations/security.md)
+- [Research articles](research.md)
+- [FAQ](faq.md)
+  - [Is a Linux system without root user possible?](knowledge/no-root.md)
+  - [What is eBPF?](knowledge/ebpf.md)
+  - [Why use Linux Capabilities?](knowledge/linux_capabilities.md)
+  - [Why use a Role-Based Access Model (RBAC)?](knowledge/rbac.md)
+  - [Static/Dynamic Separation of Duties (SoD)](knowledge/sod.md)
+  - [How Role Hierarchy works](knowledge/role_hierarchy.md)
+  - [RootAsRole Command matching](knowledge/command_match.md)
+
+# Community & Development
+
 - [How to contribute](dev/CONTRIBUTE.md)
 - [Code of Conduct](dev/CODE_OF_CONDUCT.md)
-
-# Appendix
-
 - [History](HISTORY.md)
-
-# Knowledge Guide
-
-- [Why you need to use Linux Capabilities](knowledge/linux_capabilities.md)
-- [Why you need to use Role-Based Access Model](knowledge/rbac.md)
-- [Static/Dynamic Separation of Duties notion](knowledge/sod.md)
-- [How does work role hierarchy feature](knowledge/role_hierarchy.md)
-- [RootAsRole Command matching](knowledge/command_match.md)
-- [What is eBPF ?](knowledge/ebpf.md)
-- [Is a Linux system without root user possible ?](knowledge/no-root.md)
-
-# Reference Guide
-
-[Contributors](misc/contributors.md)
