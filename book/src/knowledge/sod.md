@@ -1,4 +1,4 @@
-# Separation of duties in RootAsRole
+# Separation of duties
 
 <blockquote class="caroot-stare">
 This section needs rewriting.

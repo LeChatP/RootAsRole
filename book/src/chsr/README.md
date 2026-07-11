@@ -4,7 +4,7 @@
 This section needs rewriting.
 </blockquote>
 
-`chsr` is the policy administration tool for RootAsRole.
+`chsr` is the policy administration tool for RaR.
 
 Use it to manage roles, tasks, command rules, credentials, and options.
 
@@ -28,7 +28,7 @@ chsr [COMMAND] [ARGS...]
 
 `chsr editor` opens an interactive policy editing mode.
 
-When the edit session is applied, RootAsRole validates the policy before saving.
+When the edit session is applied, RaR validates the policy before saving.
 Invalid content is rejected with explicit errors.
 
 Use `chsr editor` for multi-field edits when you want immediate validation.

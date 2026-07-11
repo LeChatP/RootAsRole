@@ -4,7 +4,9 @@
 This section needs rewriting.
 </blockquote>
 
-RootAsRole enforces delegated privilege. In practice, policy quality is the main security boundary.
+A software security model is a conceptual framework that defines the rules, boundaries, and access controls a system must follow to protect its data and resources from unauthorized use or tampering.
+
+In the RaR context, it describes the security mechanisms that secures the program from its own usage.
 
 ## Security controls
 

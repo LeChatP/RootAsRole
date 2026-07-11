@@ -1,28 +1,9 @@
-# Linux capabilities and RootAsRole
+# Linux capabilities
 
-<blockquote class="caroot-stare">
-This section needs rewriting.
-</blockquote>
+Linux implements a fine-grained privilege model through capabilities @@millerCapabilityMythsDemolished2003 (known as capability module), which partition the comprehensive power of the superuser (*root*) into distinct, manageable units. This mechanism allows specific privileges to be delegated to processes on an as-needed basis, obviating the requirement for them to operate with full root permissions. This design philosophy enhances system security by adhering to PoLP.
 
-Linux capabilities split superuser privileges into explicit units. This is the technical basis that allows RootAsRole to enforce least privilege during command execution @@wazanRootAsRoleSecurityModule2022 @@billoirImplementingPrincipleLeast2023.
+The concept was originally derived from the IEEE POSIX 1003.1e draft standard @@ieeeandtheopengroupIEEEOpenGroup2024, @@securityworkinggroupDraftStandardInformation1997a. Although this draft was ultimately withdrawn, its concepts were adopted and have since been independently maintained and significantly enhanced by the Linux kernel development community. The result is a LSM for defining discrete and mandatory access control policy for privileges on a per-thread basis. @@wazanRootAsRoleSecurityModule2022 @@billoirImplementingPrincipleLeast2023 @@billoirImplementingPrincipleLeast2024
 
-## Why this is central to the project
+In other terms, Linux capabilities switch from an Identity based access control with the root user to a set of privileges that can be granted to processes. It is an interesting features as long it allows to rely on a new mechanism to create organisational policies, such as Roles. This is where all started with this project.
 
-RootAsRole does not only decide *who* can run a command; it also controls *which privileges* are granted at execution time (`cred.capabilities`, `setuid`, `setgid`).
-
-In practice, this enables:
-
-- privilege minimization per task
-- reduction of full-root execution paths
-- auditable privilege intent in policy
-
-## Operational guidance
-
-1. Start from minimal capability sets.
-2. Prefer command-scoped tasks over broad command wildcards.
-3. Review tasks that grant `all` capabilities as high risk.
-4. Periodically validate real needs with `capable` and execution tests.
-
-This is the core operational idea behind RootAsRole: keep privileges narrow and visible in policy @@billoirImplementingPrincipleLeast2024.
-
-For kernel-level capability semantics, see [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html).
+For kernel-level capability documentation, see [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html).

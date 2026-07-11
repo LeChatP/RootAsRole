@@ -72,7 +72,7 @@ The commands are doing the following:
         thus disabling the special treatment of the root user made by the kernel.
 - `o bounding strict`: This enforces a strict bounding set of capabilities, further limiting the elevation of privileges.
 
-In fact, The last 3 commands are not altering the configuration at all. Because RootAsRole enforces already strict defaults, 
+In fact, The last 3 commands are not altering the configuration at all. Because RaR enforces already strict defaults, 
 so, they were already set. But it is a good practice to explicitly set them, to avoid any misconfiguration by inheritance.
 
 <blockquote class="caroot-stare">

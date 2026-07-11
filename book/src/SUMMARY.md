@@ -33,8 +33,7 @@
   - [Why use Linux Capabilities?](knowledge/linux_capabilities.md)
   - [Why use a Role-Based Access Model (RBAC)?](knowledge/rbac.md)
   - [Static/Dynamic Separation of Duties (SoD)](knowledge/sod.md)
-  - [How Role Hierarchy works](knowledge/role_hierarchy.md)
-  - [RootAsRole Command matching](knowledge/command_match.md)
+  - [Command matching helper](knowledge/command_match.md)
 
 # Community & Development
 

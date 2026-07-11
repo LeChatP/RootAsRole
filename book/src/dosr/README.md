@@ -1,6 +1,6 @@
 # `dosr`
 
-`dosr` executes commands through RootAsRole policy checks.
+`dosr` executes commands through RaR policy checks.
 
 ## Usage
 
@@ -16,7 +16,7 @@ Execute privileged commands with a role-based access control system
   <b>-r, --role</b> &lt;ROLE&gt;  Role to select
   <b>-t, --task</b> &lt;TASK&gt;  Task to select (--role required)
   <b>-u, --user</b> &lt;USER&gt;  User to execute the command as
-  <b>-g, --group</b> &lt;GROUP<,GROUP...>&gt; Group(s) to execute the command as
+  <b>-g, --group</b> &lt;GROUP&lt;,GROUP...&gt;&gt; Group(s) to execute the command as
   <b>-E, --preserve-env</b>          Keep environment variables from the current process
   <b>-D, --chdir</b> &lt;DIR&gt;  Change working directory before executing the command
   <b>-p, --prompt</b> &lt;PROMPT&gt; Prompt to display
@@ -31,6 +31,12 @@ If you're accustomed to utilizing the sudo tool and find it difficult to break t
 alias sudo="dosr"
 alias sr="dosr"
 ```
+
+### Future Design Considerations
+
+Today, we copied completely the CLI of sudo, thus ensuring old scripts compatibility. 
+
+We might following a new design in the future but with retro-compatibility enabled. For example, we could detect when the command name is sudo then using the sudo CLI design, otherwise fallback to a new design.
 
 ## Examples
 

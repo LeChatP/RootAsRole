@@ -12,6 +12,7 @@ edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{pat
 theme = "theme"
 default-theme = "rust"
 additional-css = ["book.css"]
+mathjax-support = true
 
 [preprocessor.graphviz]
 command = "mdbook-graphviz"

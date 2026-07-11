@@ -1,14 +1,10 @@
 # Is a Linux system without a root user possible?
 
-<blockquote class="caroot-stare">
-This section is outdated and needs to be rewritten.
-</blockquote>
-
 Short answer: not really.
 
 Practical answer: you can design operations so daily work does not require logging in as `root`. That is exactly the RootAsRole objective with Linux capabilities.
 
-Example: preparing Apache management without direct root sessions.
+Example: preparing Apache management without root processes.
 
 First, create the service account:
 
