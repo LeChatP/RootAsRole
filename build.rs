@@ -32,11 +32,6 @@ fn set_cargo_version(package_version: &str, file: &str) -> Result<(), Box<dyn Er
     for line in lines {
         if line.starts_with("version") {
             writeln!(cargo_toml, "version = \"{package_version}\"")?;
-        } else if line.starts_with("rar-common =") {
-            writeln!(
-                cargo_toml,
-                "rar-common = {{ path = \"rar-common\", version = \"{package_version}\", package = \"rootasrole-core\" }}"
-            )?;
         } else {
             writeln!(cargo_toml, "{line}")?;
         }
@@ -89,18 +84,6 @@ fn main() {
         return;
     }
     let package_version = package_version("Cargo.toml").expect("Failed to get package version");
-
-    if let Err(err) = set_cargo_version(&package_version, "rar-common/Cargo.toml") {
-        eprintln!("cargo:warning={err}");
-    }
-
-    if let Err(err) = set_cargo_version(&package_version, "xtask/Cargo.toml") {
-        eprintln!("cargo:warning={err}");
-    }
-
-    if let Err(err) = set_cargo_version(&package_version, "Cargo.toml") {
-        eprintln!("cargo:warning={err}");
-    }
 
     if let Err(err) = set_man_version(&package_version, "resources/man/en_US.md", &Locale::EnUs) {
         eprintln!("cargo:warning={err}");

@@ -3,7 +3,7 @@ members = ["xtask", "rar-common", "rar-exec"]
 
 [package]
 name = "rootasrole"
-version = "4.0.0"
+version = "4.0.1"
 rust-version = "1.93.0"
 authors = ["Eddie Billoir <lechatp@outlook.fr>"]
 edition = "2024"
