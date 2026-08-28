@@ -32,7 +32,7 @@ use rar_common::{
 enum CookieVersion {
     V1(Cookiev1) = 56,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 enum ParentRecord {
     Tty(dev_t),
@@ -225,6 +225,7 @@ fn find_valid_cookie(
                 debug!("Checking cookie: {cookie:?}");
                 if cookie.auth_uid != cred_asked.user.uid.as_raw()
                     || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
+                    || cookie.parent_record != ParentRecord::new(cookie.timestamp_type, from)
                 {
                     continue;
                 }
@@ -315,6 +316,7 @@ pub fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
 mod test {
     use nix::unistd::{Pid, User};
     use serde_json::Map;
+    use serial_test::serial;
     use test_log::test;
 
     use super::*;
@@ -329,6 +331,7 @@ mod test {
         assert!(wait_for_lockfile(lockpath).is_ok());
     }
 
+    #[serial]
     #[test]
     fn test_cookie() {
         let cred = Cred {
@@ -338,7 +341,8 @@ mod test {
             tty: None,
             ppid: Pid::parent(),
         };
-        clear_cookies(&cred).unwrap();
+        clear_cookies(&cred)
+            .unwrap_or_else(|_| create_dir_all_with_privileges(TS_LOCATION).unwrap());
         let constraint = STimeout {
             type_field: Some(TimestampType::TTY),
             duration: Some(chrono::Duration::seconds(10)),
@@ -350,5 +354,37 @@ mod test {
         assert!(is_valid(&cred, &cred, &constraint));
         assert!(update_cookie(&cred, &cred, &constraint).is_ok());
         assert!(!is_valid(&cred, &cred, &constraint));
+        clear_cookies(&cred).unwrap();
+    }
+
+    #[serial]
+    #[test]
+    fn test_cookie_requires_matching_ppid() {
+        let creator = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::from_raw(1001),
+        };
+        let other_process = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::from_raw(1002),
+        };
+        let constraint = STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(chrono::Duration::seconds(10)),
+            max_usage: Some(1),
+            extra_fields: Map::default(),
+        };
+
+        clear_cookies(&creator).unwrap();
+        update_cookie(&creator, &creator, &constraint).unwrap();
+        assert!(is_valid(&creator, &creator, &constraint));
+        assert!(!is_valid(&other_process, &other_process, &constraint));
+        clear_cookies(&creator).unwrap();
     }
 }
