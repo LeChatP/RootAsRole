@@ -267,18 +267,20 @@ impl From<Opt<'_>> for rootasrole_core::database::options::Opt {
         Self::builder(val.level)
             .maybe_path(if let Some(spath) = val.path {
                 Some(
-                    rootasrole_core::database::options::SPathOptions::builder(spath.default_behavior)
-                        .maybe_add(spath.add.map(|v| {
-                            v.iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                        }))
-                        .maybe_sub(spath.sub.map(|v| {
-                            v.iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                        }))
-                        .build(),
+                    rootasrole_core::database::options::SPathOptions::builder(
+                        spath.default_behavior,
+                    )
+                    .maybe_add(spath.add.map(|v| {
+                        v.iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                    }))
+                    .maybe_sub(spath.sub.map(|v| {
+                        v.iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                    }))
+                    .build(),
                 )
             } else {
                 None
