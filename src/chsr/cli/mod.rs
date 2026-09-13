@@ -18,7 +18,7 @@ use log::debug;
 use pair::recurse_pair;
 use pest::Parser;
 use process::process_input;
-use rar_common::file::FileSettings;
+use rootasrole_core::file::FileSettings;
 use usage::print_usage;
 
 use crate::{cli::editor::start_editing, util::escape_parser_string_vec};
@@ -71,7 +71,7 @@ mod tests {
     use std::{cell::RefCell, fs, rc::Rc};
 
     use indexmap::IndexSet;
-    use rar_common::{
+    use rootasrole_core::{
         RemoteStorageSettings, SettingsContent,
         database::{
             actor::{SActor, SGroups},

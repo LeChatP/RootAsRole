@@ -1,7 +1,6 @@
 use std::env::{self, current_exe, set_current_dir};
 use std::fs::{self, File};
 use std::io;
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -167,8 +166,8 @@ fn chmod() -> Result<(), anyhow::Error> {
     let sr_file = File::open(sr_dest)?;
     let chsr_file = File::open(chsr_dest)?;
     let mode = Mode::from_bits(0o555).expect("Invalid mode bits");
-    fchmod(sr_file.as_raw_fd(), mode)?;
-    fchmod(chsr_file.as_raw_fd(), mode)?;
+    fchmod(&sr_file, mode)?;
+    fchmod(&chsr_file, mode)?;
     sr_file.sync_all()?;
     chsr_file.sync_all()?;
     Ok(())

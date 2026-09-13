@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap};
 
 use log::{debug, info};
 use nix::unistd::{Gid, Group};
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::{
         actor::{DActor, DGroups},

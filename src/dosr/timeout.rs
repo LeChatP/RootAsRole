@@ -15,7 +15,7 @@ use nix::{
 };
 use serde::{Deserialize, Serialize};
 
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::options::{STimeout, TimestampType},
     util::{
@@ -316,7 +316,6 @@ pub fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
 mod test {
     use nix::unistd::{Pid, User};
     use serde_json::Map;
-    use serial_test::serial;
     use test_log::test;
 
     use super::*;
@@ -331,9 +330,11 @@ mod test {
         assert!(wait_for_lockfile(lockpath).is_ok());
     }
 
-    #[serial]
+    static MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_cookie() {
+        let _guard = MUTEX.lock().unwrap();
         let cred = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
@@ -357,9 +358,9 @@ mod test {
         clear_cookies(&cred).unwrap();
     }
 
-    #[serial]
     #[test]
     fn test_cookie_requires_matching_ppid() {
+        let _guard = MUTEX.lock().unwrap();
         let creator = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),

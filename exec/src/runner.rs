@@ -646,9 +646,9 @@ fn restore_signals(original: Option<libc::sigset_t>) {
 #[cfg(test)]
 mod tests {
     use super::{SimpleFileLogger, run_no_pty};
+    use crate::MUTEX;
     use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
     use crate::pipe::io_logger_sealed::Sealed;
-    use serial_test::serial;
     use std::fs;
     use std::io;
     use std::path::PathBuf;
@@ -702,9 +702,9 @@ mod tests {
         ))
     }
 
-    #[serial]
     #[test]
     fn simple_file_logger_writes_expected_prefixes() {
+        let _guard = MUTEX.lock().unwrap();
         let path = unique_log_path("prefixes");
         let mut logger =
             SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
@@ -720,9 +720,9 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
-    #[serial]
     #[test]
     fn simple_file_logger_appends_across_instances() {
+        let _guard = MUTEX.lock().unwrap();
         let path = unique_log_path("append");
 
         {
@@ -746,9 +746,9 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
-    #[serial]
     #[test]
     fn simple_file_logger_supports_empty_payloads() {
+        let _guard = MUTEX.lock().unwrap();
         let path = unique_log_path("empty");
         let mut logger =
             SimpleFileLogger::new(path.to_str().expect("valid temporary file path as UTF-8"))
@@ -764,9 +764,9 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
-    #[serial]
     #[test]
     fn run_no_pty_returns_command_exit_code() {
+        let _guard = MUTEX.lock().unwrap();
         let mut command = Command::new("sh");
         command.arg("-c").arg("exit 7");
 
@@ -774,9 +774,9 @@ mod tests {
         assert_eq!(status.code(), Some(7));
     }
 
-    #[serial]
     #[test]
     fn run_no_pty_applies_pre_exec_orchestrator() {
+        let _guard = MUTEX.lock().unwrap();
         let mut command = Command::new("sh");
         command
             .arg("-c")
@@ -786,17 +786,17 @@ mod tests {
         assert!(status.success());
     }
 
-    #[serial]
     #[test]
     fn run_no_pty_propagates_pre_exec_failure() {
+        let _guard = MUTEX.lock().unwrap();
         let command = Command::new("/usr/bin/true");
         let error = run_no_pty(command, Orchestrator::new(FAIL_STEPS));
         assert!(error.is_err());
     }
 
-    #[serial]
     #[test]
     fn run_no_pty_forwards_signals_to_child() {
+        let _guard = MUTEX.lock().unwrap();
         let ready_path = std::env::temp_dir().join(format!(
             "rar_exec_runner_ready_{}_{}",
             std::process::id(),

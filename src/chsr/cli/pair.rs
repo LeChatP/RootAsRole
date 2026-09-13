@@ -7,7 +7,7 @@ use log::{debug, warn};
 use pest::iterators::Pair;
 
 use crate::cli::data::{Convertion, RoleType, TaskType};
-use rar_common::{
+use rootasrole_core::{
     database::{
         actor::{SActor, SGroupType},
         options::{EnvBehavior, OptType, PathBehavior, TimestampType, WorkdirBehavior},
@@ -496,7 +496,7 @@ mod test {
     };
     use pest::Parser;
 
-    use rar_common::{
+    use rootasrole_core::{
         database::actor::SActor,
         util::{BOLD, RED, RST},
     };

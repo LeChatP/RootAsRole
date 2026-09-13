@@ -229,12 +229,14 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::signal::{self, SignalStream};
-    use serial_test::serial;
+    use crate::{
+        MUTEX,
+        signal::{self, SignalStream},
+    };
 
-    #[serial]
     #[test]
     fn test_signals_combined() {
+        let _guard = MUTEX.lock().unwrap();
         let stream = SignalStream::init().expect("Failed to init SignalStream");
 
         signal::register_signal_handler(libc::SIGUSR1).expect("Failed to register SIGUSR1");

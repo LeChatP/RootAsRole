@@ -4,7 +4,7 @@ use log::debug;
 
 use super::data::Rule;
 use crate::util::underline;
-use rar_common::util::{BOLD, RED, RST, UNDERLINE};
+use rootasrole_core::util::{BOLD, RED, RST, UNDERLINE};
 
 const LONG_ABOUT: &str = "
 chsr allows you to manage RootAsRole policies through a command-line interface.

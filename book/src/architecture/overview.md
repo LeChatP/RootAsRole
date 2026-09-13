@@ -9,8 +9,8 @@
 
 ## Internal crates
 
-- `rar-common`: shared policy model, storage handling, migrations, utility logic.
-- `rar-exec`: execution pipeline primitives (runner, terminal/pty, pipe, signals).
+- `rootasrole-core` (in `core` folder): shared policy model, storage handling, migrations, utility logic.
+- `rootasrole-exec` (in `exec` folder): execution pipeline primitives (runner, terminal/pty, pipe, signals).
 
 <blockquote class="caroot">
 Did you know that there are two approaches for secure execution?

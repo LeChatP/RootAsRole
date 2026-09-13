@@ -4,7 +4,7 @@ use std::{
 };
 
 use log::{debug, error};
-use rar_common::{
+use rootasrole_core::{
     RemoteStorageSettings,
     database::versionning::Versioning,
     file::{FileSettings, LockedSettingsFile},

@@ -1,6 +1,6 @@
 use bon::builder;
 use log::debug;
-use rar_common::Cred;
+use rootasrole_core::Cred;
 use serde_json::Value;
 
 use crate::{

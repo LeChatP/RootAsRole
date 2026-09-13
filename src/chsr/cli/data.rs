@@ -6,7 +6,7 @@ use chrono::Duration;
 use indexmap::IndexSet;
 
 use pest_derive::Parser;
-use rar_common::{
+use rootasrole_core::{
     database::{
         actor::{SActor, SGroups, SUserType},
         options::{

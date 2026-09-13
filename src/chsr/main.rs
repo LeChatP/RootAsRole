@@ -1,6 +1,6 @@
 //extern crate sudoers_reader;
 
-use rar_common::util::subsribe;
+use rootasrole_core::util::subsribe;
 
 mod cli;
 #[cfg(not(tarpaulin_include))]
@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use ::landlock::{RestrictionStatus, RulesetStatus};
     use capctl::Cap;
     use log::{debug, error, warn};
-    use rar_common::{
+    use rootasrole_core::{
         file::FileSettings,
         util::{RAR_CFG_TYPE, definitive_drop},
     };

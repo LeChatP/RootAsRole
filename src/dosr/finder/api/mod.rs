@@ -1,6 +1,6 @@
 use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
 
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::score::{CmdMin, Score},
 };
