@@ -1,11 +1,30 @@
-use std::error::Error;
+use std::{error::Error, fmt::Display};
 
 use log::debug;
 use semver::Version;
 
 use crate::PACKAGE_VERSION;
 
-type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), Box<dyn Error>>;
+type MigrationFn<T> = fn(&Migration<T>, &mut T) -> Result<(), MigrationError>;
+
+#[derive(Debug, Clone)]
+pub enum MigrationError {
+    MigrationFailed(String),
+    NoMigrationPath(Version, Version),
+}
+
+impl Error for MigrationError {}
+
+impl Display for MigrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MigrationFailed(msg) => write!(f, "Migration failed: {msg}"),
+            Self::NoMigrationPath(from, to) => {
+                write!(f, "No migration path found from {from} to {to}")
+            }
+        }
+    }
+}
 
 pub struct Migration<T> {
     pub from: fn() -> Version,
@@ -39,7 +58,7 @@ impl<T> Migration<T> {
         doc: &mut T,
         from: &Version,
         to: &Version,
-    ) -> Result<ChangeResult, Box<dyn Error>> {
+    ) -> Result<ChangeResult, MigrationError> {
         debug!("Checking migration from {} to {} :", self.from(), self.to());
         #[cfg(not(tarpaulin_include))]
         debug!(
@@ -89,7 +108,7 @@ impl<T> Migration<T> {
         to: &Version,
         doc: &mut T,
         migrations: &[Self],
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<bool, MigrationError> {
         let mut from = from.clone();
         let to = to.clone();
         debug!("===== Migrating from {from} to {to} =====");
@@ -120,7 +139,7 @@ impl<T> Migration<T> {
                     }
                 }
                 if migrated == ChangeResult::None {
-                    return Err(format!("No migration from {from} to {to} found").into());
+                    return Err(MigrationError::NoMigrationPath(from, to));
                 }
             }
         }
@@ -139,7 +158,7 @@ impl<T> Migration<T> {
         version: &Version,
         doc: &mut T,
         migrations: &[Self],
-    ) -> Result<bool, Box<dyn Error>> {
+    ) -> Result<bool, MigrationError> {
         Self::migrate_from(version, &PACKAGE_VERSION, doc, migrations)
     }
 }

@@ -1,5 +1,5 @@
 {
-    "version": "4.0.0",
+    "version": "PACKAGE_VERSION",
     "roles": [
         {
             "name": "r_root",
