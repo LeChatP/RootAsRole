@@ -17,7 +17,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     SettingsContent,
-    database::{migration::Migration, structs::SPolicy, versionning::Versioning},
+    database::{
+        migration::{Migration, MigrationError},
+        structs::SPolicy,
+        versionning::Versioning,
+    },
     util::{
         RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, has_privileges, is_immutable,
         open_lock_with_privileges, read_with_privileges, with_mutable_config, write_config,
@@ -244,10 +248,15 @@ impl FileSettings {
                         })?,
                 };
                 Self::make_weak_config(&settings.data.config);
-                settings.upgrade_version(ROOT_MIGRATIONS).map_err(|e| {
-                    debug!("Failed to upgrade root settings: {e}");
-                    io::Error::other(e.to_string())
-                })?;
+                settings
+                    .upgrade_version(ROOT_MIGRATIONS)
+                    .or_else(|e| match e {
+                        MigrationError::NoMigrationPath(from, to) => {
+                            debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                            Ok(false)
+                        }
+                        MigrationError::MigrationFailed(e) => Err(io::Error::other(e)),
+                    })?;
                 debug!("Loaded root settings from {}", path.display());
                 Ok(settings)
             })?;
