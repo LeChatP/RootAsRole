@@ -40,3 +40,4 @@
 - [How to contribute](dev/CONTRIBUTE.md)
 - [Code of Conduct](dev/CODE_OF_CONDUCT.md)
 - [History](HISTORY.md)
+- [CaRoot story](caroot/README.md)
