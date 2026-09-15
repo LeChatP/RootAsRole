@@ -4,7 +4,7 @@ use ::serde::{Deserialize, Serialize};
 use libc::FS_IOC_GETFLAGS;
 use log::{debug, warn};
 use nix::unistd::{AccessFlags, access};
-use rar_common::{
+use rootasrole_core::{
     database::score::{CmdMin, CmdOrder},
     util::{all_paths_from_env, match_single_path, read_with_privileges},
 };
@@ -247,7 +247,7 @@ mod tests {
         fcntl::AT_FDCWD,
         sys::stat::{Mode, fchmodat},
     };
-    use rar_common::{
+    use rootasrole_core::{
         database::score::CmdMin,
         util::{has_privileges, immutable_required_privileges},
     };
@@ -292,6 +292,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_dcommand_seed_hashchecker() {
         register();
         let filename = "test.sh";
@@ -315,8 +316,9 @@ mod tests {
         let mut sha224hasher = Sha224::new();
         sha224hasher.update(&buffer);
         let sha224 = sha224hasher.finalize();
+        let sha224 = hex::encode(sha224);
         let json = format!(
-            r#"{{"sha224": "{:x}", "command": "{} -l"}}"#,
+            r#"{{"sha224": "{}", "command": "{} -l"}}"#,
             sha224,
             &filename.display()
         );
@@ -339,8 +341,8 @@ mod tests {
         let sha256 = sha256hasher.finalize();
 
         let json = format!(
-            r#"{{"sha256": "{:x}", "command": "{} -l"}}"#,
-            sha256,
+            r#"{{"sha256": "{}", "command": "{} -l"}}"#,
+            hex::encode(sha256),
             &filename.display()
         );
         let mut final_path = None;
@@ -360,9 +362,10 @@ mod tests {
         let mut sha384hasher = Sha384::new();
         sha384hasher.update(&buffer);
         let sha384 = sha384hasher.finalize();
+        let sha384 = hex::encode(sha384);
 
         let json = format!(
-            r#"{{"sha384": "{:x}", "command": "{} -l"}}"#,
+            r#"{{"sha384": "{}", "command": "{} -l"}}"#,
             sha384,
             &filename.display()
         );
@@ -383,8 +386,9 @@ mod tests {
         let mut sha512hasher = Sha512::new();
         sha512hasher.update(&buffer);
         let sha512 = sha512hasher.finalize();
+        let sha512 = hex::encode(sha512);
         let json = format!(
-            r#"{{"sha512": "{:x}", "command": "{} -l"}}"#,
+            r#"{{"sha512": "{}", "command": "{} -l"}}"#,
             sha512,
             &filename.display()
         );

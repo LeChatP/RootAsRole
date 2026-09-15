@@ -14,8 +14,8 @@ use std::{
 use anyhow::{Context, anyhow};
 use capctl::Cap;
 use capctl::CapState;
-use chrono::Duration;
 use clap::ValueEnum;
+use jiff::SignedDuration;
 use konst::{eq_str, iter, option, result, string};
 use log::{debug, info};
 use nix::libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
@@ -252,7 +252,7 @@ pub struct STimeout {
         deserialize_with = "deserialize_duration",
         skip_serializing_if = "Option::is_none"
     )]
-    pub duration: Option<Duration>,
+    pub duration: Option<SignedDuration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_usage: Option<u64>,
     #[serde(default)]
@@ -542,12 +542,12 @@ pub static ENV_SET_LIST: &[(&str, &str); ENV_SET_LIST_SLICE.len()] =
 
 pub const TIMEOUT_TYPE: TimestampType = TimestampType::const_parse(env!("RAR_TIMEOUT_TYPE"));
 
-pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
+pub const TIMEOUT_DURATION: SignedDuration = option::unwrap_or!(
     result::unwrap_or!(
         convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")),
         None
     ),
-    Duration::seconds(5)
+    SignedDuration::from_secs(5)
 );
 
 pub const TIMEOUT_MAX_USAGE: Option<u64> = if eq_str(env!("RAR_TIMEOUT_MAX_USAGE"), "") {
@@ -631,7 +631,7 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
 }
 
 #[allow(clippy::ref_option)]
-fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_duration<S>(value: &Option<SignedDuration>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -639,15 +639,15 @@ where
     match value {
         Some(value) => serializer.serialize_str(&format!(
             "{:#02}:{:#02}:{:#02}",
-            value.num_hours(),
-            value.num_minutes() % 60,
-            value.num_seconds() % 60
+            value.as_hours(),
+            value.as_mins() % 60,
+            value.as_secs() % 60
         )),
         None => serializer.serialize_none(),
     }
 }
 
-fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<SignedDuration>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
@@ -668,7 +668,7 @@ impl std::fmt::Display for DurationParseError {
 
 const fn convert_string_to_duration(
     s: &str,
-) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
+) -> Result<Option<jiff::SignedDuration>, DurationParseError> {
     let mut parts = string::split(s, ':');
     let Some(hours) = parts.next() else {
         return Err(DurationParseError);
@@ -695,7 +695,7 @@ const fn convert_string_to_duration(
     } else {
         return Err(DurationParseError);
     };
-    Ok(Some(Duration::seconds(
+    Ok(Some(SignedDuration::from_secs(
         hours * 3600 + minutes * 60 + seconds,
     )))
 }

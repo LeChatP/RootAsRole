@@ -1,8 +1,8 @@
 use std::{cell::RefCell, io};
 
 use nix::sys::stat::{Mode, umask};
-use rar_common::{database::options::SBounding, util::activates_no_new_privs};
-use rar_exec::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
+use rootasrole_core::{database::options::SBounding, util::activates_no_new_privs};
+use rootasrole_exec::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
 
 use crate::finder::de::cred::CredOwnedData;
 
@@ -123,7 +123,7 @@ pub static PRE_EXEC_ORCHESTRATOR: Orchestrator = Orchestrator::new(PRE_EXEC_STEP
 mod tests {
     use super::*;
     use crate::finder::de::cred::CredOwnedData;
-    use rar_common::database::options::SBounding;
+    use rootasrole_core::database::options::SBounding;
 
     #[test]
     fn pre_exec_steps_are_ordered_and_stable() {

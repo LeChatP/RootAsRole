@@ -1,0 +1,118 @@
+@import "assets/css/excon.css";
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Excon-Variable', sans-serif;
+    font-weight: 900;
+}
+
+h1.menu-title {
+    color: #dc7228;
+    margin-bottom: 10px;
+    font-weight: 900;
+}
+
+.sidebar-scrollbox::before {
+    content: "";
+    display: block;
+    height: 100px;
+    background: url("./assets/logo/svg/color/logo-mascot-stare.svg") no-repeat center;
+    background-size: contain;
+    margin: 10px 0;
+}
+
+
+blockquote.caroot-stare {
+    position: relative;
+    padding-left: 80px;
+    border-left: 4px solid #f97316;
+    min-height: 60px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+blockquote.caroot-stare::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    width: 60px;
+    height: 60px;
+    background-image: url('./assets/logo/svg/color/stare.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    bottom: 0;
+}
+
+/* Styling for the Caroot blockquote */
+blockquote.caroot {
+    position: relative;
+    padding-left: 80px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    border-left: 4px solid #169af9;
+    min-height: 60px;
+}
+
+blockquote.caroot:after {
+    content: "";
+    position: absolute;
+    left: 20px;
+    width: 60px;
+    height: 80px;
+    background-image: url('./assets/logo/svg/color/mascot.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    bottom: 0;
+}
+
+.part-title {
+    font-family: 'Excon-Bold', sans-serif;
+}
+
+.easter-egg-book {
+    font-family: "Georgia", "Garamond", "Times New Roman", serif;
+    font-size: 1.05em;
+    line-height: 1.6;
+    color: #2b2b2b;
+    text-align: justify;
+    background-color: #fdfbf7;
+    padding: 2.5em 3em;
+    margin: 2em auto;
+    max-width: 550px;
+    border: 1px solid #eaeaea;
+    border-radius: 2px;
+    box-shadow: 2px 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+
+.easter-egg-book p {
+    margin: 0 !important;
+    text-indent: 1.5em;
+}
+
+.easter-egg-book p:first-of-type,
+.easter-egg-book p.no-indent {
+    text-indent: 0;
+}
+
+.easter-egg-book .scene-break {
+    text-align: center;
+    text-indent: 0;
+    margin: 1.5em 0 !important;
+    letter-spacing: 0.5em;
+}
+
+.easter-egg-book .tbc {
+    text-align: right;
+    font-style: italic;
+    text-indent: 0;
+    margin-top: 2em !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    html:not(.light) .easter-egg-book {
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        border-color: #333;
+        box-shadow: 2px 4px 15px rgba(0, 0, 0, 0.3);
+    }
+}

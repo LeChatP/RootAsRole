@@ -1,24 +1,36 @@
 [workspace]
-members = ["xtask", "rar-common", "rar-exec"]
+members = ["xtask", "core", "exec"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.93.0"
+version = "4.0.2"
+license = "LGPL-3.0-or-later"
+homepage = "https://lechatp.github.io/RootAsRole/"
+repository = "https://github.com/LeChatP/RootAsRole"
+authors = ["Eddie Billoir <lechatp@outlook.fr>"]
+
 
 [package]
 name = "rootasrole"
-version = "4.0.0"
-rust-version = "1.93.0"
-authors = ["Eddie Billoir <lechatp@outlook.fr>"]
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
 default-run = "dosr"
 description = "A better alternative to sudo(-rs)/su"
-license = "LGPL-3.0-or-later"
-repository = "https://github.com/LeChatP/RootAsRole"
-homepage = "https://lechatp.github.io/RootAsRole/"
+
+
 keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
 categories = ["command-line-utilities", "os::linux-apis", "config"]
 exclude = ["sudoers-reader/*", "book/*"]
 
 
 [badges]
-maintainance ={ status = "actively-maintained", badge = "https://img.shields.io/badge/maintenance-actively%20maintained-brightgreen.svg" }
+maintenance ={ status = "actively-maintained" }
 
 
 [profile.release]
@@ -51,9 +63,9 @@ path = "tests/integration_tests.rs"
 required-features = ["finder"]
 
 [features]
-finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rar-common/finder", "dep:nonstick2", "dep:libpam-sys", "dep:indexmap"]
-glob = ["rar-common/glob"]
-pcre2 = ["dep:pcre2", "rar-common/pcre2"]
+finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rootasrole-core/finder", "dep:nonstick2", "dep:libpam-sys", "dep:indexmap"]
+glob = ["rootasrole-core/glob"]
+pcre2 = ["dep:pcre2", "rootasrole-core/pcre2"]
 plugins = ["hashchecker", "ssd", "hierarchy"]
 hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
@@ -75,37 +87,38 @@ should_implement_trait = { level = "allow", priority = 2 }
 [package.metadata.clippy]
 allow-unwrap-in-tests = true
 
-[build-dependencies]
-toml = { version = "0.9", default-features = false, features = ["serde","parse", "display", "preserve_order"] }
+[workspace.dependencies]
+rootasrole-core = { path = "core" }
+rootasrole-exec = { path = "exec" }
 
 [dependencies]
-rar-common = { path = "rar-common", version = "4.0.0", package = "rootasrole-core" }
-rar-exec = { path = "rar-exec", version = "4.0.0", package = "rootasrole-exec" }
+rootasrole-core = { version = "4.0.2", workspace = true }
+rootasrole-exec = { version = "4.0.2", workspace = true }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
-nix = { version = "0.30", features = ["user", "process", "signal", "fs"] }
+nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs"] }
 capctl = { version = "0.2", default-features = false, features = ["serde"] }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
-cbor4ii = { version = "1.0.0", default-features = false, features = ["serde", "serde1", "use_std"] }
+cbor4ii = { version = "1.2", default-features = false, features = ["serde", "serde1", "use_std"] }
 shell-words = { version = "1.1", default-features = false, features = ["std"] }
-chrono = { version = "0.4", default-features = false, features = ["now"] }
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 const_format = { version = "0.2", default-features = false }
 bon = { version = "3", default-features = false }
 ## dosr
 nonstick2 = { version = "0.1", optional = true }
-libpam-sys = { version = "0.2.0", default-features = false, optional = true }
+libpam-sys = { version = "0.2", default-features = false, optional = true }
 pcre2 = { version = "0.2", default-features = false, optional = true }
 glob = { version = "0.3", default-features = false, optional = true }
-sha2 = { version = "0.10", default-features = false, optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
 ## chsr
-pest = { version = "2.7", default-features = false, features = ["std"], optional = true }
-pest_derive = { version = "2.7", default-features = false, features = ["std"], optional = true }
-indexmap = { version = "2.13", default-features = false, features = ["std"], optional = true }
+pest = { version = "2.9", default-features = false, features = ["std"], optional = true }
+pest_derive = { version = "2.9", default-features = false, features = ["std"], optional = true }
+indexmap = { version = "2.14", default-features = false, features = ["std"], optional = true }
 hex = { version = "0.4", default-features = false, optional = true, features = ["alloc"]}
 landlock = { version = "0.4", optional = true }
 libseccomp = { version = "0.4", optional = true }
-bitflags = { version = "2.9", default-features = false, optional = true }
+bitflags = { version = ">=2.9, <2.14", default-features = false, optional = true }
 konst = { version= "0.4", default-features = false, optional = true, features = ["parsing_proc", "iter"] }
 
 
@@ -113,4 +126,3 @@ konst = { version= "0.4", default-features = false, optional = true, features = 
 log = { version = "0.4", default-features = false, features = ["std"] }
 env_logger = { version = "0.11", default-features = false }
 test-log = { version = "0.2", default-features = false }
-serial_test = { version = "3.2.0", default-features = false }

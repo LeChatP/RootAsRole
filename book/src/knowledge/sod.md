@@ -1,4 +1,8 @@
-# Separation of duties in RootAsRole
+# Separation of duties
+
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
 
 Separation of duties (SoD) is essential for administrative privilege governance in RBAC systems @@ferraioloProposedNISTStandard2001 @@kuhnMutualExclusionRoles1997.
 

@@ -12,15 +12,16 @@ use nix::{
     sys::stat,
     unistd::{Uid, User, isatty},
 };
-use rar_common::database::options::SBounding;
-use rar_common::util::{escape_parser_string, initialize_capabilities, with_privileges};
-use rar_common::{
+use rootasrole_core::database::options::SBounding;
+use rootasrole_core::util::{escape_parser_string, initialize_capabilities, with_privileges};
+use rootasrole_core::{
     Cred,
     database::{
         FilterMatcher,
         actor::{SGroupType, SGroups, SUserType},
         options::EnvBehavior,
     },
+    log::subsribe,
 };
 
 use log::{debug, error};
@@ -29,7 +30,7 @@ use std::{io, process::Command};
 use std::{io::stdout, path::PathBuf};
 
 use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
-use rar_common::util::{BOLD, RST, UNDERLINE, drop_effective, subsribe};
+use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective};
 
 use crate::error::SrError;
 use crate::error::SrResult;
@@ -284,7 +285,7 @@ fn main_inner() -> SrResult<()> {
         pam::start_session,
     };
     use finder::find_best_exec_settings;
-    use rar_common::util::RAR_CFG_TYPE;
+    use rootasrole_core::util::RAR_CFG_TYPE;
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
@@ -434,9 +435,9 @@ fn main_inner() -> SrResult<()> {
     // We don't set stdin/out/err here, the runner handles it via PTY
 
     // Create logger
-    let logger = rar_exec::runner::SimpleFileLogger::new("/tmp/dosr-session.log")
+    let logger = rootasrole_exec::runner::SimpleFileLogger::new("/tmp/dosr-session.log")
         .ok()
-        .map(|l| Box::new(l) as Box<dyn rar_exec::pipe::IoLogger>);
+        .map(|l| Box::new(l) as Box<dyn rootasrole_exec::pipe::IoLogger>);
 
     debug!(
         "Command (via Runner): {} {:?}",
@@ -444,7 +445,8 @@ fn main_inner() -> SrResult<()> {
         cargs.join(" ")
     );
 
-    let status = match rar_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, logger) {
+    let status = match rootasrole_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, logger)
+    {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
@@ -562,7 +564,7 @@ mod tests {
     use capctl::{Cap, CapSet};
     use libc::getgid;
     use nix::unistd::{Group, Pid, User, getgroups, getuid};
-    use rar_common::database::options::SBounding;
+    use rootasrole_core::database::options::SBounding;
 
     use super::*;
 

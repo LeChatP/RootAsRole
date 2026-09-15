@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use bon::bon;
-use rar_common::database::versionning::Versioning;
-use rar_common::file::{LockedSettingsFile, RootSettings};
-use rar_common::util::{RAR_CFG_TYPE, StorageMethod};
+use rootasrole_core::database::versionning::Versioning;
+use rootasrole_core::file::{LockedSettingsFile, RootSettings};
+use rootasrole_core::util::{RAR_CFG_TYPE, StorageMethod};
 
 use crate::helpers::{FileLock, RAR_CFG_DATA_PATH, RAR_CFG_PATH, ensure_binary_built};
 /// Represents the result of running the dosr command

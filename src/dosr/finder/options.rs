@@ -6,13 +6,13 @@ use bon::{Builder, bon, builder};
 
 use libc::PATH_MAX;
 use nix::unistd::User;
-use rar_common::database::FilterMatcher;
-use rar_common::database::options::{
+use rootasrole_core::database::FilterMatcher;
+use rootasrole_core::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
     STimeout, SUMask, WorkdirBehavior,
 };
-use rar_common::database::score::SecurityMin;
-use rar_common::util::{
+use rootasrole_core::database::score::SecurityMin;
+use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
@@ -262,30 +262,32 @@ impl DEnvOptions<'_> {
 
 #[allow(clippy::fallible_impl_from)] // Not actually fallible, as long as the input is valid, which it should be since it's internal.
 #[allow(clippy::unwrap_used)] // Input is a mirror of the internal opt.
-impl From<Opt<'_>> for rar_common::database::options::Opt {
+impl From<Opt<'_>> for rootasrole_core::database::options::Opt {
     fn from(val: Opt<'_>) -> Self {
         Self::builder(val.level)
             .maybe_path(if let Some(spath) = val.path {
                 Some(
-                    rar_common::database::options::SPathOptions::builder(spath.default_behavior)
-                        .maybe_add(spath.add.map(|v| {
-                            v.iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                        }))
-                        .maybe_sub(spath.sub.map(|v| {
-                            v.iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                        }))
-                        .build(),
+                    rootasrole_core::database::options::SPathOptions::builder(
+                        spath.default_behavior,
+                    )
+                    .maybe_add(spath.add.map(|v| {
+                        v.iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                    }))
+                    .maybe_sub(spath.sub.map(|v| {
+                        v.iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                    }))
+                    .build(),
                 )
             } else {
                 None
             })
             .maybe_env(if let Some(senv) = val.env {
                 Some(
-                    rar_common::database::options::SEnvOptions::builder(senv.default_behavior)
+                    rootasrole_core::database::options::SEnvOptions::builder(senv.default_behavior)
                         .maybe_override_behavior(senv.override_behavior)
                         .set(
                             senv.set
@@ -739,8 +741,8 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .find_map(|o| o.timeout.clone())
             .unwrap_or_else(|| STimeout {
                 type_field: Some(TIMEOUT_TYPE),
-                duration: Some(TIMEOUT_DURATION),
-                max_usage: Some(TIMEOUT_MAX_USAGE),
+                duration: TIMEOUT_DURATION,
+                max_usage: TIMEOUT_MAX_USAGE,
                 extra_fields: Map::new(),
             })
     }
@@ -1234,7 +1236,7 @@ mod tests {
                     .build(),
             )
             .build();
-        let rar_opt: rar_common::database::options::Opt = opt.clone().into();
+        let rar_opt: rootasrole_core::database::options::Opt = opt.clone().into();
         assert_eq!(rar_opt.level, Level::Default);
         assert_eq!(
             rar_opt.path.unwrap().default_behavior,

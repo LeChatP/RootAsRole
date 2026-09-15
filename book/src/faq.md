@@ -1,10 +1,8 @@
 # FAQ
 
-Common issues seen during installation, policy authoring, and runtime testing.
-
 ## Why not `cargo install rootasrole`?
 
-`cargo install` targets user-local binaries. RootAsRole requires system-level deployment (PAM files, capabilities, policy file location/permissions). For that reason, use distro packages or the project installer flow.
+`cargo install` targets user-local binaries. dosr requires system-level deployment (PAM files, capabilities, policy file location/permissions). For that reason, use distro packages or the project installer flow.
 
 ## `capable` does not work on my host
 

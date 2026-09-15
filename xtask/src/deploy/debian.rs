@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use jiff::Zoned;
 use log::debug;
 
 use crate::{
@@ -66,7 +67,7 @@ fn generate_changelog() -> Result<(), anyhow::Error> {
         urgency = "low",
         changes =
             String::from_utf8(changes.stdout).expect("Failed to convert git log output to string"),
-        date = chrono::Local::now().format("%a, %d %b %Y %T %z")
+        date = Zoned::now().strftime("%a, %d %b %Y %T %z")
     );
     File::create(changelog_path)?.write_all(changelog.as_bytes())?;
 

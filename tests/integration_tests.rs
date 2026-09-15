@@ -2,6 +2,7 @@ mod helpers;
 
 #[cfg(test)]
 mod tests {
+    #![deny(unused)]
     use pcre2::bytes::RegexBuilder;
     use test_log::test;
 
@@ -44,6 +45,42 @@ mod tests {
     }
 
     #[test]
+    fn test_all_dosr() {
+        if let Ok(r) = try_run_dosr(
+            &TestRunner::builder()
+                .build()
+                .expect("failed to setup test env"),
+            &["whoami"],
+        ) && r.stderr.contains("Permission denied")
+        {
+            eprintln!(
+                "Skipping test_all_dosr because dosr is not allowed to run as current user: {}",
+                r.stderr
+            );
+            return;
+        }
+        test_dosr_role_selection();
+        test_dosr_task_selection();
+        test_dosr_invalid_role();
+        test_dosr_env_override();
+        test_dosr_env_override_not_overriden();
+        test_dosr_env_override_denied();
+        test_dosr_env_override_denied_not_overriden();
+        test_dosr_as_user();
+        test_dosr_as_group();
+        test_dosr_as_user_and_group();
+        test_dosr_auth();
+        test_dosr_info();
+    }
+
+    fn try_run_dosr(
+        runner: &TestRunner,
+        args: &[&str],
+    ) -> Result<crate::helpers::test_runner::CommandResult, Box<dyn std::error::Error>> {
+        let result = runner.run_dosr(args).call()?;
+        Ok(result)
+    }
+
     fn test_dosr_role_selection() {
         let runner = TestRunner::builder()
             .build()
@@ -64,7 +101,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_task_selection() {
         let runner = TestRunner::builder()
             .build()
@@ -84,7 +120,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_invalid_role() {
         let runner = TestRunner::builder()
             .build()
@@ -102,7 +137,6 @@ mod tests {
         assert_eq!(result.exit_code, 1);
     }
 
-    #[test]
     fn test_dosr_env_override() {
         let runner = TestRunner::builder()
             .build()
@@ -131,7 +165,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_env_override_not_overriden() {
         let runner = TestRunner::builder()
             .build()
@@ -160,7 +193,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_env_override_denied() {
         let runner = TestRunner::builder()
             .build()
@@ -186,7 +218,6 @@ mod tests {
         assert_eq!(result.exit_code, 1);
     }
 
-    #[test]
     fn test_dosr_env_override_denied_not_overriden() {
         env_logger::builder()
             .filter_level(log::LevelFilter::Trace)
@@ -218,7 +249,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_as_user() {
         let runner = TestRunner::builder()
             .build()
@@ -236,7 +266,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_as_group() {
         let runner = TestRunner::builder()
             .build()
@@ -259,7 +288,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_as_user_and_group() {
         let runner = TestRunner::builder()
             .build()
@@ -298,7 +326,6 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
-    #[test]
     fn test_dosr_auth() {
         if env!("RAR_PAM_SERVICE") == "dosr" {
             println!("Skipping test_dosr_auth because RAR_PAM_SERVICE is set to original dosr");
@@ -337,7 +364,6 @@ mod tests {
         assert!(!path.exists(), "Timestamp cookie was not deleted");
     }
 
-    #[test]
     fn test_dosr_info() {
         let runner = TestRunner::builder()
             .build()

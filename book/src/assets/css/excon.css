@@ -1,0 +1,90 @@
+/**
+* @license
+*
+* Font Family: Excon
+* Designed by: Alisa Nowak
+* URL: https://www.fontshare.com/fonts/excon
+* © 2026 Indian Type Foundry
+*
+* Excon Thin 
+* Excon Light 
+* Excon Regular 
+* Excon Medium 
+* Excon Bold 
+* Excon Black 
+* Excon Variable (Variable font)
+
+*
+*/
+@font-face {
+  font-family: 'Excon-Thin';
+  src: url('../fonts/Excon-Thin.woff2') format('woff2'),
+       url('../fonts/Excon-Thin.woff') format('woff'),
+       url('../fonts/Excon-Thin.ttf') format('truetype');
+  font-weight: 100;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Excon-Light';
+  src: url('../fonts/Excon-Light.woff2') format('woff2'),
+       url('../fonts/Excon-Light.woff') format('woff'),
+       url('../fonts/Excon-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Excon-Regular';
+  src: url('../fonts/Excon-Regular.woff2') format('woff2'),
+       url('../fonts/Excon-Regular.woff') format('woff'),
+       url('../fonts/Excon-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Excon-Medium';
+  src: url('../fonts/Excon-Medium.woff2') format('woff2'),
+       url('../fonts/Excon-Medium.woff') format('woff'),
+       url('../fonts/Excon-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Excon-Bold';
+  src: url('../fonts/Excon-Bold.woff2') format('woff2'),
+       url('../fonts/Excon-Bold.woff') format('woff'),
+       url('../fonts/Excon-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Excon-Black';
+  src: url('../fonts/Excon-Black.woff2') format('woff2'),
+       url('../fonts/Excon-Black.woff') format('woff'),
+       url('../fonts/Excon-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-display: swap;
+  font-style: normal;
+}
+/**
+* This is a variable font
+* You can control variable axes as shown below:
+* font-variation-settings: wght 900.0;
+*
+* available axes:
+'wght' (range from 100.0 to 900.0
+*/
+@font-face {
+  font-family: 'Excon-Variable';
+  src: url('../fonts/Excon-Variable.woff2') format('woff2'),
+       url('../fonts/Excon-Variable.woff') format('woff'),
+       url('../fonts/Excon-Variable.ttf') format('truetype');
+  font-weight: 100 1200;
+  font-display: swap;
+  font-style: normal;
+}
+

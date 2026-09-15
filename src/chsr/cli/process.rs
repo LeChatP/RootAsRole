@@ -13,7 +13,7 @@ use json::{
 
 use log::debug;
 
-use rar_common::{
+use rootasrole_core::{
     database::{
         options::{Opt, OptType},
         structs::{IdTask, RoleGetter},
@@ -489,7 +489,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
     }
 }
 pub fn perform_on_target_opt(
-    rconfig: &Rc<RefCell<rar_common::database::structs::SPolicy>>,
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,

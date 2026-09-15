@@ -7,7 +7,7 @@ use std::{
 };
 
 use log::{debug, warn};
-use rar_common::database::warn::Warn;
+use rootasrole_core::database::warn::Warn;
 use serde::{Serialize, de::DeserializeOwned};
 use std::os::unix::fs::PermissionsExt;
 use std::{fs::File, io::stdin, process::Command};
@@ -225,13 +225,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rar_common::database::actor::SActor;
-    use rar_common::database::structs::{
+    use rootasrole_core::database::actor::SActor;
+    use rootasrole_core::database::structs::{
         SCommand, SCommands, SCredentials, SPolicy, SRole, STask, SetBehavior,
     };
-    use rar_common::file::RootSettings;
-    use rar_common::util::StorageMethod;
-    use rar_common::{RemoteStorageSettings, SettingsContent};
+    use rootasrole_core::file::RootSettings;
+    use rootasrole_core::util::StorageMethod;
+    use rootasrole_core::{RemoteStorageSettings, SettingsContent};
 
     use super::*;
     use std::cell::RefCell;
@@ -239,17 +239,32 @@ mod tests {
     use std::io::Cursor;
     use std::os::unix::fs::PermissionsExt;
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
-    fn test_edit_config_success() {
-        // Setup a unique temp folder
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn test_temp_dir(prefix: &str) -> std::path::PathBuf {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_{timestamp}"));
-        fs::create_dir_all(&temp_dir_path).unwrap();
+        let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "{prefix}_{}_{}_{}",
+            std::process::id(),
+            timestamp,
+            counter
+        ));
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_edit_config_success() {
+        let temp_dir_path = test_temp_dir("rar_test");
+        let _lock = LOCK.lock().unwrap();
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {
@@ -346,13 +361,8 @@ echo '{}' > "$file"
 
     #[test]
     fn test_edit_config_abort() {
-        // Setup a unique temp folder
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{timestamp}"));
-        fs::create_dir_all(&temp_dir_path).unwrap();
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_abort");
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {
@@ -389,13 +399,8 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
 
     #[test]
     fn test_edit_config_err() {
-        // Setup a unique temp folder
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_dir_path = std::env::temp_dir().join(format!("rar_test_abort_{timestamp}"));
-        fs::create_dir_all(&temp_dir_path).unwrap();
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_abort");
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {
@@ -432,13 +437,8 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$fil
 
     #[test]
     fn test_warn_no_config() {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_dir_path =
-            std::env::temp_dir().join(format!("rar_test_warn_no_config_{timestamp}"));
-        fs::create_dir_all(&temp_dir_path).unwrap();
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_warn_no_config");
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {
@@ -481,13 +481,8 @@ echo '{ "storage": { "method": "json" } }' > "$file"
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_warn_anomalies() {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_dir_path =
-            std::env::temp_dir().join(format!("rar_test_warn_anomalies_{timestamp}"));
-        fs::create_dir_all(&temp_dir_path).unwrap();
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_warn_anomalies");
 
         let temp_dir_path_clone = temp_dir_path.clone();
         let _defer = defer(move || {

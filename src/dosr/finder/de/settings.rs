@@ -4,7 +4,7 @@ use std::{
 };
 
 use log::debug;
-use rar_common::{
+use rootasrole_core::{
     SettingsContent, database::versionning::Versioning, file::LockedSettingsFile,
     util::StorageMethod,
 };

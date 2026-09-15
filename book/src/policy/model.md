@@ -1,5 +1,9 @@
 # Policy Model and Inheritance
 
+<blockquote class="caroot-stare">
+This section needs update.
+</blockquote>
+
 RootAsRole policy is built on three levels:
 
 1. Global options

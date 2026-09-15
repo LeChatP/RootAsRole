@@ -243,10 +243,14 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
         .context("Failed to open the template config file")?;
 
     let template_str = if let Some(user) = user {
-        template_content.replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name))
+        template_content
+            .replace("\"ROOTADMINISTRATOR\"", &format!("\"{}\"", user.name))
+            .replace("PACKAGE_VERSION", &format!("{PACKAGE_VERSION}"))
     } else {
         warn!("Failed to get the current user from passwd file, using UID instead");
-        template_content.replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()))
+        template_content
+            .replace("\"ROOTADMINISTRATOR\"", &format!("{}", getuid().as_raw()))
+            .replace("PACKAGE_VERSION", &format!("{PACKAGE_VERSION}"))
     };
 
     let mut settings = serde_json::from_str::<RootSettings>(&template_str)

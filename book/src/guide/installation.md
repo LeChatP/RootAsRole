@@ -1,21 +1,38 @@
-# Full Compilation & Installation Process
+# Installation
+
+## Install from Linux distributions
+
+**We really need your help to bring the project to Linux distributions repositories! Please contribute 🙏!**
+
+
+### Arch Linux (AUR)
+
+```sh
+git clone https://aur.archlinux.org/dosr.git
+cd dosr
+makepkg -si
+```
+you can also use `yay` AUR manager or any other one you like. Please __**vote**__ for the [AUR](https://aur.archlinux.org/packages/dosr) if you want it into pacman `extra` repo! All you need is an [Arch AUR account](https://aur.archlinux.org/login) and you could vote for the AUR 🙂
+
+
+## Compile and install from source
 
 This is a complete process for compiling and installing `dosr` and `chsr` binaries.
 
-## Prerequisites
+### Prerequisites
 
 - Linux system with PAM
 - Rust toolchain
 - Administrative rights (`sudo` or equivalent)
 
-## Retrieve the source code
+### Retrieve the source code
 
 ```bash
 git clone https://github.com/LeChatP/RootAsRole
 cd RootAsRole
 ```
 
-## Configuring the fallback default behavior
+### Configuring the fallback default behavior
 
 Before installing the tool, you might want to set default behavior. You'll find in .cargo/config.toml :
 
@@ -56,7 +73,7 @@ RAR_WORKDIR_REMOVE_LIST = ""
 
 These variables allows a customized compilation of the binary. With these variables you'll be able to edit every behaviors, either hardcoded in the binary such as the root configuration file path, or the execution options when they aren't defined at all in the policy.
 
-### Core Path & Configuration Storage Variables Reference
+#### Core Path & Configuration Storage Variables Reference
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |

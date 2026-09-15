@@ -74,7 +74,8 @@ Here are the supported version for security updates:
 
 | Version | Supported          | End of support (DD-MM-YYYY format) |
 | ------- | ------------------ | -------------------- |
-| >=3.2.0 | :white_check_mark: | N/A
+| >= 4.0.0 | :white_check_mark: | N/A       |
+| < 4.0.0 | :warning: | 01-06-2027         |
 | < 3.2.0 | :warning:| 31-12-2026         |
 | < 3.0.0 | :x:  | 13-09-2024
 

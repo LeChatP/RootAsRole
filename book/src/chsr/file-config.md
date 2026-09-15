@@ -1,6 +1,10 @@
 # Configuration File Format
 
-This page documents the RootAsRole policy file, usually `/etc/security/rootasrole.json`.
+<blockquote class="caroot-stare">
+This section needs rewriting.
+</blockquote>
+
+This page documents the RaR policy file, usually `/etc/security/rootasrole.json`.
 
 Use `chsr` for routine edits. Keep manual JSON editing for advanced workflows and reviewed changes.
 
@@ -167,7 +171,7 @@ Important option families:
 
 ## 7) Plugins and extra fields
 
-RootAsRole supports extension fields (for example role hierarchy or separation-of-duty metadata) and command plugin objects (for example hash-check metadata).
+RaR supports extension fields (for example role hierarchy or separation-of-duty metadata) and command plugin objects (for example hash-check metadata).
 
 These fields are preserved by the policy model and consumed by relevant tooling/plugins.
 
@@ -187,5 +191,5 @@ They represent discovered execution requirements and are useful in IaC/security 
 
 See also:
 
-- [chsr command overview](README.md)
+- [chsr command overview](index.md)
 - [File Format Conversion](convert.md)
