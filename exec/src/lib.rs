@@ -7,3 +7,6 @@ pub mod runner;
 pub mod signal;
 pub mod terminal;
 pub mod types;
+
+#[cfg(test)]
+pub static MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -6,7 +6,7 @@ use landlock::{
     ABI, Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreated,
     RulesetCreatedAttr,
 };
-use rar_exec::orchestrator::{PreExecContext, PreExecStep, Stage};
+use rootasrole_exec::orchestrator::{PreExecContext, PreExecStep, Stage};
 use serde::{Deserialize, Serialize};
 
 use crate::{

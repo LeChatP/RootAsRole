@@ -13,7 +13,7 @@ use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::debug;
 use options::BorrowedOptStack;
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups},
@@ -495,17 +495,17 @@ mod tests {
     use super::de::{DCommand, DCommandList, DRoleFinder, DTaskFinder, IdTask};
     use super::*;
     use capctl::CapSet;
-    use rar_common::database::FilterMatcher;
-    use rar_common::database::options::{EnvBehavior, Level, SInfo};
-    use rar_common::database::score::{ActorMatchMin, CmdMin, Score};
-    use rar_common::database::structs::SetBehavior;
+    use rootasrole_core::database::FilterMatcher;
+    use rootasrole_core::database::options::{EnvBehavior, Level, SInfo};
+    use rootasrole_core::database::score::{ActorMatchMin, CmdMin, Score};
+    use rootasrole_core::database::structs::SetBehavior;
     use serde_json::Value;
     use std::path::PathBuf;
 
     use crate::Cli;
     use crate::finder::de::cred::CredData;
     use crate::finder::options::{DEnvOptions, Opt};
-    use rar_common::Cred;
+    use rootasrole_core::Cred;
     use test_log::test;
 
     // Helper: Dummy implementations for required traits/structs

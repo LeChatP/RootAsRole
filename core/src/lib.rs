@@ -67,6 +67,7 @@ pub mod database;
 pub mod file;
 #[cfg(feature = "ldap")]
 pub mod ldap;
+pub mod log;
 pub mod util;
 
 #[cfg(feature = "ldap")]

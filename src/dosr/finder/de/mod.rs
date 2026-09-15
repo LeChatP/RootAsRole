@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::Pat
 
 use bon::Builder;
 use log::debug;
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::{
         score::{ActorMatchMin, CmdMin, Score, SecurityMin, TaskScore},
@@ -363,7 +363,7 @@ mod tests {
     use super::*;
     use cbor4ii::core::utils::SliceReader;
     use nix::unistd::{getgid, getuid};
-    use rar_common::database::{
+    use rootasrole_core::database::{
         actor::SGroups,
         score::{CapsMin, SetUserMin, SetgidMin, SetuidMin},
     };

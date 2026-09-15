@@ -673,8 +673,8 @@ impl PartialEq<str> for SUserChooser {
 mod tests {
 
     use capctl::Cap;
-    use chrono::Duration;
     use indexmap::IndexSet;
+    use jiff::SignedDuration;
 
     use crate::{
         as_borrow,
@@ -793,7 +793,7 @@ mod tests {
 
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.type_field, Some(TimestampType::PPID));
-        assert_eq!(timeout.duration, Some(Duration::minutes(5)));
+        assert_eq!(timeout.duration, Some(SignedDuration::from_mins(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
         assert_eq!(
@@ -1049,7 +1049,7 @@ mod tests {
 
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.type_field, Some(TimestampType::PPID));
-        assert_eq!(timeout.duration, Some(Duration::minutes(5)));
+        assert_eq!(timeout.duration, Some(SignedDuration::from_mins(5)));
         assert_eq!(config.roles[0].as_ref().borrow().name, "role1");
         let actor0 = &config.roles[0].as_ref().borrow().actors[0];
         match actor0 {
@@ -1156,7 +1156,7 @@ mod tests {
                 .timeout(
                     STimeout::builder()
                         .type_field(TimestampType::PPID)
-                        .duration(Duration::minutes(5))
+                        .duration(SignedDuration::from_mins(5))
                         .build(),
                 )
                 .build()

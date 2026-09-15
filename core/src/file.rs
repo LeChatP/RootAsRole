@@ -17,7 +17,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     SettingsContent,
-    database::{migration::Migration, structs::SPolicy, versionning::Versioning},
+    database::{
+        migration::{Migration, MigrationError},
+        structs::SPolicy,
+        versionning::Versioning,
+    },
     util::{
         RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, has_privileges, is_immutable,
         open_lock_with_privileges, read_with_privileges, with_mutable_config, write_config,
@@ -244,10 +248,15 @@ impl FileSettings {
                         })?,
                 };
                 Self::make_weak_config(&settings.data.config);
-                settings.upgrade_version(ROOT_MIGRATIONS).map_err(|e| {
-                    debug!("Failed to upgrade root settings: {e}");
-                    io::Error::other(e.to_string())
-                })?;
+                settings
+                    .upgrade_version(ROOT_MIGRATIONS)
+                    .or_else(|e| match e {
+                        MigrationError::NoMigrationPath(from, to) => {
+                            debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                            Ok(false)
+                        }
+                        MigrationError::MigrationFailed(e) => Err(io::Error::other(e)),
+                    })?;
                 debug!("Loaded root settings from {}", path.display());
                 Ok(settings)
             })?;
@@ -379,7 +388,7 @@ impl FileSettings {
                     p.display(),
                     p.display()
                 );
-                if *p == self.root.path {
+                if p.is_dir() || *p == self.root.path {
                     None
                 } else {
                     Some(p.clone())
@@ -394,12 +403,7 @@ impl FileSettings {
                 "Moved root settings to new path: {}",
                 new_root.path.display()
             );
-            // Manually drop the old root using unsafe code to trigger Drop impl
-            unsafe {
-                let old_root_ptr = &raw mut self.root;
-                std::ptr::drop_in_place(old_root_ptr);
-            }
-            self.root = new_root;
+            drop(std::mem::replace(&mut self.root, new_root));
         }
 
         let mut has_errors = if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
@@ -1206,5 +1210,40 @@ mod tests {
         assert!(!content.contains("another_old_role"));
         assert!(!content.contains("yet_another_old_role"));
         assert!(!content.contains("oldest_role"));
+    }
+
+    #[test]
+    fn test_save_all_with_directory_storage() {
+        let test_file = "/tmp/test_save_all_with_directory_storage.json";
+        let policy_dir = "/tmp/test_save_all_with_directory_storage.d";
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_file(test_file);
+            let _ = std::fs::remove_dir_all(policy_dir);
+        });
+
+        std::fs::create_dir_all(policy_dir).unwrap();
+        let settings = RootSettings::builder()
+            .storage(
+                SettingsContent::builder()
+                    .method(StorageMethod::JSON)
+                    .settings(
+                        RemoteStorageSettings::builder()
+                            .path(policy_dir)
+                            .not_immutable()
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+        let mut root =
+            LockedSettingsFile::open_write(test_file, |_, _| Ok(Versioning::new(settings.clone())))
+                .unwrap();
+        root.save(StorageMethod::JSON, false).unwrap();
+        drop(root);
+
+        let mut file_settings =
+            FileSettings::write_all(test_file, policy_dir, StorageMethod::JSON).unwrap();
+        file_settings.save_all().unwrap();
+        assert_eq!(file_settings.root.path, PathBuf::from(test_file));
     }
 }

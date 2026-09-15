@@ -6,7 +6,7 @@ use std::{
     time,
 };
 
-use chrono::Utc;
+use jiff::Timestamp;
 use log::debug;
 use nix::{
     libc::dev_t,
@@ -15,7 +15,7 @@ use nix::{
 };
 use serde::{Deserialize, Serialize};
 
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::options::{STimeout, TimestampType},
     util::{
@@ -80,8 +80,8 @@ impl Default for Cookiev1 {
     fn default() -> Self {
         Self {
             timestamp_type: TimestampType::default(),
-            start_time: Utc::now().timestamp(),
-            timestamp: Utc::now().timestamp(),
+            start_time: Timestamp::now().as_second(),
+            timestamp: Timestamp::now().as_second(),
             usage: 0,
             parent_record: ParentRecord::default(),
             auth_uid: uid_t::MAX,
@@ -205,6 +205,7 @@ fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Er
     }
     Ok(())
 }
+
 fn find_valid_cookie(
     from: &Cred,
     cred_asked: &Cred,
@@ -212,50 +213,64 @@ fn find_valid_cookie(
     editcookie: fn(&mut CookieVersion),
 ) -> Option<CookieVersion> {
     let mut cookies = read_cookies(from).unwrap_or_default();
-    let mut to_remove = Vec::new();
     let mut res = None;
+
     debug!(
         "Constraints for {} : {:?}",
         &cred_asked.user.uid.as_raw(),
         constraint
     );
-    for (a, cookiev) in cookies.iter_mut().enumerate() {
-        match cookiev {
-            CookieVersion::V1(cookie) => {
-                debug!("Checking cookie: {cookie:?}");
-                if cookie.auth_uid != cred_asked.user.uid.as_raw()
-                    || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
-                    || cookie.parent_record != ParentRecord::new(cookie.timestamp_type, from)
-                {
-                    continue;
-                }
-                let max_usage_ok = constraint.max_usage.is_none()
-                    || cookie.usage < constraint.max_usage.unwrap_or(u64::MAX);
-                debug!(
-                    "timestamp: {}, now: {}, offset {}, now + offset : {}\ntimestamp-now+offset : {}",
-                    cookie.timestamp,
-                    Utc::now().timestamp(),
-                    constraint.duration.unwrap_or_default().num_seconds(),
-                    Utc::now().timestamp() + constraint.duration.unwrap_or_default().num_seconds(),
-                    cookie.timestamp - Utc::now().timestamp()
-                        + constraint.duration.unwrap_or_default().num_seconds()
-                );
-                let timeofuse: bool = cookie.timestamp - Utc::now().timestamp()
-                    + constraint.duration.unwrap_or_default().num_seconds()
-                    > 0;
-                debug!("Time of use: {timeofuse}, max_usage : {max_usage_ok}");
-                if timeofuse && max_usage_ok && res.is_none() {
-                    editcookie(cookiev);
-                    res = Some(cookiev.clone());
-                } else {
-                    to_remove.push(a);
-                }
+
+    let now = Timestamp::now();
+    let duration = constraint.duration.unwrap_or_default(); // Span::default() is 0s
+
+    cookies.retain_mut(|cookiev| match cookiev {
+        CookieVersion::V1(cookie) => {
+            debug!("Checking cookie: {cookie:?}");
+
+            if cookie.auth_uid != cred_asked.user.uid.as_raw()
+                || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
+                || cookie.parent_record != ParentRecord::new(cookie.timestamp_type, from)
+            {
+                return true;
+            }
+            //let max_usage_ok = constraint.max_usage.is_none()
+            //|| cookie.usage < constraint.max_usage.unwrap_or(u64::MAX);
+            let max_usage_ok = constraint.max_usage.is_none()
+                || cookie.usage < constraint.max_usage.unwrap_or(u64::MAX);
+            debug!(
+                "Max usage ok: {max_usage_ok}, usage: {}, max_usage: {:?}",
+                cookie.usage, constraint.max_usage
+            );
+
+            let cookie_ts = Timestamp::new(cookie.timestamp, 0).unwrap_or(Timestamp::UNIX_EPOCH);
+
+            let expires_at = cookie_ts.checked_add(duration).unwrap_or(cookie_ts);
+
+            let timeofuse = expires_at > now;
+
+            let remaining_secs = now.until(expires_at).map_or(0, |s| s.get_seconds());
+
+            debug!(
+                "timestamp: {}, now: {}, offset_secs: {}, expires_at: {}\nremaining_secs: {}",
+                cookie.timestamp,
+                now.as_second(),
+                duration.as_secs(),
+                expires_at.as_second(),
+                remaining_secs
+            );
+            debug!("Time of use: {timeofuse}, max_usage: {max_usage_ok}");
+
+            if timeofuse && max_usage_ok && res.is_none() {
+                editcookie(cookiev);
+                res = Some(cookiev.clone());
+                true
+            } else {
+                false
             }
         }
-    }
-    for a in to_remove {
-        cookies.remove(a);
-    }
+    });
+
     if let Err(e) = save_cookies(from, &cookies) {
         debug!("Failed to save cookies {e:?}");
     }
@@ -283,7 +298,7 @@ pub fn update_cookie(
     let res = find_valid_cookie(from, cred_asked, constraint, |cookie| match cookie {
         CookieVersion::V1(cookie) => {
             cookie.usage += 1;
-            cookie.timestamp = Utc::now().timestamp();
+            cookie.timestamp = Timestamp::now().as_second();
             debug!("Updating cookie: {cookie:?}");
         }
     });
@@ -293,8 +308,8 @@ pub fn update_cookie(
         let cookie = CookieVersion::V1(Cookiev1 {
             auth_uid: cred_asked.user.uid.as_raw(),
             timestamp_type: constraint.type_field.unwrap_or_default(),
-            start_time: Utc::now().timestamp(),
-            timestamp: Utc::now().timestamp(),
+            start_time: Timestamp::now().as_second(),
+            timestamp: Timestamp::now().as_second(),
             usage: 0,
             parent_record,
         });
@@ -314,9 +329,9 @@ pub fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod test {
+    use jiff::SignedDuration;
     use nix::unistd::{Pid, User};
     use serde_json::Map;
-    use serial_test::serial;
     use test_log::test;
 
     use super::*;
@@ -331,9 +346,11 @@ mod test {
         assert!(wait_for_lockfile(lockpath).is_ok());
     }
 
-    #[serial]
+    static MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_cookie() {
+        let _guard = MUTEX.lock().unwrap();
         let cred = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
@@ -345,7 +362,7 @@ mod test {
             .unwrap_or_else(|_| create_dir_all_with_privileges(TS_LOCATION).unwrap());
         let constraint = STimeout {
             type_field: Some(TimestampType::TTY),
-            duration: Some(chrono::Duration::seconds(10)),
+            duration: Some(SignedDuration::from_secs(10)),
             max_usage: Some(1),
             extra_fields: Map::default(),
         };
@@ -357,9 +374,9 @@ mod test {
         clear_cookies(&cred).unwrap();
     }
 
-    #[serial]
     #[test]
     fn test_cookie_requires_matching_ppid() {
+        let _guard = MUTEX.lock().unwrap();
         let creator = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
@@ -376,7 +393,7 @@ mod test {
         };
         let constraint = STimeout {
             type_field: Some(TimestampType::PPID),
-            duration: Some(chrono::Duration::seconds(10)),
+            duration: Some(SignedDuration::from_secs(10)),
             max_usage: Some(1),
             extra_fields: Map::default(),
         };

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, path::PathBuf, str::FromStr};
 
 use log::debug;
-use rar_common::database::{score::CmdMin, structs::SetBehavior};
+use rootasrole_core::database::{score::CmdMin, structs::SetBehavior};
 use serde::{
     Deserialize,
     de::{DeserializeSeed, IgnoredAny},
@@ -336,7 +336,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for DCommandDeserializer<'a> {
 mod test {
     use std::path::PathBuf;
 
-    use rar_common::database::score::CmdMin;
+    use rootasrole_core::database::score::CmdMin;
     use serde::de::DeserializeSeed;
 
     use crate::{

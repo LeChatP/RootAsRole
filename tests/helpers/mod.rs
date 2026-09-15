@@ -20,7 +20,7 @@ use nix::unistd::getuid;
 use nix::unistd::setgid;
 use nix::unistd::setgroups;
 use nix::unistd::setuid;
-use rar_common::util::StorageMethod;
+use rootasrole_core::util::StorageMethod;
 
 const TEMP_LIFETIME_BUILD_STATE: &str = "target/tmp/dosr_integration_test_build";
 const RAR_CFG_PATH: &str = "target/rootasrole.json";
@@ -136,6 +136,8 @@ fn build_dosr_binary(
             "PATH",
             format!("{}:{}/bin", env::var("PATH")?, env!("CARGO_HOME")),
         )
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("HOME", &home_dir);
     unsafe {
         command.pre_exec(move || {

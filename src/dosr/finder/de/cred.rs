@@ -4,7 +4,7 @@ use bon::Builder;
 use capctl::CapSet;
 use log::debug;
 use nix::unistd::{Group, User};
-use rar_common::{
+use rootasrole_core::{
     database::{
         actor::{DGroupType, DGroups, DUserType},
         score::{CapsMin, SetgidMin, SetuidMin, TaskScore},
@@ -567,7 +567,7 @@ mod test {
 
     use super::*;
     use capctl::Cap;
-    use rar_common::database::{
+    use rootasrole_core::database::{
         FilterMatcher,
         actor::{DGroupType, SGroupType},
         score::{SetgidMin, SetuidMin},

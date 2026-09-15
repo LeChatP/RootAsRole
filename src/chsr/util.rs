@@ -4,7 +4,7 @@ use std::mem;
 use konst::eq_str;
 use pest::{RuleType, error::LineColLocation};
 
-use rar_common::util::escape_parser_string;
+use rootasrole_core::util::escape_parser_string;
 
 #[cfg(not(test))]
 pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");

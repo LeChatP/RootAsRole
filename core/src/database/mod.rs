@@ -2,7 +2,6 @@ use std::error::Error;
 
 use actor::{SGroups, SUserType};
 use bon::Builder;
-use chrono::Duration;
 use indexmap::IndexSet;
 use options::EnvBehavior;
 use serde::{Serialize, de::Deserialize, de::Deserializer};
@@ -91,7 +90,10 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
 
 /// # Errors
 /// Returns an error if the duration string is not in the correct format.
-pub fn serialize_duration<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_duration<S>(
+    value: &Option<jiff::SignedDuration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -99,9 +101,9 @@ where
     match value {
         Some(value) => serializer.serialize_str(&format!(
             "{:#02}:{:#02}:{:#02}",
-            value.num_hours(),
-            value.num_minutes() % 60,
-            value.num_seconds() % 60
+            value.as_hours(),
+            value.as_mins() % 60,
+            value.as_secs() % 60
         )),
         None => serializer.serialize_none(),
     }
@@ -109,7 +111,9 @@ where
 
 /// # Errors
 /// Returns an error if the duration string is not in the correct format or if the duration is negative.
-pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+pub fn deserialize_duration<'de, D>(
+    deserializer: D,
+) -> Result<Option<jiff::SignedDuration>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -120,7 +124,7 @@ where
     }
 }
 
-fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<dyn Error>> {
+fn convert_string_to_duration(s: &str) -> Result<Option<jiff::SignedDuration>, Box<dyn Error>> {
     let mut parts = s.split(':');
     //unwrap or error
     if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())
@@ -129,7 +133,9 @@ fn convert_string_to_duration(s: &str) -> Result<Option<chrono::TimeDelta>, Box<
         let minutes: i64 = minutes.parse()?;
         let seconds: i64 = seconds.parse()?;
         return Ok(Some(
-            Duration::hours(hours) + Duration::minutes(minutes) + Duration::seconds(seconds),
+            jiff::SignedDuration::from_hours(hours)
+                + jiff::SignedDuration::from_mins(minutes)
+                + jiff::SignedDuration::from_secs(seconds),
         ));
     }
     Err("Invalid duration format".into())
@@ -177,7 +183,7 @@ mod tests {
         }
     }
 
-    struct DurationTester(Option<Duration>);
+    struct DurationTester(Option<jiff::SignedDuration>);
 
     impl<'de> Deserialize<'de> for DurationTester {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -233,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_serialize_duration() {
-        let duration = DurationTester(Some(Duration::seconds(3661)));
+        let duration = DurationTester(Some(jiff::SignedDuration::from_secs(3661)));
         let serialized = serde_json::to_string(&duration).unwrap();
         assert_eq!(serialized, r#""01:01:01""#);
     }
@@ -244,7 +250,7 @@ mod tests {
         let deserialized: DurationTester = serde_json::from_str(json).unwrap();
         assert!(deserialized.0.is_some());
         let duration = deserialized.0.unwrap();
-        assert_eq!(duration.num_seconds(), 3661);
+        assert_eq!(duration.as_secs(), 3661);
     }
 
     #[test]
@@ -289,7 +295,9 @@ mod tests {
 
     #[test]
     fn test_serialize_duration_large() {
-        let duration = Some(DurationTester(Some(Duration::seconds(3600 * 25 + 61))));
+        let duration = Some(DurationTester(Some(jiff::SignedDuration::from_secs(
+            3600 * 25 + 61,
+        ))));
         let serialized = serde_json::to_string(&duration).unwrap();
         assert_eq!(serialized, r#""25:01:01""#);
     }
@@ -300,7 +308,7 @@ mod tests {
         let deserialized: DurationTester = serde_json::from_str(json).unwrap();
         assert!(deserialized.0.is_some());
         let duration = deserialized.0.unwrap();
-        assert_eq!(duration.num_seconds(), 3723);
+        assert_eq!(duration.as_secs(), 3723);
     }
 
     #[test]

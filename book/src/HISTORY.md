@@ -14,7 +14,7 @@ RootAsRole direction is delegated to Eddie BILLOIR, a SIERA PhD student that con
 
 ## 4.0 (2026)
 
-RootAsRole reaches a major stabilization milestone with the modernized execution stack crate `rar-exec` for managing a secure execution for commands, thus handling signals and pty completely, introducing a way to monitor and curtail the execution in the future, exactly like sudo tool. It also introduces more configuration capabilities, such as folder-based configuration and CBOR-only format for even more performance. It also enhances the execution context, by adding the working directory management in the policy.
+RootAsRole reaches a major stabilization milestone with the modernized execution stack crate `rootasrole-exec` for managing a secure execution for commands, thus handling signals and pty completely, introducing a way to monitor and curtail the execution in the future, exactly like sudo tool. It also introduces more configuration capabilities, such as folder-based configuration and CBOR-only format for even more performance. It also enhances the execution context, by adding the working directory management in the policy.
 
 Documentation is refocused on operational usage, policy clarity, and contributor architecture. A comprehensive PhD thesis @@billo2025 consolidates the research foundation and design rationale for the project.
 

@@ -14,7 +14,7 @@ use crate::{
     Cli,
     error::{SrError, SrResult},
 };
-use rar_common::{
+use rootasrole_core::{
     Cred,
     database::options::{SAuthentication, STimeout},
 };
@@ -206,15 +206,17 @@ pub(super) fn start_session<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    use jiff::SignedDuration;
     use nix::{libc::dev_t, unistd::Pid};
-    use rar_common::{
+    use rootasrole_core::{
         Cred,
         database::options::{SAuthentication, STimeout, TimestampType},
     };
     use serde_json::Map;
-    use std::ffi::OsStr;
+    use std::{ffi::OsStr, sync::Mutex};
     use test_log::test;
+
+    static PAM_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     // Helper function to create a test user
     fn create_test_user() -> Cred {
@@ -234,7 +236,7 @@ mod tests {
     fn create_test_timeout() -> STimeout {
         STimeout {
             type_field: Some(TimestampType::TTY),
-            duration: Some(Duration::seconds(300)), // 5 minutes
+            duration: Some(SignedDuration::from_secs(300)), // 5 minutes
             max_usage: Some(3),
             extra_fields: Map::default(),
         }
@@ -323,6 +325,8 @@ mod tests {
         let timeout = create_test_timeout();
         let user = create_test_user();
 
+        let _guard = PAM_TEST_LOCK.lock().unwrap();
+
         if !pam_ready(&user) {
             eprintln!("Skipping: PAM backend not available in this test environment");
             return;
@@ -336,6 +340,7 @@ mod tests {
 
     #[test]
     fn test_check_auth_required_but_valid_timeout() {
+        let _guard = PAM_TEST_LOCK.lock().unwrap();
         if env!("RAR_PAM_SERVICE") == "dosr" {
             println!(
                 "Skipping test_check_auth_required_but_valid_timeout because RAR_PAM_SERVICE is set to original dosr"
@@ -412,16 +417,17 @@ mod tests {
 
     #[test]
     fn test_timeout_types() {
+        let _guard = PAM_TEST_LOCK.lock().unwrap();
         let timeout_ppid = STimeout {
             type_field: Some(TimestampType::PPID),
-            duration: Some(Duration::seconds(300)),
+            duration: Some(SignedDuration::from_secs(300)),
             max_usage: Some(1),
             extra_fields: Map::default(),
         };
 
         let timeout_tty = STimeout {
             type_field: Some(TimestampType::TTY),
-            duration: Some(Duration::seconds(600)),
+            duration: Some(SignedDuration::from_secs(600)),
             max_usage: Some(5),
             extra_fields: Map::default(),
         };

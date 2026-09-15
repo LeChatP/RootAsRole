@@ -6,9 +6,7 @@ test-root = [
     "--all-features",
     "--all-targets",
     "--config",
-    "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\"",
-    "--",
-    "--test-threads=1"
+    "target.\"cfg(all())\".runner=\"/usr/bin/sudo -E\""
 ]
 
 integration-test = [

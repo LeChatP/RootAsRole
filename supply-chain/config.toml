@@ -49,10 +49,6 @@ criteria = "safe-to-deploy"
 version = "0.2.1"
 criteria = "safe-to-deploy"
 
-[[exemptions.chrono]]
-version = "0.4.44"
-criteria = "safe-to-deploy"
-
 [[exemptions.const_format]]
 version = "0.2.36"
 criteria = "safe-to-deploy"

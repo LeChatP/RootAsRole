@@ -158,8 +158,8 @@ pub mod steps {
 #[allow(clippy::unnecessary_wraps)]
 mod tests {
     use super::*;
+    use crate::MUTEX;
     use crate::pty::Pty;
-    use serial_test::serial;
     use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::net::UnixStream;
     use std::process::Stdio;
@@ -265,8 +265,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn orchestrator_runs_steps_in_order() {
+        let _guard = MUTEX.lock().unwrap();
         STATE.store(0, Ordering::SeqCst);
         let orch = Orchestrator::new(ORDERED_STEPS);
         let ctx = PreExecContext::with_tty(42);
@@ -277,8 +277,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn orchestrator_stops_on_first_error() {
+        let _guard = MUTEX.lock().unwrap();
         STATE.store(0, Ordering::SeqCst);
         let orch = Orchestrator::new(FAILING_STEPS);
         let ctx = PreExecContext::empty();

@@ -1,5 +1,5 @@
 use log::{debug, info, warn};
-use rar_common::{
+use rootasrole_core::{
     database::score::{CmdMin, CmdOrder},
     util::{all_paths_from_env, match_single_path},
 };
