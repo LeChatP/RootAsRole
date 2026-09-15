@@ -71,6 +71,7 @@ mod tests {
     use std::{cell::RefCell, fs, rc::Rc};
 
     use indexmap::IndexSet;
+    use jiff::SignedDuration;
     use rootasrole_core::{
         RemoteStorageSettings, SettingsContent,
         database::{
@@ -87,7 +88,6 @@ mod tests {
 
     use super::*;
     use capctl::Cap;
-    use chrono::TimeDelta;
     use log::error;
     use test_log::test;
 
@@ -768,10 +768,10 @@ mod tests {
                                     STimeout::builder()
                                         .type_field(TimestampType::PPID)
                                         .duration(
-                                            TimeDelta::hours(15)
-                                                .checked_add(&TimeDelta::minutes(30))
+                                            SignedDuration::from_hours(15)
+                                                .checked_add(SignedDuration::from_mins(30))
                                                 .unwrap()
-                                                .checked_add(&TimeDelta::seconds(30))
+                                                .checked_add(SignedDuration::from_secs(30))
                                                 .unwrap(),
                                         )
                                         .max_usage(1)
@@ -805,10 +805,10 @@ mod tests {
                                             STimeout::builder()
                                                 .type_field(TimestampType::PPID)
                                                 .duration(
-                                                    TimeDelta::hours(15)
-                                                        .checked_add(&TimeDelta::minutes(30))
+                                                    SignedDuration::from_hours(15)
+                                                        .checked_add(SignedDuration::from_mins(30))
                                                         .unwrap()
-                                                        .checked_add(&TimeDelta::seconds(30))
+                                                        .checked_add(SignedDuration::from_secs(30))
                                                         .unwrap(),
                                                 )
                                                 .max_usage(1)
@@ -845,14 +845,14 @@ mod tests {
                                                     STimeout::builder()
                                                         .type_field(TimestampType::PPID)
                                                         .duration(
-                                                            TimeDelta::hours(15)
-                                                                .checked_add(&TimeDelta::minutes(
-                                                                    30,
-                                                                ))
+                                                            SignedDuration::from_hours(15)
+                                                                .checked_add(
+                                                                    SignedDuration::from_mins(30),
+                                                                )
                                                                 .unwrap()
-                                                                .checked_add(&TimeDelta::seconds(
-                                                                    30,
-                                                                ))
+                                                                .checked_add(
+                                                                    SignedDuration::from_secs(30),
+                                                                )
                                                                 .unwrap(),
                                                         )
                                                         .max_usage(1)

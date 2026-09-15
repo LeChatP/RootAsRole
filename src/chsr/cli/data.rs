@@ -2,9 +2,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use bon::Builder;
 use capctl::CapSet;
-use chrono::Duration;
 use indexmap::IndexSet;
 
+use jiff::SignedDuration;
 use pest_derive::Parser;
 use rootasrole_core::{
     database::{
@@ -75,7 +75,7 @@ pub struct Inputs {
     pub setlist_type: Option<SetListType>,
     pub timeout_arg: Option<[bool; 3]>,
     pub timeout_type: Option<TimestampType>,
-    pub timeout_duration: Option<Duration>,
+    pub timeout_duration: Option<SignedDuration>,
     pub timeout_max_usage: Option<u64>,
     pub policy: bool,
     pub policy_path: Option<String>,

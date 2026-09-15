@@ -7,7 +7,6 @@ use std::str::FromStr;
 use std::{borrow::Borrow, cell::RefCell, rc::Rc};
 
 use bon::{Builder, bon};
-use chrono::Duration;
 
 use indexmap::IndexSet;
 use konst::eq_str;
@@ -27,7 +26,8 @@ use crate::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
-    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_TYPE, UMASK,
+    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
+    UMASK,
 };
 
 use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
@@ -112,7 +112,7 @@ pub struct STimeout {
         deserialize_with = "deserialize_duration",
         skip_serializing_if = "Option::is_none"
     )]
-    pub duration: Option<Duration>,
+    pub duration: Option<jiff::SignedDuration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_usage: Option<u64>,
     #[serde(default)]
@@ -611,7 +611,8 @@ impl Opt {
             .timeout(
                 STimeout::builder()
                     .type_field(TIMEOUT_TYPE)
-                    .duration(TIMEOUT_DURATION)
+                    .maybe_duration(TIMEOUT_DURATION)
+                    .maybe_max_usage(TIMEOUT_MAX_USAGE)
                     .build(),
             )
             .build()
@@ -1182,6 +1183,7 @@ impl OptStack {
 #[cfg(test)]
 mod tests {
 
+    use jiff::SignedDuration;
     use serde_test::Token;
     use serde_test::assert_de_tokens;
     use serde_test::assert_de_tokens_error;
@@ -1333,7 +1335,7 @@ mod tests {
                                 .timeout(
                                     STimeout::builder()
                                         .type_field(TimestampType::TTY)
-                                        .duration(Duration::minutes(3))
+                                        .duration(SignedDuration::from_mins(3))
                                         .build(),
                                 )
                                 .build()
@@ -1358,7 +1360,7 @@ mod tests {
                         .timeout(
                             STimeout::builder()
                                 .type_field(TimestampType::PPID)
-                                .duration(Duration::minutes(2))
+                                .duration(SignedDuration::from_mins(2))
                                 .build(),
                         )
                         .build()
@@ -1383,7 +1385,7 @@ mod tests {
                 .timeout(
                     STimeout::builder()
                         .type_field(TimestampType::TTY)
-                        .duration(Duration::minutes(1))
+                        .duration(SignedDuration::from_mins(1))
                         .build(),
                 )
                 .build()
@@ -1445,7 +1447,7 @@ mod tests {
         );
         assert_eq!(
             global_options.timeout.as_ref().unwrap().duration.unwrap(),
-            Duration::minutes(1)
+            SignedDuration::from_mins(1)
         );
         assert_eq!(
             global_options.timeout.as_ref().unwrap().type_field.unwrap(),
@@ -1491,7 +1493,7 @@ mod tests {
         assert_eq!(role_options.authentication.unwrap(), SAuthentication::Skip);
         assert_eq!(
             role_options.timeout.as_ref().unwrap().duration.unwrap(),
-            Duration::minutes(2)
+            SignedDuration::from_mins(2)
         );
         assert_eq!(
             role_options.timeout.as_ref().unwrap().type_field.unwrap(),
@@ -1540,7 +1542,7 @@ mod tests {
         );
         assert_eq!(
             task_options.timeout.as_ref().unwrap().duration.unwrap(),
-            Duration::minutes(3)
+            SignedDuration::from_mins(3)
         );
         assert_eq!(
             task_options.timeout.as_ref().unwrap().type_field.unwrap(),

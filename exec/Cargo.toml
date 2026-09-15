@@ -10,7 +10,7 @@ rust-version.workspace = true
 description = "Execution primitives for RootAsRole, mostly inspired by sudo-rs, but usable by other projects (mine aswell)."
 
 [dependencies]
-rkyv = { version = "0.8" }
+rkyv = { version = "0.8", default-features = false, features = ["bytecheck", "alloc"] }
 libc = "0.2"
 ringbuf = ">=0.4, <0.6"
 log = "0.4"

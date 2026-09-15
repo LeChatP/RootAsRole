@@ -206,7 +206,7 @@ pub(super) fn start_session<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    use jiff::SignedDuration;
     use nix::{libc::dev_t, unistd::Pid};
     use rootasrole_core::{
         Cred,
@@ -236,7 +236,7 @@ mod tests {
     fn create_test_timeout() -> STimeout {
         STimeout {
             type_field: Some(TimestampType::TTY),
-            duration: Some(Duration::seconds(300)), // 5 minutes
+            duration: Some(SignedDuration::from_secs(300)), // 5 minutes
             max_usage: Some(3),
             extra_fields: Map::default(),
         }
@@ -420,14 +420,14 @@ mod tests {
         let _guard = PAM_TEST_LOCK.lock().unwrap();
         let timeout_ppid = STimeout {
             type_field: Some(TimestampType::PPID),
-            duration: Some(Duration::seconds(300)),
+            duration: Some(SignedDuration::from_secs(300)),
             max_usage: Some(1),
             extra_fields: Map::default(),
         };
 
         let timeout_tty = STimeout {
             type_field: Some(TimestampType::TTY),
-            duration: Some(Duration::seconds(600)),
+            duration: Some(SignedDuration::from_secs(600)),
             max_usage: Some(5),
             extra_fields: Map::default(),
         };

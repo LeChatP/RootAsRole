@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
 
 use indexmap::IndexSet;
+use jiff::SignedDuration;
 use log::{debug, warn};
 
 use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
@@ -823,7 +824,7 @@ pub fn set_timeout(
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     timeout_type: Option<rootasrole_core::database::options::TimestampType>,
-    timeout_duration: Option<chrono::TimeDelta>,
+    timeout_duration: Option<SignedDuration>,
     timeout_max_usage: Option<u64>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o timeout set");

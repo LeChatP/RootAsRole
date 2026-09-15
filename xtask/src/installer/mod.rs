@@ -8,8 +8,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::VecDeque, fmt::Display};
 
-use chrono::{Datelike, NaiveDate, Utc};
 use clap::{Parser, ValueEnum};
+use jiff::Zoned;
+use jiff::civil::Date;
 use semver::Version;
 
 use anyhow::anyhow;
@@ -177,7 +178,7 @@ impl Display for Toolchain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toolchain {
     pub channel: Channel,
-    pub date: Option<NaiveDate>,
+    pub date: Option<Date>,
     pub host: Option<String>,
 }
 
@@ -225,14 +226,20 @@ impl FromStr for Channel {
     }
 }
 
-fn parse_date(y: &str, m: &str, d: &str) -> Result<NaiveDate, anyhow::Error> {
-    let y = y.parse::<i32>()?;
-    let m = m.parse::<u32>()?;
-    let d = d.parse::<u32>()?;
-    let date = NaiveDate::from_ymd_opt(y, m, d).ok_or_else(|| anyhow!("Invalid date"))?;
-    if date > Utc::now().naive_utc().into() {
-        return Err(anyhow!("Invalid date"));
+fn parse_date(y: &str, m: &str, d: &str) -> Result<Date, anyhow::Error> {
+    // jiff::civil::Date::new expects (i16, i8, i8)
+    let y = y.parse::<i16>()?;
+    let m = m.parse::<i8>()?;
+    let d = d.parse::<i8>()?;
+
+    let date = Date::new(y, m, d).map_err(|e| anyhow!("Invalid date: {e}"))?;
+
+    // Compare against today's date in UTC (or local using Zoned::now().date())
+    let today_utc = Zoned::now().with_time_zone(jiff::tz::TimeZone::UTC).date();
+    if date > today_utc {
+        return Err(anyhow!("Date cannot be in the future"));
     }
+
     Ok(date)
 }
 

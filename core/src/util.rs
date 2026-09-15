@@ -11,8 +11,8 @@ use std::{
 use capctl::{Cap, CapSet, ParseCapError};
 use capctl::{CapState, prctl};
 
-use chrono::Duration;
-use konst::{eq_str, iter, option, result, string};
+use jiff::SignedDuration;
+use konst::{eq_str, iter, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
 use log::{debug, warn};
 use nix::{
@@ -124,13 +124,22 @@ pub static ENV_SET_LIST: &[(&str, &str); ENV_SET_LIST_SLICE.len()] =
 
 pub const TIMEOUT_TYPE: TimestampType = TimestampType::const_parse(env!("RAR_TIMEOUT_TYPE"));
 
-pub const TIMEOUT_DURATION: Duration = option::unwrap_or!(
-    result::unwrap_or!(
-        convert_string_to_duration(env!("RAR_TIMEOUT_DURATION")),
-        None
-    ),
-    Duration::seconds(5)
-);
+pub const TIMEOUT_DURATION: Option<jiff::SignedDuration> = match option_env!("RAR_TIMEOUT_DURATION")
+{
+    Some(s) => match convert_string_to_duration(s) {
+        Ok(d) => Some(d),
+        Err(_) => None,
+    },
+    None => None,
+};
+
+pub const TIMEOUT_MAX_USAGE: Option<u64> = match option_env!("RAR_TIMEOUT_MAX_USAGE") {
+    Some(s) => match u64::from_str_radix(s, 10) {
+        Ok(n) => Some(n),
+        Err(_) => None,
+    },
+    None => None,
+};
 
 pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
     assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));
@@ -159,9 +168,6 @@ pub static WORKDIR_ADD_LIST: &[&str; WORKDIR_ADD_LIST_SLICE.len()] =
 
 pub static WORKDIR_REMOVE_LIST: &[&str; WORKDIR_REMOVE_LIST_SLICE.len()] =
     result::unwrap!(konst::slice::try_into_array(WORKDIR_REMOVE_LIST_SLICE));
-
-pub const TIMEOUT_MAX_USAGE: u64 =
-    result::unwrap_or!(u64::from_str_radix(env!("RAR_TIMEOUT_MAX_USAGE"), 10), 0);
 
 pub const BOUNDING: SBounding = SBounding::const_parse(env!("RAR_BOUNDING"));
 
@@ -290,9 +296,7 @@ impl std::fmt::Display for DurationParseError {
     }
 }
 
-const fn convert_string_to_duration(
-    s: &str,
-) -> Result<Option<chrono::TimeDelta>, DurationParseError> {
+const fn convert_string_to_duration(s: &str) -> Result<SignedDuration, DurationParseError> {
     let mut parts = string::split(s, ':');
     let Some(hours) = parts.next() else {
         return Err(DurationParseError);
@@ -319,9 +323,9 @@ const fn convert_string_to_duration(
     } else {
         return Err(DurationParseError);
     };
-    Ok(Some(Duration::seconds(
+    Ok(SignedDuration::from_secs(
         hours * 3600 + minutes * 60 + seconds,
-    )))
+    ))
 }
 
 #[macro_export]
@@ -571,30 +575,6 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
         );
     }
     match_status
-}
-
-#[cfg(debug_assertions)]
-/// # Errors
-/// Returns an error if the logger fails to initialize
-pub fn subsribe(_: &str) -> io::Result<()> {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Trace)
-        .format_module_path(true)
-        .init();
-    Ok(())
-}
-
-#[cfg(not(debug_assertions))]
-pub fn subsribe(tool: &str) -> io::Result<()> {
-    use log::LevelFilter;
-    use syslog::Facility;
-    syslog::init(Facility::LOG_AUTH, LevelFilter::Info, Some(tool)).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to connect to syslog: {}", e),
-        )
-    })?;
-    Ok(())
 }
 
 /// # Errors
@@ -943,7 +923,7 @@ mod test {
         assert!(duration.is_ok());
         assert_eq!(
             duration.unwrap(),
-            Some(Duration::hours(1) + Duration::minutes(30))
+            SignedDuration::from_hours(1) + SignedDuration::from_mins(30)
         );
         let invalid_duration = convert_string_to_duration("invalid");
         assert!(invalid_duration.is_err());

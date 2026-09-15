@@ -741,8 +741,8 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .find_map(|o| o.timeout.clone())
             .unwrap_or_else(|| STimeout {
                 type_field: Some(TIMEOUT_TYPE),
-                duration: Some(TIMEOUT_DURATION),
-                max_usage: Some(TIMEOUT_MAX_USAGE),
+                duration: TIMEOUT_DURATION,
+                max_usage: TIMEOUT_MAX_USAGE,
                 extra_fields: Map::new(),
             })
     }

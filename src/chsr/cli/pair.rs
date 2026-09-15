@@ -1,8 +1,8 @@
 use std::{collections::HashMap, error::Error, str::FromStr};
 
 use capctl::Cap;
-use chrono::Duration;
 use indexmap::IndexSet;
+use jiff::SignedDuration;
 use log::{debug, warn};
 use pest::iterators::Pair;
 
@@ -169,25 +169,24 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         // === timeout ===
         Rule::time => {
             let mut reversed = pair.as_str().split(':').rev();
-            let mut duration: Duration = Duration::try_seconds(
+            let mut duration: SignedDuration = SignedDuration::from_secs(
                 reversed
                     .next()
                     .ok_or("No seconds in time")?
                     .parse::<i64>()
                     .unwrap_or(0),
-            )
-            .unwrap_or_default();
+            );
             if let Some(mins) = reversed.next() {
                 duration = duration
                     .checked_add(
-                        &Duration::try_minutes(mins.parse::<i64>().unwrap_or(0))
+                        SignedDuration::try_from_mins(mins.parse::<i64>().unwrap_or(0))
                             .unwrap_or_default(),
                     )
                     .expect("Invalid minutes");
                 if let Some(hours) = reversed.next() {
                     duration = duration
                         .checked_add(
-                            &Duration::try_hours(hours.parse::<i64>().unwrap_or(0))
+                            SignedDuration::try_from_hours(hours.parse::<i64>().unwrap_or(0))
                                 .unwrap_or_default(),
                         )
                         .expect("Invalid hours");

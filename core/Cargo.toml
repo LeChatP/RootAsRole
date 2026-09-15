@@ -13,7 +13,7 @@ keywords = ["sudo", "capabilities", "rbac", "linux", "security"]
 [dependencies]
 libc = { version= "0.2", default-features = false, features = ["std"] }
 semver = { version = "1.0", default-features = false, features = ["std", "serde"] }
-nix = { version = ">=0.30, <0.32", features = ["user","process", "signal", "fs", "hostname"] }
+nix = { version = ">=0.30, <0.32", features = ["user","process", "signal", "fs", "hostname", "syslog"] }
 capctl = { version= "0.2", default-features = false, features = ["std", "serde"] }
 pcre2 = { version = "0.2", default-features = false, optional = true }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
@@ -21,9 +21,8 @@ serde_json = { version= "1.0", default-features = false, features = ["std"] }
 glob = { version = "0.3", default-features = false, optional = true }
 bitflags = { version = "2.13", default-features = false }
 indexmap = { version = "2.14", default-features = false, features = ["std"] }
-chrono = { version= "0.4", default-features = false }
+jiff = { version = "0.2", default-features = false }
 log = { version= "0.4", default-features = false }
-syslog = { version= "7.0", default-features = false }
 env_logger = { version= "0.11", default-features = false }
 bon = { version = "3", default-features = false, features = ["experimental-overwritable"] }
 cbor4ii = { version = "1.2", default-features = false, features = ["serde", "serde1", "use_std"] }
@@ -31,12 +30,7 @@ konst = { version= "0.4", default-features = false, features = ["parsing_proc", 
 
 [dev-dependencies]
 log = { version= "0.4", default-features = false }
-test-log = { version = "0.2", default-features = false }
 serde_test = "1.0"
-
-[build-dependencies]
-serde = { version = "1.0", default-features = false, features= ["rc", "derive"] }
-serde_json = { version= "1.0", default-features = false }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = 1 }

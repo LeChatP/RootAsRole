@@ -21,6 +21,7 @@ use rootasrole_core::{
         actor::{SGroupType, SGroups, SUserType},
         options::EnvBehavior,
     },
+    log::subsribe,
 };
 
 use log::{debug, error};
@@ -29,7 +30,7 @@ use std::{io, process::Command};
 use std::{io::stdout, path::PathBuf};
 
 use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
-use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective, subsribe};
+use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective};
 
 use crate::error::SrError;
 use crate::error::SrResult;
