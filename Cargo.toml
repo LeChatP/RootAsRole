@@ -88,12 +88,12 @@ should_implement_trait = { level = "allow", priority = 2 }
 allow-unwrap-in-tests = true
 
 [workspace.dependencies]
-rootasrole-core = { path = "core" }
-rootasrole-exec = { path = "exec" }
+rootasrole-core = { version = "4.0.2", path = "core" }
+rootasrole-exec = { version = "4.0.2", path = "exec" }
 
 [dependencies]
-rootasrole-core = { version = "4.0.2", workspace = true }
-rootasrole-exec = { version = "4.0.2", workspace = true }
+rootasrole-core = { workspace = true }
+rootasrole-exec = { workspace = true }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
 nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs"] }
