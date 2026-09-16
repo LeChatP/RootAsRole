@@ -1,6 +1,6 @@
 # An unexpected CaRoot story
 
-<img src="/assets/logo/outfits/png/spy_pose.png" width="200" height="200" align="right" style="float:right;">
+<img src="../assets/logo/outfits/png/spy_pose.png" width="200" height="200" align="right" style="float:right;">
 
 ## Chapter 1: A detective in the garden
 
