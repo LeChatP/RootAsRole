@@ -1,5 +1,6 @@
 [workspace]
 members = ["xtask", "core", "exec"]
+exclude = ["fuzz", "book", "sudoers-reader"]
 
 [workspace.package]
 edition = "2024"
@@ -73,6 +74,7 @@ hierarchy = []
 timeout = []
 landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
+fuzzing = []
 
 [lints.rust]
 unexpected_cfgs = "allow"

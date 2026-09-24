@@ -1,0 +1,62 @@
+[package]
+name = "rootasrole-fuzz"
+version = "0.0.1"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+libc = { version = "0.2", default-features = false, features = ["std"] }
+libpam-sys = "0.2"
+log = "0.4"
+pcre2 = { version = "0.2", default-features = false }
+rootasrole-core = { version = "4", path = "../core", features = ["finder"] }
+serde = "1"
+shell-words = "1.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
+unused = { level = "allow" }
+
+[features]
+default = ["pcre2", "fuzzing"]
+pcre2 = []
+fuzzing = []
+
+[[bin]]
+name = "command_match"
+path = "fuzz_targets/command_match.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "password_input"
+path = "fuzz_targets/password_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cli_args"
+path = "fuzz_targets/cli_args.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "environment"
+path = "fuzz_targets/environment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "setup_environment"
+path = "fuzz_targets/setup_environment.rs"
+test = false
+doc = false
+bench = false

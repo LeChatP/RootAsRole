@@ -260,3 +260,14 @@ mod test {
         }
     }
 }
+
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing_exports {
+    // Ce "pub use" rend la fonction privée accessible depuis l'extérieur
+    // mais uniquement au travers du module `fuzzing_exports`
+    pub fn fuzz_read_unbuffered(
+        source: &mut impl std::io::Read,
+    ) -> std::io::Result<super::PamBuffer> {
+        super::read_unbuffered(source)
+    }
+}
