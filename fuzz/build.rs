@@ -35,6 +35,7 @@ fn main() {
         let mut cmd = Command::new("cargo");
         cmd.current_dir(project_dir)
             .args([
+                "+stable",
                 "build",
                 "--release",
                 "--bin",
@@ -45,7 +46,9 @@ fn main() {
             .env("CARGO_TARGET_DIR", &isolated_target)
             .env("RAR_CFG_PATH", &config_path)
             .env("RAR_CFG_DATA_PATH", &config_path)
-            .env("RAR_CFG_TYPE", "json");
+            .env("RAR_CFG_TYPE", "json")
+            .env_remove("RUSTFLAGS")
+            .env_remove("CARGO_ENCODED_RUSTFLAGS");
 
         let status = cmd.status().expect("failed to launch the binary build");
         if !status.success() {
