@@ -4,6 +4,12 @@ use std::io::Cursor;
 
 use libfuzzer_sys::fuzz_target;
 
+fn set_dosr_binary() {
+    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/fuzz_bins/rootasrole_password_input");
+    unsafe { std::env::set_var("DOSR_BIN", binary) };
+}
+
 #[path = "../../src/dosr/pam/cutils.rs"]
 mod cutils;
 #[path = "../../src/dosr/pam/rpassword.rs"]
@@ -12,6 +18,7 @@ mod rpassword;
 mod securemem;
 
 fuzz_target!(|data: &[u8]| {
+    set_dosr_binary();
     let max_password_len = libpam_sys::PAM_MAX_RESP_SIZE as usize - 1;
     let password_len = data
         .iter()

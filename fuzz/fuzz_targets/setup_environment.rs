@@ -87,7 +87,10 @@ pub fn setup_config() -> std::io::Result<()> {
 }
 
 fn main() {
-    if let Err(error) = environment_config::setup_config() {
+    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/fuzz_bins/rootasrole_setup_environment");
+    unsafe { std::env::set_var("DOSR_BIN", binary) };
+    if let Err(error) = setup_config() {
         eprintln!("failed to set up environment fuzz config: {error}");
         std::process::exit(1);
     }

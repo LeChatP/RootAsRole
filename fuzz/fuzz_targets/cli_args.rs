@@ -5,6 +5,12 @@ use std::process::{Command, Stdio};
 
 use libfuzzer_sys::fuzz_target;
 
+fn set_dosr_binary() {
+    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/fuzz_bins/rootasrole_cli_args");
+    unsafe { std::env::set_var("DOSR_BIN", binary) };
+}
+
 fn take_value<'a, I>(bytes: &mut I) -> Option<String>
 where
     I: Iterator<Item = &'a u8>,
@@ -15,6 +21,7 @@ where
 }
 
 fuzz_target!(|data: &[u8]| {
+    set_dosr_binary();
     let Ok(binary) = std::env::var("DOSR_BIN") else {
         return;
     };

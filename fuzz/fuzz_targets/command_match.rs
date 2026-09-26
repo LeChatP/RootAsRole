@@ -5,10 +5,17 @@ use std::path::PathBuf;
 use libfuzzer_sys::fuzz_target;
 use rootasrole_core::database::score::CmdMin;
 
+fn set_dosr_binary() {
+    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/fuzz_bins/rootasrole_command_match");
+    unsafe { std::env::set_var("DOSR_BIN", binary) };
+}
+
 #[path = "../../src/dosr/finder/cmd.rs"]
 mod command;
 
 fuzz_target!(|data: &[u8]| {
+    set_dosr_binary();
     if data.is_empty() {
         return;
     }

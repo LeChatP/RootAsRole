@@ -3,6 +3,7 @@ name = "rootasrole-fuzz"
 version = "0.0.1"
 publish = false
 edition = "2024"
+build = "build.rs"
 
 [package.metadata]
 cargo-fuzz = true
