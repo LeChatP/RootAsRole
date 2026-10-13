@@ -76,10 +76,8 @@ pub unsafe fn set_no_new_privs_step(_: PreExecContext) -> io::Result<()> {
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
 pub unsafe fn close_fds_step(_: PreExecContext) -> io::Result<()> {
-    let _ = crate::close_restrictive_fds();
-    Ok(())
+    crate::close_restrictive_fds()
 }
 
 pub const SET_UMASK_STEP: PreExecStep = PreExecStep {

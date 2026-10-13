@@ -476,16 +476,16 @@ fn set_capabilities(cred: &CredOwnedData, bounding: SBounding) -> SrResult<()> {
     let mut capstate = CapState::empty();
     if bounding.is_strict() {
         for cap in (!caps).iter() {
-            capctl::bounding::drop(cap).expect("Failed to set bounding cap");
+            capctl::bounding::drop(cap)?;
         }
     }
     capstate.effective.clear();
     capstate.permitted = caps;
     capstate.inheritable = caps;
     debug!("caps : {caps:?}");
-    capstate.set_current().expect("Failed to set current cap");
+    capstate.set_current()?;
     for cap in caps.iter() {
-        capctl::ambient::raise(cap).expect("Failed to set ambiant cap");
+        capctl::ambient::raise(cap)?;
     }
     Ok(())
 }
@@ -513,31 +513,42 @@ fn setuid_setgid(cred: &CredOwnedData) -> SrResult<()> {
     })
 }
 
+/// Mark every file descriptor above stderr as close-on-exec, like sudo-rs `mark_fds_as_cloexec`
+/// (sudo-rs/src/system/mod.rs). Unlike closing them, this keeps working the descriptor used by
+/// `Command` to report an exec failure.
 fn close_restrictive_fds() -> io::Result<()> {
-    // Close all FDs > 2
-    debug!("Closing restrictive FDs");
-    let mut fds = Vec::new();
-    let read_dir = std::fs::read_dir("/proc/self/fd")?;
-    let mut error = false;
-    for entry in read_dir.flatten() {
-        if let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() {
-            if fd > 2 {
-                fds.push(fd);
-            } else {
-                error!("Failed to read fd entry: {entry:?}");
-                error = true;
-            }
+    let lowfd: libc::c_uint = 3;
+    // SAFETY: close_range only changes the flags of file descriptors, it does not touch memory.
+    // The raw syscall is used because close_range is not in glibc < 2.34 nor in musl.
+    let res = unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            lowfd,
+            libc::c_uint::MAX,
+            libc::CLOSE_RANGE_CLOEXEC,
+        )
+    };
+    if res == 0 {
+        return Ok(());
+    }
+    let err = io::Error::last_os_error();
+    if !matches!(err.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL)) {
+        return Err(err);
+    }
+    // The kernel is older than 5.11, fall back to the list of open file descriptors
+    for entry in std::fs::read_dir("/proc/self/fd")? {
+        let fd = entry?
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<libc::c_int>().ok())
+            .ok_or_else(|| io::Error::other("procfs returned a non-integer fd name"))?;
+        if fd >= 3 {
+            // SAFETY: fcntl only sets the close-on-exec flag of this file descriptor,
+            // an fd that was closed in the meantime only makes it fail with EBADF.
+            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
         }
     }
-
-    for fd in fds {
-        let _ = nix::unistd::close(fd);
-    }
-    if error {
-        Err(io::Error::other("Failed to read some fd entries"))
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -726,6 +737,18 @@ mod tests {
             .build();
         // We expect this to fail if we don't have privileges, but we want to execute the code before the failure.
         let _ = setuid_setgid(&execcfg.cred);
+    }
+
+    #[test]
+    fn test_close_restrictive_fds_marks_cloexec() {
+        use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+        let file = fs::File::open("/dev/null").unwrap();
+        // dup does not keep the close-on-exec flag
+        let fd = nix::unistd::dup(&file).unwrap();
+        let flags = |fd| FdFlag::from_bits_truncate(fcntl(fd, FcntlArg::F_GETFD).unwrap());
+        assert!(!flags(&fd).contains(FdFlag::FD_CLOEXEC));
+        close_restrictive_fds().unwrap();
+        assert!(flags(&fd).contains(FdFlag::FD_CLOEXEC));
     }
 
     #[test]
