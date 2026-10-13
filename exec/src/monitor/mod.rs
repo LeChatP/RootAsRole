@@ -63,6 +63,7 @@ impl Process for MonitorClosure {
 
                         if let Some(pid) = self.command_pid {
                             let mut status = 0;
+                            // SAFETY: waitpid only writes the exit status through a pointer to a local integer
                             unsafe { libc::waitpid(pid, &raw mut status, 0) };
                             let _ = self
                                 .backchannel
@@ -96,8 +97,10 @@ impl Process for MonitorClosure {
                         if is_forward_signal_allowed(sig) {
                             if let Some(pid) = self.command_pid {
                                 if sig == libc::SIGALRM {
+                                    // SAFETY: kill does not access memory, it only sends a signal to the command
                                     unsafe { libc::kill(pid, libc::SIGKILL) };
                                 } else {
+                                    // SAFETY: kill does not access memory, it only sends a signal to the command
                                     unsafe { libc::kill(pid, sig) };
                                 }
                             }
@@ -129,6 +132,7 @@ impl MonitorClosure {
         if info.signal == SIGCHLD {
             if let Some(pid) = self.command_pid {
                 let mut status = 0;
+                // SAFETY: waitpid only writes the exit status through a pointer to a local integer
                 let res =
                     unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG | libc::WUNTRACED) };
                 if res > 0 {
@@ -163,8 +167,10 @@ impl MonitorClosure {
             if is_forward_signal_allowed(info.signal) {
                 debug!("monitor: forwarding signal {}", info.signal);
                 if info.signal == libc::SIGALRM {
+                    // SAFETY: kill does not access memory, it only sends a signal to the command
                     unsafe { libc::kill(pid, libc::SIGKILL) };
                 } else {
+                    // SAFETY: kill does not access memory, it only sends a signal to the command
                     unsafe { libc::kill(pid, info.signal) };
                 }
             }
@@ -188,6 +194,7 @@ fn is_self_terminating(
         return true;
     }
 
+    // SAFETY: getpgid does not access memory
     let signaler_pgrp = unsafe { libc::getpgid(signaler_pid) };
     signaler_pgrp == command_pgrp
 }
@@ -204,11 +211,13 @@ pub fn exec_monitor_process(
     foreground: bool,
 ) -> io::Result<()> {
     debug!("monitor: starting (foreground={foreground})");
+    // SAFETY: SIG_IGN does not install any handler code
     unsafe {
         libc::signal(libc::SIGTTIN, libc::SIG_IGN);
         libc::signal(libc::SIGTTOU, libc::SIG_IGN);
     }
 
+    // SAFETY: setsid does not access memory
     if unsafe { libc::setsid() } == -1 {
         return Err(io::Error::last_os_error());
     }
@@ -217,6 +226,9 @@ pub fn exec_monitor_process(
     debug!("monitor: controlling terminal set");
 
     let f_fd = pty_follower.as_fd().as_raw_fd();
+    // SAFETY: the closure runs in the forked child right before exec. The monitor is single-threaded,
+    // so the child cannot inherit a lock held by another thread, and the orchestrator steps are
+    // written to run in this context (see `Orchestrator::run`).
     unsafe {
         command.pre_exec(move || {
             let ctx = PreExecContext::with_tty(f_fd);
@@ -243,6 +255,7 @@ pub fn exec_monitor_process(
 
     let (err_reader, mut err_writer) = std::os::unix::net::UnixStream::pair()?;
 
+    // SAFETY: the monitor is single-threaded, so the child cannot inherit a lock held by another thread
     let pid = unsafe { libc::fork() };
     if pid == -1 {
         return Err(io::Error::last_os_error());
@@ -253,27 +266,34 @@ pub fn exec_monitor_process(
 
         // Restore default signal handlers
         for sig in 1..32 {
+            // SAFETY: restoring the default disposition does not install any handler code
             unsafe { libc::signal(sig, libc::SIG_DFL) };
         }
 
         // Restore signal mask
         let set: libc::sigset_t = original_set.map_or_else(
             || {
+                // SAFETY: sigset_t is a plain bitmask, for which all zeroes is a valid value
                 let mut tmp = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                // SAFETY: `tmp` is a valid sigset_t
                 unsafe { libc::sigemptyset(&raw mut tmp) };
                 tmp
             },
             |s| *s,
         );
 
+        // SAFETY: `set` is a valid sigset_t, and the previous mask is not requested
         unsafe {
             libc::sigprocmask(libc::SIG_SETMASK, &raw const set, std::ptr::null_mut());
         }
 
+        // SAFETY: setpgid does not access memory
         let _ = unsafe { libc::setpgid(0, 0) };
+        // SAFETY: getpid does not access memory
         let cmd_pid = unsafe { libc::getpid() };
 
         if foreground {
+            // SAFETY: tcgetpgrp does not access memory, the fd is kept open by `pty_follower`
             let pgrp = unsafe { libc::tcgetpgrp(pty_follower.as_fd().as_raw_fd()) };
             if pgrp == cmd_pid {
                 debug!("monitor: foreground pgrp confirmed");
@@ -290,6 +310,7 @@ pub fn exec_monitor_process(
         let err_msg = format!("Failed to exec: {err}");
         let _ = err_writer.write_all(err_msg.as_bytes());
 
+        // SAFETY: _exit does not return and does not run any destructor or atexit handler of the parent
         unsafe { libc::_exit(1) };
     }
 
@@ -298,8 +319,10 @@ pub fn exec_monitor_process(
 
     err_reader.set_nonblocking(true)?;
 
+    // SAFETY: setpgid does not access memory
     let _ = unsafe { libc::setpgid(pid, pid) };
     if foreground {
+        // SAFETY: tcsetpgrp does not access memory, the fd is kept open by `pty_follower`
         let res = unsafe { libc::tcsetpgrp(pty_follower.as_fd().as_raw_fd(), pid) };
         if res == -1 {
             warn!("monitor: tcsetpgrp failed: {}", io::Error::last_os_error());
@@ -325,6 +348,7 @@ pub fn exec_monitor_process(
     debug!("monitor: signal handlers installed");
 
     if let Some(set) = original_set {
+        // SAFETY: `set` is a valid sigset_t, and the previous mask is not requested
         unsafe {
             libc::sigprocmask(libc::SIG_SETMASK, set, std::ptr::null_mut());
         }
@@ -338,6 +362,7 @@ pub fn exec_monitor_process(
     let mut monitor = MonitorClosure {
         command_pid: Some(pid),
         command_pgrp: pid,
+        // SAFETY: getpgrp does not access memory
         monitor_pgrp: unsafe { libc::getpgrp() },
         pty_follower, // Keep it alive
         signal_stream,
@@ -364,6 +389,7 @@ pub fn exec_monitor_process(
 
     // Restore terminal foreground process group to monitor (prevent SIGHUP to children)
     // This is critical to ensure the next invocation doesn't freeze waiting for foreground pgrp
+    // SAFETY: tcsetpgrp does not access memory, the fd is kept open by `monitor.pty_follower`
     let _ = unsafe {
         libc::tcsetpgrp(
             monitor.pty_follower.as_fd().as_raw_fd(),
@@ -377,14 +403,17 @@ pub fn exec_monitor_process(
 
     // Cleanup
     if let Some(pid) = monitor.command_pid {
+        // SAFETY: kill does not access memory, it only sends a signal to the command
         unsafe { libc::kill(pid, SIGKILL) };
         let mut status = 0;
+        // SAFETY: waitpid only writes the exit status through a pointer to a local integer
         unsafe { libc::waitpid(pid, &raw mut status, 0) };
     }
 
     Ok(())
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use super::is_self_terminating;

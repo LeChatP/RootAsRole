@@ -69,7 +69,7 @@ end = "2027-05-25"
 
 [[trusted.bytes]]
 criteria = "safe-to-deploy"
-user-id = 6741 # Alice Ryhl (Darksonn)
+user-id = 6741
 start = "2021-01-11"
 end = "2027-05-24"
 
@@ -169,6 +169,12 @@ user-id = 189 # Andrew Gallant (BurntSushi)
 start = "2024-02-17"
 end = "2027-05-24"
 
+[[trusted.jiff-core]]
+criteria = "safe-to-deploy"
+user-id = 189 # Andrew Gallant (BurntSushi)
+start = "2026-06-30"
+end = "2027-09-19"
+
 [[trusted.jiff-static]]
 criteria = "safe-to-deploy"
 user-id = 189 # Andrew Gallant (BurntSushi)
@@ -183,7 +189,7 @@ end = "2027-05-24"
 
 [[trusted.js-sys]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2019-03-04"
 end = "2027-05-24"
 
@@ -195,7 +201,7 @@ end = "2027-05-24"
 
 [[trusted.lock_api]]
 criteria = "safe-to-deploy"
-user-id = 2915 # Amanieu d'Antras (Amanieu)
+user-id = 2915
 start = "2019-05-04"
 end = "2027-05-24"
 
@@ -219,13 +225,13 @@ end = "2027-05-24"
 
 [[trusted.parking_lot]]
 criteria = "safe-to-deploy"
-user-id = 2915 # Amanieu d'Antras (Amanieu)
+user-id = 2915
 start = "2019-05-04"
 end = "2027-05-24"
 
 [[trusted.parking_lot_core]]
 criteria = "safe-to-deploy"
-user-id = 2915 # Amanieu d'Antras (Amanieu)
+user-id = 2915
 start = "2019-05-04"
 end = "2027-05-24"
 
@@ -273,7 +279,7 @@ end = "2027-05-24"
 
 [[trusted.scopeguard]]
 criteria = "safe-to-run"
-user-id = 2915 # Amanieu d'Antras (Amanieu)
+user-id = 2915
 start = "2020-02-16"
 end = "2027-05-24"
 
@@ -321,7 +327,7 @@ end = "2027-05-24"
 
 [[trusted.slab]]
 criteria = "safe-to-deploy"
-user-id = 6741 # Alice Ryhl (Darksonn)
+user-id = 6741
 start = "2021-10-13"
 end = "2027-05-24"
 
@@ -375,79 +381,79 @@ end = "2027-05-24"
 
 [[trusted.wasip2]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2025-09-09"
 end = "2027-05-24"
 
 [[trusted.wasm-bindgen]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2019-03-04"
 end = "2027-05-24"
 
 [[trusted.wasm-bindgen-macro]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2019-03-04"
 end = "2027-05-25"
 
 [[trusted.wasm-bindgen-macro-support]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2019-03-04"
 end = "2027-05-24"
 
 [[trusted.wasm-bindgen-shared]]
 criteria = "safe-to-deploy"
-user-id = 1 # Alex Crichton (alexcrichton)
+user-id = 1
 start = "2019-03-04"
 end = "2027-05-24"
 
 [[trusted.winapi]]
 criteria = "safe-to-deploy"
-user-id = 63 # Peter Atashian (retep998)
+user-id = 63
 start = "2019-04-03"
 end = "2027-05-24"
 
 [[trusted.windows-core]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2021-11-15"
 end = "2027-05-24"
 
 [[trusted.windows-implement]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2022-01-27"
 end = "2027-05-24"
 
 [[trusted.windows-interface]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2022-02-18"
 end = "2027-05-24"
 
 [[trusted.windows-link]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2024-07-17"
 end = "2027-05-24"
 
 [[trusted.windows-result]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2024-02-02"
 end = "2027-05-24"
 
 [[trusted.windows-strings]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2024-02-02"
 end = "2027-05-24"
 
 [[trusted.windows-sys]]
 criteria = "safe-to-deploy"
-user-id = 64539 # Kenny Kerr (kennykerr)
+user-id = 64539
 start = "2021-11-15"
 end = "2027-05-24"
 

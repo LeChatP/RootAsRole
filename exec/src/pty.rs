@@ -73,6 +73,7 @@ impl PtyLeader {
     /// # Errors
     /// Returns an error if system call fails
     pub fn set_size(&self, term_size: &TermSize) -> io::Result<i32> {
+        // SAFETY: TIOCSWINSZ reads a winsize struct, and `TermSize` is a `repr(transparent)` wrapper of winsize
         cerr(unsafe {
             ioctl(
                 self.file.as_raw_fd(),
@@ -152,6 +153,7 @@ impl From<PtyFollower> for std::process::Stdio {
     }
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use log::info;

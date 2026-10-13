@@ -37,6 +37,7 @@ impl ProcessId {
 
     #[must_use]
     pub fn current() -> Self {
+        // SAFETY: getpid does not access memory
         Self(unsafe { libc::getpid() })
     }
 
@@ -160,6 +161,7 @@ impl From<RawFileDescriptor> for RawFd {
     }
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use super::*;

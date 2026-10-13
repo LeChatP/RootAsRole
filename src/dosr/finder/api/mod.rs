@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, collections::HashMap, path::PathBuf};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
 use rootasrole_core::{
     Cred,
@@ -24,7 +24,7 @@ pub mod landlock;
 mod ssd;
 
 thread_local! {
-    static API: UnsafeCell<Api> = UnsafeCell::new(Api::new());
+    static API: RefCell<Api> = RefCell::new(Api::new());
 }
 
 pub type EventCallbackFunction = dyn Fn(&mut ApiEvent) -> SrResult<()>;
@@ -107,8 +107,10 @@ impl Api {
     #[cfg(feature = "plugins")]
     pub fn notify(mut event: ApiEvent) -> SrResult<()> {
         let key = event.get_key();
+        // Callbacks may notify other events (e.g. hierarchy evaluates the tasks of parent roles),
+        // so the API is only borrowed immutably while they run.
         API.with(|api| -> SrResult<()> {
-            let api = unsafe { &mut *api.get() };
+            let api = api.borrow();
             if let Some(callbacks) = api.callbacks.get(&key) {
                 for callback in callbacks {
                     callback(&mut event)?;
@@ -123,8 +125,8 @@ impl Api {
     where
         F: Fn(&mut ApiEvent) -> SrResult<()> + Send + 'static,
     {
-        API.with(|api| unsafe {
-            let api = &mut *api.get();
+        API.with(|api| {
+            let mut api = api.borrow_mut();
             let callbacks = api.callbacks.entry(event).or_default();
             callbacks.push(Box::new(function));
         });

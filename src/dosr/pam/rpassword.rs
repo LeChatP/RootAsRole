@@ -53,6 +53,7 @@ impl HiddenInput {
         term.c_lflag |= ECHONL;
 
         // Save the settings for now.
+        // SAFETY: we are passing tcsetattr a valid file descriptor and pointer-to-struct
         cerr(unsafe { tcsetattr(fd, TCSANOW, &raw const term) })?;
 
         Ok(Some(Self { tty, term_orig }))
@@ -64,6 +65,7 @@ impl Drop for HiddenInput {
     fn drop(&mut self) {
         // Set the mode back to normal and discard unread inputs
         // See GHSA-c978-wq47-pvvw.
+        // SAFETY: we are passing tcsetattr a valid file descriptor and pointer-to-struct
         unsafe {
             libc::tcsetattr(
                 self.tty.as_raw_fd(),
@@ -77,7 +79,9 @@ impl Drop for HiddenInput {
 #[cfg_attr(tarpaulin, ignore)]
 fn safe_tcgetattr(fd: RawFd) -> io::Result<termios> {
     let mut term = mem::MaybeUninit::<termios>::uninit();
+    // SAFETY: we are passing tcgetattr a pointer to valid memory
     cerr(unsafe { ::libc::tcgetattr(fd, term.as_mut_ptr()) })?;
+    // SAFETY: if the previous call was a success, `tcgetattr` has initialized `term`
     Ok(unsafe { term.assume_init() })
 }
 
@@ -258,5 +262,16 @@ mod test {
                 panic!("Expected StdIE variant, got Tty");
             }
         }
+    }
+}
+
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing_exports {
+    // Ce "pub use" rend la fonction privée accessible depuis l'extérieur
+    // mais uniquement au travers du module `fuzzing_exports`
+    pub fn fuzz_read_unbuffered(
+        source: &mut impl std::io::Read,
+    ) -> std::io::Result<super::PamBuffer> {
+        super::read_unbuffered(source)
     }
 }

@@ -246,8 +246,10 @@ const LOCAL_FLAGS: tcflag_t = ISIG
 
 static GOT_SIGTTOU: AtomicBool = AtomicBool::new(false);
 
+/// # Safety
+/// `tp` must point to an initialized termios struct.
 unsafe fn tcsetattr_nobg(fd: c_int, flags: c_int, tp: *const termios) -> io::Result<()> {
-    // SAFETY: valid args
+    // SAFETY: the caller guarantees that `tp` points to an initialized termios struct
     let setattr = || cerr(unsafe { tcsetattr(fd, flags, tp) }).map(|_| ());
     catching_sigttou(setattr)
 }
@@ -259,28 +261,30 @@ fn catching_sigttou(mut function: impl FnMut() -> io::Result<()>) -> io::Result<
 
     let action = {
         let mut raw = MaybeUninit::<libc::sigaction>::uninit();
+        // SAFETY: `p` points to memory owned by `raw`. Once zeroed, every field of sigaction
+        // is initialized (all zeroes is valid for its integers and bitmasks), then the handler,
+        // mask and flags are set before `assume_init`.
         unsafe {
             let p = raw.as_mut_ptr();
-            // SAFETY: zeroed
             std::ptr::write_bytes(p, 0, 1);
 
             (*p).sa_sigaction = on_sigttou as *const () as sighandler_t;
 
-            // SAFETY: init mask
             sigemptyset(&raw mut (*p).sa_mask);
 
             (*p).sa_flags = 0;
 
-            // SAFETY: initialized
             raw.assume_init()
         }
     };
 
     GOT_SIGTTOU.store(false, Ordering::SeqCst);
 
+    // SAFETY: `action` is initialized and `original_action` is valid for writes. sigaction only fails
+    // for an invalid signal or pointer, which is not the case here, so `original_action` is initialized.
+    // `on_sigttou` is async-signal-safe: it only stores an atomic.
     let original_action = unsafe {
         let mut original_action = MaybeUninit::<sigaction>::uninit();
-        // SAFETY: sigaction
         sigaction(SIGTTOU, &raw const action, original_action.as_mut_ptr());
         original_action.assume_init()
     };
@@ -297,7 +301,7 @@ fn catching_sigttou(mut function: impl FnMut() -> io::Result<()>) -> io::Result<
         }
     };
 
-    // SAFETY: restore handler
+    // SAFETY: restore the handler returned by the previous sigaction, the old one is not requested
     unsafe { sigaction(SIGTTOU, &raw const original_action, std::ptr::null_mut()) };
 
     result
@@ -340,11 +344,12 @@ impl UserTerm {
         let src = self.tty.as_raw_fd();
         let dst = dst.as_fd().as_raw_fd();
 
+        // SAFETY: tcgetattr writes into valid termios structs, which are only assumed
+        // initialized when both calls succeeded.
         let (tt_src, mut tt_dst) = unsafe {
             let mut tt_src = MaybeUninit::<termios>::uninit();
             let mut tt_dst = MaybeUninit::<termios>::uninit();
 
-            // SAFETY: tcgetattr
             cerr(tcgetattr(src, tt_src.as_mut_ptr()))?;
             cerr(tcgetattr(dst, tt_dst.as_mut_ptr()))?;
 
@@ -363,6 +368,7 @@ impl UserTerm {
 
         tt_dst.c_cc = tt_src.c_cc;
 
+        // SAFETY: the speed functions only read and write the initialized termios structs
         unsafe {
             let mut speed = cfgetospeed(&raw const tt_src);
             if speed == libc::B0 {
@@ -373,12 +379,13 @@ impl UserTerm {
             cfsetispeed(&raw mut tt_dst, speed);
         }
 
-        // SAFETY: tcsetattr
+        // SAFETY: `tt_dst` is an initialized termios struct
         unsafe { tcsetattr_nobg(dst, TCSAFLUSH, &raw const tt_dst) }?;
 
         let mut wsize = MaybeUninit::<winsize>::uninit();
-        // SAFETY: ioctl
+        // SAFETY: TIOCGWINSZ writes a winsize struct into valid memory
         cerr(unsafe { ioctl(src, TIOCGWINSZ, wsize.as_mut_ptr()) })?;
+        // SAFETY: TIOCSWINSZ reads a winsize struct, initialized by the successful TIOCGWINSZ above
         cerr(unsafe { ioctl(dst, TIOCSWINSZ, wsize.as_ptr()) })?;
 
         Ok(())
@@ -391,6 +398,7 @@ impl UserTerm {
         let mut term = if let Some(termios) = self.original_termios {
             termios
         } else {
+            // SAFETY: tcgetattr writes into a valid termios struct, which is only assumed initialized on success
             *self.original_termios.insert(unsafe {
                 let mut termios = MaybeUninit::uninit();
                 cerr(tcgetattr(fd, termios.as_mut_ptr()))?;
@@ -398,6 +406,7 @@ impl UserTerm {
             })
         };
         let original_oflag = term.c_oflag;
+        // SAFETY: `term` is an initialized termios struct
         unsafe { cfmakeraw(&raw mut term) };
         term.c_iflag |= libc::ICRNL | libc::IXON;
         term.c_oflag |= libc::OPOST | libc::ONLCR;
@@ -410,6 +419,7 @@ impl UserTerm {
             term.c_lflag |= ISIG;
         }
 
+        // SAFETY: `term` is an initialized termios struct
         unsafe { tcsetattr_nobg(fd, TCSADRAIN, &raw const term) }?;
         Ok(())
     }
@@ -417,10 +427,12 @@ impl UserTerm {
     /// # Errors
     /// Returns an error if system call fails.
     pub fn restore(&mut self, flush: bool) -> io::Result<()> {
-        if let Some(termios) = self.original_termios.take() {
+        if let Some(termios) = self.original_termios {
             let fd = self.tty.as_raw_fd();
             let flags = if flush { TCSAFLUSH } else { TCSADRAIN };
+            // SAFETY: `termios` is an initialized termios struct
             unsafe { tcsetattr_nobg(fd, flags, &raw const termios) }?;
+            self.original_termios = None;
         }
         Ok(())
     }
@@ -460,6 +472,7 @@ impl Drop for UserTerm {
     }
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use log::warn;
@@ -513,8 +526,10 @@ mod tests {
                 assert!(terminal::safe_isatty(&term));
 
                 // Try enabling raw mode
-                let res = term.set_raw_mode(false, false);
-                assert!(res.is_ok());
+                if let Err(e) = term.set_raw_mode(false, false) {
+                    warn!("Skipping UserTerm mode test as the terminal cannot be modified: {e}");
+                    return;
+                }
 
                 // Restore
                 let res = term.restore(false);

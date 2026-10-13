@@ -46,8 +46,6 @@ jobs:
       env:
         RAR_AUTHENTICATION: skip
         RAR_CFG_PATH: target/rootasrole.json
-        RAR_MAX_LOCKFILE_RETRIES: 2
-        RAR_LOCKFILE_RETRY_INTERVAL: 300
         SKIP_BUILD: true
 
     - name: Upload coverage reports to Codecov
@@ -63,8 +61,6 @@ jobs:
       env:
         RAR_AUTHENTICATION: skip
         RAR_CFG_PATH: target/rootasrole.json
-        RAR_MAX_LOCKFILE_RETRIES: 2
-        RAR_LOCKFILE_RETRY_INTERVAL: 300
         SKIP_BUILD: true
 
     - name: Upload coverage reports to Codecov

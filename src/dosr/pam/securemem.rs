@@ -47,6 +47,8 @@ impl PamBuffer {
 
 impl Default for PamBuffer {
     fn default() -> Self {
+        // SAFETY: `calloc` returns either a cleared, allocated chunk of `SIZE` bytes
+        // or NULL to indicate that the allocation request failed
         let res = unsafe { libc::calloc(1, SIZE) };
         NonNull::new(res).map_or_else(|| alloc::handle_alloc_error(layout()), |nn| Self(nn.cast()))
     }
@@ -56,20 +58,26 @@ impl std::ops::Deref for PamBuffer {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        // make the slice one less in size to guarantee the existence of a terminating NUL
+        // SAFETY: `self.0.as_ptr()` is non-null, aligned, and initialized, and points to `SIZE` bytes.
+        // The lifetime of the slice does not exceed that of `self`.
+        //
+        // We make the slice one less in size to guarantee the existence of a terminating NUL.
         unsafe { slice::from_raw_parts(self.0.as_ptr().cast(), SIZE - 1) }
     }
 }
 
 impl std::ops::DerefMut for PamBuffer {
     fn deref_mut(&mut self) -> &mut [u8] {
+        // SAFETY: see above
         unsafe { slice::from_raw_parts_mut(self.0.as_ptr().cast(), SIZE - 1) }
     }
 }
 
 impl Drop for PamBuffer {
     fn drop(&mut self) {
+        // SAFETY: same as for `deref()` and `deref_mut()`
         wipe_memory(unsafe { self.0.as_mut() });
+        // SAFETY: `self.0.as_ptr()` was obtained via `calloc`, so calling `free` is proper.
         unsafe { libc::free(self.0.as_ptr().cast()) }
     }
 }
@@ -81,6 +89,7 @@ fn wipe_memory(memory: &mut [u8]) {
 
     let nonsense: u8 = 0x55;
     for c in memory {
+        // SAFETY: `c` is safe for writes (it comes from a &mut reference)
         unsafe { std::ptr::write_volatile(c, nonsense) };
     }
 
@@ -88,6 +97,7 @@ fn wipe_memory(memory: &mut [u8]) {
     atomic::compiler_fence(atomic::Ordering::SeqCst);
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod test {
 

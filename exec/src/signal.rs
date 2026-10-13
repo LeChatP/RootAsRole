@@ -41,8 +41,9 @@ impl PipeFactory {
         }
 
         Ok(Self {
-            // SAFETY: pipe2 succeeded, fds[0] and fds[1] are valid file descriptors
+            // SAFETY: pipe2 succeeded, fds[0] is a valid file descriptor owned by nobody else
             reader: unsafe { OwnedFd::from_raw_fd(fds[0]) },
+            // SAFETY: pipe2 succeeded, fds[1] is a valid file descriptor owned by nobody else
             writer: unsafe { OwnedFd::from_raw_fd(fds[1]) },
         })
     }
@@ -207,6 +208,7 @@ extern "C" fn handler(signal: SignalNumber, info: *mut libc::siginfo_t, _ctx: *m
 /// - invalid signal number is provided
 /// - system call to set signal handler fails
 pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
+    // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
     let mut sa: libc::sigaction = unsafe { std::mem::zeroed() };
     sa.sa_sigaction = handler as *const () as usize;
     // Use SA_RESTART to avoid interrupting system calls and SA_SIGINFO for metadata.
@@ -227,6 +229,7 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use crate::{

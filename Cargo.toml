@@ -1,10 +1,11 @@
 [workspace]
 members = ["xtask", "core", "exec"]
+exclude = ["fuzz", "book", "sudoers-reader"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.93.0"
-version = "4.0.2"
+version = "4.0.3"
 license = "LGPL-3.0-or-later"
 homepage = "https://lechatp.github.io/RootAsRole/"
 repository = "https://github.com/LeChatP/RootAsRole"
@@ -73,6 +74,7 @@ hierarchy = []
 timeout = []
 landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
+fuzzing = []
 
 [lints.rust]
 unexpected_cfgs = "allow"
@@ -83,6 +85,7 @@ nursery = { level = "warn", priority = 1 }
 unwrap_used = { level = "deny", priority = 2 }
 similar_names = { level = "allow", priority = 2 }
 should_implement_trait = { level = "allow", priority = 2 }
+undocumented_unsafe_blocks = { level = "warn", priority = 2 }
 
 [package.metadata.clippy]
 allow-unwrap-in-tests = true
@@ -96,7 +99,7 @@ rootasrole-core = { workspace = true }
 rootasrole-exec = { workspace = true }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
-nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs"] }
+nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs", "time"] }
 capctl = { version = "0.2", default-features = false, features = ["serde"] }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }

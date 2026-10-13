@@ -25,6 +25,9 @@ audit-as-crates-io = true
 [policy.rootasrole-core]
 audit-as-crates-io = true
 
+[policy.rootasrole-exec]
+audit-as-crates-io = true
+
 [[exemptions.block-buffer]]
 version = "0.10.4"
 criteria = "safe-to-deploy"
@@ -337,34 +340,6 @@ criteria = "safe-to-deploy"
 version = "1.15.2"
 criteria = "safe-to-deploy"
 
-[[exemptions.uuid]]
-version = "1.23.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.version_check]]
 version = "0.9.5"
-criteria = "safe-to-deploy"
-
-[[exemptions.wasm-bindgen]]
-version = "0.2.121"
-criteria = "safe-to-deploy"
-
-[[exemptions.wasm-bindgen-macro]]
-version = "0.2.121"
-criteria = "safe-to-deploy"
-
-[[exemptions.wasm-bindgen-macro-support]]
-version = "0.2.121"
-criteria = "safe-to-deploy"
-
-[[exemptions.wasm-bindgen-shared]]
-version = "0.2.121"
-criteria = "safe-to-deploy"
-
-[[exemptions.winapi-i686-pc-windows-gnu]]
-version = "0.4.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.winapi-x86_64-pc-windows-gnu]]
-version = "0.4.0"
 criteria = "safe-to-deploy"

@@ -99,6 +99,7 @@ const FS_IMMUTABLE_FL: u32 = 0x0000_0010;
 fn is_immutable(file: &File) -> Result<bool, Box<dyn std::error::Error>> {
     let mut val = 0;
     let fd = file.as_raw_fd();
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
         debug!("Error getting flags {:?}", std::io::Error::last_os_error());
         return Err("Error getting flags".into());
@@ -231,6 +232,7 @@ pub fn register() {
     Api::register(EventKey::NewComplexCommand, new_complex_command);
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use std::{

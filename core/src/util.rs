@@ -366,22 +366,20 @@ where
 {
     let metadata = file.metadata()?;
     let uid = metadata.uid();
-    let gid = metadata.gid();
     let effective_uid = nix::unistd::Uid::effective();
-    let effective_gid = nix::unistd::Gid::effective();
 
-    let caps = if effective_uid != nix::unistd::Uid::from_raw(uid)
-        && effective_gid != nix::unistd::Gid::from_raw(gid)
-    {
-        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
-    } else {
+    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter
+    let caps = if effective_uid == nix::unistd::Uid::from_raw(uid) {
         vec![Cap::LINUX_IMMUTABLE]
+    } else {
+        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
     };
     with_privileges(&caps, f)
 }
 
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
     let mut val = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -407,6 +405,7 @@ where
 /// Returns an error if the file cannot be locked
 pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
     immutable_required_privileges(file, || {
+        // SAFETY: FS_IOC_SETFLAGS reads an int through the pointer, `val` is a valid u32
         if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -419,12 +418,14 @@ pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
 /// Returns an error if the file cannot be unlocked
 pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
     let mut val = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
     if val & FS_IMMUTABLE_FL != 0 {
         val &= !(FS_IMMUTABLE_FL);
         immutable_required_privileges(file, || {
+            // SAFETY: FS_IOC_SETFLAGS reads an int through the pointer, `val` is a valid u32
             if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -441,6 +442,7 @@ pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
 pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     let mut val = 0;
     let fd = file.as_raw_fd();
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -660,6 +662,10 @@ fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::
 
 /// # Errors
 /// Returns an error if the file cannot be created with the required privileges
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     std::fs::File::create(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -721,6 +727,10 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
 /// # Errors
 /// Returns an error if the process does not have the required privileges to remove the file
 /// or if the internal remove operation fails
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::remove_file(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -736,6 +746,10 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
 
 /// # Errors
 /// Returns an error if the process does not have the required privileges to create the directories
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::create_dir_all(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
