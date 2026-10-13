@@ -21,13 +21,19 @@ pub struct SimpleFileLogger {
 }
 
 impl SimpleFileLogger {
+    /// The logged data may contain secrets typed in the session, so the file is created
+    /// with mode 0600 and a symbolic link is never followed. The caller is still responsible
+    /// for choosing a path inside a directory that other users cannot write to.
     /// # Errors
     /// Returns an error if the log file cannot be created or opened.
     /// This can happen due to reasons such as insufficient permissions, invalid file path, or disk issues.
     pub fn new(path: &str) -> io::Result<Self> {
+        use std::os::unix::fs::OpenOptionsExt;
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(path)?;
         Ok(Self { file })
     }

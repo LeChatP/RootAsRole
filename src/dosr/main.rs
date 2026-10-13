@@ -434,19 +434,13 @@ fn main_inner() -> SrResult<()> {
     command_builder.envs(cfinal_env);
     // We don't set stdin/out/err here, the runner handles it via PTY
 
-    // Create logger
-    let logger = rootasrole_exec::runner::SimpleFileLogger::new("/tmp/dosr-session.log")
-        .ok()
-        .map(|l| Box::new(l) as Box<dyn rootasrole_exec::pipe::IoLogger>);
-
     debug!(
         "Command (via Runner): {} {:?}",
         cfinal_path.display(),
         cargs.join(" ")
     );
 
-    let status = match rootasrole_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, logger)
-    {
+    let status = match rootasrole_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, None) {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
