@@ -662,6 +662,10 @@ fn write_cbor_config<T: Serialize>(settings: &T, file: &mut impl Write) -> std::
 
 /// # Errors
 /// Returns an error if the file cannot be created with the required privileges
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     std::fs::File::create(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -723,6 +727,10 @@ pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
 /// # Errors
 /// Returns an error if the process does not have the required privileges to remove the file
 /// or if the internal remove operation fails
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::remove_file(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {
@@ -738,6 +746,10 @@ pub fn remove_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
 
 /// # Errors
 /// Returns an error if the process does not have the required privileges to create the directories
+#[deprecated(
+    since = "4.0.3",
+    note = "follows symbolic links with CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<()> {
     std::fs::create_dir_all(&p).or_else(|e| {
         if e.kind() != std::io::ErrorKind::PermissionDenied {

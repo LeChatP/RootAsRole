@@ -80,7 +80,7 @@ mod tests {
             structs::{SCredentials, *},
         },
         file::RootSettings,
-        util::{StorageMethod, remove_with_privileges},
+        util::StorageMethod,
     };
     use serde_json::{Map, Value};
 
@@ -913,7 +913,7 @@ mod tests {
             .build();
         versionned.save_all().unwrap();
         defer(move || {
-            remove_with_privileges(file_path).unwrap();
+            std::fs::remove_file(file_path).unwrap();
         })
     }
 
