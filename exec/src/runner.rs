@@ -523,11 +523,13 @@ pub fn run_with_pty(
             foreground && !exec_bg,
         );
 
+        // `_exit` instead of `exit`, like sudo-rs, to not run the atexit handlers
+        // nor flush the IO streams of the parent by accident.
         if let Err(e) = res {
             error!("Monitor failed: {e}");
             unsafe { libc::_exit(1) };
         }
-        unsafe { libc::exit(0) };
+        unsafe { libc::_exit(0) };
     }
 
     // --- PARENT PROCESS ---
