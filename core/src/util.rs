@@ -366,16 +366,13 @@ where
 {
     let metadata = file.metadata()?;
     let uid = metadata.uid();
-    let gid = metadata.gid();
     let effective_uid = nix::unistd::Uid::effective();
-    let effective_gid = nix::unistd::Gid::effective();
 
-    let caps = if effective_uid != nix::unistd::Uid::from_raw(uid)
-        && effective_gid != nix::unistd::Gid::from_raw(gid)
-    {
-        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
-    } else {
+    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter
+    let caps = if effective_uid == nix::unistd::Uid::from_raw(uid) {
         vec![Cap::LINUX_IMMUTABLE]
+    } else {
+        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
     };
     with_privileges(&caps, f)
 }
