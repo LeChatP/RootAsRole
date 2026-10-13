@@ -90,6 +90,7 @@ impl Orchestrator {
     pub unsafe fn run(&self, ctx: &PreExecContext) -> io::Result<()> {
         let mut i = 0;
         while i < self.steps.len() {
+            // SAFETY: the caller of `run` guarantees that this is the forked child right before exec, which is the context the steps are written for
             (unsafe { (self.steps[i].run)(*ctx) })?;
             i += 1;
         }
@@ -104,6 +105,7 @@ pub fn with_pre_exec_orchestrator(
     ctx: Option<PreExecContext>,
 ) -> Command {
     let ctx = ctx.unwrap_or(PreExecContext::empty());
+    // SAFETY: the closure runs in the forked child right before exec, the steps of an `Orchestrator` are written for this context (see `PreExecStep`)
     unsafe {
         cmd.pre_exec(move || orch.run(&ctx));
     }
@@ -121,6 +123,7 @@ pub mod steps {
     /// # Safety
     /// The caller must ensure that the process is not already a session leader
     pub unsafe fn create_session(_: PreExecContext) -> io::Result<()> {
+        // SAFETY: setsid does not access memory
         if unsafe { setsid() } == -1 {
             return Err(io::Error::last_os_error());
         }

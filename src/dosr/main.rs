@@ -551,6 +551,7 @@ fn close_restrictive_fds() -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use std::fs;

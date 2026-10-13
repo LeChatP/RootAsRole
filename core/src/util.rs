@@ -379,6 +379,7 @@ where
 
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
     let mut val = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -404,6 +405,7 @@ where
 /// Returns an error if the file cannot be locked
 pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
     immutable_required_privileges(file, || {
+        // SAFETY: FS_IOC_SETFLAGS reads an int through the pointer, `val` is a valid u32
         if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -416,12 +418,14 @@ pub fn lock_immutable(file: &mut File, mut val: u32) -> Result<(), io::Error> {
 /// Returns an error if the file cannot be unlocked
 pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
     let mut val = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
     if val & FS_IMMUTABLE_FL != 0 {
         val &= !(FS_IMMUTABLE_FL);
         immutable_required_privileges(file, || {
+            // SAFETY: FS_IOC_SETFLAGS reads an int through the pointer, `val` is a valid u32
             if unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &mut val) } < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -438,6 +442,7 @@ pub fn unlock_immutable(file: &mut File) -> Result<u32, io::Error> {
 pub fn warn_if_mutable(file: &File, return_err: bool) -> std::io::Result<()> {
     let mut val = 0;
     let fd = file.as_raw_fd();
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable u32
     if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
         return Err(std::io::Error::last_os_error());
     }

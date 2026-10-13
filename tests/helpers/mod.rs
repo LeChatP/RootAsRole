@@ -1,3 +1,5 @@
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 pub mod test_runner;
 
 use std::error::Error;

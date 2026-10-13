@@ -225,6 +225,7 @@ impl ExecRunner {
 
             if self.command_pid > 0 {
                 debug!("runner: send SIGWINCH to pgid {}", self.command_pid);
+                // SAFETY: killpg does not access memory, it only sends a signal to the command process group
                 unsafe { libc::killpg(self.command_pid, libc::SIGWINCH) };
             }
         }
@@ -253,12 +254,14 @@ impl ExecRunner {
             return true;
         }
 
+        // SAFETY: getpgid does not access memory
         let signaler_pgrp = unsafe { libc::getpgid(signaler_pid) };
         signaler_pgrp == self.command_pid
     }
 
     fn check_monitor_exit(&mut self, registry: &mut EventRegistry<Self>) {
         let mut status = 0;
+        // SAFETY: waitpid only writes the exit status through a pointer to a local integer
         let res = unsafe { libc::waitpid(self.monitor_pid, &raw mut status, libc::WNOHANG) };
         if res > 0 {
             debug!("runner: monitor exited with status {status}");
@@ -314,6 +317,9 @@ pub fn run_no_pty(
     // orchestration: set up pre_exec hooks before spawning
     // Also restore the signal mask in the child so forwarded signals are delivered.
     let child_sigset = original_set;
+    // SAFETY: the closure runs in the forked child right before exec. This process is single-threaded,
+    // so the child cannot inherit a lock held by another thread, and the orchestrator steps are
+    // written to run in this context (see `Orchestrator::run`).
     unsafe {
         let ctx = PreExecContext::empty();
         command.pre_exec(move || {
@@ -344,9 +350,11 @@ pub fn run_no_pty(
                         }
                     }
                     libc::SIGALRM => {
+                        // SAFETY: kill does not access memory, it only sends a signal to the command
                         unsafe { libc::kill(child_pid, libc::SIGKILL) };
                     }
                     libc::SIGWINCH => {
+                        // SAFETY: kill does not access memory, it only sends a signal to the command
                         unsafe { libc::kill(child_pid, libc::SIGWINCH) };
                     }
                     _ => {
@@ -355,6 +363,7 @@ pub fn run_no_pty(
                         }
                         // Forward signal
                         if is_forward_signal_allowed(info.signal) {
+                            // SAFETY: kill does not access memory, it only sends a signal to the command
                             unsafe { libc::kill(child_pid, info.signal) };
                         }
                     }
@@ -416,6 +425,7 @@ pub fn run_with_pty(
 ) -> io::Result<std::process::ExitStatus> {
     let original_set = block_all_signals();
 
+    // SAFETY: getpgrp does not access memory
     let parent_pgrp = ProcessId::new(unsafe { libc::getpgrp() });
     let mut foreground = user_term
         .as_tty()
@@ -527,8 +537,10 @@ pub fn run_with_pty(
         // nor flush the IO streams of the parent by accident.
         if let Err(e) = res {
             error!("Monitor failed: {e}");
+            // SAFETY: _exit does not return and does not run any destructor or atexit handler
             unsafe { libc::_exit(1) };
         }
+        // SAFETY: _exit does not return and does not run any destructor or atexit handler
         unsafe { libc::_exit(0) };
     }
 
@@ -539,6 +551,7 @@ pub fn run_with_pty(
     }
     debug!("runner(pty): signal handlers installed");
     // we ignore SIGTTIN and SIGTOU, no suspend here.
+    // SAFETY: SIG_IGN does not install any handler code
     unsafe {
         libc::signal(libc::SIGTTIN, libc::SIG_IGN);
         libc::signal(libc::SIGTTOU, libc::SIG_IGN);
@@ -633,24 +646,30 @@ pub fn run_with_pty(
 }
 
 fn block_all_signals() -> Option<libc::sigset_t> {
+    // SAFETY: sigset_t is a plain bitmask, for which all zeroes is a valid value
     let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    // SAFETY: `set` is a valid sigset_t
     unsafe {
         libc::sigfillset(&raw mut set);
     }
 
+    // SAFETY: sigset_t is a plain bitmask, for which all zeroes is a valid value
     let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    // SAFETY: `set` and `old` are valid sigset_t
     let res = unsafe { libc::sigprocmask(libc::SIG_BLOCK, &raw const set, &raw mut old) };
     if res == -1 { None } else { Some(old) }
 }
 
 fn restore_signals(original: Option<libc::sigset_t>) {
     if let Some(set) = original {
+        // SAFETY: `set` is a valid sigset_t, and the previous mask is not requested
         unsafe {
             libc::sigprocmask(libc::SIG_SETMASK, &raw const set, std::ptr::null_mut());
         }
     }
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
     use super::{SimpleFileLogger, run_no_pty};

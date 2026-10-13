@@ -155,6 +155,8 @@ where
         }
         cmd.arg(&path);
         debug!("Launching editor: {cmd:?}");
+        // SAFETY: chsr is single-threaded when it launches the editor, so the forked child cannot inherit
+        // a lock held by another thread. `seccomp_lock` only installs a filter on the child.
         unsafe { cmd.pre_exec(seccomp_lock) };
         let status = cmd
             .spawn()

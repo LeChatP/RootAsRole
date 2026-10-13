@@ -28,11 +28,13 @@ unsafe extern "C" {
 }
 
 pub fn set_errno(no: libc::c_int) {
+    // SAFETY: errno_location is a thread-local pointer to an integer, so we are the only writers
     unsafe { *errno_location() = no };
 }
 
 pub fn sysconf(name: libc::c_int) -> Option<libc::c_long> {
     set_errno(0);
+    // SAFETY: sysconf will always respond with 0 or -1 for every input
     cerr(unsafe { libc::sysconf(name) }).ok()
 }
 
@@ -47,6 +49,7 @@ pub unsafe fn string_from_ptr(ptr: *const libc::c_char) -> String {
     if ptr.is_null() {
         String::new()
     } else {
+        // SAFETY: the function contract says that CStr::from_ptr is safe
         let cstr = unsafe { CStr::from_ptr(ptr) };
         cstr.to_string_lossy().to_string()
     }
@@ -61,6 +64,7 @@ pub unsafe fn os_string_from_ptr(ptr: *const libc::c_char) -> OsString {
     if ptr.is_null() {
         OsString::new()
     } else {
+        // SAFETY: the function contract says that CStr::from_ptr is safe
         let cstr = unsafe { CStr::from_ptr(ptr) };
         OsStr::from_bytes(cstr.to_bytes()).to_owned()
     }
@@ -73,13 +77,16 @@ pub fn safe_isatty(fildes: libc::c_int) -> bool {
     // The Rust standard library doesn't have FileTypeExt on Std{in,out,err}, so we
     // can't just use FileTypeExt::is_char_device and have to resort to libc::fstat.
     let mut maybe_stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: we are passing fstat a pointer to valid memory
     if unsafe { libc::fstat(fildes, maybe_stat.as_mut_ptr()) } == 0 {
+        // SAFETY: if `fstat` returned 0, maybe_stat will be initialized
         let mode = unsafe { maybe_stat.assume_init() }.st_mode;
 
         // To complicate matters further, the S_ISCHR macro isn't in libc as well.
         let is_char_device = (mode & libc::S_IFMT) == libc::S_IFCHR;
 
         if is_char_device {
+            // SAFETY: isatty will return 0 or 1
             unsafe { libc::isatty(fildes) != 0 }
         } else {
             false
@@ -89,6 +96,7 @@ pub fn safe_isatty(fildes: libc::c_int) -> bool {
     }
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod test {
     use super::{os_string_from_ptr, string_from_ptr};
