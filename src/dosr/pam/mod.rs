@@ -28,7 +28,7 @@ mod rpassword;
 mod securemem;
 
 const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
-pub(crate) const PAM_PROMPT: &str = "Password: ";
+pub const PAM_PROMPT: &str = "Password: ";
 
 #[derive(Builder)]
 pub struct SrConversationHandler<'a> {
@@ -124,7 +124,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
-pub(super) fn start_session<'a>(
+pub fn start_session<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
