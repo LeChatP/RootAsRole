@@ -192,12 +192,10 @@ pub(super) fn start_session<'a>(
             SrError::SystemError
         })?;
 
+    // Failing to save the cookie only means that the user will be asked to authenticate again
     #[cfg(feature = "timeout")]
-    {
-        timeout::update_cookie(user, user, timeout).map_err(|e| {
-            error!("Failed to update timeout cookie: {e}");
-            SrError::SystemError
-        })?;
+    if let Err(e) = timeout::update_cookie(user, user, timeout) {
+        error!("Failed to update timeout cookie: {e}");
     }
 
     Ok(txn)

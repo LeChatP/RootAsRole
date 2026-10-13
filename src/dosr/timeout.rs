@@ -1,27 +1,28 @@
 use std::{
     error::Error,
-    io::{BufReader, Read, Write},
-    path::Path,
-    thread::sleep,
-    time,
+    fs::File,
+    io::{self, BufReader, Seek},
+    os::fd::OwnedFd,
+    path::{Component, Path, PathBuf},
 };
 
+use capctl::Cap;
 use jiff::Timestamp;
-use log::debug;
+use log::{debug, error, warn};
 use nix::{
+    errno::Errno,
+    fcntl::{Flock, FlockArg, OFlag, open, openat},
     libc::dev_t,
     libc::{pid_t, uid_t},
-    sys::signal::kill,
+    sys::stat::{FileStat, Mode, SFlag, fstat, mkdirat},
+    unistd::{Gid, Uid, UnlinkatFlags, setfsgid, setfsuid, unlinkat},
 };
 use serde::{Deserialize, Serialize};
 
 use rootasrole_core::{
     Cred,
     database::options::{STimeout, TimestampType},
-    util::{
-        create_dir_all_with_privileges, create_with_privileges, read_with_privileges,
-        remove_with_privileges,
-    },
+    util::with_privileges,
 };
 
 /// This module checks the validity of a user's credentials
@@ -89,130 +90,207 @@ impl Default for Cookiev1 {
     }
 }
 
-const MAX_RETRIES: u32 = match u32::from_str_radix(env!("RAR_MAX_LOCKFILE_RETRIES"), 10) {
-    Ok(v) => v,
-    Err(_) => panic!("Bad value"),
-};
-const RETRY_INTERVAL: time::Duration = time::Duration::from_millis(
-    match u64::from_str_radix(env!("RAR_LOCKFILE_RETRY_INTERVAL"), 10) {
-        Ok(v) => v,
-        Err(_) => panic!("Bad value"),
-    },
-);
-
-fn wait_for_lockfile(lockfile_path: &Path) -> Result<(), Box<dyn Error>> {
-    let pid_contents: pid_t;
-    if lockfile_path.exists() {
-        if let Ok(mut lockfile) = read_with_privileges(lockfile_path) {
-            let mut be: [u8; 4] = [u8::MAX; 4];
-            if lockfile.read_exact(&mut be).is_err() {
-                debug!(
-                    "Lockfile located at {} is empty, continuing...",
-                    lockfile_path.display()
-                );
-                remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
-                return Ok(());
-            }
-            pid_contents = i32::from_be_bytes(be);
-            if kill(nix::unistd::Pid::from_raw(pid_contents), None).is_err() {
-                debug!(
-                    "Lockfile located at {} was owned by process {:?}, but not released, remove it, and continuing...",
-                    lockfile_path.display(),
-                    pid_contents.to_string()
-                );
-                remove_with_privileges(lockfile_path).expect("Failed to remove lockfile");
-                return Ok(());
-            }
-        } else {
-            debug!(
-                "Lockfile located at {} was not found, continuing...",
-                lockfile_path.display()
-            );
-            return Ok(());
-        }
-    } else {
-        debug!(
-            "Lockfile located at {} was not found, continuing...",
-            lockfile_path.display()
-        );
-        return Ok(());
-    }
-
-    for i in 0..MAX_RETRIES {
-        if lockfile_path.exists() {
-            if i > 0 {
-                print!("\r");
-            }
-            println!(
-                "Lockfile exists, waiting {} ms {}",
-                i,
-                ".".repeat(i as usize % 3 + 1)
-            );
-            sleep(RETRY_INTERVAL);
-        } else {
-            debug!("Lockfile not found, continuing...");
-            return Ok(());
-        }
-    }
-    debug!(
-        "Lockfile located at {} is owned by process {:?}, and not released, failing",
-        lockfile_path.display(),
-        pid_contents.to_string()
-    );
-    Err("Lockfile was not released".into())
-}
-
-fn write_lockfile(lockfile_path: &Path) {
-    let mut lockfile = create_with_privileges(lockfile_path).expect("Failed to create lockfile");
-    let pid_contents = nix::unistd::getpid().as_raw();
-    lockfile
-        .write_all(&pid_contents.to_be_bytes())
-        .expect("Failed to write to lockfile");
-}
-
 #[cfg(not(test))]
 const TS_LOCATION: &str = env!("RAR_TIMEOUT_STORAGE");
 #[cfg(test)]
-const TS_LOCATION: &str = "target/ts";
+const TS_LOCATION: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/ts");
 
-fn read_cookies(user: &Cred) -> Result<Vec<CookieVersion>, Box<dyn Error>> {
-    let s_uid = user.user.uid.as_raw().to_string();
-    let path = Path::new(TS_LOCATION).join(&s_uid);
-    let lockpath = Path::new(TS_LOCATION)
-        .join(&s_uid) // Convert u32 to String
-        .with_extension("lock");
-    if !path.exists() {
-        return Ok(Vec::new());
+/// Directory from which every component of the timestamp location is checked.
+/// Tests cannot rely on root-owned directories, so they start from the target directory.
+#[cfg(not(test))]
+const TRUSTED_ROOT: &str = "/";
+#[cfg(test)]
+const TRUSTED_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target");
+
+const DIR_FLAGS: OFlag = OFlag::O_RDONLY
+    .union(OFlag::O_DIRECTORY)
+    .union(OFlag::O_NOFOLLOW)
+    .union(OFlag::O_CLOEXEC);
+const COOKIE_FLAGS: OFlag = OFlag::O_RDWR
+    .union(OFlag::O_CREAT)
+    .union(OFlag::O_NOFOLLOW)
+    .union(OFlag::O_CLOEXEC);
+
+/// Owner of the timestamp directory and cookie files.
+/// Tests cannot create root-owned files, so they use the current user instead.
+fn ts_owner() -> Uid {
+    if cfg!(test) {
+        Uid::effective()
+    } else {
+        Uid::from_raw(0)
     }
-    wait_for_lockfile(&lockpath)?;
-    write_lockfile(&lockpath);
-    let mut file = read_with_privileges(&path)?;
-    let reader = BufReader::new(&mut file);
-    let res = cbor4ii::serde::from_reader::<Vec<CookieVersion>, BufReader<_>>(reader)?;
-    Ok(res)
 }
 
-fn save_cookies(user: &Cred, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
-    debug!("Saving cookies: {cookies:?}");
-    let s_uid = user.user.uid.as_raw().to_string();
-    let path = Path::new(TS_LOCATION).join(&s_uid);
-    create_dir_all_with_privileges(path.parent().expect("Failed to get parent directory"))?;
-    let lockpath = Path::new(TS_LOCATION).join(&s_uid).with_extension("lock");
-    let mut file = create_with_privileges(&path)?;
-    cbor4ii::serde::to_writer(&mut file, &cookies)?;
-    if let Err(err) = remove_with_privileges(lockpath) {
-        debug!("Failed to remove lockfile: {err}");
+/// Run `f` with the filesystem uid/gid of the timestamp owner, so every file or directory
+/// created by `f` belongs to root from the start, without any window where the calling user owns it.
+///
+/// Switching the filesystem uid from non-zero to 0 makes the kernel raise the filesystem
+/// capabilities of the permitted set (`CAP_DAC_OVERRIDE`, `CAP_DAC_READ_SEARCH`, `CAP_FOWNER`...)
+/// into the effective set, and switching back clears them (see capabilities(7)).
+fn as_ts_owner<F, R>(f: F) -> io::Result<R>
+where
+    F: FnOnce() -> io::Result<R>,
+{
+    let owner = ts_owner();
+    if Uid::effective() == owner {
+        return f();
     }
-    Ok(())
+    let group = Gid::from_raw(0);
+    with_privileges(&[Cap::SETUID, Cap::SETGID], || {
+        let prev_uid = setfsuid(owner);
+        let prev_gid = setfsgid(group);
+        // setfsuid and setfsgid do not report errors, they return the previous value
+        let res = if setfsuid(owner) == owner && setfsgid(group) == group {
+            f()
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Failed to switch filesystem ids",
+            ))
+        };
+        setfsgid(prev_gid);
+        setfsuid(prev_uid);
+        if setfsuid(prev_uid) != prev_uid || setfsgid(prev_gid) != prev_gid {
+            error!("Failed to restore filesystem ids, aborting");
+            std::process::abort();
+        }
+        res
+    })
+}
+
+/// Same checks as sudo-rs `checks()` (sudo-rs/src/system/audit.rs): the entry must be of
+/// the expected type, owned by root (or the timestamp owner), and not writable by anyone else.
+fn is_secure(stat: &FileStat, kind: SFlag) -> bool {
+    let mode = stat.st_mode;
+    mode & SFlag::S_IFMT.bits() == kind.bits()
+        && (stat.st_uid == 0 || stat.st_uid == ts_owner().as_raw())
+        && (stat.st_gid == 0 || mode & Mode::S_IWGRP.bits() == 0)
+        && mode & Mode::S_IWOTH.bits() == 0
+}
+
+/// A cookie file must also be readable by its owner only, and must not be a hard link.
+fn is_secure_cookie(stat: &FileStat) -> bool {
+    is_secure(stat, SFlag::S_IFREG)
+        && stat.st_uid == ts_owner().as_raw()
+        && stat.st_nlink == 1
+        && stat.st_mode & Mode::S_IRWXG.union(Mode::S_IRWXO).bits() == 0
+}
+
+fn insecure(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "{} must be owned by root and not writable by other users",
+            path.display()
+        ),
+    )
+}
+
+/// Open the timestamp directory, creating the missing components with mode 0700.
+/// Every component is opened without following symbolic links and must pass `is_secure`,
+/// so the calling user cannot redirect where cookies are read or written.
+/// Must be called through `as_ts_owner`.
+fn open_secure_dir(location: &Path) -> io::Result<OwnedFd> {
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} must be an absolute path without '..'",
+                location.display()
+            ),
+        )
+    };
+    let relative = location.strip_prefix(TRUSTED_ROOT).map_err(|_| invalid())?;
+    let mut dir = open(TRUSTED_ROOT, DIR_FLAGS, Mode::empty())?;
+    let mut current = PathBuf::from(TRUSTED_ROOT);
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(invalid());
+        };
+        current.push(name);
+        let next = match openat(&dir, name, DIR_FLAGS, Mode::empty()) {
+            // `dir` passed the checks, so only root can have created this symbolic link
+            // (e.g. /var/run -> /run), the directory it points to is checked below.
+            Err(Errno::ELOOP | Errno::ENOTDIR) => openat(
+                &dir,
+                name,
+                DIR_FLAGS.difference(OFlag::O_NOFOLLOW),
+                Mode::empty(),
+            )?,
+            Err(Errno::ENOENT) => {
+                debug!("Creating {}", current.display());
+                match mkdirat(&dir, name, Mode::S_IRWXU) {
+                    Ok(()) | Err(Errno::EEXIST) => {}
+                    Err(e) => return Err(e.into()),
+                }
+                openat(&dir, name, DIR_FLAGS, Mode::empty())?
+            }
+            res => res?,
+        };
+        if !is_secure(&fstat(&next)?, SFlag::S_IFDIR) {
+            return Err(insecure(&current));
+        }
+        dir = next;
+    }
+    Ok(dir)
+}
+
+/// Cookie file of a user, exclusively locked until dropped.
+struct CookieFile(Flock<File>);
+
+impl CookieFile {
+    fn open(user: &Cred) -> io::Result<Self> {
+        Self::open_in(Path::new(TS_LOCATION), user.user.uid)
+    }
+
+    fn open_in(location: &Path, uid: Uid) -> io::Result<Self> {
+        let name = uid.as_raw().to_string();
+        let mode = Mode::S_IRUSR | Mode::S_IWUSR;
+        let fd = as_ts_owner(|| {
+            let dir = open_secure_dir(location)?;
+            let fd = openat(&dir, name.as_str(), COOKIE_FLAGS, mode)?;
+            if is_secure_cookie(&fstat(&fd)?) {
+                return Ok(fd);
+            }
+            // The directory is secure, so this file was left by a previous version,
+            // which created cookie files owned by the calling user: replace it.
+            warn!("Replacing insecure timestamp cookie file {name}");
+            drop(fd);
+            unlinkat(&dir, name.as_str(), UnlinkatFlags::NoRemoveDir)?;
+            Ok(openat(
+                &dir,
+                name.as_str(),
+                COOKIE_FLAGS | OFlag::O_EXCL,
+                mode,
+            )?)
+        })?;
+        let file = Flock::lock(File::from(fd), FlockArg::LockExclusive).map_err(|(_, e)| e)?;
+        Ok(Self(file))
+    }
+
+    fn read(&mut self) -> Vec<CookieVersion> {
+        cbor4ii::serde::from_reader(BufReader::new(&mut *self.0)).unwrap_or_else(|e| {
+            debug!("No valid cookies found: {e}");
+            Vec::new()
+        })
+    }
+
+    fn write(&mut self, cookies: &[CookieVersion]) -> Result<(), Box<dyn Error>> {
+        debug!("Saving cookies: {cookies:?}");
+        self.0.set_len(0)?;
+        self.0.rewind()?;
+        cbor4ii::serde::to_writer(&mut *self.0, &cookies)?;
+        Ok(())
+    }
 }
 
 fn find_valid_cookie(
+    cookies: &mut Vec<CookieVersion>,
     from: &Cred,
     cred_asked: &Cred,
     constraint: &STimeout,
     editcookie: fn(&mut CookieVersion),
 ) -> Option<CookieVersion> {
-    let mut cookies = read_cookies(from).unwrap_or_default();
     let mut res = None;
 
     debug!(
@@ -270,10 +348,6 @@ fn find_valid_cookie(
             }
         }
     });
-
-    if let Err(e) = save_cookies(from, &cookies) {
-        debug!("Failed to save cookies {e:?}");
-    }
     res
 }
 
@@ -283,10 +357,21 @@ fn find_valid_cookie(
 /// @param ``max_offset``: the maximum offset between the current time and the time of the credentials, including the type of the offset
 /// @return true if the credentials are valid, false otherwise
 pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
-    find_valid_cookie(from, cred_asked, constraint, |_c| {
+    let mut file = match CookieFile::open(from) {
+        Ok(file) => file,
+        Err(e) => {
+            error!("Failed to open timestamp cookie file: {e}");
+            return false;
+        }
+    };
+    let mut cookies = file.read();
+    let res = find_valid_cookie(&mut cookies, from, cred_asked, constraint, |_c| {
         debug!("Found valid cookie ");
-    })
-    .is_some()
+    });
+    if let Err(e) = file.write(&cookies) {
+        debug!("Failed to save cookies {e:?}");
+    }
+    res.is_some()
 }
 
 /// Add a cookie to the user's cookie file
@@ -295,15 +380,22 @@ pub fn update_cookie(
     cred_asked: &Cred,
     constraint: &STimeout,
 ) -> Result<(), Box<dyn Error>> {
-    let res = find_valid_cookie(from, cred_asked, constraint, |cookie| match cookie {
-        CookieVersion::V1(cookie) => {
-            cookie.usage += 1;
-            cookie.timestamp = Timestamp::now().as_second();
-            debug!("Updating cookie: {cookie:?}");
-        }
-    });
+    let mut file = CookieFile::open(from)?;
+    let mut cookies = file.read();
+    let res = find_valid_cookie(
+        &mut cookies,
+        from,
+        cred_asked,
+        constraint,
+        |cookie| match cookie {
+            CookieVersion::V1(cookie) => {
+                cookie.usage += 1;
+                cookie.timestamp = Timestamp::now().as_second();
+                debug!("Updating cookie: {cookie:?}");
+            }
+        },
+    );
     if res.is_none() {
-        let mut cookies = read_cookies(from).unwrap_or_default();
         let parent_record = ParentRecord::new(constraint.type_field.unwrap_or_default(), from);
         let cookie = CookieVersion::V1(Cookiev1 {
             auth_uid: cred_asked.user.uid.as_raw(),
@@ -314,21 +406,29 @@ pub fn update_cookie(
             parent_record,
         });
         cookies.insert(0, cookie);
-        save_cookies(from, &cookies)?;
     }
-    Ok(())
+    file.write(&cookies)
 }
 
 pub fn clear_cookies(user: &Cred) -> Result<(), Box<dyn Error>> {
-    let path = Path::new(TS_LOCATION).join(user.user.uid.as_raw().to_string());
-    if path.exists() {
-        remove_with_privileges(&path)?;
-    }
+    let name = user.user.uid.as_raw().to_string();
+    as_ts_owner(|| {
+        let dir = open_secure_dir(Path::new(TS_LOCATION))?;
+        match unlinkat(&dir, name.as_str(), UnlinkatFlags::NoRemoveDir) {
+            Ok(()) | Err(Errno::ENOENT) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    })?;
     Ok(())
 }
 
 #[cfg(test)]
 mod test {
+    use std::{
+        fs::{self, Permissions},
+        os::unix::fs::{MetadataExt, PermissionsExt, symlink},
+    };
+
     use jiff::SignedDuration;
     use nix::unistd::{Pid, User};
     use serde_json::Map;
@@ -336,21 +436,29 @@ mod test {
 
     use super::*;
 
-    #[test]
-    fn test_lockfile() {
-        let lockpath = std::path::Path::new("/tmp/test.lock");
-        assert!(wait_for_lockfile(lockpath).is_ok());
-        write_lockfile(lockpath);
-        assert!(wait_for_lockfile(lockpath).is_err());
-        std::fs::remove_file(lockpath).unwrap();
-        assert!(wait_for_lockfile(lockpath).is_ok());
+    static MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A previous run as another user (e.g. tests run as root) may have left the directory.
+    fn setup() {
+        fs::create_dir_all(TRUSTED_ROOT).unwrap();
+        if let Ok(meta) = fs::symlink_metadata(TS_LOCATION)
+            && meta.uid() != Uid::effective().as_raw()
+        {
+            fs::remove_dir_all(TS_LOCATION).unwrap();
+        }
     }
 
-    static MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn test_location(name: &str) -> PathBuf {
+        fs::create_dir_all(TRUSTED_ROOT).unwrap();
+        let location = Path::new(TRUSTED_ROOT).join(name);
+        let _ = fs::remove_dir_all(&location);
+        location
+    }
 
     #[test]
     fn test_cookie() {
         let _guard = MUTEX.lock().unwrap();
+        setup();
         let cred = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
@@ -358,8 +466,7 @@ mod test {
             tty: None,
             ppid: Pid::parent(),
         };
-        clear_cookies(&cred)
-            .unwrap_or_else(|_| create_dir_all_with_privileges(TS_LOCATION).unwrap());
+        clear_cookies(&cred).unwrap();
         let constraint = STimeout {
             type_field: Some(TimestampType::TTY),
             duration: Some(SignedDuration::from_secs(10)),
@@ -377,6 +484,7 @@ mod test {
     #[test]
     fn test_cookie_requires_matching_ppid() {
         let _guard = MUTEX.lock().unwrap();
+        setup();
         let creator = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
@@ -403,5 +511,58 @@ mod test {
         assert!(is_valid(&creator, &creator, &constraint));
         assert!(!is_valid(&other_process, &other_process, &constraint));
         clear_cookies(&creator).unwrap();
+    }
+
+    #[test]
+    fn test_cookie_file_symlink_is_not_followed() {
+        let location = test_location("ts_test_symlink");
+        let victim = Path::new(TRUSTED_ROOT).join("ts_test_symlink_victim");
+        fs::write(&victim, b"untouched").unwrap();
+        as_ts_owner(|| open_secure_dir(&location)).unwrap();
+        symlink(&victim, location.join("4242")).unwrap();
+
+        assert!(CookieFile::open_in(&location, Uid::from_raw(4242)).is_err());
+        assert_eq!(fs::read(&victim).unwrap(), b"untouched");
+
+        fs::remove_dir_all(&location).unwrap();
+        fs::remove_file(&victim).unwrap();
+    }
+
+    #[test]
+    fn test_insecure_cookie_file_is_replaced() {
+        let location = test_location("ts_test_forged");
+        let uid = Uid::from_raw(4242);
+        CookieFile::open_in(&location, uid)
+            .unwrap()
+            .write(&[CookieVersion::V1(Cookiev1::default())])
+            .unwrap();
+        let path = location.join("4242");
+        fs::set_permissions(&path, Permissions::from_mode(0o666)).unwrap();
+
+        let mut file = CookieFile::open_in(&location, uid).unwrap();
+        assert!(file.read().is_empty());
+        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+
+        drop(file);
+        fs::remove_dir_all(&location).unwrap();
+    }
+
+    #[test]
+    fn test_insecure_directory_is_rejected() {
+        let parent = test_location("ts_test_insecure");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, Permissions::from_mode(0o777)).unwrap();
+        let location = parent.join("ts");
+
+        assert!(CookieFile::open_in(&location, Uid::from_raw(4242)).is_err());
+        assert!(!location.exists());
+
+        fs::remove_dir_all(&parent).unwrap();
+    }
+
+    #[test]
+    fn test_relative_location_is_rejected() {
+        assert!(as_ts_owner(|| open_secure_dir(Path::new("target/ts"))).is_err());
+        assert!(as_ts_owner(|| open_secure_dir(&Path::new(TRUSTED_ROOT).join("../ts"))).is_err());
     }
 }

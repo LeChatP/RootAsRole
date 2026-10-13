@@ -62,8 +62,6 @@ RAR_EXEC_INFO_DISPLAY = "hide"
 RAR_USER_CONSIDERED = "user"
 RAR_BOUNDING = "strict"
 RAR_UMASK = "0022"
-RAR_MAX_LOCKFILE_RETRIES = "10"
-RAR_LOCKFILE_RETRY_INTERVAL = "1"
 RAR_TIMEOUT_STORAGE = "/var/run/rar/ts"
 RAR_WORKDIR_BEHAVIOR = "all"
 RAR_WORKDIR_ADD_LIST = ""
@@ -132,8 +130,6 @@ Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly 
 | `RAR_TIMEOUT_DURATION`| Duration `"hh:mm:ss"` | The temporal lifespan window allowed for a token before authorization validation expires. |
 | `RAR_TIMEOUT_MAX_USAGE`| Integer (`u64`) | Absolute limits on how many times a given token context can be reused. |
 | `RAR_TIMEOUT_STORAGE` | Folder Path | Filesystem path used by the timeout engine to persist execution timestamp tokens. |
-| `RAR_MAX_LOCKFILE_RETRIES` | Integer (`u64`) | Limit threshold of locking retries allowed on timestamp validation tokens. |
-| `RAR_LOCKFILE_RETRY_INTERVAL` | Integer (`u64`) | Backoff sleep duration (seconds) executed between structural timestamp lock checks. |
 | `RAR_EXEC_INFO_DISPLAY`| String (`"hide"` \| `"show"`) | Give the ability to users to know their allowed commands and configuration applied. |
 
 <blockquote class="caroot-stare">
