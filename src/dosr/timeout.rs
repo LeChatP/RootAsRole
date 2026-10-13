@@ -7,7 +7,6 @@ use std::{
 };
 
 use capctl::Cap;
-use jiff::Timestamp;
 use log::{debug, error, warn};
 use nix::{
     errno::Errno,
@@ -15,7 +14,8 @@ use nix::{
     libc::dev_t,
     libc::{pid_t, uid_t},
     sys::stat::{FileStat, Mode, SFlag, fstat, mkdirat},
-    unistd::{Gid, Uid, UnlinkatFlags, setfsgid, setfsuid, unlinkat},
+    time::{ClockId, clock_gettime},
+    unistd::{Gid, Uid, UnlinkatFlags, getsid, setfsgid, setfsuid, unlinkat},
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,50 +25,59 @@ use rootasrole_core::{
     util::with_privileges,
 };
 
+use crate::procfs;
+
 /// This module checks the validity of a user's credentials
 /// This module allow to users to not have to re-enter their password in a short period of time
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[repr(u8)]
 enum CookieVersion {
-    V1(Cookiev1) = 56,
+    V2(Cookiev2) = 57,
 }
+
+/// Context in which a cookie can be reused. Processes are identified with their start time,
+/// so that a recycled pid does not match (same as sudo-rs `RecordScope`).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 enum ParentRecord {
-    Tty(dev_t),
-    Ppid(pid_t),
+    Tty {
+        tty: dev_t,
+        session: pid_t,
+        session_start: u64,
+    },
+    Ppid {
+        ppid: pid_t,
+        ppid_start: u64,
+    },
     None,
 }
 
-impl Default for ParentRecord {
-    fn default() -> Self {
-        match TimestampType::default() {
-            TimestampType::TTY => Self::Tty(0),
-            TimestampType::PPID => Self::Ppid(0),
-            TimestampType::UID => Self::None,
-        }
-    }
-}
-
 impl ParentRecord {
-    const fn new(ttype: TimestampType, user: &Cred) -> Self {
-        match ttype {
-            TimestampType::TTY => {
-                if let Some(tty) = user.tty {
-                    Self::Tty(tty)
-                } else {
-                    Self::None
-                }
+    /// Returns `None` when the context cannot be determined, cookies must not be used then.
+    fn new(ttype: TimestampType, user: &Cred) -> Option<Self> {
+        match (ttype, user.tty) {
+            (TimestampType::TTY, Some(tty)) => {
+                let session = getsid(None).ok()?;
+                Some(Self::Tty {
+                    tty,
+                    session: session.as_raw(),
+                    session_start: procfs::start_time(session).ok()?,
+                })
             }
-            TimestampType::PPID => Self::Ppid(user.ppid.as_raw()),
-            TimestampType::UID => Self::None,
+            // Without a controlling terminal, fall back to the parent process like sudo-rs
+            (TimestampType::TTY | TimestampType::PPID, _) => Some(Self::Ppid {
+                ppid: user.ppid.as_raw(),
+                ppid_start: procfs::start_time(user.ppid).ok()?,
+            }),
+            (TimestampType::UID, _) => Some(Self::None),
         }
     }
 }
 
+/// Times are seconds since boot (`CLOCK_BOOTTIME`), so changes of the system clock do not affect them.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Cookiev1 {
+struct Cookiev2 {
     timestamp_type: TimestampType,
     start_time: i64,
     timestamp: i64,
@@ -77,17 +86,10 @@ struct Cookiev1 {
     auth_uid: uid_t,
 }
 
-impl Default for Cookiev1 {
-    fn default() -> Self {
-        Self {
-            timestamp_type: TimestampType::default(),
-            start_time: Timestamp::now().as_second(),
-            timestamp: Timestamp::now().as_second(),
-            usage: 0,
-            parent_record: ParentRecord::default(),
-            auth_uid: uid_t::MAX,
-        }
-    }
+fn boottime() -> Option<i64> {
+    clock_gettime(ClockId::CLOCK_BOOTTIME)
+        .ok()
+        .map(|t| t.tv_sec())
 }
 
 #[cfg(not(test))]
@@ -299,16 +301,20 @@ fn find_valid_cookie(
         constraint
     );
 
-    let now = Timestamp::now();
-    let duration = constraint.duration.unwrap_or_default(); // Span::default() is 0s
+    let ttype = constraint.type_field.unwrap_or_default();
+    let (Some(now), Some(record)) = (boottime(), ParentRecord::new(ttype, from)) else {
+        debug!("Unable to determine the timestamp context");
+        return None;
+    };
+    let duration = constraint.duration.unwrap_or_default().as_secs(); // Span::default() is 0s
 
     cookies.retain_mut(|cookiev| match cookiev {
-        CookieVersion::V1(cookie) => {
+        CookieVersion::V2(cookie) => {
             debug!("Checking cookie: {cookie:?}");
 
             if cookie.auth_uid != cred_asked.user.uid.as_raw()
-                || cookie.timestamp_type != constraint.type_field.unwrap_or_default()
-                || cookie.parent_record != ParentRecord::new(cookie.timestamp_type, from)
+                || cookie.timestamp_type != ttype
+                || cookie.parent_record != record
             {
                 return true;
             }
@@ -321,21 +327,18 @@ fn find_valid_cookie(
                 cookie.usage, constraint.max_usage
             );
 
-            let cookie_ts = Timestamp::new(cookie.timestamp, 0).unwrap_or(Timestamp::UNIX_EPOCH);
+            let expires_at = cookie.timestamp.saturating_add(duration);
 
-            let expires_at = cookie_ts.checked_add(duration).unwrap_or(cookie_ts);
-
-            let timeofuse = expires_at > now;
-
-            let remaining_secs = now.until(expires_at).map_or(0, |s| s.get_seconds());
+            // A cookie from the future was not written during this boot
+            let timeofuse = cookie.timestamp <= now && now < expires_at;
 
             debug!(
                 "timestamp: {}, now: {}, offset_secs: {}, expires_at: {}\nremaining_secs: {}",
                 cookie.timestamp,
-                now.as_second(),
-                duration.as_secs(),
-                expires_at.as_second(),
-                remaining_secs
+                now,
+                duration,
+                expires_at,
+                expires_at.saturating_sub(now)
             );
             debug!("Time of use: {timeofuse}, max_usage: {max_usage_ok}");
 
@@ -388,20 +391,23 @@ pub fn update_cookie(
         cred_asked,
         constraint,
         |cookie| match cookie {
-            CookieVersion::V1(cookie) => {
+            CookieVersion::V2(cookie) => {
                 cookie.usage += 1;
-                cookie.timestamp = Timestamp::now().as_second();
+                cookie.timestamp = boottime().unwrap_or(cookie.timestamp);
                 debug!("Updating cookie: {cookie:?}");
             }
         },
     );
     if res.is_none() {
-        let parent_record = ParentRecord::new(constraint.type_field.unwrap_or_default(), from);
-        let cookie = CookieVersion::V1(Cookiev1 {
+        let ttype = constraint.type_field.unwrap_or_default();
+        let (Some(now), Some(parent_record)) = (boottime(), ParentRecord::new(ttype, from)) else {
+            return Err("Unable to determine the timestamp context".into());
+        };
+        let cookie = CookieVersion::V2(Cookiev2 {
             auth_uid: cred_asked.user.uid.as_raw(),
-            timestamp_type: constraint.type_field.unwrap_or_default(),
-            start_time: Timestamp::now().as_second(),
-            timestamp: Timestamp::now().as_second(),
+            timestamp_type: ttype,
+            start_time: now,
+            timestamp: now,
             usage: 0,
             parent_record,
         });
@@ -490,14 +496,14 @@ mod test {
             curdir: "".into(),
             groups: vec![],
             tty: None,
-            ppid: Pid::from_raw(1001),
+            ppid: Pid::parent(),
         };
         let other_process = Cred {
             user: User::from_uid(0.into()).unwrap().unwrap(),
             curdir: "".into(),
             groups: vec![],
             tty: None,
-            ppid: Pid::from_raw(1002),
+            ppid: Pid::this(),
         };
         let constraint = STimeout {
             type_field: Some(TimestampType::PPID),
@@ -511,6 +517,86 @@ mod test {
         assert!(is_valid(&creator, &creator, &constraint));
         assert!(!is_valid(&other_process, &other_process, &constraint));
         clear_cookies(&creator).unwrap();
+    }
+
+    /// Create a valid cookie, alter it with `edit`, and check whether it is still valid
+    fn is_valid_after(edit: fn(&mut Cookiev2)) -> bool {
+        let cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        let constraint = STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(SignedDuration::from_secs(10)),
+            max_usage: None,
+            extra_fields: Map::default(),
+        };
+        clear_cookies(&cred).unwrap();
+        update_cookie(&cred, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
+        {
+            let mut file = CookieFile::open(&cred).unwrap();
+            let mut cookies = file.read();
+            for CookieVersion::V2(cookie) in &mut cookies {
+                edit(cookie);
+            }
+            file.write(&cookies).unwrap();
+        }
+        let res = is_valid(&cred, &cred, &constraint);
+        clear_cookies(&cred).unwrap();
+        res
+    }
+
+    #[test]
+    fn test_cookie_requires_matching_process_start_time() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        // same parent pid, but recycled by another process
+        assert!(!is_valid_after(|cookie| {
+            if let ParentRecord::Ppid { ppid_start, .. } = &mut cookie.parent_record {
+                *ppid_start += 1;
+            }
+        }));
+    }
+
+    #[test]
+    fn test_cookie_from_the_future_is_rejected() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        assert!(is_valid_after(|_| {}));
+        assert!(!is_valid_after(|cookie| cookie.timestamp += 5));
+        assert!(!is_valid_after(|cookie| cookie.timestamp -= 10));
+    }
+
+    #[test]
+    fn test_parent_record_without_tty_uses_parent_process() {
+        let mut cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        let ppid_record = ParentRecord::new(TimestampType::PPID, &cred).unwrap();
+        assert_eq!(
+            ParentRecord::new(TimestampType::TTY, &cred).unwrap(),
+            ppid_record
+        );
+        cred.tty = Some(0x8800);
+        assert!(matches!(
+            ParentRecord::new(TimestampType::TTY, &cred).unwrap(),
+            ParentRecord::Tty { tty: 0x8800, .. }
+        ));
+        assert_eq!(
+            ParentRecord::new(TimestampType::UID, &cred).unwrap(),
+            ParentRecord::None
+        );
+        // a process that does not exist cannot be identified
+        cred.ppid = Pid::from_raw(-1);
+        assert!(ParentRecord::new(TimestampType::PPID, &cred).is_none());
     }
 
     #[test]
@@ -532,9 +618,17 @@ mod test {
     fn test_insecure_cookie_file_is_replaced() {
         let location = test_location("ts_test_forged");
         let uid = Uid::from_raw(4242);
+        let cookie = CookieVersion::V2(Cookiev2 {
+            timestamp_type: TimestampType::UID,
+            start_time: boottime().unwrap(),
+            timestamp: boottime().unwrap(),
+            usage: 0,
+            parent_record: ParentRecord::None,
+            auth_uid: uid.as_raw(),
+        });
         CookieFile::open_in(&location, uid)
             .unwrap()
-            .write(&[CookieVersion::V1(Cookiev1::default())])
+            .write(&[cookie])
             .unwrap();
         let path = location.join("4242");
         fs::set_permissions(&path, Permissions::from_mode(0o666)).unwrap();

@@ -2,16 +2,14 @@ mod error;
 mod finder;
 pub mod pam;
 mod pre_exec;
+mod procfs;
 #[cfg(feature = "timeout")]
 mod timeout;
 
 use bon::Builder;
 use capctl::{Cap, CapState};
 use const_format::formatcp;
-use nix::{
-    sys::stat,
-    unistd::{Uid, User, isatty},
-};
+use nix::unistd::{Uid, User};
 use rootasrole_core::database::options::SBounding;
 use rootasrole_core::util::{escape_parser_string, initialize_capabilities, with_privileges};
 use rootasrole_core::{
@@ -26,8 +24,8 @@ use rootasrole_core::{
 
 use log::{debug, error};
 use pam::PAM_PROMPT;
+use std::path::PathBuf;
 use std::{io, process::Command};
-use std::{io::stdout, path::PathBuf};
 
 use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
 use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective};
@@ -458,13 +456,7 @@ fn make_cred() -> std::io::Result<Cred> {
         .user()?
         .groups()?
         .curdir()?
-        .maybe_tty(stat::fstat(stdout()).ok().and_then(|s| {
-            if isatty(stdout()).ok().unwrap_or(false) {
-                Some(s.st_rdev)
-            } else {
-                None
-            }
-        }))
+        .maybe_tty(procfs::controlling_tty())
         .build())
 }
 
