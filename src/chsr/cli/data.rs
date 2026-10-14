@@ -45,6 +45,7 @@ pub enum InputAction {
     Del,
     Purge,
     Convert,
+    Upgrade,
     #[default]
     None,
 }
@@ -105,6 +106,7 @@ pub struct Inputs {
     pub options_workdir_policy: Option<WorkdirBehavior>,
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
+    pub upgrade_check: bool,
 }
 
 #[derive(Builder, Debug, Default)]

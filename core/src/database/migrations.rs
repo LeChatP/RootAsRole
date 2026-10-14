@@ -129,22 +129,73 @@ fn rewrite_env_entries(document: &mut Value, rewrite: fn(&str) -> Option<String>
     }
 }
 
+/// What a migration changed in a policy document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentMigration {
+    /// The version the document was saved with.
+    pub from: Version,
+    /// The changed values, as `/json/pointer: old -> new`.
+    pub changes: Vec<String>,
+}
+
+/// A JSON pointer segment (RFC 6901), with control characters escaped for display.
+fn pointer_segment(key: &str) -> String {
+    key.replace('~', "~0")
+        .replace('/', "~1")
+        .escape_debug()
+        .to_string()
+}
+
+/// Describe the values changed between two versions of a document.
+fn describe_changes(before: &Value, after: &Value, pointer: &str, changes: &mut Vec<String>) {
+    match (before, after) {
+        (Value::Object(before), Value::Object(after)) => {
+            for (key, old) in before {
+                let pointer = format!("{pointer}/{}", pointer_segment(key));
+                match after.get(key) {
+                    Some(new) => describe_changes(old, new, &pointer, changes),
+                    None => changes.push(format!("{pointer}: {old} removed")),
+                }
+            }
+            for (key, new) in after.iter().filter(|(key, _)| !before.contains_key(*key)) {
+                changes.push(format!("{pointer}/{}: {new} added", pointer_segment(key)));
+            }
+        }
+        (Value::Array(before), Value::Array(after)) if before.len() == after.len() => {
+            for (index, (old, new)) in before.iter().zip(after).enumerate() {
+                describe_changes(old, new, &format!("{pointer}/{index}"), changes);
+            }
+        }
+        _ if before != after => changes.push(format!("{pointer}: {before} -> {after}")),
+        _ => {}
+    }
+}
+
 /// Migrate a raw policy document to the current version, before it is deserialized.
-/// A document without a parsable version is left unchanged.
-/// Returns true if the document was migrated.
+///
+/// A document without a parsable version, or already at the current version, is left unchanged.
+/// Returns what the migration changed, if the document was migrated.
 /// # Errors
 /// Returns an error if a migration fails or if there is no migration path to the current version.
-pub fn migrate_document(document: &mut Value) -> Result<bool, MigrationError> {
+pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration>, MigrationError> {
     let Some(version) = document
         .get("version")
         .or_else(|| document.get("v"))
         .and_then(Value::as_str)
         .and_then(|version| Version::parse(version).ok())
     else {
-        return Ok(false);
+        return Ok(None);
     };
-    let migrated = Migration::migrate(&version, document, DOCUMENT_MIGRATIONS)?;
-    if migrated && let Value::Object(map) = document {
+    if version == PACKAGE_VERSION {
+        return Ok(None);
+    }
+    let before = document.clone();
+    if !Migration::migrate(&version, document, DOCUMENT_MIGRATIONS)? {
+        return Ok(None);
+    }
+    let mut changes = Vec::new();
+    describe_changes(&before, document, "", &mut changes);
+    if let Value::Object(map) = document {
         debug!("Policy document migrated from {version} to {PACKAGE_VERSION}");
         map.remove("v");
         map.insert(
@@ -152,7 +203,10 @@ pub fn migrate_document(document: &mut Value) -> Result<bool, MigrationError> {
             Value::String(PACKAGE_VERSION.to_string()),
         );
     }
-    Ok(migrated)
+    Ok(Some(DocumentMigration {
+        from: version,
+        changes,
+    }))
 }
 
 #[cfg(test)]
@@ -188,7 +242,16 @@ mod tests {
                 "tasks": [{"name": "t1", "options": {"env": {"delete": ["XDG_.*_DIR"]}}}]
             }]
         });
-        assert!(migrate_document(&mut document).unwrap());
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migration.from, Version::new(4, 0, 0));
+        assert_eq!(
+            migration.changes,
+            [
+                r#"/options/env/check/0: "LC_.*" -> "LC_*""#,
+                r#"/options/env/keep/0: "^HOME$" -> "HOME""#,
+                r#"/roles/0/tasks/0/options/env/delete/0: "XDG_.*_DIR" -> "XDG_*_DIR""#,
+            ]
+        );
         assert_eq!(document["version"], PACKAGE_VERSION.to_string());
         assert_eq!(document["options"]["env"]["check"], json!(["LC_*", "TZ"]));
         assert_eq!(document["options"]["env"]["keep"], json!(["HOME"]));
@@ -209,7 +272,8 @@ mod tests {
             "options": {"env": {"keep": ["PS[1-4]"]}},
             "roles": []
         });
-        assert!(migrate_document(&mut document).unwrap());
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert!(migration.changes.is_empty());
         assert_eq!(document["options"]["env"]["keep"], json!(["PS[1-4]"]));
         let error = serde_json::from_value::<Versioning<SPolicy>>(document)
             .expect_err("an invalid entry must be an error")
@@ -220,10 +284,10 @@ mod tests {
     #[test]
     fn test_migrate_document_current_or_unknown_version() {
         let mut document = json!({"version": PACKAGE_VERSION.to_string(), "options": {"env": {"keep": ["LC_.*"]}}});
-        assert!(!migrate_document(&mut document).unwrap());
+        assert_eq!(migrate_document(&mut document).unwrap(), None);
         assert_eq!(document["options"]["env"]["keep"], json!(["LC_.*"]));
         let mut document = json!({"options": {}});
-        assert!(!migrate_document(&mut document).unwrap());
+        assert_eq!(migrate_document(&mut document).unwrap(), None);
         let mut document = json!({"version": "3.0.0"});
         assert!(matches!(
             migrate_document(&mut document),
@@ -273,6 +337,25 @@ mod tests {
         assert_eq!(
             document["options"]["env"]["delete"],
             json!(DELETE_LIST_4_0_3)
+        );
+    }
+
+    #[test]
+    fn test_describe_changes() {
+        let mut changes = Vec::new();
+        describe_changes(
+            &json!({"a": 1, "b": [1, 2], "c": {"d/e": "x"}}),
+            &json!({"a": 1, "b": [1], "c": {"d/e": "\u{1b}"}, "f": true}),
+            "",
+            &mut changes,
+        );
+        assert_eq!(
+            changes,
+            [
+                "/b: [1,2] -> [1]",
+                r#"/c/d~1e: "x" -> "\u001b""#,
+                "/f: true added",
+            ]
         );
     }
 

@@ -1,5 +1,5 @@
 cli  = { SOI ~ args ~ EOI }
-args = { help | convert_op | list | file | role | editor_op | options_operations }
+args = { help | convert_op | upgrade_op | list | file | role | editor_op | options_operations }
 
 list      = { ("show" | "list" | "l") }
 set       = { "set" | "s" }
@@ -14,6 +14,7 @@ blacklist = { "blacklist" | "bl" }
 checklist = { "checklist" | "cl" }
 setlist   = { "setlist" | "sl" }
 convert   = { "convert" | "c" }
+upgrade   = { "upgrade" }
 editor    = { "editor" | "e" }
 
 all       = { "all" }
@@ -37,6 +38,12 @@ from = { "--from" ~ convert_type ~ path }
 to   = { convert_type ~ path }
 convert_type = { "json" | "cbor" }
 convert_reconfigure = { "--reconfigure" | "-r" }
+
+// ========================
+// upgrade
+// ========================
+upgrade_op = { upgrade ~ upgrade_check? }
+upgrade_check = { "--check" }
 
 // ========================
 // file
