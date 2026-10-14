@@ -537,9 +537,13 @@ fn remove_outer_quotes(input: &str) -> String {
     }
 }
 
+/// Candidates for `exe_name` in the directories of `env_path`.
+/// Relative directories (`.`, empty entries…) are ignored: they would make the result depend
+/// on the current directory, which the user controls.
 pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec<PathBuf> {
     env_path
         .iter()
+        .filter(|dir| Path::new(dir).is_absolute())
         .filter_map(|dir| {
             let full_path = Path::new(dir).join(&exe_name);
             debug!("Checking path: {}", full_path.display());
@@ -791,6 +795,17 @@ mod test {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_all_paths_from_env_ignores_relative_directories() {
+        // the tests run in the crate directory, which contains Cargo.toml
+        assert!(all_paths_from_env(&[".", "", "src/.."], "Cargo.toml").is_empty());
+        let dir = std::env::current_dir().unwrap();
+        assert_eq!(
+            all_paths_from_env(&[".", dir.to_str().unwrap()], "Cargo.toml"),
+            vec![dir.join("Cargo.toml")]
+        );
     }
 
     #[test]

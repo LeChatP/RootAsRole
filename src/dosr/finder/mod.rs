@@ -204,6 +204,20 @@ where
     parse_file(&file_path)
 }
 
+/// Path of the command to run when a task allows every command.
+/// A name without `/` is only searched in PATH, never in the current directory (like a shell),
+/// otherwise a file named like the command in the current directory would be run instead.
+/// A path is made absolute without resolving symbolic links: multi-call binaries
+/// (e.g. `pkill` -> `pgrep`) rely on the name they are run with.
+fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if cmd_path.as_os_str().as_bytes().contains(&b'/') {
+        std::path::absolute(cmd_path).ok()
+    } else {
+        all_paths_from_env(env_path, cmd_path).into_iter().next()
+    }
+}
+
 impl BestExecSettings {
     fn retrieve_settings<'a>(
         cli: &'a Cli,
@@ -349,21 +363,14 @@ impl BestExecSettings {
                 let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
                 debug!("{}", &cli.cmd_path.display());
-                if let Ok(path) = cli.cmd_path.canonicalize() {
-                    self.final_path = path;
-                } else {
-                    self.final_path.clone_from(
-                        all_paths_from_env(
-                            &t_env_path
-                                .iter()
-                                .map(std::string::String::as_str)
-                                .collect::<Vec<_>>(),
-                            &cli.cmd_path,
-                        )
-                        .first()
-                        .ok_or(SrError::ExecutionFailed)?,
-                    );
-                }
+                self.final_path = resolve_any_command(
+                    &cli.cmd_path,
+                    &t_env_path
+                        .iter()
+                        .map(std::string::String::as_str)
+                        .collect::<Vec<_>>(),
+                )
+                .ok_or(SrError::ExecutionFailed)?;
                 self.score.cmd_min = CmdMin::builder()
                     .matching()
                     .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
@@ -934,5 +941,39 @@ mod tests {
         assert!(*best.final_path == *"/usr/bin/ls");
         assert!(best.role == "test2", "role was {}", best.role);
         assert!(best.task == Some("0".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_any_command_ignores_current_directory() {
+        // the tests run in the crate directory, which contains Cargo.toml
+        assert!(Path::new("Cargo.toml").is_file());
+        assert_eq!(resolve_any_command(Path::new("Cargo.toml"), &[]), None);
+        assert_eq!(
+            resolve_any_command(Path::new("Cargo.toml"), &[".", ""]),
+            None
+        );
+        let dir = std::env::current_dir().unwrap();
+        let dir = dir.to_str().unwrap();
+        assert_eq!(
+            resolve_any_command(Path::new("Cargo.toml"), &["/nonexistent", dir]),
+            Some(Path::new(dir).join("Cargo.toml"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_any_command_keeps_the_given_name() {
+        let dir =
+            std::env::temp_dir().join(format!("rar_resolve_any_command_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("pkill");
+        std::os::unix::fs::symlink("/usr/bin/pgrep", &link).unwrap();
+        // an explicit path is used as given, the symbolic link is not resolved
+        assert_eq!(resolve_any_command(&link, &[]), Some(link.clone()));
+        assert_eq!(
+            resolve_any_command(Path::new("./Cargo.toml"), &[]),
+            Some(std::env::current_dir().unwrap().join("./Cargo.toml"))
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
