@@ -340,70 +340,6 @@ impl From<DPathOptions<'_>> for SPathOptions {
     }
 }
 
-impl DPathOptions<'_> {
-    pub fn default_path<'a>() -> DPathOptions<'a> {
-        DPathOptions::builder(ENV_PATH_BEHAVIOR)
-            .add(ENV_PATH_ADD_LIST_SLICE.iter().copied())
-            .sub(ENV_PATH_REMOVE_LIST_SLICE.iter().copied())
-            .build()
-    }
-    pub fn calc_path<'a>(&'a self, path_var: &'a [&'a str]) -> Vec<&'a str> {
-        let default = Cow::default();
-        match self.default_behavior {
-            PathBehavior::Inherit | PathBehavior::Delete => {
-                self.add.as_ref().map_or_else(Vec::new, |add| {
-                    let sub = self.sub.as_ref().unwrap_or(&default);
-                    add.iter()
-                        .filter(|item| !sub.contains(*item))
-                        .map(std::convert::AsRef::as_ref)
-                        .collect()
-                })
-            }
-            is_safe => {
-                let sub = self.sub.as_ref();
-                self.add
-                    .as_ref()
-                    .map(|cow| cow.iter())
-                    .into_iter()
-                    .flatten()
-                    .map(std::convert::AsRef::as_ref)
-                    .chain(path_var.iter().copied())
-                    .filter(move |s| {
-                        let not_in_sub = !sub.is_some_and(|set| set.iter().any(|p| *s == p));
-                        not_in_sub && (!is_safe.is_keep_safe() || !s.starts_with('/'))
-                    })
-                    .collect()
-            }
-        }
-    }
-}
-
-impl DPathOptions<'_> {
-    pub fn union(&mut self, path_options: &Self) {
-        match path_options.default_behavior {
-            PathBehavior::Inherit => {
-                if let Some(add) = &path_options.add {
-                    self.add
-                        .get_or_insert_with(Default::default)
-                        .to_mut()
-                        .extend_from_slice(add);
-                }
-                if let Some(sub) = &path_options.sub {
-                    self.sub
-                        .get_or_insert_with(Default::default)
-                        .to_mut()
-                        .extend_from_slice(sub);
-                }
-            }
-            behaviors => {
-                self.add.clone_from(&path_options.add);
-                self.sub.clone_from(&path_options.sub);
-                self.default_behavior = behaviors;
-            }
-        }
-    }
-}
-
 fn check_env(key: impl AsRef<str>, value: impl AsRef<str>) -> bool {
     debug!("Checking env: {}={}", key.as_ref(), value.as_ref());
     match key.as_ref() {
@@ -1103,17 +1039,6 @@ mod tests {
         assert!(!env.contains_key("SAFE"));
         let env = final_user_env(EnvBehavior::Keep, &[], &["CHECKED"], &[], &vars);
         assert!(!env.contains_key("CHECKED"));
-    }
-
-    #[test]
-    fn test_calc_path() {
-        let path_options = DPathOptions::builder(PathBehavior::Inherit)
-            .add(vec!["/usr/local/bin", "/usr/bin"])
-            .sub(vec!["/usr/bin"])
-            .build();
-        let path_var = ["/bin", "/usr/bin"];
-        let result = path_options.calc_path(&path_var);
-        assert_eq!(result, vec!["/usr/local/bin"]);
     }
 
     #[test]

@@ -18,34 +18,25 @@ use serde_json::Value;
 
 use crate::{
     Cli,
-    finder::{
-        de::{DRoleFinder, DTaskFinder, tasks::TaskListFinderDeserializer, to_storage_m},
-        options::DPathOptions,
-    },
+    finder::de::{DRoleFinder, DTaskFinder, tasks::TaskListFinderDeserializer, to_storage_m},
 };
 
-pub(super) struct RoleListFinderDeserializer<'a, 'b> {
+pub(super) struct RoleListFinderDeserializer<'a> {
     pub(super) cli: &'a Cli,
     pub(super) cred: &'a Cred,
-    /// spath is scoped only inside the deserialisation, useful for cbor
-    pub(super) spath: &'b mut DPathOptions<'a>,
-    /// The current user path
-    pub(super) env_path: &'a [&'a str],
 }
 
-impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
+impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a> {
     type Value = Vec<DRoleFinder<'a>>;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct RoleListFinderVisitor<'a, 'b> {
+        struct RoleListFinderVisitor<'a> {
             cli: &'a Cli,
             cred: &'a Cred,
-            spath: &'b mut DPathOptions<'a>,
-            env_path: &'a [&'a str],
         }
-        impl<'de: 'a, 'a> serde::de::Visitor<'de> for RoleListFinderVisitor<'a, '_> {
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for RoleListFinderVisitor<'a> {
             type Value = Vec<DRoleFinder<'a>>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -61,8 +52,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
                 while let Some(role) = seq.next_element_seed(RoleFinderDeserializer {
                     cli: self.cli,
                     cred: self.cred,
-                    spath: self.spath,
-                    env_path: self.env_path,
                 })? {
                     if let Some(role) = role {
                         debug!("adding role {role:?}");
@@ -75,22 +64,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleListFinderDeserializer<'a, '_> {
         deserializer.deserialize_seq(RoleListFinderVisitor {
             cli: self.cli,
             cred: self.cred,
-            spath: self.spath,
-            env_path: self.env_path,
         })
     }
 }
 
-struct RoleFinderDeserializer<'a, 'b> {
+struct RoleFinderDeserializer<'a> {
     cli: &'a Cli,
     cred: &'a Cred,
-    /// The current user path
-    env_path: &'a [&'a str],
-    /// spath is scoped only inside the deserialisation, useful for cbor
-    spath: &'b mut DPathOptions<'a>,
 }
 
-impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
+impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
     type Value = Option<DRoleFinder<'a>>;
     #[allow(clippy::too_many_lines)]
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -113,17 +96,15 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
             Unknown(Cow<'a, str>),
         }
 
-        struct RoleFinderVisitor<'a, 'b> {
+        struct RoleFinderVisitor<'a> {
             cli: &'a Cli,
             cred: &'a Cred,
-            env_path: &'a [&'a str],
-            spath: &'b mut DPathOptions<'a>,
             // TODO: If perf problem in cbor you can trash this
             #[allow(dead_code)]
             policy_format: StorageMethod,
         }
 
-        impl<'de: 'a, 'a> Visitor<'de> for RoleFinderVisitor<'a, '_> {
+        impl<'de: 'a, 'a> Visitor<'de> for RoleFinderVisitor<'a> {
             type Value = Option<DRoleFinder<'a>>;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a role")
@@ -166,11 +147,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
                         }
                         Field::Tasks => {
                             debug!("RoleFinderVisitor: tasks");
-                            tasks = map.next_value_seed(TaskListFinderDeserializer {
-                                cli: self.cli,
-                                spath: self.spath,
-                                env_path: self.env_path,
-                            })?;
+                            tasks =
+                                map.next_value_seed(TaskListFinderDeserializer { cli: self.cli })?;
                         }
                         Field::Unknown(key) => {
                             debug!("RoleFinderVisitor: unknown {key}");
@@ -192,8 +170,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a, '_> {
         deserializer.deserialize_map(RoleFinderVisitor {
             cli: self.cli,
             cred: self.cred,
-            spath: self.spath,
-            env_path: self.env_path,
             policy_format: to_storage_m(human_readable),
         })
     }
@@ -308,7 +284,6 @@ mod test {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = RoleFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -317,7 +292,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -336,7 +310,6 @@ mod test {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -345,7 +318,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -360,7 +332,6 @@ mod test {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -369,7 +340,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -381,7 +351,6 @@ mod test {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = RoleListFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -390,7 +359,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
@@ -406,7 +374,6 @@ mod test {
         let json = r#"{"unknown": "unknown"}"#;
         let deserializer = RoleFinderDeserializer {
             cli: &cli,
-            env_path: &[],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -415,7 +382,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(
@@ -436,7 +402,6 @@ mod test {
         assert!(result.is_err(), "Expected error, got: {result:?}");
         let role = RoleFinderDeserializer {
             cli: &cli,
-            env_path: &[],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -445,7 +410,6 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = role.deserialize(&mut serde_json::Deserializer::from_str(int));
         assert!(result.is_err(), "Expected error, got: {result:?}");

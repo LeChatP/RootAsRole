@@ -253,13 +253,30 @@ mod tests {
         database::score::CmdMin,
         util::{has_privileges, immutable_required_privileges},
     };
-    use serde::de::DeserializeSeed;
     use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
-    use crate::finder::{
-        api::hashchecker::{FS_IMMUTABLE_FL, register},
-        de::commands::DCommandDeserializer,
+    use crate::{
+        error::SrResult,
+        finder::api::{
+            Api, ApiEvent,
+            hashchecker::{FS_IMMUTABLE_FL, register},
+        },
     };
+
+    /// Send a complex command of the policy to the plugins, as dosr does when it matches it.
+    fn process_complex_command(
+        json: &str,
+        env_path: &[&str],
+        cmd_path: &PathBuf,
+        cmd_args: &[String],
+        final_path: &mut Option<PathBuf>,
+        cmd_min: &mut CmdMin,
+    ) -> SrResult<()> {
+        let command: serde_json::Value = serde_json::from_str(json).expect("a complex command");
+        Api::notify(ApiEvent::ProcessComplexCommand(
+            &command, env_path, cmd_path, cmd_args, cmd_min, final_path,
+        ))
+    }
     pub struct Defer<F: FnOnce()>(Option<F>);
 
     impl<F: FnOnce()> Defer<F> {
@@ -326,14 +343,14 @@ mod tests {
         );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        let result = process_complex_command(
+            &json,
+            &["/usr/bin"],
+            &PathBuf::from(&filename).canonicalize().unwrap(),
+            &["-l".to_string()],
+            &mut final_path,
+            &mut cmd_min,
+        );
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
         assert_eq!(cmd_min, CmdMin::MATCH);
@@ -349,14 +366,14 @@ mod tests {
         );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        let result = process_complex_command(
+            &json,
+            &["/usr/bin"],
+            &PathBuf::from(&filename).canonicalize().unwrap(),
+            &["-l".to_string()],
+            &mut final_path,
+            &mut cmd_min,
+        );
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
         assert_eq!(cmd_min, CmdMin::MATCH);
@@ -373,14 +390,14 @@ mod tests {
         );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        let result = process_complex_command(
+            &json,
+            &["/usr/bin"],
+            &PathBuf::from(&filename).canonicalize().unwrap(),
+            &["-l".to_string()],
+            &mut final_path,
+            &mut cmd_min,
+        );
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
         assert_eq!(cmd_min, CmdMin::MATCH);
@@ -396,14 +413,14 @@ mod tests {
         );
         let mut final_path = None;
         let mut cmd_min = CmdMin::default();
-        let deserializer = DCommandDeserializer {
-            env_path: &["/usr/bin"],
-            cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-            cmd_args: &["-l".to_string()],
-            final_path: &mut final_path,
-            cmd_min: &mut cmd_min,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+        let result = process_complex_command(
+            &json,
+            &["/usr/bin"],
+            &PathBuf::from(&filename).canonicalize().unwrap(),
+            &["-l".to_string()],
+            &mut final_path,
+            &mut cmd_min,
+        );
         assert!(result.is_ok());
         assert_eq!(final_path, Some(PathBuf::from(&filename)));
         assert_eq!(cmd_min, CmdMin::MATCH);
@@ -439,14 +456,14 @@ mod tests {
             debug!("json: {json}");
             let mut final_path = None;
             let mut cmd_min = CmdMin::default();
-            let deserializer = DCommandDeserializer {
-                env_path: &["/usr/bin"],
-                cmd_path: &PathBuf::from(&filename).canonicalize().unwrap(),
-                cmd_args: &["-l".to_string()],
-                final_path: &mut final_path,
-                cmd_min: &mut cmd_min,
-            };
-            let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
+            let result = process_complex_command(
+                json,
+                &["/usr/bin"],
+                &PathBuf::from(&filename).canonicalize().unwrap(),
+                &["-l".to_string()],
+                &mut final_path,
+                &mut cmd_min,
+            );
             if let Err(e) = &result {
                 debug!("Error: {e}");
             }

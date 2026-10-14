@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, fmt::Display, ops::Deref};
 
 use bon::Builder;
 use log::debug;
@@ -18,10 +18,7 @@ use serde_json::Value;
 
 use crate::{
     Cli,
-    finder::{
-        de::{cred::CredData, roles::RoleListFinderDeserializer},
-        options::DPathOptions,
-    },
+    finder::de::{cred::CredData, roles::RoleListFinderDeserializer},
 };
 
 use super::options::Opt;
@@ -79,7 +76,6 @@ pub struct DTaskFinder<'a> {
     pub cred: CredData<'a>,
     pub commands: Option<DCommandList<'a>>,
     pub options: Option<Opt<'a>>,
-    pub final_path: Option<PathBuf>,
 }
 
 /// This struct keeps the list of commands because options may be written after
@@ -277,16 +273,13 @@ impl<'a> Deref for DLinkedCommand<'_, '_, '_, '_, 'a> {
 pub struct ConfigFinderDeserializer<'a> {
     pub cli: &'a Cli,
     pub cred: &'a Cred,
-    /// The current user path
-    pub env_path: &'a [&'a str],
 }
 
 /// Let me explain a bit my deserialisation process
 /// Here you get only ``Options``, ``Roles``. Options can arrive after Roles and vice-versa
-/// In order to evaluate commands, you need PATH env var.
-/// PATH var is defined in Options
-/// So, we need to store Options for all the deserialisation process
-/// (for Global case, other cases, see ``RoleFinderDeserializer``)
+/// Commands are resolved with the PATH defined in the options of their task, its role and the
+/// global level, which can come after the commands: they are stored, and matched once the
+/// whole policy is read (see ``BestExecSettings::task_settings``).
 impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
     type Value = DConfigFinder<'a>;
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -309,7 +302,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         struct ConfigFinderVisitor<'a> {
             cli: &'a Cli,
             cred: &'a Cred,
-            env_path: &'a [&'a str],
         }
 
         impl<'de: 'a, 'a> Visitor<'de> for ConfigFinderVisitor<'a> {
@@ -323,7 +315,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             {
                 let mut options = None;
                 let mut roles = Vec::new();
-                let mut spath = DPathOptions::default_path();
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Options => {
@@ -335,8 +326,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                             roles = map.next_value_seed(RoleListFinderDeserializer {
                                 cli: self.cli,
                                 cred: self.cred,
-                                spath: &mut spath,
-                                env_path: self.env_path,
                             })?;
                         }
                         Field::Unknown(_) => {
@@ -351,7 +340,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         deserializer.deserialize_map(ConfigFinderVisitor {
             cli: self.cli,
             cred: self.cred,
-            env_path: self.env_path,
         })
     }
 }
@@ -359,7 +347,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     use crate::finder::de::tasks::TaskListFinderDeserializer;
 
@@ -470,7 +458,6 @@ mod tests {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -499,7 +486,6 @@ mod tests {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -735,7 +721,6 @@ mod tests {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -888,7 +873,6 @@ mod tests {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -911,7 +895,6 @@ mod tests {
         assert!(config.roles[0].options.is_some());
         assert!(config.roles[0].tasks[0].options.is_some());
         assert_eq!(config.roles[0].user_min, ActorMatchMin::GroupMatch(1));
-        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::MATCH);
         assert_eq!(
             config.roles[0].tasks[0].score.setuser_min.uid,
             Some(SetuidMin::from(&0.into()))
@@ -924,11 +907,64 @@ mod tests {
             config.roles[0].tasks[0].score.caps_min,
             CapsMin::CapsAdmin(2)
         );
-        assert!(config.roles[0].tasks[0].commands.is_none());
+        // commands are stored, they are matched once the options of the task are known
         assert_eq!(
-            config.roles[0].tasks[0].final_path,
-            Some(PathBuf::from("/usr/bin/ls"))
+            config.roles[0].tasks[0]
+                .commands
+                .as_ref()
+                .map(|commands| commands.add.as_ref()),
+            Some([DCommand::simple("/usr/bin/ls")].as_slice())
         );
+    }
+
+    #[test]
+    fn test_commands_use_the_path_of_their_task_in_json_and_cbor() {
+        let uid = getuid().as_raw();
+        let cli = Cli::builder().cmd_path("ls").build();
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        for (task_path, expected) in [
+            ("/nonexistent", None),
+            ("/usr/bin", Some(PathBuf::from("/usr/bin/ls"))),
+        ] {
+            // the options of the task come after its commands, as chsr writes them
+            let json = format!(
+                r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{uid}}}],"tasks":[{{"name":"t","cred":{{}},"commands":["/usr/bin/ls"],"options":{{"path":{{"default":"delete","add":["{task_path}"]}}}}}}]}}]}}"#
+            );
+            let cbor = convert_json_to_cbor(&json);
+            let from_json = ConfigFinderDeserializer {
+                cli: &cli,
+                cred: &cred,
+            }
+            .deserialize(&mut serde_json::Deserializer::from_str(&json))
+            .unwrap();
+            let from_cbor = ConfigFinderDeserializer {
+                cli: &cli,
+                cred: &cred,
+            }
+            .deserialize(&mut cbor4ii::serde::Deserializer::new(SliceReader::new(
+                cbor.as_slice(),
+            )))
+            .unwrap();
+            for config in [&from_json, &from_cbor] {
+                let final_path = crate::finder::BestExecSettings::retrieve_settings(
+                    &cli,
+                    &cred,
+                    config,
+                    vec![("A", "B")],
+                    &["/usr/bin"],
+                )
+                .ok()
+                .map(|settings| settings.final_path);
+                assert_eq!(final_path, expected, "task PATH {task_path}");
+            }
+        }
     }
 
     #[test]
@@ -942,7 +978,6 @@ mod tests {
         let cli = Cli::builder().cmd_path("ls").build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &["/usr/bin"],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -958,7 +993,6 @@ mod tests {
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
         let config = result.unwrap();
         assert_eq!(config.roles[0].user_min, ActorMatchMin::UserMatch);
-        assert_eq!(config.roles[0].tasks[0].score.cmd_min, CmdMin::MATCH);
         assert_eq!(
             config.roles[0].tasks[0].score.setuser_min.uid,
             Some(SetuidMin::from(&0.into()))
@@ -968,10 +1002,13 @@ mod tests {
             Some(SetgidMin::from(&vec![0]))
         );
         assert_eq!(config.roles[0].tasks[0].score.caps_min, CapsMin::NoCaps);
-        assert!(config.roles[0].tasks[0].commands.is_none());
+        // commands are stored, they are matched once the options of the task are known
         assert_eq!(
-            config.roles[0].tasks[0].final_path,
-            Some(PathBuf::from("/usr/bin/ls"))
+            config.roles[0].tasks[0]
+                .commands
+                .as_ref()
+                .map(|commands| commands.add.as_ref()),
+            Some([DCommand::simple("/usr/bin/ls")].as_slice())
         );
     }
 
@@ -990,7 +1027,6 @@ mod tests {
             .build();
         let config_finder = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &[],
             cred: &cred,
         };
         let result = config_finder.deserialize(&mut serde_json::Deserializer::from_str(seq));
@@ -998,7 +1034,6 @@ mod tests {
 
         let role_list = RoleListFinderDeserializer {
             cli: &cli,
-            env_path: &[],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()
@@ -1007,15 +1042,10 @@ mod tests {
                 .user()
                 .unwrap()
                 .build(),
-            spath: &mut DPathOptions::default(),
         };
         let result = role_list.deserialize(&mut serde_json::Deserializer::from_str(map));
         assert!(result.is_err(), "Expected error, got: {result:?}");
-        let task_list = TaskListFinderDeserializer {
-            cli: &cli,
-            env_path: &[],
-            spath: &mut DPathOptions::default(),
-        };
+        let task_list = TaskListFinderDeserializer { cli: &cli };
         let result = task_list.deserialize(&mut serde_json::Deserializer::from_str(map));
         assert!(result.is_err(), "Expected error, got: {result:?}");
     }
@@ -1027,7 +1057,6 @@ mod tests {
         let cli = Cli::builder().build();
         let deserializer = ConfigFinderDeserializer {
             cli: &cli,
-            env_path: &[],
             cred: &Cred::builder()
                 .curdir()
                 .unwrap()

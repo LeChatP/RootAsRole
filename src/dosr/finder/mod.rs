@@ -116,11 +116,7 @@ where
         .path
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
     let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
-        let config_finder_deserializer = ConfigFinderDeserializer {
-            cli,
-            cred,
-            env_path,
-        };
+        let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
         let file = read_with_privileges(file_path)?;
         check_others_permissions(file_path, &file)?;
         let reader = BufReader::new(file);
@@ -391,10 +387,6 @@ impl BestExecSettings {
                 }
             }
             task_env_path = Some(t_env_path);
-        } else if let Some(final_path) = &data.final_path {
-            debug!("final_path already found: {}", final_path.display());
-            task_cmd_min = data.score.cmd_min;
-            task_final_path = Some(final_path.clone());
         }
         let found = task_cmd_min.matching();
         let mut score = data.score(task_cmd_min, temp_opt_stack.calc_security_min());
@@ -710,7 +702,6 @@ mod tests {
         let data = super::de::ConfigFinderDeserializer {
             cli: &cli,
             cred: &cred,
-            env_path: &env_path,
         }
         .deserialize(&mut serde_json::Deserializer::from_str(&policy))
         .expect("valid policy");

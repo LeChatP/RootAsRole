@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use log::debug;
-use rootasrole_core::{database::score::TaskScore, util::StorageMethod};
+use rootasrole_core::database::score::TaskScore;
 use serde::{
     Deserialize,
     de::{DeserializeSeed, IgnoredAny},
@@ -9,38 +9,27 @@ use serde::{
 
 use crate::{
     Cli,
-    finder::{
-        de::{
-            DTaskFinder, IdTask,
-            commands::DCommandListDeserializer,
-            cred::{CredData, CredFinderDeserializerReturn},
-            to_storage_m,
-        },
-        options::DPathOptions,
+    finder::de::{
+        DTaskFinder, IdTask,
+        cred::{CredData, CredFinderDeserializerReturn},
     },
 };
 
-pub(super) struct TaskListFinderDeserializer<'a, 'b> {
+pub(super) struct TaskListFinderDeserializer<'a> {
     pub(super) cli: &'a Cli,
-    /// The current user path
-    pub(super) env_path: &'a [&'a str],
-    /// spath is scoped only inside the deserialisation, useful for cbor
-    pub(super) spath: &'b mut DPathOptions<'a>,
 }
 
-impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
+impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a> {
     type Value = Vec<DTaskFinder<'a>>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct TaskListFinderVisitor<'a, 'b> {
+        struct TaskListFinderVisitor<'a> {
             cli: &'a Cli,
-            spath: &'b mut DPathOptions<'a>,
-            env_path: &'a [&'a str],
         }
-        impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskListFinderVisitor<'a, '_> {
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskListFinderVisitor<'a> {
             type Value = Vec<DTaskFinder<'a>>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -53,12 +42,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
             {
                 let mut tasks = Vec::new();
                 let mut i = 0;
-                while let Some(element) = seq.next_element_seed(TaskFinderDeserializer {
-                    cli: self.cli,
-                    spath: self.spath,
-                    env_path: self.env_path,
-                    i,
-                })? {
+                while let Some(element) =
+                    seq.next_element_seed(TaskFinderDeserializer { cli: self.cli, i })?
+                {
                     if let Some(task) = element {
                         debug!("adding task {task:?}");
                         tasks.push(task);
@@ -68,24 +54,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskListFinderDeserializer<'a, '_> {
                 Ok(tasks)
             }
         }
-        deserializer.deserialize_seq(TaskListFinderVisitor {
-            cli: self.cli,
-            spath: self.spath,
-            env_path: self.env_path,
-        })
+        deserializer.deserialize_seq(TaskListFinderVisitor { cli: self.cli })
     }
 }
 
-struct TaskFinderDeserializer<'a, 'b> {
+struct TaskFinderDeserializer<'a> {
     cli: &'a Cli,
     i: usize,
-    /// The current user path
-    env_path: &'a [&'a str],
-    /// spath is scoped only inside the deserialisation, useful for cbor
-    spath: &'b mut DPathOptions<'a>,
 }
 
-impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
+impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a> {
     type Value = Option<DTaskFinder<'a>>;
 
     #[allow(clippy::too_many_lines)]
@@ -109,15 +87,12 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
             Unknown(Cow<'a, str>),
         }
 
-        struct TaskFinderVisitor<'a, 'b> {
+        struct TaskFinderVisitor<'a> {
             cli: &'a Cli,
             i: usize,
-            env_path: &'a [&'a str],
-            spath: &'b mut DPathOptions<'a>,
-            storage_method: StorageMethod,
         }
 
-        impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskFinderVisitor<'a, '_> {
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for TaskFinderVisitor<'a> {
             type Value = Option<DTaskFinder<'a>>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -133,7 +108,6 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                 let mut score = TaskScore::default();
                 let mut commands = None;
                 let mut options = None;
-                let mut final_path = None;
                 //let mut extra_values = HashMap::new();
                 let mut cred = CredData::default();
 
@@ -197,20 +171,9 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                         }
                         Field::Commands => {
                             debug!("TaskFinderVisitor: commands");
-                            // if json -> next_value (store)
-                            // else -> next_value_seed -> use deserializer, thus highly optimizing
-                            if self.storage_method.is_json() {
-                                commands = Some(map.next_value()?);
-                            } else {
-                                map.next_value_seed(DCommandListDeserializer {
-                                    env_path: &self.spath.calc_path(self.env_path),
-                                    cmd_path: &self.cli.cmd_path,
-                                    cmd_args: &self.cli.cmd_args,
-                                    final_path: &mut final_path,
-                                    cmd_min: &mut score.cmd_min,
-                                    blocker: false,
-                                })?;
-                            }
+                            // Stored, then matched with the PATH of the task once its options
+                            // are known: they may come after the commands, in any format.
+                            commands = Some(map.next_value()?);
                         }
                         Field::Unknown(_key) => {
                             debug!("TaskFinderVisitor: unknown");
@@ -218,24 +181,18 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a, '_> {
                         }
                     }
                 }
-                debug!("TaskFinderVisitor: final_path {final_path:?}");
                 Ok(Some(DTaskFinder {
                     id,
                     score,
                     cred,
                     commands,
                     options,
-                    final_path,
                 }))
             }
         }
-        let human_readable = deserializer.is_human_readable();
         deserializer.deserialize_map(TaskFinderVisitor {
             i: self.i,
             cli: self.cli,
-            env_path: self.env_path,
-            spath: self.spath,
-            storage_method: to_storage_m(human_readable),
         })
     }
 }
@@ -247,10 +204,7 @@ mod test {
 
     use crate::{
         Cli,
-        finder::{
-            de::{DCommandList, DTaskFinder, tasks::TaskFinderDeserializer},
-            options::DPathOptions,
-        },
+        finder::de::{DCommandList, DTaskFinder, tasks::TaskFinderDeserializer},
     };
 
     #[test]
@@ -260,24 +214,14 @@ mod test {
         let json = r#"{"unknown": "unknown"}"#;
         let cli = Cli::builder().build();
 
-        let deserializer = TaskFinderDeserializer {
-            cli: &cli,
-            i: 0,
-            env_path: &[],
-            spath: &mut DPathOptions::default(),
-        };
+        let deserializer = TaskFinderDeserializer { cli: &cli, i: 0 };
         let result: Result<Option<DTaskFinder<'_>>, serde_json::Error> =
             deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(
             result.is_ok(),
             "Expected task with nothing in it, got: {result:?}"
         );
-        let task = TaskFinderDeserializer {
-            cli: &cli,
-            i: 0,
-            env_path: &[],
-            spath: &mut DPathOptions::default(),
-        };
+        let task = TaskFinderDeserializer { cli: &cli, i: 0 };
         let result = task.deserialize(&mut serde_json::Deserializer::from_str(seq));
         assert!(result.is_err(), "Expected error, got: {result:?}");
         assert!(serde_json::from_str::<DCommandList>(int).is_err());
