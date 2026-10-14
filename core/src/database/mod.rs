@@ -34,13 +34,12 @@ pub struct FilterMatcher {
 }
 
 // deserialize the linked hash set
-#[allow(clippy::unnecessary_wraps)] // Function used by serde, must return a Result
+// An invalid entry is an error: ignoring it (or the whole list) would silently change the policy.
 fn lhs_deserialize_envkey<'de, D>(deserializer: D) -> Result<Option<IndexSet<EnvKey>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Vec::<EnvKey>::deserialize(deserializer)
-        .map_or_else(|_| Ok(None), |v| Ok(Some(v.into_iter().collect())))
+    Ok(Option::<Vec<EnvKey>>::deserialize(deserializer)?.map(|v| v.into_iter().collect()))
 }
 
 // serialize the linked hash set
@@ -60,14 +59,12 @@ where
     }
 }
 
-// deserialize the linked hash set
-#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
+// deserialize the linked hash set, an invalid entry is an error
 fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<IndexSet<String>>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Vec::<String>::deserialize(deserializer)
-        .map_or_else(|_| Ok(None), |v| Ok(Some(v.into_iter().collect())))
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?.map(|v| v.into_iter().collect()))
 }
 
 // serialize the linked hash set
@@ -213,6 +210,19 @@ mod tests {
         assert!(set.contains(&EnvKey::from("key1")));
         assert!(set.contains(&EnvKey::from("key2")));
         assert!(set.contains(&EnvKey::from("key3")));
+    }
+
+    #[test]
+    fn test_lhs_deserialize_errors_are_not_swallowed() {
+        // one invalid entry used to turn the whole list into None
+        let err = serde_json::from_str::<IndexSetTester<EnvKey>>(r#"["HOME", "LC_.*"]"#)
+            .err()
+            .expect("an invalid entry must be an error")
+            .to_string();
+        assert!(err.contains("LC_.*"), "{err}");
+        assert!(serde_json::from_str::<IndexSetTester<String>>(r#"["a", 1]"#).is_err());
+        let null: IndexSetTester<EnvKey> = serde_json::from_str("null").unwrap();
+        assert!(null.0.is_none());
     }
 
     #[test]
