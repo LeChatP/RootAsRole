@@ -14,6 +14,7 @@ pub mod score;
 pub mod actor;
 pub mod de;
 pub mod migration;
+pub mod migrations;
 pub mod options;
 pub mod ser;
 pub mod structs;

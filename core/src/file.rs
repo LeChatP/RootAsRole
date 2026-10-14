@@ -19,6 +19,7 @@ use crate::{
     SettingsContent,
     database::{
         migration::{Migration, MigrationError},
+        migrations::migrate_document,
         structs::SPolicy,
         versionning::Versioning,
     },
@@ -29,6 +30,20 @@ use crate::{
 };
 
 pub const ROOT_MIGRATIONS: &[Migration<RootSettings>] = &[];
+
+/// Read a policy document without interpreting it, so that it can be migrated first.
+fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::Value> {
+    match method {
+        StorageMethod::JSON => serde_json::from_reader(file).map_err(|e| {
+            debug!("Failed to read the document: {e}");
+            io::Error::new(io::ErrorKind::InvalidData, e)
+        }),
+        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file)).map_err(|e| {
+            debug!("Failed to read the document: {e}");
+            io::Error::new(io::ErrorKind::InvalidData, e)
+        }),
+    }
+}
 pub const POLICY_MIGRATIONS: &[Migration<Rc<RefCell<SPolicy>>>] = &[];
 
 #[derive(Debug)]
@@ -237,16 +252,20 @@ impl FileSettings {
         let root =
             LockedSettingsFile::open(rar_cfg_path.as_ref(), options, write, |path, file| {
                 debug!("Loading root settings from {}", path.display());
-                let mut settings: Versioning<RootSettings> = match rar_cfg_type {
-                    StorageMethod::JSON => {
-                        serde_json::from_reader(file).inspect_err(|e| debug!("{e}"))?
+                let mut document = read_document(rar_cfg_type, file)?;
+                if let Err(e) = migrate_document(&mut document) {
+                    match e {
+                        MigrationError::NoMigrationPath(from, to) => {
+                            debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                        }
+                        MigrationError::MigrationFailed(e) => return Err(io::Error::other(e)),
                     }
-                    StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-                        .map_err(|e| {
-                            debug!("Failed to deserialize root settings: {e}");
-                            io::Error::new(io::ErrorKind::InvalidData, e)
-                        })?,
-                };
+                }
+                let mut settings: Versioning<RootSettings> = serde_json::from_value(document)
+                    .map_err(|e| {
+                        debug!("Failed to deserialize root settings: {e}");
+                        io::Error::new(io::ErrorKind::InvalidData, e)
+                    })?;
                 Self::make_weak_config(&settings.data.config);
                 settings
                     .upgrade_version(ROOT_MIGRATIONS)
@@ -344,11 +363,10 @@ impl FileSettings {
     {
         let mut policyfile: LockedPolicy =
             LockedSettingsFile::open(path, options, write, |_, file| {
-                Ok(match file_type {
-                    StorageMethod::JSON => serde_json::from_reader(file)?,
-                    StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-                        .map_err(io::Error::other)?,
-                })
+                let mut document = read_document(file_type, file)?;
+                migrate_document(&mut document).map_err(|e| io::Error::other(e.to_string()))?;
+                serde_json::from_value(document)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             })?;
         Self::make_weak_config(&policyfile.data.data);
         policyfile
@@ -494,6 +512,34 @@ mod tests {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_read_policy_migrates_older_versions() {
+        let path =
+            std::env::temp_dir().join(format!("rar_migrate_policy_{}.json", std::process::id()));
+        // saved by 4.0.2, with a regex that is not valid anymore
+        std::fs::write(
+            &path,
+            r#"{"version":"4.0.2","options":{"env":{"check":["LC_.*"]}},"roles":[]}"#,
+        )
+        .unwrap();
+        let policy = FileSettings::read_policy(&path, StorageMethod::JSON).unwrap();
+        assert_eq!(policy.data.version, PACKAGE_VERSION);
+        let options = policy.data.data.as_ref().borrow().options.clone().unwrap();
+        let check = options
+            .as_ref()
+            .borrow()
+            .env
+            .clone()
+            .unwrap()
+            .check
+            .unwrap();
+        assert_eq!(
+            check.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["LC_*"]
+        );
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
