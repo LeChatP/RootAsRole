@@ -614,9 +614,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         /// list replaces the inherited one when the level sets its behavior, and extends it
         /// otherwise. Only an empty list (`[]`) removes an inherited list: see `SEnvOptions` in
         /// rootasrole-core for why this is the fail-safe choice.
-        fn merge_list(
-            result: &mut Option<HashSet<Cow<'_, str>>>,
-            list: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+        /// The entries are borrowed from the defaults and from the stack, nothing is copied.
+        fn merge_list<'s>(
+            result: &mut Option<HashSet<Cow<'s, str>>>,
+            list: Option<impl IntoIterator<Item = &'s str>>,
             replace: bool,
         ) {
             let Some(list) = list else {
@@ -626,12 +627,12 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             if replace {
                 result.clear();
             }
-            result.extend(list.into_iter().map(|k| k.as_ref().to_string().into()));
+            result.extend(list.into_iter().map(Cow::Borrowed));
         }
         /// Same as `merge_list`, for the variables set by the policy.
-        fn merge_set(
-            result: &mut Option<HashMap<Cow<'_, str>, Cow<'_, str>>>,
-            set: Option<impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>>,
+        fn merge_set<'s>(
+            result: &mut Option<HashMap<Cow<'s, str>, Cow<'s, str>>>,
+            set: Option<impl IntoIterator<Item = (&'s str, &'s str)>>,
             replace: bool,
         ) {
             let Some(set) = set else {
@@ -643,20 +644,20 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             }
             result.extend(
                 set.into_iter()
-                    .map(|(k, v)| (k.as_ref().to_string().into(), v.as_ref().to_string().into())),
+                    .map(|(k, v)| (Cow::Borrowed(k), Cow::Borrowed(v))),
             );
         }
         #[builder]
-        fn assign_env_settings(
+        fn assign_env_settings<'s>(
             override_behavior: bool,
             opt_filter: Option<&FilterMatcher>,
-            result: &mut DEnvOptions<'_>,
+            result: &mut DEnvOptions<'s>,
             overriden: &mut bool,
             default_behavior: EnvBehavior,
-            keep: Option<impl IntoIterator<Item = impl AsRef<str>>>,
-            delete: Option<impl IntoIterator<Item = impl AsRef<str>>>,
-            check: Option<impl IntoIterator<Item = impl AsRef<str>>>,
-            set: Option<impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>>,
+            keep: Option<impl IntoIterator<Item = &'s str>>,
+            delete: Option<impl IntoIterator<Item = &'s str>>,
+            check: Option<impl IntoIterator<Item = &'s str>>,
+            set: Option<impl IntoIterator<Item = (&'s str, &'s str)>>,
         ) {
             determine_final_behavior(
                 override_behavior,
@@ -693,10 +694,14 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                     .result(&mut result)
                     .overriden(&mut overriden)
                     .default_behavior(o.default_behavior)
-                    .maybe_keep(o.keep.as_ref())
-                    .maybe_check(o.check.as_ref())
-                    .maybe_delete(o.delete.as_ref())
-                    .maybe_set(o.set.as_ref())
+                    .maybe_keep(o.keep.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
+                    .maybe_check(o.check.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
+                    .maybe_delete(o.delete.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
+                    .maybe_set(
+                        o.set
+                            .as_ref()
+                            .map(|s| s.iter().map(|(k, v)| (k.as_ref(), v.as_ref()))),
+                    )
                     .call();
             });
         result
