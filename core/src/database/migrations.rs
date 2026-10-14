@@ -57,6 +57,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         up: |_, document| {
             rewrite_env_entries(document, regex_to_wildcard);
             replace_default_delete_list(document, DELETE_LIST_4_0_3, ENV_DELETE_LIST_SLICE);
+            keep_delete_mode_levels_strict(document);
             Ok(())
         },
         down: |_, document| {
@@ -97,6 +98,28 @@ fn replace_default_delete_list(document: &mut Value, from: &[&str], to: &[&str])
             .iter()
             .map(|entry| Value::String((*entry).to_string()))
             .collect();
+    }
+}
+
+/// Up to 4.0.3, a level that set its env `default` started from empty lists. Since 4.0.4, the
+/// lists that it does not define are inherited: a delete mode level would pass the inherited keep
+/// and check lists, so they are written empty to keep it as strict as it was. A keep mode level is
+/// not changed, inheriting the delete and check lists only removes or checks more variables.
+/// The downgrade does not change anything, an empty list means the same in 4.0.3.
+fn keep_delete_mode_levels_strict(document: &mut Value) {
+    match document {
+        Value::Object(map) => {
+            if let Some(Value::Object(env)) = map.get_mut("env")
+                && env.get("default").and_then(Value::as_str) == Some("delete")
+            {
+                for list in ["keep", "check"] {
+                    env.entry(list).or_insert_with(|| Value::Array(Vec::new()));
+                }
+            }
+            map.values_mut().for_each(keep_delete_mode_levels_strict);
+        }
+        Value::Array(values) => values.iter_mut().for_each(keep_delete_mode_levels_strict),
+        _ => {}
     }
 }
 
@@ -356,6 +379,36 @@ mod tests {
                 r#"/c/d~1e: "x" -> "\u001b""#,
                 "/f: true added",
             ]
+        );
+    }
+
+    #[test]
+    fn test_migrate_keeps_delete_mode_levels_strict() {
+        let mut document = json!({
+            "version": "4.0.3",
+            "options": {"env": {"default": "delete", "keep": ["HOME"]}},
+            "roles": [{"name": "r1", "tasks": [
+                {"name": "t1", "options": {"env": {"default": "delete"}}},
+                {"name": "t2", "options": {"env": {"default": "keep"}}},
+                {"name": "t3", "options": {"env": {"keep": ["FOO"]}}}
+            ]}]
+        });
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(document["options"]["env"]["keep"], json!(["HOME"]));
+        assert_eq!(document["options"]["env"]["check"], json!([]));
+        let tasks = &document["roles"][0]["tasks"];
+        assert_eq!(
+            tasks[0]["options"]["env"],
+            json!({"default": "delete", "keep": [], "check": []})
+        );
+        // keep mode and inheriting levels are not changed
+        assert_eq!(tasks[1]["options"]["env"], json!({"default": "keep"}));
+        assert_eq!(tasks[2]["options"]["env"], json!({"keep": ["FOO"]}));
+        // chsr upgrade shows the lists it adds
+        assert!(
+            migration
+                .changes
+                .contains(&"/roles/0/tasks/0/options/env/keep: [] added".to_string())
         );
     }
 
