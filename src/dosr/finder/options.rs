@@ -52,6 +52,8 @@ pub struct DPathOptions<'a> {
     pub sub: Option<Cow<'a, [Cow<'a, str>]>>,
 }
 
+/// Environment options of a level, borrowed from the policy (see `SEnvOptions` in
+/// rootasrole-core). A list that the level does not define is `None`, and is inherited.
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct DEnvOptions<'a> {
     #[serde(rename = "default", default, skip_serializing_if = "is_default")]
@@ -59,22 +61,22 @@ pub struct DEnvOptions<'a> {
     pub default_behavior: EnvBehavior,
     #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
     pub override_behavior: Option<bool>,
-    #[serde(borrow, default, skip_serializing_if = "HashMap::is_empty")]
-    #[builder(default, with = |iter: impl IntoIterator<Item = (impl Into<Cow<'a,str>>, impl Into<Cow<'a,str>>)>| {
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[builder(with = |iter: impl IntoIterator<Item = (impl Into<Cow<'a,str>>, impl Into<Cow<'a,str>>)>| {
         let mut map = HashMap::with_hasher(Default::default());
         map.extend(iter.into_iter().map(|(k, v)| (k.into(), v.into())));
         map
     })]
-    pub set: HashMap<Cow<'a, str>, Cow<'a, str>>,
-    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
-    pub keep: HashSet<Cow<'a, str>>,
-    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
-    pub check: HashSet<Cow<'a, str>>,
-    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
-    #[builder(default, with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
-    pub delete: HashSet<Cow<'a, str>>,
+    pub set: Option<HashMap<Cow<'a, str>, Cow<'a, str>>>,
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
+    pub keep: Option<HashSet<Cow<'a, str>>>,
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
+    pub check: Option<HashSet<Cow<'a, str>>>,
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
+    pub delete: Option<HashSet<Cow<'a, str>>>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
@@ -191,16 +193,16 @@ impl DEnvOptions<'_> {
         if is_shell_function(value) {
             return false;
         }
-        let checked = || !env_matches(&self.check, key) || check_env(key, value);
+        let checked = || !env_matches(self.check.as_ref(), key) || check_env(key, value);
         match self.default_behavior {
             EnvBehavior::Delete => {
-                if env_matches(&self.check, key) {
+                if env_matches(self.check.as_ref(), key) {
                     check_env(key, value)
                 } else {
-                    env_matches(&self.keep, key)
+                    env_matches(self.keep.as_ref(), key)
                 }
             }
-            EnvBehavior::Keep => !env_matches(&self.delete, key) && checked(),
+            EnvBehavior::Keep => !env_matches(self.delete.as_ref(), key) && checked(),
             EnvBehavior::Inherit => false,
         }
     }
@@ -257,6 +259,7 @@ impl DEnvOptions<'_> {
         final_set.extend(
             self.set
                 .iter()
+                .flatten()
                 .map(|(key, value)| (key.to_string(), value.to_string())),
         );
         Ok(final_set)
@@ -288,26 +291,30 @@ impl From<Opt<'_>> for rootasrole_core::database::options::Opt {
             } else {
                 None
             })
-            .maybe_env(if let Some(senv) = val.env {
-                Some(
+            .maybe_env(val.env.map(|senv| {
+                // an undefined list stays undefined, so that it is still inherited
+                let keys = |list: Option<HashSet<Cow<'_, str>>>| {
+                    list.map(|list| {
+                        list.iter()
+                            .map(|v| rootasrole_core::database::options::EnvKey::new(v.to_string()))
+                            .collect::<Result<_, _>>()
+                            .unwrap()
+                    })
+                };
+                let mut env =
                     rootasrole_core::database::options::SEnvOptions::builder(senv.default_behavior)
                         .maybe_override_behavior(senv.override_behavior)
-                        .set(
-                            senv.set
-                                .into_iter()
-                                .map(|(k, v)| (k.to_string(), v.to_string())),
-                        )
-                        .keep(senv.keep.into_iter().map(|v| v.to_string()))
-                        .unwrap()
-                        .check(senv.check.into_iter().map(|v| v.to_string()))
-                        .unwrap()
-                        .delete(senv.delete.into_iter().map(|v| v.to_string()))
-                        .unwrap()
-                        .build(),
-                )
-            } else {
-                None
-            })
+                        .build();
+                env.set = senv.set.map(|set| {
+                    set.into_iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect()
+                });
+                env.keep = keys(senv.keep);
+                env.check = keys(senv.check);
+                env.delete = keys(senv.delete);
+                env
+            }))
             .maybe_root(val.root)
             .maybe_bounding(val.bounding)
             .maybe_authentication(val.authentication)
@@ -405,12 +412,14 @@ fn check_env(key: impl AsRef<str>, value: impl AsRef<str>) -> bool {
     }
 }
 
-fn env_matches<K>(set: &HashSet<K>, needle: &str) -> bool
+fn env_matches<K>(set: Option<&HashSet<K>>, needle: &str) -> bool
 where
     K: AsRef<str> + Eq + Hash + Borrow<str>,
 {
     // the policy entries are the patterns, never the user's variable name
-    set.contains(needle) || set.iter().any(|key| wildcard_match(key.as_ref(), needle))
+    set.is_some_and(|set| {
+        set.contains(needle) || set.iter().any(|key| wildcard_match(key.as_ref(), needle))
+    })
 }
 
 fn tz_is_safe(tzval: &str) -> bool {
@@ -600,6 +609,43 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                 *final_behavior = behavior;
             }
         }
+        /// Merge a list of one level into the lists of the upper levels. A list that the level
+        /// does not define is inherited, even when the level sets its own behavior; a defined
+        /// list replaces the inherited one when the level sets its behavior, and extends it
+        /// otherwise. Only an empty list (`[]`) removes an inherited list: see `SEnvOptions` in
+        /// rootasrole-core for why this is the fail-safe choice.
+        fn merge_list(
+            result: &mut Option<HashSet<Cow<'_, str>>>,
+            list: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+            replace: bool,
+        ) {
+            let Some(list) = list else {
+                return;
+            };
+            let result = result.get_or_insert_default();
+            if replace {
+                result.clear();
+            }
+            result.extend(list.into_iter().map(|k| k.as_ref().to_string().into()));
+        }
+        /// Same as `merge_list`, for the variables set by the policy.
+        fn merge_set(
+            result: &mut Option<HashMap<Cow<'_, str>, Cow<'_, str>>>,
+            set: Option<impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>>,
+            replace: bool,
+        ) {
+            let Some(set) = set else {
+                return;
+            };
+            let result = result.get_or_insert_default();
+            if replace {
+                result.clear();
+            }
+            result.extend(
+                set.into_iter()
+                    .map(|(k, v)| (k.as_ref().to_string().into(), v.as_ref().to_string().into())),
+            );
+        }
         #[builder]
         fn assign_env_settings(
             override_behavior: bool,
@@ -607,10 +653,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             result: &mut DEnvOptions<'_>,
             overriden: &mut bool,
             default_behavior: EnvBehavior,
-            keep: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
-            delete: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
-            check: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
-            set: &(impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)> + Clone),
+            keep: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+            delete: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+            check: Option<impl IntoIterator<Item = impl AsRef<str>>>,
+            set: Option<impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>>,
         ) {
             determine_final_behavior(
                 override_behavior,
@@ -619,35 +665,11 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                 overriden,
                 default_behavior,
             );
-            // we reset as long there is a new default behavior, we don't inherit
-            if default_behavior.is_keep() || default_behavior.is_delete() {
-                result.set.clear();
-                result.keep.clear();
-                result.delete.clear();
-                result.check.clear();
-            }
-            result.set.extend(
-                set.clone()
-                    .into_iter()
-                    .map(|(k, v)| (k.as_ref().to_string().into(), v.as_ref().to_string().into())),
-            );
-            result.keep.extend(
-                keep.clone()
-                    .into_iter()
-                    .map(|k| k.as_ref().to_string().into()),
-            );
-            result.delete.extend(
-                delete
-                    .clone()
-                    .into_iter()
-                    .map(|k| k.as_ref().to_string().into()),
-            );
-            result.check.extend(
-                check
-                    .clone()
-                    .into_iter()
-                    .map(|k| k.as_ref().to_string().into()),
-            );
+            let replace = !default_behavior.is_inherit();
+            merge_set(&mut result.set, set, replace);
+            merge_list(&mut result.keep, keep, replace);
+            merge_list(&mut result.delete, delete, replace);
+            merge_list(&mut result.check, check, replace);
         }
         let mut result = DEnvOptions::default();
         let mut overriden = false;
@@ -657,10 +679,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             .result(&mut result)
             .overriden(&mut overriden)
             .default_behavior(ENV_DEFAULT_BEHAVIOR)
-            .keep(&ENV_KEEP_LIST.iter().copied())
-            .check(&ENV_CHECK_LIST.iter().copied())
-            .delete(&ENV_DELETE_LIST.iter().copied())
-            .set(&ENV_SET_LIST.iter().copied())
+            .keep(ENV_KEEP_LIST.iter().copied())
+            .check(ENV_CHECK_LIST.iter().copied())
+            .delete(ENV_DELETE_LIST.iter().copied())
+            .set(ENV_SET_LIST.iter().copied())
             .call();
         self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
@@ -671,10 +693,10 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
                     .result(&mut result)
                     .overriden(&mut overriden)
                     .default_behavior(o.default_behavior)
-                    .keep(&o.keep)
-                    .check(&o.check)
-                    .delete(&o.delete)
-                    .set(&o.set)
+                    .maybe_keep(o.keep.as_ref())
+                    .maybe_check(o.check.as_ref())
+                    .maybe_delete(o.delete.as_ref())
+                    .maybe_set(o.set.as_ref())
                     .call();
             });
         result
@@ -692,15 +714,16 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         self.get_opt_iter()
             .filter_map(|o| o.env.as_ref())
             .find_map(|env| {
-                env.keep
-                    .iter()
-                    .chain(&env.check)
-                    .chain(&env.delete)
+                [&env.keep, &env.check, &env.delete]
+                    .into_iter()
+                    .flatten()
+                    .flatten()
                     .map(AsRef::as_ref)
                     .find(|entry| !is_valid_env_pattern(entry))
                     .or_else(|| {
                         env.set
-                            .keys()
+                            .iter()
+                            .flat_map(HashMap::keys)
                             .map(AsRef::as_ref)
                             .find(|name| !is_valid_env_name(name))
                     })
@@ -947,19 +970,20 @@ mod tests {
             .iter()
             .map(std::string::ToString::to_string)
             .collect();
-        assert!(env_matches(&set, "VAR1"));
-        assert!(!env_matches(&set, "VAR3"));
+        assert!(env_matches(Some(&set), "VAR1"));
+        assert!(!env_matches(Some(&set), "VAR3"));
+        assert!(!env_matches(None::<&HashSet<String>>, "VAR1"));
     }
 
     #[test]
     fn test_env_matches_policy_patterns() {
         let set: HashSet<String> = ["LC_*".to_string(), "HOME".to_string()].into();
-        assert!(env_matches(&set, "LC_ALL"));
-        assert!(env_matches(&set, "HOME"));
-        assert!(!env_matches(&set, "LANG"));
+        assert!(env_matches(Some(&set), "LC_ALL"));
+        assert!(env_matches(Some(&set), "HOME"));
+        assert!(!env_matches(Some(&set), "LANG"));
         // the user's variable name is never used as a pattern
-        assert!(!env_matches(&set, "*"));
-        assert!(!env_matches(&set, "HOME|X"));
+        assert!(!env_matches(Some(&set), "*"));
+        assert!(!env_matches(Some(&set), "HOME|X"));
     }
 
     fn final_user_env(
@@ -1267,16 +1291,100 @@ mod tests {
             env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>()
         );
         let env = stack.calc_temp_env(false, None);
-        assert_eq!(env.delete, HashSet::from(["DELETEME".into()]));
-        assert_eq!(env.keep, HashSet::from(["KEEPME".into()]));
-        assert_eq!(env.check, HashSet::from(["CHECKME".into()]));
+        // the global level does not define its keep and delete lists: the defaults are inherited
+        let with_defaults = |defaults: &[&'static str], entry: &'static str| {
+            let mut list: HashSet<Cow<'static, str>> =
+                defaults.iter().copied().map(Into::into).collect();
+            list.insert(entry.into());
+            Some(list)
+        };
+        assert_eq!(env.delete, with_defaults(ENV_DELETE_LIST, "DELETEME"));
+        assert_eq!(env.keep, with_defaults(ENV_KEEP_LIST, "KEEPME"));
+        // the check and set lists it defines replace the defaults
+        assert_eq!(env.check, Some(HashSet::from(["CHECKME".into()])));
         assert_eq!(
             env.set,
-            HashMap::from([
+            Some(HashMap::from([
                 ("VAR1".into(), "VALUE1".into()),
                 ("VAR2".into(), "VALUE2".into())
-            ])
+            ]))
         );
+    }
+
+    #[test]
+    fn test_env_lists_undefined_or_empty() {
+        let env: DEnvOptions<'_> =
+            serde_json::from_str(r#"{"default": "keep", "delete": [], "set": {}}"#).unwrap();
+        assert_eq!(env.delete, Some(HashSet::new()));
+        assert_eq!(env.set, Some(HashMap::new()));
+        assert_eq!(env.check, None);
+        assert_eq!(env.keep, None);
+    }
+
+    #[test]
+    fn test_calc_temp_env_inherits_undefined_lists() {
+        let config = Some(
+            Opt::builder(Level::Global)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Delete)
+                        .keep(["KEEPME"])
+                        .unwrap()
+                        .check(["CHECKME"])
+                        .unwrap()
+                        .delete(["LD_*"])
+                        .unwrap()
+                        .set([("GLOBAL", "one")])
+                        .build(),
+                )
+                .build(),
+        );
+        let mut stack = BorrowedOptStack::new(config);
+        // a task that switches to keep mode without restating its lists inherits them
+        stack.task = Some(
+            Opt::builder(Level::Task)
+                .env(DEnvOptions::builder(EnvBehavior::Keep).build())
+                .build(),
+        );
+        let env = stack.calc_temp_env(false, None);
+        assert_eq!(env.default_behavior, EnvBehavior::Keep);
+        assert_eq!(env.delete, Some(HashSet::from(["LD_*".into()])));
+        assert_eq!(env.check, Some(HashSet::from(["CHECKME".into()])));
+        assert_eq!(env.keep, Some(HashSet::from(["KEEPME".into()])));
+        assert_eq!(
+            env.set,
+            Some(HashMap::from([("GLOBAL".into(), "one".into())]))
+        );
+        let vars = [("LD_PRELOAD", "/tmp/evil.so"), ("CHECKME", "/unsafe")];
+        let target = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        let final_env = env
+            .calc_final_env(vars, ["/usr/bin"], &target, None, String::new())
+            .unwrap();
+        assert!(!final_env.contains_key("LD_PRELOAD"));
+        assert!(!final_env.contains_key("CHECKME"));
+
+        // a defined list replaces the inherited one, only an empty list removes it
+        stack.task = Some(
+            Opt::builder(Level::Task)
+                .env(
+                    DEnvOptions::builder(EnvBehavior::Keep)
+                        .delete(Vec::<&str>::new())
+                        .unwrap()
+                        .check(["OTHER"])
+                        .unwrap()
+                        .build(),
+                )
+                .build(),
+        );
+        let env = stack.calc_temp_env(false, None);
+        assert_eq!(env.delete, Some(HashSet::new()));
+        assert_eq!(env.check, Some(HashSet::from(["OTHER".into()])));
     }
 
     #[test]
@@ -1331,8 +1439,9 @@ mod tests {
 
         let overridden = stack.calc_temp_env(true, Some(&filter));
         assert_eq!(overridden.default_behavior, EnvBehavior::Keep);
-        assert!(overridden.set.contains_key("GLOBAL"));
-        assert!(overridden.set.contains_key("TASK"));
+        let set = overridden.set.as_ref().unwrap();
+        assert!(set.contains_key("GLOBAL"));
+        assert!(set.contains_key("TASK"));
 
         let not_overridden = stack.calc_temp_env(false, Some(&filter));
         assert_eq!(not_overridden.default_behavior, EnvBehavior::Delete);

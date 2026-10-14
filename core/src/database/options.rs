@@ -198,6 +198,31 @@ impl std::fmt::Display for EnvKey {
     }
 }
 
+/// Environment options of a level: global, role or task.
+///
+/// `default` selects how the user's environment is filtered:
+/// - `delete`: every variable is removed, except those of the `keep` and `check` lists,
+/// - `keep`: every variable is kept, except those of the `delete` list,
+/// - `inherit`: the behavior of the upper level applies.
+///
+/// In both modes, a variable of the `check` list is passed only if its value is safe, and a shell
+/// function definition is never passed (see [`crate::util::is_shell_function`]). The `set` list
+/// gives variables a value chosen by the policy.
+///
+/// # Lists that a level does not define are inherited
+/// A list that a level does not define is inherited from the upper levels, and from the built-in
+/// defaults, even when the level sets its own `default`. A defined list replaces the inherited one
+/// when the level sets `default`, and extends it when the level inherits. Only an explicitly empty
+/// list (`[]`) removes an inherited list.
+///
+/// This is the fail-safe choice: a protection is never lost by omission, removing it has to be
+/// written in the policy, where it can be reviewed.
+/// - In keep mode, the `delete` and `check` lists are what protect the command. A level that
+///   switches to keep mode without restating them still removes and checks the same variables.
+///   A deny list can never list every dangerous variable (CWE-184); a level that forgets the whole
+///   list must not make it worse.
+/// - In delete mode, an inherited `keep` or `check` list only passes variables that an upper level
+///   already allows, and the variables of the `check` list are still validated.
 #[allow(clippy::missing_errors_doc)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SEnvOptions {
@@ -1029,31 +1054,28 @@ impl OptStack {
             if let Some(p) = opt.env.borrow().as_ref() {
                 final_behavior = match p.default_behavior {
                     EnvBehavior::Delete | EnvBehavior::Keep => {
-                        // policy is to delete, so we add whitelist and remove blacklist
-                        final_keep = p
-                            .keep
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_check = p
-                            .check
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_delete = p
-                            .delete
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.check.env_matches(e))
-                            .cloned()
-                            .collect();
+                        // a list that the level does not define is inherited, see `SEnvOptions`
+                        if let Some(keep) = &p.keep {
+                            final_keep = keep
+                                .iter()
+                                .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
+                                .cloned()
+                                .collect();
+                        }
+                        if let Some(check) = &p.check {
+                            final_check = check
+                                .iter()
+                                .filter(|e| !p.delete.env_matches(e))
+                                .cloned()
+                                .collect();
+                        }
+                        if let Some(delete) = &p.delete {
+                            final_delete = delete
+                                .iter()
+                                .filter(|e| !p.check.env_matches(e))
+                                .cloned()
+                                .collect();
+                        }
                         if let Some(set) = &p.set {
                             final_set.clone_from(set);
                         }
@@ -1257,6 +1279,64 @@ mod tests {
                 .flatten()
                 .any(|x| x == &EnvKey::from("env1"))
         );
+    }
+
+    #[test]
+    fn test_env_undefined_lists_are_inherited() {
+        let task_env = |env: SEnvOptions| {
+            SPolicy::builder()
+                .role(
+                    SRole::builder("test")
+                        .task(
+                            STask::builder(1)
+                                .options(|opt| opt.env(env.clone()).build())
+                                .build(),
+                        )
+                        .build(),
+                )
+                .options(|opt| {
+                    opt.env(
+                        SEnvOptions::builder(EnvBehavior::Delete)
+                            .keep(["KEEPME"])
+                            .unwrap()
+                            .check(["CHECKME"])
+                            .unwrap()
+                            .delete(["LD_*"])
+                            .unwrap()
+                            .build(),
+                    )
+                    .build()
+                })
+                .build()
+        };
+        let final_env = |config: &Rc<RefCell<SPolicy>>| {
+            let opt = OptStack::from_task(&config.task("test", 1).unwrap())
+                .to_opt()
+                .expect("Failed to build task options");
+            opt.as_ref().borrow().env.clone().unwrap()
+        };
+        let names = |list: &Option<IndexSet<EnvKey>>| {
+            let mut names: Vec<String> = list.iter().flatten().map(ToString::to_string).collect();
+            names.sort();
+            names
+        };
+        // a task that switches to keep mode without restating its lists inherits them
+        let env = final_env(&task_env(SEnvOptions::builder(EnvBehavior::Keep).build()));
+        assert_eq!(env.default_behavior, EnvBehavior::Keep);
+        assert_eq!(names(&env.delete), ["LD_*"]);
+        assert_eq!(names(&env.check), ["CHECKME"]);
+        assert_eq!(names(&env.keep), ["KEEPME"]);
+        // a defined list replaces the inherited one, only an empty list removes it
+        let env = final_env(&task_env(
+            SEnvOptions::builder(EnvBehavior::Keep)
+                .delete(Vec::<&str>::new())
+                .unwrap()
+                .check(["OTHER"])
+                .unwrap()
+                .build(),
+        ));
+        assert!(names(&env.delete).is_empty());
+        assert_eq!(names(&env.check), ["OTHER"]);
     }
 
     // test to_opt() for OptStack
