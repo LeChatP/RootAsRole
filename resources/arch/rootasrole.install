@@ -42,3 +42,9 @@ post_install() {
     esac
 }
 
+post_upgrade() {
+    if [ -f "$TARGET_PATH" ] && ! chsr upgrade; then
+        log "Some policy files could not be upgraded, check them with 'chsr upgrade --check'"
+    fi
+}
+
