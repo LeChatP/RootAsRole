@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "rootasrole"
-version = "4.0.3"
+version = "4.0.4"
 dependencies = [
  "bitflags 2.13.2",
  "bon",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "rootasrole-core"
-version = "4.0.3"
+version = "4.0.4"
 dependencies = [
  "bitflags 2.13.2",
  "bon",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "rootasrole-exec"
-version = "4.0.3"
+version = "4.0.4"
 dependencies = [
  "libc",
  "log",
@@ -1116,7 +1116,7 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "xtask"
-version = "4.0.3"
+version = "4.0.4"
 dependencies = [
  "anyhow",
  "capctl",
