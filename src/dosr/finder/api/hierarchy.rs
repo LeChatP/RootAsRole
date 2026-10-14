@@ -61,12 +61,12 @@ fn find_in_parents(event: &mut ApiEvent) -> SrResult<()> {
 }
 
 #[builder]
-fn evaluate_parent_role<'a>(
+fn evaluate_parent_role<'c, 'a>(
     parent: &str,
     cli: &Cli,
     cred: &Cred,
-    role: &DLinkedRole<'_, 'a>,
-    opt_stack: &mut BorrowedOptStack<'a>,
+    role: &DLinkedRole<'c, 'a>,
+    opt_stack: &mut BorrowedOptStack<'c, 'a>,
     settings: &mut BestExecSettings,
     matching: &mut bool,
     env_path: &[&str],

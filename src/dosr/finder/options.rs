@@ -482,35 +482,36 @@ pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub struct BorrowedOptStack<'a> {
-    config: Option<Opt<'a>>,
-    role: Option<Opt<'a>>,
-    task: Option<Opt<'a>>,
+/// The options of the global, role and task levels, borrowed from the policy: building or
+/// updating a stack never copies the options. `'c` is how long the policy is borrowed, `'a`
+/// the lifetime of the policy itself: `Opt<'a>` is invariant (`Cow<'a, [Cow<'a, str>]>` in
+/// `DPathOptions`), so they cannot be merged into one lifetime.
+pub struct BorrowedOptStack<'c, 'a> {
+    config: Option<&'c Opt<'a>>,
+    role: Option<&'c Opt<'a>>,
+    task: Option<&'c Opt<'a>>,
 }
 
-impl<'a, 'c, 't> BorrowedOptStack<'a> {
-    pub const fn new(config: Option<Opt<'a>>) -> Self {
+impl<'c, 'a> BorrowedOptStack<'c, 'a> {
+    pub const fn new(config: Option<&'c Opt<'a>>) -> Self {
         Self {
             config,
             role: None,
             task: None,
         }
     }
-    pub fn from_task(task: &DLinkedTask<'t, 'c, 'a>) -> Self {
-        let config = task.role().config().options.clone();
-        let role = task.role().role().options.clone();
-        let task_opt = task.task().options.clone();
+    pub const fn from_task(task: &DLinkedTask<'_, 'c, 'a>) -> Self {
         Self {
-            config,
-            role,
-            task: task_opt,
+            config: task.role().config().options.as_ref(),
+            role: task.role().role().options.as_ref(),
+            task: task.task().options.as_ref(),
         }
     }
-    pub fn set_role(&mut self, role: &DLinkedTask<'t, 'c, 'a>) {
-        self.role.clone_from(&role.role().role().options);
+    pub const fn set_role(&mut self, role: &DLinkedTask<'_, 'c, 'a>) {
+        self.role = role.role().role().options.as_ref();
     }
-    pub fn set_task(&mut self, task: &DLinkedTask<'t, 'c, 'a>) {
-        self.task.clone_from(&task.task.options);
+    pub const fn set_task(&mut self, task: &DLinkedTask<'_, 'c, 'a>) {
+        self.task = task.task().options.as_ref();
     }
     pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
         // Preallocate with a reasonable guess, but will only allocate once.
@@ -518,9 +519,9 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
 
         // Stack of options in order: default, config, role, task
         let stack = [
-            self.config.as_ref().and_then(|c| c.path.as_ref()),
-            self.role.as_ref().and_then(|c| c.path.as_ref()),
-            self.task.as_ref().and_then(|c| c.path.as_ref()),
+            self.config.and_then(|c| c.path.as_ref()),
+            self.role.and_then(|c| c.path.as_ref()),
+            self.task.and_then(|c| c.path.as_ref()),
         ];
 
         calculate_combined_paths(
@@ -735,16 +736,12 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             })
     }
 
-    pub fn get_opt_iter(&self) -> impl Iterator<Item = &Opt<'a>> {
-        [self.config.as_ref(), self.role.as_ref(), self.task.as_ref()]
-            .into_iter()
-            .flatten()
+    pub fn get_opt_iter(&self) -> impl Iterator<Item = &'c Opt<'a>> + use<'c, 'a> {
+        [self.config, self.role, self.task].into_iter().flatten()
     }
 
-    pub fn get_opt_iter_rev(&self) -> impl Iterator<Item = &Opt<'a>> {
-        [self.task.as_ref(), self.role.as_ref(), self.config.as_ref()]
-            .into_iter()
-            .flatten()
+    pub fn get_opt_iter_rev(&self) -> impl Iterator<Item = &'c Opt<'a>> + use<'c, 'a> {
+        [self.task, self.role, self.config].into_iter().flatten()
     }
 
     pub fn calc_timeout(&self) -> STimeout {
@@ -1288,9 +1285,9 @@ mod tests {
                 )
                 .build(),
         );
-        let mut stack = BorrowedOptStack::new(config);
-        stack.role = role;
-        stack.task = task;
+        let mut stack = BorrowedOptStack::new(config.as_ref());
+        stack.role = role.as_ref();
+        stack.task = task.as_ref();
         assert_eq!(
             stack.calc_path(&["/test"]),
             env!("RAR_PATH_ADD_LIST").split(':').collect::<Vec<&str>>()
@@ -1343,13 +1340,12 @@ mod tests {
                 )
                 .build(),
         );
-        let mut stack = BorrowedOptStack::new(config);
+        let mut stack = BorrowedOptStack::new(config.as_ref());
         // a task that switches to keep mode without restating its lists inherits them
-        stack.task = Some(
-            Opt::builder(Level::Task)
-                .env(DEnvOptions::builder(EnvBehavior::Keep).build())
-                .build(),
-        );
+        let keep_task = Opt::builder(Level::Task)
+            .env(DEnvOptions::builder(EnvBehavior::Keep).build())
+            .build();
+        stack.task = Some(&keep_task);
         let env = stack.calc_temp_env(false, None);
         assert_eq!(env.default_behavior, EnvBehavior::Keep);
         assert_eq!(env.delete, Some(HashSet::from(["LD_*".into()])));
@@ -1375,18 +1371,17 @@ mod tests {
         assert!(!final_env.contains_key("CHECKME"));
 
         // a defined list replaces the inherited one, only an empty list removes it
-        stack.task = Some(
-            Opt::builder(Level::Task)
-                .env(
-                    DEnvOptions::builder(EnvBehavior::Keep)
-                        .delete(Vec::<&str>::new())
-                        .unwrap()
-                        .check(["OTHER"])
-                        .unwrap()
-                        .build(),
-                )
-                .build(),
-        );
+        let replacing_task = Opt::builder(Level::Task)
+            .env(
+                DEnvOptions::builder(EnvBehavior::Keep)
+                    .delete(Vec::<&str>::new())
+                    .unwrap()
+                    .check(["OTHER"])
+                    .unwrap()
+                    .build(),
+            )
+            .build();
+        stack.task = Some(&replacing_task);
         let env = stack.calc_temp_env(false, None);
         assert_eq!(env.delete, Some(HashSet::new()));
         assert_eq!(env.check, Some(HashSet::from(["OTHER".into()])));
@@ -1394,25 +1389,43 @@ mod tests {
 
     #[test]
     fn test_invalid_env_entry() {
-        let opt = |env: DEnvOptions<'static>| Some(Opt::builder(Level::Task).env(env).build());
-        let mut stack = BorrowedOptStack::new(None);
-        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
-            .keep(["HOME", "LC_*", "*_PROXY"])
-            .unwrap()
-            .set([("TASK", "value")])
-            .build());
-        assert_eq!(stack.invalid_env_entry(), None);
+        let invalid_entry = |env: DEnvOptions<'static>| {
+            let task = Opt::builder(Level::Task).env(env).build();
+            let mut stack = BorrowedOptStack::new(None);
+            stack.task = Some(&task);
+            stack.invalid_env_entry().map(ToString::to_string)
+        };
+        assert_eq!(
+            invalid_entry(
+                DEnvOptions::builder(EnvBehavior::Delete)
+                    .keep(["HOME", "LC_*", "*_PROXY"])
+                    .unwrap()
+                    .set([("TASK", "value")])
+                    .build()
+            ),
+            None
+        );
         // a regex is not a pattern anymore
-        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
-            .check(["LC_.*"])
-            .unwrap()
-            .build());
-        assert_eq!(stack.invalid_env_entry(), Some("LC_.*"));
+        assert_eq!(
+            invalid_entry(
+                DEnvOptions::builder(EnvBehavior::Delete)
+                    .check(["LC_.*"])
+                    .unwrap()
+                    .build()
+            )
+            .as_deref(),
+            Some("LC_.*")
+        );
         // names set by the policy cannot be patterns
-        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
-            .set([("A*", "value")])
-            .build());
-        assert_eq!(stack.invalid_env_entry(), Some("A*"));
+        assert_eq!(
+            invalid_entry(
+                DEnvOptions::builder(EnvBehavior::Delete)
+                    .set([("A*", "value")])
+                    .build()
+            )
+            .as_deref(),
+            Some("A*")
+        );
     }
 
     #[test]
@@ -1436,8 +1449,8 @@ mod tests {
                 .build(),
         );
 
-        let mut stack = BorrowedOptStack::new(config);
-        stack.task = task;
+        let mut stack = BorrowedOptStack::new(config.as_ref());
+        stack.task = task.as_ref();
         let filter = FilterMatcher::builder()
             .env_behavior(EnvBehavior::Keep)
             .build();

@@ -232,7 +232,7 @@ impl BestExecSettings {
     ) -> SrResult<Self> {
         let mut result = Self::default();
         let mut matching = false;
-        let mut opt_stack = BorrowedOptStack::new(data.options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.options.as_ref());
         for role in data.roles() {
             matching |= result.role_settings(cli, cred, &role, &mut opt_stack, env_path)?;
             Api::notify(ApiEvent::BestRoleSettingsFound(
@@ -279,7 +279,7 @@ impl BestExecSettings {
         cli: &'c Cli,
         cred: &'c Cred,
         data: &DLinkedRole<'c, 'a>,
-        opt_stack: &mut BorrowedOptStack<'a>,
+        opt_stack: &mut BorrowedOptStack<'c, 'a>,
         env_path: &[&str],
     ) -> SrResult<bool> {
         debug!("role_settings: {:?}", data.role().role);
@@ -300,12 +300,12 @@ impl BestExecSettings {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn task_settings<'t, 'a>(
+    pub fn task_settings<'t, 'c, 'a>(
         &mut self,
         cli: &'t Cli,
         cred: &'t Cred,
-        data: &DLinkedTask<'t, '_, 'a>,
-        opt_stack: &mut BorrowedOptStack<'a>,
+        data: &DLinkedTask<'t, 'c, 'a>,
+        opt_stack: &mut BorrowedOptStack<'c, 'a>,
         env_path: &[&str],
     ) -> SrResult<bool> {
         debug!("task_settings: {:?}", data.id);
@@ -712,7 +712,7 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().next().unwrap();
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/bin"];
         let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok_and(|r| r));
@@ -800,7 +800,7 @@ mod tests {
         let binding = binding.tasks().next().unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -821,7 +821,7 @@ mod tests {
         let binding = binding.tasks().nth(1).unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -840,7 +840,7 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -861,7 +861,7 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -889,7 +889,7 @@ mod tests {
         let binding = binding.tasks().next().unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -914,7 +914,7 @@ mod tests {
         let binding = binding.tasks().nth(1).unwrap();
         // This task has info hide set in options, it should be denied
         let data = binding;
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.task_settings(&cli, &cred, &data, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -937,7 +937,7 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().next().unwrap();
         let data = binding.tasks().nth(1).unwrap();
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());
@@ -962,7 +962,7 @@ mod tests {
         let binding = dummy_dconfigfinder();
         let binding = binding.roles().nth(1).unwrap();
         let data = binding.tasks().next().unwrap();
-        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.clone());
+        let mut opt_stack = BorrowedOptStack::new(data.role().config().options.as_ref());
         let env_path = &["/usr/bin"];
         let result = best.role_settings(&cli, &cred, &binding, &mut opt_stack, env_path);
         assert!(result.is_ok());

@@ -153,11 +153,13 @@ impl<'c, 'a> DLinkedRole<'c, 'a> {
             .map(|task| DLinkedTask::new(self, task))
     }
 
-    pub const fn role(&self) -> &DRoleFinder<'a> {
+    /// Borrowed for as long as the policy, not only as long as this link.
+    pub const fn role(&self) -> &'c DRoleFinder<'a> {
         self.role
     }
 
-    pub const fn config(&self) -> &DConfigFinder<'a> {
+    /// Borrowed for as long as the policy, not only as long as this link.
+    pub const fn config(&self) -> &'c DConfigFinder<'a> {
         self.parent
     }
 }
@@ -165,11 +167,11 @@ impl<'c, 'a> DLinkedRole<'c, 'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct DLinkedTask<'t, 'c, 'a> {
     parent: &'t DLinkedRole<'c, 'a>,
-    pub task: &'t DTaskFinder<'a>,
+    pub task: &'c DTaskFinder<'a>,
 }
 
 impl<'t, 'c, 'a> DLinkedTask<'t, 'c, 'a> {
-    const fn new(parent: &'t DLinkedRole<'c, 'a>, task: &'t DTaskFinder<'a>) -> Self {
+    const fn new(parent: &'t DLinkedRole<'c, 'a>, task: &'c DTaskFinder<'a>) -> Self {
         Self { parent, task }
     }
 
@@ -184,7 +186,8 @@ impl<'t, 'c, 'a> DLinkedTask<'t, 'c, 'a> {
         self.parent
     }
 
-    pub const fn task(&self) -> &DTaskFinder<'a> {
+    /// Borrowed for as long as the policy, not only as long as this link.
+    pub const fn task(&self) -> &'c DTaskFinder<'a> {
         self.task
     }
 
