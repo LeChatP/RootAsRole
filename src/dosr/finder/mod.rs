@@ -317,7 +317,6 @@ impl BestExecSettings {
             );
             return Ok(false);
         }
-        let mut found = false;
         // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
         let mut task_env_path = None;
         // We must do this check for each task as long they could have different options
@@ -356,43 +355,58 @@ impl BestExecSettings {
             debug!("task_settings: deny task due to inherited from role or config info hide");
             return Ok(false);
         }
+        // The task is evaluated on its own: the best settings found so far are only replaced
+        // if its full score is better, so a task cannot change how the next ones are compared.
+        let mut task_cmd_min = CmdMin::empty();
+        let mut task_final_path = None;
         if let Some(commands) = data.commands() {
             let t_env_path = temp_opt_stack.calc_path(env_path);
             let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
             for command in commands.del() {
-                if self.command_settings(&t_env_path_ref, cli, &command)? {
+                if Self::match_command(&t_env_path_ref, cli, &command)?.is_some() {
+                    debug!("task_settings: deny task, the command is in its deny list");
                     return Ok(false);
                 }
             }
             if commands.default_behavior.is_some_and(|b| b.is_all()) {
                 debug!("default behavior is all");
-                found = true;
                 debug!("{}", &cli.cmd_path.display());
-                self.final_path = resolve_any_command(&cli.cmd_path, &t_env_path_ref)
-                    .ok_or(SrError::ExecutionFailed)?;
-                self.score.cmd_min = CmdMin::builder()
+                task_final_path = Some(
+                    resolve_any_command(&cli.cmd_path, &t_env_path_ref)
+                        .ok_or(SrError::ExecutionFailed)?,
+                );
+                task_cmd_min = CmdMin::builder()
                     .matching()
                     .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
                     .build();
             } else {
                 for command in commands.add() {
-                    if self.command_settings(&t_env_path_ref, cli, &command)? {
-                        found = true;
-                        break;
+                    if let Some((cmd_min, final_path)) =
+                        Self::match_command(&t_env_path_ref, cli, &command)?
+                        && cmd_min.better(task_cmd_min)
+                    {
+                        task_cmd_min = cmd_min;
+                        task_final_path = Some(final_path);
                     }
                 }
             }
             task_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
             debug!("final_path already found: {}", final_path.display());
-            found = self.update_command_score(final_path.clone(), data.score.cmd_min);
+            task_cmd_min = data.score.cmd_min;
+            task_final_path = Some(final_path.clone());
         }
-        let mut score = data.score(self.score.cmd_min, temp_opt_stack.calc_security_min());
+        let found = task_cmd_min.matching();
+        let mut score = data.score(task_cmd_min, temp_opt_stack.calc_security_min());
         Api::notify(ApiEvent::BestTaskSettingsFound(
             cli, data, opt_stack, self, &mut score,
         ))?;
-        if found && score.better_fully(&self.score) {
+        if found
+            && let Some(final_path) = task_final_path
+            && score.better_fully(&self.score)
+        {
             debug!("found better task settings");
+            self.final_path = final_path;
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
             self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
@@ -411,29 +425,26 @@ impl BestExecSettings {
         Ok(found)
     }
 
-    pub fn command_settings<'d>(
-        &mut self,
+    /// How a command of the policy matches the command line: its score and the path to run,
+    /// or `None` if it does not match. The best settings found so far are not changed.
+    pub fn match_command<'d>(
         env_path: &[&str],
         cli: &'d Cli,
         data: &DLinkedCommand<'d, '_, '_, '_, '_>,
-    ) -> SrResult<bool> {
+    ) -> SrResult<Option<(CmdMin, PathBuf)>> {
         debug!("env_path: {env_path:?}");
-        Ok(match &**data {
-            de::DCommand::Simple(role_cmd) => {
-                let mut final_path = None;
-                let cmd_min = cmd::evaluate_command_match(
-                    env_path,
-                    &cli.cmd_path,
-                    &cli.cmd_args,
-                    role_cmd,
-                    self.score.cmd_min,
-                    &mut final_path,
-                );
-                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
-            }
+        let mut final_path = None;
+        let cmd_min = match &**data {
+            de::DCommand::Simple(role_cmd) => cmd::evaluate_command_match(
+                env_path,
+                &cli.cmd_path,
+                &cli.cmd_args,
+                role_cmd,
+                CmdMin::empty(),
+                &mut final_path,
+            ),
             de::DCommand::Complex(value) => {
                 let mut cmd_min = CmdMin::empty();
-                let mut final_path = None;
                 Api::notify(ApiEvent::ProcessComplexCommand(
                     value,
                     env_path,
@@ -442,9 +453,12 @@ impl BestExecSettings {
                     &mut cmd_min,
                     &mut final_path,
                 ))?;
-                final_path.is_some_and(|final_path| self.update_command_score(final_path, cmd_min))
+                cmd_min
             }
-        })
+        };
+        Ok(final_path
+            .filter(|_| cmd_min.matching())
+            .map(|final_path| (cmd_min, final_path)))
     }
 
     /// This function takes a workdir path, and returns whether it is allowed based on the workdir settings.
@@ -467,22 +481,6 @@ impl BestExecSettings {
             }
         }
     }
-
-    fn update_command_score(&mut self, final_path: PathBuf, res: CmdMin) -> bool {
-        debug!(
-            "update_command_score: current score {:?}, new score {:?}",
-            self.score.cmd_min, res
-        );
-        if res.better(self.score.cmd_min) {
-            debug!("better");
-            self.score.cmd_min = res;
-            self.final_path = final_path;
-            true
-        } else {
-            debug!("not better");
-            false
-        }
-    }
 }
 
 #[cfg(test)]
@@ -492,7 +490,7 @@ mod tests {
     use capctl::CapSet;
     use rootasrole_core::database::FilterMatcher;
     use rootasrole_core::database::options::{EnvBehavior, Level, SInfo};
-    use rootasrole_core::database::score::{ActorMatchMin, CmdMin, Score};
+    use rootasrole_core::database::score::{ActorMatchMin, CmdMin};
     use rootasrole_core::database::structs::SetBehavior;
     use serde_json::Value;
     use std::path::PathBuf;
@@ -681,6 +679,151 @@ mod tests {
         assert_eq!(settings.env_path, ["/usr/bin"]);
     }
 
+    /// A task allowing `commands` (JSON), with its capabilities, one kept variable and its PATH.
+    fn task_json(name: &str, caps: &[&str], commands: &str, keep: &str, path: &str) -> String {
+        format!(
+            r#"{{"name":"{name}","cred":{{"caps":{caps}}},"commands":{commands},"options":{{"env":{{"default":"delete","keep":["{keep}"]}},"path":{{"default":"delete","add":["{path}"]}}}}}}"#,
+            caps = serde_json::to_string(caps).unwrap()
+        )
+    }
+
+    /// The best task found by dosr for `cmd`: the policy is deserialized first, which drops
+    /// the tasks that cannot match, then the remaining tasks are compared.
+    /// Returns the task, the command, the PATH and the variables kept among `A_VAR`, `B_VAR`, `C_VAR`.
+    fn best_task(
+        tasks: &[&String],
+        cmd: &str,
+    ) -> SrResult<(String, PathBuf, Vec<String>, Vec<String>)> {
+        use serde::de::DeserializeSeed;
+        let policy = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{}]}}]}}"#,
+            nix::unistd::getuid(),
+            tasks
+                .iter()
+                .map(|task| task.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+        let cred = dummy_cred();
+        let env_path = ["/usr/bin"];
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+            env_path: &env_path,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        let user_env = vec![("A_VAR", "a"), ("B_VAR", "b"), ("C_VAR", "c")];
+        let settings =
+            BestExecSettings::retrieve_settings(&cli, &cred, &data, user_env, &env_path)?;
+        let kept = ["A_VAR", "B_VAR", "C_VAR"]
+            .into_iter()
+            .filter(|var| settings.env.contains_key(*var))
+            .map(ToString::to_string)
+            .collect();
+        Ok((
+            settings.task.unwrap_or_default(),
+            settings.final_path,
+            settings.env_path,
+            kept,
+        ))
+    }
+
+    /// Every order of the tasks.
+    fn orders<'t>(tasks: &[&'t String]) -> Vec<Vec<&'t String>> {
+        if tasks.len() <= 1 {
+            return vec![tasks.to_vec()];
+        }
+        (0..tasks.len())
+            .flat_map(|first| {
+                let mut rest = tasks.to_vec();
+                let first = rest.remove(first);
+                orders(&rest).into_iter().map(move |mut order| {
+                    order.insert(0, first);
+                    order
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_best_task_needs_the_fewest_privileges_in_any_order() {
+        let a = task_json(
+            "a",
+            &["CAP_NET_RAW"],
+            r#"["/usr/bin/ls"]"#,
+            "A_VAR",
+            "/usr/bin",
+        );
+        let b = task_json("b", &[], r#"["/usr/bin/ls"]"#, "B_VAR", "/usr/bin");
+        for tasks in orders(&[&a, &b]) {
+            let (task, _, _, kept) = best_task(&tasks, "/usr/bin/ls").unwrap();
+            // same command, but b needs no capability
+            assert_eq!(task, "b", "{tasks:?}");
+            assert_eq!(kept, ["B_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_losing_task_does_not_leak_into_the_result() {
+        let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        // every command, with more privileges, its own variable and PATH
+        let b = task_json(
+            "b",
+            &["CAP_NET_RAW"],
+            r#"{"default":"all"}"#,
+            "B_VAR",
+            "/bin",
+        );
+        for tasks in orders(&[&a, &b]) {
+            let (task, final_path, env_path, kept) = best_task(&tasks, "ls").unwrap();
+            assert_eq!(task, "a", "{tasks:?}");
+            assert_eq!(final_path, PathBuf::from("/usr/bin/ls"), "{tasks:?}");
+            assert_eq!(env_path, ["/usr/bin"], "{tasks:?}");
+            assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_losing_task_does_not_degrade_the_best_score() {
+        let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let b = task_json(
+            "b",
+            &["CAP_NET_RAW"],
+            r#"{"default":"all"}"#,
+            "B_VAR",
+            "/usr/bin",
+        );
+        // a regex on the arguments is a worse match than a exact command
+        let c = task_json("c", &[], r#"["/usr/bin/ls ^.*$"]"#, "C_VAR", "/usr/bin");
+        for tasks in orders(&[&a, &b, &c]) {
+            let (task, _, _, kept) = best_task(&tasks, "ls").unwrap();
+            assert_eq!(task, "a", "{tasks:?}");
+            assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_denied_command_only_denies_its_own_task() {
+        // every command except ls
+        let d = task_json(
+            "d",
+            &["CAP_NET_RAW"],
+            r#"{"default":"all","del":["/usr/bin/ls"]}"#,
+            "B_VAR",
+            "/usr/bin",
+        );
+        let c = task_json("c", &[], r#"["/usr/bin/ls ^.*$"]"#, "C_VAR", "/usr/bin");
+        for tasks in orders(&[&d, &c]) {
+            let (task, final_path, _, _) = best_task(&tasks, "ls").unwrap();
+            assert_eq!(task, "c", "{tasks:?}");
+            assert_eq!(final_path, PathBuf::from("/usr/bin/ls"), "{tasks:?}");
+        }
+        // alone, d cannot run ls
+        assert!(best_task(&[&d], "ls").is_err());
+    }
+
     #[test]
     fn test_role_settings_calls_actors_and_tasks() {
         let mut best = BestExecSettings::default();
@@ -726,7 +869,6 @@ mod tests {
     #[cfg(feature = "pcre2")]
     #[test]
     fn test_command_settings_simple_and_complex() {
-        let mut best = BestExecSettings::default();
         let cli = dummy_cli();
         let env_path = &["/usr/bin"];
         let binding = dummy_dconfigfinder();
@@ -734,56 +876,18 @@ mod tests {
         let binding = binding.tasks().nth(1).unwrap();
         let binding = binding.commands().unwrap();
         let data = binding.add().next().unwrap();
-        let result = best.command_settings(env_path, &cli, &data);
-        assert!(result.as_ref().is_ok_and(|b| *b));
+        let result = BestExecSettings::match_command(env_path, &cli, &data);
+        assert!(result.as_ref().is_ok_and(|m| {
+            m.as_ref()
+                .is_some_and(|(_, path)| path == Path::new("/usr/bin/ls"))
+        }));
         let data = binding.add().nth(1).unwrap();
-        let result = best.command_settings(env_path, &cli, &data);
+        let result = BestExecSettings::match_command(env_path, &cli, &data);
         assert!(
-            result.as_ref().is_ok_and(|b| !*b),
+            result.as_ref().is_ok_and(Option::is_none),
             "Failed to process complex command : {}",
             result.unwrap_err()
         );
-    }
-
-    #[test]
-    fn test_update_command_score_better() {
-        let mut settings = BestExecSettings {
-            score: Score {
-                cmd_min: CmdMin::builder()
-                    .matching()
-                    .order(CmdOrder::RegexArgs)
-                    .build(),
-                ..Default::default()
-            },
-            final_path: PathBuf::from("/old/path"),
-            ..Default::default()
-        };
-        let new_cmd_min = CmdMin::MATCH;
-        let new_path = PathBuf::from("/new/path");
-        let updated = settings.update_command_score(new_path.clone(), new_cmd_min);
-        assert!(updated);
-        assert_eq!(settings.score.cmd_min, new_cmd_min);
-        assert_eq!(settings.final_path, new_path);
-    }
-
-    #[test]
-    fn test_update_command_score_not_better() {
-        let mut settings = BestExecSettings {
-            score: Score {
-                cmd_min: CmdMin::MATCH,
-                ..Default::default()
-            },
-            final_path: PathBuf::from("/old/path"),
-            ..Default::default()
-        };
-        let worse_cmd_min = CmdMin::builder()
-            .matching()
-            .order(CmdOrder::RegexArgs)
-            .build();
-        let new_path = PathBuf::from("/new/path");
-        let updated = settings.update_command_score(new_path, worse_cmd_min);
-        assert!(!updated);
-        assert_eq!(settings.final_path, PathBuf::from("/old/path"));
     }
 
     #[test]
