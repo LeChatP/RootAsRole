@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::{Borrow, Cow},
+    collections::HashMap,
+};
 
 use bon::{Builder, bon, builder};
 
@@ -180,6 +183,29 @@ impl<'a> Opt<'a> {
 }
 
 impl DEnvOptions<'_> {
+    /// Whether a variable of the user's environment is passed to the command:
+    /// - values starting with `()` (exported shell functions) are never passed,
+    /// - in delete mode, only the variables of the keep and check lists are passed,
+    /// - in keep mode, every variable is passed except those of the delete list,
+    /// - in both modes, a variable of the check list is passed only if its value is safe.
+    fn keep_user_var(&self, key: &str, value: &str) -> bool {
+        if value.starts_with("()") {
+            return false;
+        }
+        let checked = || !env_matches(&self.check, key) || check_env(key, value);
+        match self.default_behavior {
+            EnvBehavior::Delete => {
+                if env_matches(&self.check, key) {
+                    check_env(key, value)
+                } else {
+                    env_matches(&self.keep, key)
+                }
+            }
+            EnvBehavior::Keep => !env_matches(&self.delete, key) && checked(),
+            EnvBehavior::Inherit => false,
+        }
+    }
+
     pub fn calc_final_env(
         &self,
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
@@ -188,40 +214,18 @@ impl DEnvOptions<'_> {
         target: Option<&User>,
         command: String,
     ) -> SrResult<HashMap<String, String>> {
-        let mut final_set = match self.default_behavior {
-            EnvBehavior::Inherit => {
-                error!("Internal Error with environment behavior");
-                Err(SrError::ConfigurationError)
-            }
-            EnvBehavior::Delete => Ok(env_vars
-                .into_iter()
-                .filter_map(|(key, value)| {
-                    let needle = key.into().into();
-                    let value: String = value.into();
-                    if env_matches(&self.keep, &needle)
-                        || (env_matches(&self.check, &needle) && check_env(&needle, &value))
-                    {
-                        Some((needle.to_string(), value))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashMap<String, String>>()),
-            EnvBehavior::Keep => Ok(env_vars
-                .into_iter()
-                .filter_map(|(key, value)| {
-                    let needle = key.into().into();
-                    let value: String = value.into();
-                    if !env_matches(&self.delete, &needle)
-                        || (env_matches(&self.check, &needle) && check_env(&needle, &value))
-                    {
-                        Some((needle.to_string(), value))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashMap<String, String>>()),
-        }?;
+        if self.default_behavior == EnvBehavior::Inherit {
+            error!("Internal Error with environment behavior");
+            return Err(SrError::ConfigurationError);
+        }
+        let mut final_set = env_vars
+            .into_iter()
+            .filter_map(|(key, value)| {
+                let key: String = key.into();
+                let value: String = value.into();
+                self.keep_user_var(&key, &value).then_some((key, value))
+            })
+            .collect::<HashMap<String, String>>();
         final_set.insert(
             "PATH".into(),
             env_path.into_iter().fold(String::new(), |acc, path| {
@@ -402,11 +406,12 @@ fn check_env(key: impl AsRef<str>, value: impl AsRef<str>) -> bool {
     }
 }
 
-fn env_matches<K>(set: &HashSet<K>, needle: &K) -> bool
+fn env_matches<K>(set: &HashSet<K>, needle: &str) -> bool
 where
-    K: AsRef<str> + Eq + Hash,
+    K: AsRef<str> + Eq + Hash + Borrow<str>,
 {
-    set.contains(needle) || set.iter().any(|key| test_pattern(needle, key.as_ref()))
+    // the policy entries are the patterns, never the user's variable name
+    set.contains(needle) || set.iter().any(|key| test_pattern(key.as_ref(), needle))
 }
 
 fn is_valid_env_name(s: &str) -> bool {
@@ -982,8 +987,132 @@ mod tests {
             .iter()
             .map(std::string::ToString::to_string)
             .collect();
-        assert!(env_matches(&set, &"VAR1".to_string()));
-        assert!(!env_matches(&set, &"VAR3".to_string()));
+        assert!(env_matches(&set, "VAR1"));
+        assert!(!env_matches(&set, "VAR3"));
+    }
+
+    #[test]
+    fn test_env_matches_policy_patterns() {
+        let set: HashSet<String> = ["LC_.*".to_string(), "HOME".to_string()].into();
+        #[cfg(feature = "pcre2")]
+        assert!(env_matches(&set, "LC_ALL"));
+        // the user's variable name is never used as a pattern
+        assert!(!env_matches(&set, ".*"));
+        assert!(!env_matches(&set, "HOME|X"));
+    }
+
+    fn final_user_env(
+        behavior: EnvBehavior,
+        keep: &[&str],
+        check: &[&str],
+        delete: &[&str],
+        env_vars: &[(&str, &str)],
+    ) -> HashMap<String, String> {
+        let env_options = DEnvOptions::builder(behavior)
+            .keep(keep.iter().copied())
+            .unwrap()
+            .check(check.iter().copied())
+            .unwrap()
+            .delete(delete.iter().copied())
+            .unwrap()
+            .build();
+        let target = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        env_options
+            .calc_final_env(
+                env_vars.iter().copied(),
+                ["/usr/bin"],
+                &target,
+                None,
+                String::new(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn test_calc_env_delete_list() {
+        let vars = [
+            ("LD_PRELOAD", "/tmp/evil.so"),
+            ("LD_LIBRARY_PATH", "/tmp"),
+            ("BASH_ENV", "/tmp/evil.sh"),
+            ("BASH_FUNC_ls%%", "() { evil; }"),
+            ("FOO", "bar"),
+        ];
+        // keep mode passes every variable except those of the delete list
+        let env = final_user_env(
+            EnvBehavior::Keep,
+            &[],
+            &[],
+            &["LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV"],
+            &vars,
+        );
+        assert!(!env.contains_key("LD_PRELOAD"));
+        assert!(!env.contains_key("LD_LIBRARY_PATH"));
+        assert!(!env.contains_key("BASH_ENV"));
+        assert_eq!(env.get("FOO").unwrap(), "bar");
+        // the keep list is not used in keep mode
+        let env = final_user_env(
+            EnvBehavior::Keep,
+            &["LD_PRELOAD"],
+            &[],
+            &["LD_PRELOAD"],
+            &vars,
+        );
+        assert!(!env.contains_key("LD_PRELOAD"));
+        // without a delete list, the policy passes everything
+        let env = final_user_env(EnvBehavior::Keep, &[], &[], &[], &vars);
+        assert_eq!(env.get("LD_PRELOAD").unwrap(), "/tmp/evil.so");
+    }
+
+    #[test]
+    fn test_calc_env_shell_functions() {
+        let vars = [
+            ("BASH_FUNC_ls%%", "() { evil; }"),
+            ("FOO", "() not a function"),
+        ];
+        // never passed, even when kept by name
+        let env = final_user_env(
+            EnvBehavior::Delete,
+            &["BASH_FUNC_ls%%", "FOO"],
+            &[],
+            &[],
+            &vars,
+        );
+        assert!(!env.contains_key("BASH_FUNC_ls%%"));
+        assert!(!env.contains_key("FOO"));
+        let env = final_user_env(EnvBehavior::Keep, &[], &[], &[], &vars);
+        assert!(!env.contains_key("BASH_FUNC_ls%%"));
+    }
+
+    #[test]
+    fn test_calc_env_check_precedence() {
+        let vars = [
+            ("CHECKED", "/unsafe"),
+            ("SAFE", "ok"),
+            ("TZ", "../../etc/x"),
+        ];
+        // a variable in both keep and check lists is still checked
+        let env = final_user_env(
+            EnvBehavior::Delete,
+            &["CHECKED", "SAFE", "TZ"],
+            &["CHECKED", "SAFE", "TZ"],
+            &[],
+            &vars,
+        );
+        assert!(!env.contains_key("CHECKED"));
+        assert_eq!(env.get("SAFE").unwrap(), "ok");
+        assert!(!env.contains_key("TZ"));
+        // in keep mode, the delete list wins over the check list
+        let env = final_user_env(EnvBehavior::Keep, &[], &["SAFE"], &["SAFE"], &vars);
+        assert!(!env.contains_key("SAFE"));
+        let env = final_user_env(EnvBehavior::Keep, &[], &["CHECKED"], &[], &vars);
+        assert!(!env.contains_key("CHECKED"));
     }
 
     #[test]
