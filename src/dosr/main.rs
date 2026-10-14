@@ -22,7 +22,7 @@ use rootasrole_core::{
     log::subsribe,
 };
 
-use log::{debug, error};
+use log::{debug, error, info};
 use pam::PAM_PROMPT;
 use std::path::PathBuf;
 use std::{io, process::Command};
@@ -400,6 +400,8 @@ fn main_inner() -> SrResult<()> {
         std::process::exit(0);
     }
 
+    info!("{}", execution_log_line(&user, &execcfg, &args));
+
     // Build the command
     let mut command_builder = Command::new(&execcfg.final_path);
 
@@ -449,6 +451,93 @@ fn main_inner() -> SrResult<()> {
     // drop PAM session here for underlining to the compiler that the session ends here.
     drop(session);
     std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Control characters are escaped, so a user-controlled value cannot forge another log line.
+fn escape_log(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|c| -> Box<dyn Iterator<Item = char>> {
+            if c.is_control() {
+                Box::new(c.escape_default())
+            } else {
+                Box::new(std::iter::once(c))
+            }
+        })
+        .collect()
+}
+
+/// Name of the terminal device `dev` (e.g. `/dev/pts/3`), for the logs.
+fn tty_name(dev: Option<nix::libc::dev_t>) -> String {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let Some(dev) = dev else {
+        return "unknown".to_string();
+    };
+    ["/dev/pts", "/dev"]
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .flatten()
+        .find(|entry| {
+            entry
+                .metadata()
+                .is_ok_and(|meta| meta.file_type().is_char_device() && meta.rdev() == dev)
+        })
+        .map_or_else(
+            || "unknown".to_string(),
+            |entry| entry.path().display().to_string(),
+        )
+}
+
+/// Audit line of a granted execution, in the format of sudo plus the role, task and capabilities.
+fn execution_log_line(user: &Cred, execcfg: &finder::BestExecSettings, args: &Cli) -> String {
+    let workdir = args
+        .opt_filter
+        .as_ref()
+        .and_then(|f| f.workdir.as_ref())
+        .map(PathBuf::from)
+        .or_else(|| execcfg.workdir.clone())
+        .unwrap_or_else(|| user.curdir.clone());
+    let target = execcfg
+        .cred
+        .setuid
+        .as_ref()
+        .map_or_else(|| user.user.name.clone(), |u| u.name.clone());
+    let groups = execcfg.cred.setgroups.as_ref().map_or_else(
+        || "unchanged".to_string(),
+        |groups| {
+            groups
+                .iter()
+                .map(|g| g.name.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+    );
+    let caps = execcfg.cred.caps.map_or_else(
+        || "none".to_string(),
+        |caps| {
+            caps.iter()
+                .map(|cap| cap.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+    );
+    let command = std::iter::once(execcfg.final_path.display().to_string())
+        .chain(args.cmd_args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "{} : TTY={} ; PWD={} ; ROLE={} ; TASK={} ; USER={} ; GROUPS={} ; CAPS={} ; COMMAND={}",
+        escape_log(&user.user.name),
+        tty_name(user.tty),
+        escape_log(&workdir.display().to_string()),
+        escape_log(&execcfg.role),
+        escape_log(execcfg.task.as_deref().unwrap_or("none")),
+        escape_log(&target),
+        escape_log(&groups),
+        caps,
+        escape_log(&command),
+    )
 }
 
 fn make_cred() -> std::io::Result<Cred> {
@@ -625,6 +714,41 @@ mod tests {
         assert!(args.help);
         assert_eq!(args.cmd_path, PathBuf::from("ls"));
         assert_eq!(args.cmd_args, vec!["-l".to_string()]);
+    }
+
+    #[test]
+    fn test_execution_log_line() {
+        assert_eq!(escape_log("a\nb\tc"), "a\\nb\\tc");
+        let user = Cred::builder()
+            .user()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .curdir()
+            .unwrap()
+            .build();
+        let execcfg = BestExecSettings::builder()
+            .final_path("/usr/bin/echo".into())
+            .role("r1".into())
+            .task("t1".to_string())
+            .cred(
+                CredOwnedData::builder()
+                    .setuid(User::from_uid(0.into()).unwrap().unwrap())
+                    .caps(CapSet::from_iter([Cap::NET_RAW]))
+                    .build(),
+            )
+            .build();
+        let args = getopt(["dosr", "echo", "x\nfake : TTY=pts/9 ; COMMAND=/bin/sh"]).unwrap();
+        let line = execution_log_line(&user, &execcfg, &args);
+        // a single line, the argument cannot forge another entry
+        assert!(!line.contains('\n'));
+        assert!(line.starts_with(&format!("{} : TTY=", user.user.name)));
+        assert!(
+            line.contains(
+                " ; ROLE=r1 ; TASK=t1 ; USER=root ; GROUPS=unchanged ; CAPS=CAP_NET_RAW ; "
+            )
+        );
+        assert!(line.ends_with("COMMAND=/usr/bin/echo x\\nfake : TTY=pts/9 ; COMMAND=/bin/sh"));
     }
 
     #[test]
