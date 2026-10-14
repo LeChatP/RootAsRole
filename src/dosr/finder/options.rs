@@ -19,8 +19,8 @@ use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
-    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_valid_env_name,
-    is_valid_env_pattern, wildcard_match,
+    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_shell_function,
+    is_valid_env_name, is_valid_env_pattern, wildcard_match,
 };
 use std::hash::Hash;
 
@@ -183,12 +183,12 @@ impl<'a> Opt<'a> {
 
 impl DEnvOptions<'_> {
     /// Whether a variable of the user's environment is passed to the command:
-    /// - values starting with `()` (exported shell functions) are never passed,
+    /// - shell function definitions are never passed (`is_shell_function`, in rootasrole-core),
     /// - in delete mode, only the variables of the keep and check lists are passed,
     /// - in keep mode, every variable is passed except those of the delete list,
     /// - in both modes, a variable of the check list is passed only if its value is safe.
     fn keep_user_var(&self, key: &str, value: &str) -> bool {
-        if value.starts_with("()") {
+        if is_shell_function(value) {
             return false;
         }
         let checked = || !env_matches(&self.check, key) || check_env(key, value);

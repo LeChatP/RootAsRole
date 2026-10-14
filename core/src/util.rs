@@ -584,6 +584,18 @@ pub fn wildcard_match(pattern: &str, subject: &str) -> bool {
     pattern[p..].iter().all(|&c| c == b'*')
 }
 
+/// Whether a value of the user's environment is a shell function definition (`() { ...; }`).
+///
+/// Such a value is never passed to a command, whatever the policy lists say. Bash exports its
+/// functions as variables whose value starts with `()` (`BASH_FUNC_name%%`), and every bash run
+/// by the command imports them: a kept function could replace a command used by a script that
+/// runs with the task's privileges. The lists of the policy select variables by name, this rule
+/// applies to their value.
+#[must_use]
+pub fn is_shell_function(value: &str) -> bool {
+    value.starts_with("()")
+}
+
 /// Refuse a policy file that other users can write, or that is in a directory they can write.
 ///
 /// Policy files decide who may run what. A warning is logged when other users can read it.
@@ -906,6 +918,15 @@ mod test {
         // no other character is special
         assert!(!wildcard_match("LC_.*", "LC_ALL"));
         assert!(wildcard_match("LC_.*", "LC_.ALL"));
+    }
+
+    #[test]
+    fn test_is_shell_function() {
+        assert!(is_shell_function("() { evil; }"));
+        assert!(is_shell_function("()"));
+        assert!(!is_shell_function(" () { evil; }"));
+        assert!(!is_shell_function("value ()"));
+        assert!(!is_shell_function(""));
     }
 
     #[test]
