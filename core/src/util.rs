@@ -763,6 +763,7 @@ pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<(
     })
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod test {
     use std::{

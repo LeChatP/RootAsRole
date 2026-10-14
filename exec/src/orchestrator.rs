@@ -157,6 +157,7 @@ pub mod steps {
     };
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 #[allow(clippy::unnecessary_wraps)]
 mod tests {
