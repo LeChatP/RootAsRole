@@ -650,9 +650,10 @@ fn is_regex(s: &str) -> bool {
     Regex::new(&format!("^{s}$")).is_ok()
 }
 
+/// Without pcre2, patterns cannot be checked nor matched, so they are refused.
 #[cfg(not(feature = "pcre2"))]
-fn is_regex(_s: &str) -> bool {
-    false // Always return true if regex feature is disabled
+const fn is_regex(_s: &str) -> bool {
+    false
 }
 
 impl EnvKey {
@@ -750,9 +751,10 @@ fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
     }
 }
 
+/// Without pcre2, a pattern matches nothing (no pattern can be created, see `is_regex`).
 #[cfg(not(feature = "pcre2"))]
-fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
-    true
+const fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
+    false
 }
 
 #[derive(Debug, PartialEq, Eq)]
