@@ -14,7 +14,7 @@ use capctl::{CapState, prctl};
 use jiff::SignedDuration;
 use konst::{eq_str, iter, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use nix::{
     fcntl::{Flock, FlockArg},
     unistd::{Gid, Group},
@@ -537,6 +537,52 @@ fn remove_outer_quotes(input: &str) -> String {
     }
 }
 
+/// Refuse a policy file that other users can write, or that is in a directory they can write.
+///
+/// Policy files decide who may run what. A warning is logged when other users can read it.
+/// The owner is not checked: in `RootAsRole`, root is not trusted more than any other account.
+/// # Errors
+/// Returns `PermissionDenied` when other users can write the file or its directory,
+/// or an error if the metadata cannot be read.
+pub fn check_others_permissions(path: &Path, file: &File) -> io::Result<()> {
+    const OTHERS_READ: u32 = 0o004;
+    const OTHERS_WRITE: u32 = 0o002;
+    let writable = |what: &Path| {
+        let message = format!(
+            "{} is writable by other users, refusing to use it",
+            what.display()
+        );
+        error!("{message}");
+        io::Error::new(ErrorKind::PermissionDenied, message)
+    };
+    let mode = file.metadata()?.mode();
+    if mode & OTHERS_WRITE != 0 {
+        return Err(writable(path));
+    }
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let dir_mode = std::fs::metadata(dir)
+        .or_else(|e| {
+            if e.kind() != ErrorKind::PermissionDenied {
+                return Err(e);
+            }
+            with_privileges(&[Cap::DAC_READ_SEARCH], || std::fs::metadata(dir))
+        })?
+        .mode();
+    if dir_mode & OTHERS_WRITE != 0 {
+        return Err(writable(dir));
+    }
+    if mode & OTHERS_READ != 0 {
+        warn!(
+            "{} is readable by other users, consider `chmod o-r` on it",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Candidates for `exe_name` in the directories of `env_path`.
 /// Relative directories (`.`, empty entries…) are ignored: they would make the result depend
 /// on the current directory, which the user controls.
@@ -795,6 +841,42 @@ mod test {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_check_others_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let set_mode = |path: &Path, mode: u32| {
+            fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+        };
+        let dir = std::env::temp_dir().join(format!("rar_check_others_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        set_mode(&dir, 0o755);
+        let path = dir.join("policy.json");
+        fs::write(&path, "{}").unwrap();
+        let check = |path: &Path| check_others_permissions(path, &File::open(path).unwrap());
+
+        set_mode(&path, 0o600);
+        assert!(check(&path).is_ok());
+        // readable by others: only a warning
+        set_mode(&path, 0o644);
+        assert!(check(&path).is_ok());
+        // writable by others: refused
+        set_mode(&path, 0o646);
+        assert_eq!(
+            check(&path).unwrap_err().kind(),
+            ErrorKind::PermissionDenied
+        );
+        // directory writable by others: refused, even with the sticky bit
+        set_mode(&path, 0o600);
+        set_mode(&dir, 0o1777);
+        assert_eq!(
+            check(&path).unwrap_err().kind(),
+            ErrorKind::PermissionDenied
+        );
+        set_mode(&dir, 0o755);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

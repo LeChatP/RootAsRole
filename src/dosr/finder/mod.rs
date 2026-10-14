@@ -20,7 +20,10 @@ use rootasrole_core::{
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, WorkdirBehavior},
         score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
     },
-    util::{StorageMethod, WORKDIR_BEHAVIOR, all_paths_from_env, read_with_privileges},
+    util::{
+        StorageMethod, WORKDIR_BEHAVIOR, all_paths_from_env, check_others_permissions,
+        read_with_privileges,
+    },
 };
 use serde::de::DeserializeSeed;
 
@@ -119,6 +122,7 @@ where
             env_path,
         };
         let file = read_with_privileges(file_path)?;
+        check_others_permissions(file_path, &file)?;
         let reader = BufReader::new(file);
         match settings_file.data.data.method {
             StorageMethod::CBOR => {

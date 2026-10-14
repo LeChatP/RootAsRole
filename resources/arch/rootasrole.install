@@ -6,7 +6,10 @@ log() {
 
 post_install() {
     if [ ! -f "$TARGET_PATH" ]; then
-        cp "/usr/share/rootasrole/default.json" "$TARGET_PATH" || log "Failed to copy the default configuration file to $TARGET_PATH" && exit 1
+        if ! install -m 600 "/usr/share/rootasrole/default.json" "$TARGET_PATH"; then
+            log "Failed to copy the default configuration file to $TARGET_PATH"
+            exit 1
+        fi
     else 
         log "The configuration file $TARGET_PATH already exists. Skipping the post-installation process."
         return 0

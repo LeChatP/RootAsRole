@@ -237,6 +237,19 @@ fn set_options(content: &mut RootSettings) {
     });
 }
 
+/// Policy files are only accessible by their owner: dosr refuses a policy file that other
+/// users can write, and warns when they can read it.
+fn write_private(path: impl AsRef<Path>, contents: &str) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(contents.as_bytes())
+}
+
 fn deploy_default_config() -> Result<(), anyhow::Error> {
     let user = retrieve_real_user()?;
     let template_content = fs::read_to_string("resources/rootasrole.json")
@@ -291,9 +304,9 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
             fs::create_dir_all(parent)?;
         }
 
-        fs::write(
+        write_private(
             &policy_path,
-            serde_json::to_string_pretty(&settings.policy)?,
+            &serde_json::to_string_pretty(&settings.policy)?,
         )
         .context("Failed to write policy config file")?;
 
@@ -304,7 +317,7 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
     if let Some(parent) = Path::new(RAR_CFG_PATH).parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(RAR_CFG_PATH, serde_json::to_string_pretty(&settings)?)
+    write_private(RAR_CFG_PATH, &serde_json::to_string_pretty(&settings)?)
         .context("Failed to write main config file")?;
 
     if is_immutable {
