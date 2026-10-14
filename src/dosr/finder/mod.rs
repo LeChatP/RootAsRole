@@ -318,7 +318,8 @@ impl BestExecSettings {
             return Ok(false);
         }
         let mut found = false;
-        let mut f_env_path = None;
+        // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
+        let mut task_env_path = None;
         // We must do this check for each task as long they could have different options
         // These checks are a small optimization to avoid useless command checks
         if cli
@@ -356,52 +357,32 @@ impl BestExecSettings {
             return Ok(false);
         }
         if let Some(commands) = data.commands() {
-            let t_env_path = opt_stack.calc_path(env_path);
+            let t_env_path = temp_opt_stack.calc_path(env_path);
+            let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
             for command in commands.del() {
-                if self.command_settings(
-                    &t_env_path
-                        .iter()
-                        .map(std::string::String::as_str)
-                        .collect::<Vec<_>>(),
-                    cli,
-                    &command,
-                )? {
+                if self.command_settings(&t_env_path_ref, cli, &command)? {
                     return Ok(false);
                 }
             }
             if commands.default_behavior.is_some_and(|b| b.is_all()) {
                 debug!("default behavior is all");
-                let t_env_path = opt_stack.calc_path(env_path);
                 found = true;
                 debug!("{}", &cli.cmd_path.display());
-                self.final_path = resolve_any_command(
-                    &cli.cmd_path,
-                    &t_env_path
-                        .iter()
-                        .map(std::string::String::as_str)
-                        .collect::<Vec<_>>(),
-                )
-                .ok_or(SrError::ExecutionFailed)?;
+                self.final_path = resolve_any_command(&cli.cmd_path, &t_env_path_ref)
+                    .ok_or(SrError::ExecutionFailed)?;
                 self.score.cmd_min = CmdMin::builder()
                     .matching()
                     .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
                     .build();
             } else {
                 for command in commands.add() {
-                    if self.command_settings(
-                        &t_env_path
-                            .iter()
-                            .map(std::string::String::as_str)
-                            .collect::<Vec<_>>(),
-                        cli,
-                        &command,
-                    )? {
+                    if self.command_settings(&t_env_path_ref, cli, &command)? {
                         found = true;
                         break;
                     }
                 }
             }
-            f_env_path = Some(t_env_path);
+            task_env_path = Some(t_env_path);
         } else if let Some(final_path) = &data.final_path {
             debug!("final_path already found: {}", final_path.display());
             found = self.update_command_score(final_path.clone(), data.score.cmd_min);
@@ -414,11 +395,7 @@ impl BestExecSettings {
             debug!("found better task settings");
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
-            self.env_path = f_env_path
-                .unwrap_or_else(|| opt_stack.calc_path(env_path))
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect();
+            self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
             self.score = score;
             self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
             self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
@@ -522,7 +499,7 @@ mod tests {
 
     use crate::Cli;
     use crate::finder::de::cred::CredData;
-    use crate::finder::options::{DEnvOptions, Opt};
+    use crate::finder::options::{DEnvOptions, DPathOptions, Opt};
     use rootasrole_core::Cred;
     use test_log::test;
 
@@ -661,6 +638,47 @@ mod tests {
         assert!(!settings.env.is_empty());
         assert!(!settings.env_path.is_empty());
         assert!(settings.env_path.iter().all(|p| p != "/UNWANTED"));
+    }
+
+    #[test]
+    fn test_commands_are_resolved_with_the_path_of_their_task() {
+        let path = |dir: &'static str| {
+            Opt::builder(Level::Task)
+                .path(
+                    DPathOptions::builder(rootasrole_core::database::options::PathBehavior::Delete)
+                        .add([dir])
+                        .build(),
+                )
+                .build()
+        };
+        let data = DConfigFinder::builder()
+            .options(path("/nonexistent"))
+            .roles(vec![
+                DRoleFinder::builder()
+                    .user_min(ActorMatchMin::UserMatch)
+                    .role("test")
+                    .tasks(vec![
+                        DTaskFinder::builder()
+                            .id(IdTask::Number(0))
+                            .cred(CredData::builder().build())
+                            .commands(DCommandList::builder(SetBehavior::All).build())
+                            .options(path("/usr/bin"))
+                            .build(),
+                    ])
+                    .build(),
+            ])
+            .build();
+        let cli = Cli::builder().cmd_path("ls".to_string()).build();
+        let settings = BestExecSettings::retrieve_settings(
+            &cli,
+            &dummy_cred(),
+            &data,
+            vec![("KEY", "VALUE")],
+            &["/bin"],
+        )
+        .expect("the task allows every command in its PATH");
+        assert_eq!(settings.final_path, PathBuf::from("/usr/bin/ls"));
+        assert_eq!(settings.env_path, ["/usr/bin"]);
     }
 
     #[test]
