@@ -19,12 +19,11 @@ use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
-    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST,
+    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_valid_env_name,
+    is_valid_env_pattern, wildcard_match,
 };
 use std::hash::Hash;
 
-#[cfg(feature = "pcre2")]
-use pcre2::bytes::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -411,45 +410,7 @@ where
     K: AsRef<str> + Eq + Hash + Borrow<str>,
 {
     // the policy entries are the patterns, never the user's variable name
-    set.contains(needle) || set.iter().any(|key| test_pattern(key.as_ref(), needle))
-}
-
-fn is_valid_env_name(s: &str) -> bool {
-    let mut chars = s.chars();
-
-    // Check if the first character is a letter or underscore
-    if let Some(first_char) = chars.next() {
-        if !(first_char.is_ascii_alphabetic() || first_char == '_') {
-            return false;
-        }
-    } else {
-        return false; // Empty string
-    }
-
-    // Check if the remaining characters are alphanumeric or underscores
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-#[cfg(feature = "pcre2")]
-fn is_regex(s: impl AsRef<str>) -> bool {
-    Regex::new(s.as_ref()).is_ok()
-}
-
-#[cfg(not(feature = "pcre2"))]
-fn is_regex(_s: impl AsRef<str>) -> bool {
-    false // Always return false if regex feature is disabled
-}
-
-#[cfg(feature = "pcre2")]
-fn test_pattern(pattern: impl AsRef<str>, subject: impl AsRef<str>) -> bool {
-    Regex::new(&format!("^{}$", pattern.as_ref())) // convert to regex
-        .and_then(|r| r.is_match(subject.as_ref().as_bytes()))
-        .is_ok_and(|m| m)
-}
-
-#[cfg(not(feature = "pcre2"))]
-fn test_pattern(_: impl AsRef<str>, _: impl AsRef<str>) -> bool {
-    false
+    set.contains(needle) || set.iter().any(|key| wildcard_match(key.as_ref(), needle))
 }
 
 fn tz_is_safe(tzval: &str) -> bool {
@@ -668,27 +629,23 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
             result.set.extend(
                 set.clone()
                     .into_iter()
-                    .filter(|(k, _)| is_valid_env_name(k.as_ref()))
                     .map(|(k, v)| (k.as_ref().to_string().into(), v.as_ref().to_string().into())),
             );
             result.keep.extend(
                 keep.clone()
                     .into_iter()
-                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
                     .map(|k| k.as_ref().to_string().into()),
             );
             result.delete.extend(
                 delete
                     .clone()
                     .into_iter()
-                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
                     .map(|k| k.as_ref().to_string().into()),
             );
             result.check.extend(
                 check
                     .clone()
                     .into_iter()
-                    .filter(|p| is_valid_env_name(p.as_ref()) || is_regex(p.as_ref()))
                     .map(|k| k.as_ref().to_string().into()),
             );
         }
@@ -727,6 +684,27 @@ impl<'a, 'c, 't> BorrowedOptStack<'a> {
         self.get_opt_iter_rev()
             .find_map(|o| o.bounding)
             .unwrap_or(BOUNDING)
+    }
+
+    /// First env entry, at any level, that is not a variable name (`*` allowed as a wildcard,
+    /// except in the names of the `set` list). Tasks inheriting such an entry are denied.
+    pub fn invalid_env_entry(&self) -> Option<&str> {
+        self.get_opt_iter()
+            .filter_map(|o| o.env.as_ref())
+            .find_map(|env| {
+                env.keep
+                    .iter()
+                    .chain(&env.check)
+                    .chain(&env.delete)
+                    .map(AsRef::as_ref)
+                    .find(|entry| !is_valid_env_pattern(entry))
+                    .or_else(|| {
+                        env.set
+                            .keys()
+                            .map(AsRef::as_ref)
+                            .find(|name| !is_valid_env_name(name))
+                    })
+            })
     }
 
     pub fn get_opt_iter(&self) -> impl Iterator<Item = &Opt<'a>> {
@@ -955,24 +933,6 @@ mod tests {
         assert!(!is_valid_env_name(""));
     }
     #[test]
-    fn test_is_regex() {
-        #[cfg(feature = "pcre2")]
-        assert!(is_regex("^[a-zA-Z0-9_]+$"));
-        #[cfg(not(feature = "pcre2"))]
-        assert!(!is_regex("^[a-zA-Z0-9_]+$"));
-        assert!(!is_regex("[a-z"));
-    }
-
-    #[test]
-    fn test_test_pattern() {
-        #[cfg(feature = "pcre2")]
-        assert!(test_pattern("^[a-zA-Z0-9_]+$", "test"));
-        #[cfg(not(feature = "pcre2"))]
-        assert!(!test_pattern("^[a-zA-Z0-9_]+$", "test"));
-        assert!(!test_pattern("[a-z", "test"));
-    }
-
-    #[test]
     fn test_check_env() {
         assert!(check_env("TZ", "America/New_York"));
         assert!(!check_env("TZ", "/America/New_York"));
@@ -993,11 +953,12 @@ mod tests {
 
     #[test]
     fn test_env_matches_policy_patterns() {
-        let set: HashSet<String> = ["LC_.*".to_string(), "HOME".to_string()].into();
-        #[cfg(feature = "pcre2")]
+        let set: HashSet<String> = ["LC_*".to_string(), "HOME".to_string()].into();
         assert!(env_matches(&set, "LC_ALL"));
+        assert!(env_matches(&set, "HOME"));
+        assert!(!env_matches(&set, "LANG"));
         // the user's variable name is never used as a pattern
-        assert!(!env_matches(&set, ".*"));
+        assert!(!env_matches(&set, "*"));
         assert!(!env_matches(&set, "HOME|X"));
     }
 
@@ -1056,6 +1017,9 @@ mod tests {
         assert!(!env.contains_key("LD_LIBRARY_PATH"));
         assert!(!env.contains_key("BASH_ENV"));
         assert_eq!(env.get("FOO").unwrap(), "bar");
+        let env = final_user_env(EnvBehavior::Keep, &[], &[], &["LD_*"], &vars);
+        assert!(!env.contains_key("LD_PRELOAD"));
+        assert!(!env.contains_key("LD_LIBRARY_PATH"));
         // the keep list is not used in keep mode
         let env = final_user_env(
             EnvBehavior::Keep,
@@ -1313,6 +1277,29 @@ mod tests {
                 ("VAR2".into(), "VALUE2".into())
             ])
         );
+    }
+
+    #[test]
+    fn test_invalid_env_entry() {
+        let opt = |env: DEnvOptions<'static>| Some(Opt::builder(Level::Task).env(env).build());
+        let mut stack = BorrowedOptStack::new(None);
+        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
+            .keep(["HOME", "LC_*", "*_PROXY"])
+            .unwrap()
+            .set([("TASK", "value")])
+            .build());
+        assert_eq!(stack.invalid_env_entry(), None);
+        // a regex is not a pattern anymore
+        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
+            .check(["LC_.*"])
+            .unwrap()
+            .build());
+        assert_eq!(stack.invalid_env_entry(), Some("LC_.*"));
+        // names set by the policy cannot be patterns
+        stack.task = opt(DEnvOptions::builder(EnvBehavior::Delete)
+            .set([("A*", "value")])
+            .build());
+        assert_eq!(stack.invalid_env_entry(), Some("A*"));
     }
 
     #[test]

@@ -11,11 +11,7 @@ use bon::{Builder, bon};
 use indexmap::IndexSet;
 use konst::eq_str;
 
-#[cfg(feature = "pcre2")]
-use log::warn;
 use nix::sys::stat::Mode;
-#[cfg(feature = "pcre2")]
-use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
@@ -27,7 +23,7 @@ use crate::util::{
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
     HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK,
+    UMASK, is_valid_env_name, is_valid_env_pattern, wildcard_match,
 };
 
 use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
@@ -629,33 +625,6 @@ impl SPathOptions {
     }
 }
 
-fn is_valid_env_name(s: &str) -> bool {
-    let mut chars = s.chars();
-
-    // Check if the first character is a letter or underscore
-    if let Some(first_char) = chars.next() {
-        if !(first_char.is_ascii_alphabetic() || first_char == '_') {
-            return false;
-        }
-    } else {
-        return false; // Empty string
-    }
-
-    // Check if the remaining characters are alphanumeric or underscores
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-#[cfg(feature = "pcre2")]
-fn is_regex(s: &str) -> bool {
-    Regex::new(&format!("^{s}$")).is_ok()
-}
-
-/// Without pcre2, patterns cannot be checked nor matched, so they are refused.
-#[cfg(not(feature = "pcre2"))]
-const fn is_regex(_s: &str) -> bool {
-    false
-}
-
 impl EnvKey {
     /// # Errors
     /// Returns an error if the provided string is not a valid environment variable name
@@ -667,14 +636,14 @@ impl EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if is_regex(&s) {
+        } else if is_valid_env_pattern(&s) {
             Ok(Self {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
             Err(format!(
-                "env key {s}, must be a valid env, or a valid regex"
+                "env key {s}, must be a variable name, where `*` matches any characters"
             ))
         }
     }
@@ -733,28 +702,8 @@ impl EnvSet for Option<IndexSet<EnvKey>> {
     }
 }
 
-#[cfg(feature = "pcre2")]
 fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
-    let pattern = format!("^{}$", wildcarded.value);
-    match Regex::new(&pattern) {
-        Ok(regex) => match regex.is_match(s.as_bytes()) {
-            Ok(is_match) => is_match,
-            Err(err) => {
-                warn!("Regex match error for '{pattern}': {err}");
-                false
-            }
-        },
-        Err(err) => {
-            warn!("Invalid regex '{pattern}': {err}");
-            false
-        }
-    }
-}
-
-/// Without pcre2, a pattern matches nothing (no pattern can be created, see `is_regex`).
-#[cfg(not(feature = "pcre2"))]
-const fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
-    false
+    wildcard_match(&wildcarded.value, s)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1554,13 +1503,16 @@ mod tests {
 
     #[test]
     fn is_wildcard_env_key() {
-        assert!(!is_valid_env_name("TEST_.*"));
+        assert!(!is_valid_env_name("TEST_*"));
         assert!(!is_valid_env_name("123"));
         assert!(!is_valid_env_name(""));
-        #[cfg(feature = "pcre2")]
-        assert!(is_regex("TEST_.*"));
-        #[cfg(not(feature = "pcre2"))]
-        assert!(!is_regex("TEST_.*"));
+        assert!(is_valid_env_pattern("TEST_*"));
+        // regexes are not patterns anymore
+        assert!(!is_valid_env_pattern("TEST_.*"));
+        assert!(EnvKey::new("TEST_.*".to_string()).is_err());
+        let key = EnvKey::new("LC_*".to_string()).unwrap();
+        assert!(check_wildcarded(&key, "LC_ALL"));
+        assert!(!check_wildcarded(&key, "LANG"));
     }
 
     #[test]
@@ -1709,7 +1661,9 @@ mod tests {
         assert!(env_key.is_err());
         assert_eq!(
             env_key.unwrap_err(),
-            format!("env key {invalid_env}, must be a valid env, or a valid regex")
+            format!(
+                "env key {invalid_env}, must be a variable name, where `*` matches any characters"
+            )
         );
     }
 

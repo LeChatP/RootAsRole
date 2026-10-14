@@ -11,7 +11,7 @@ use std::{
 use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
-use log::debug;
+use log::{debug, error};
 use options::BorrowedOptStack;
 use rootasrole_core::{
     Cred,
@@ -310,6 +310,13 @@ impl BestExecSettings {
     ) -> SrResult<bool> {
         debug!("task_settings: {:?}", data.id);
         let temp_opt_stack = BorrowedOptStack::from_task(data);
+        if let Some(entry) = temp_opt_stack.invalid_env_entry() {
+            error!(
+                "task_settings: deny task {:?}: invalid environment entry `{entry}`, it must be a variable name where `*` matches any characters",
+                data.id
+            );
+            return Ok(false);
+        }
         let mut found = false;
         let mut f_env_path = None;
         // We must do this check for each task as long they could have different options

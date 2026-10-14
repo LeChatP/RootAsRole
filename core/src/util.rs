@@ -537,6 +537,53 @@ fn remove_outer_quotes(input: &str) -> String {
     }
 }
 
+/// Whether `s` is a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`.
+#[must_use]
+pub fn is_valid_env_name(s: &str) -> bool {
+    s.bytes()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+}
+
+/// Whether `s` is a valid environment variable pattern: a variable name in which `*` may
+/// stand for any sequence of characters (e.g. `LC_*`, `*_PROXY`, `*`).
+#[must_use]
+pub fn is_valid_env_pattern(s: &str) -> bool {
+    s.bytes()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_' || c == b'*')
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'*')
+}
+
+/// Whether `subject` matches `pattern`, where `*` matches any sequence of characters,
+/// including an empty one. No other character is special.
+#[must_use]
+pub fn wildcard_match(pattern: &str, subject: &str) -> bool {
+    let (pattern, subject) = (pattern.as_bytes(), subject.as_bytes());
+    let (mut p, mut s) = (0, 0);
+    // position in the pattern after the last `*`, and the subject position it matched from
+    let mut backtrack = None;
+    while s < subject.len() {
+        if pattern.get(p) == Some(&b'*') {
+            p += 1;
+            backtrack = Some((p, s));
+        } else if pattern.get(p) == Some(&subject[s]) {
+            p += 1;
+            s += 1;
+        } else if let Some((star_p, star_s)) = backtrack {
+            // let the last `*` match one more character
+            p = star_p;
+            s = star_s + 1;
+            backtrack = Some((star_p, s));
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|&c| c == b'*')
+}
+
 /// Refuse a policy file that other users can write, or that is in a directory they can write.
 ///
 /// Policy files decide who may run what. A warning is logged when other users can read it.
@@ -841,6 +888,39 @@ mod test {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_wildcard_match() {
+        assert!(wildcard_match("LC_*", "LC_ALL"));
+        assert!(wildcard_match("LC_*", "LC_"));
+        assert!(!wildcard_match("LC_*", "LC"));
+        assert!(wildcard_match("*_PROXY", "HTTPS_PROXY"));
+        assert!(wildcard_match("XDG_*_DIR", "XDG_CONFIG_DIR"));
+        assert!(!wildcard_match("XDG_*_DIR", "XDG_CONFIG_DIRS"));
+        assert!(wildcard_match("*", ""));
+        assert!(wildcard_match("A*B*C", "AxxBxxBxxC"));
+        assert!(!wildcard_match("A*B*C", "AxxBxx"));
+        assert!(wildcard_match("HOME", "HOME"));
+        assert!(!wildcard_match("HOME", "HOMES"));
+        // no other character is special
+        assert!(!wildcard_match("LC_.*", "LC_ALL"));
+        assert!(wildcard_match("LC_.*", "LC_.ALL"));
+    }
+
+    #[test]
+    fn test_env_name_and_pattern() {
+        assert!(is_valid_env_name("_A1"));
+        assert!(!is_valid_env_name("1A"));
+        assert!(!is_valid_env_name("A*"));
+        assert!(!is_valid_env_name(""));
+        assert!(is_valid_env_pattern("A*"));
+        assert!(is_valid_env_pattern("*"));
+        assert!(is_valid_env_pattern("*_PROXY"));
+        assert!(!is_valid_env_pattern("LC_.*"));
+        assert!(!is_valid_env_pattern("A|B"));
+        assert!(!is_valid_env_pattern("1*"));
+        assert!(!is_valid_env_pattern(""));
     }
 
     #[test]

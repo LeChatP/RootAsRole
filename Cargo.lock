@@ -893,7 +893,6 @@ dependencies = [
  "libc",
  "log",
  "nix",
- "pcre2",
  "semver",
  "serde",
  "serde_json",
