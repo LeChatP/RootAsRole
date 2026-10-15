@@ -246,7 +246,7 @@ impl BestExecSettings {
         }
         result.env = opt_stack
             .calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref())
-            .calc_final_env(
+            .final_env(
                 env_vars,
                 opt_stack.calc_path(env_path),
                 cred,
@@ -260,7 +260,11 @@ impl BestExecSettings {
                         format!(" {}", cli.cmd_args.join(" "))
                     }
                 ),
-            )?;
+            )
+            .ok_or_else(|| {
+                error!("Internal Error with environment behavior");
+                SrError::ConfigurationError
+            })?;
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();

@@ -13,6 +13,7 @@ pub mod score;
 
 pub mod actor;
 pub mod de;
+pub mod env;
 pub mod migration;
 pub mod migrations;
 pub mod options;

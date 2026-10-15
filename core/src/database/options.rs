@@ -23,10 +23,14 @@ use crate::util::{
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
     HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK, is_valid_env_name, is_valid_env_pattern, wildcard_match,
+    UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
-use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
+use super::{
+    FilterMatcher, deserialize_duration,
+    env::{EnvLevel, ResolvedEnv},
+    is_default, serialize_duration,
+};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -708,27 +712,30 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
-trait EnvSet {
-    fn env_matches(&self, wildcarded: &EnvKey) -> bool;
-}
-
-impl EnvSet for IndexSet<EnvKey> {
-    fn env_matches(&self, needle: &EnvKey) -> bool {
-        self.iter().any(|s| match s.env_type {
-            EnvKeyType::Normal => s == needle,
-            EnvKeyType::Wildcarded => check_wildcarded(s, &needle.value),
-        })
+impl EnvLevel for SEnvOptions {
+    fn behavior(&self) -> EnvBehavior {
+        self.default_behavior
     }
-}
-
-impl EnvSet for Option<IndexSet<EnvKey>> {
-    fn env_matches(&self, needle: &EnvKey) -> bool {
-        self.as_ref().is_some_and(|set| set.env_matches(needle))
+    fn keep(&self) -> Option<impl Iterator<Item = &str>> {
+        self.keep
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
     }
-}
-
-fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
-    wildcard_match(&wildcarded.value, s)
+    fn check(&self) -> Option<impl Iterator<Item = &str>> {
+        self.check
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
+    }
+    fn delete(&self) -> Option<impl Iterator<Item = &str>> {
+        self.delete
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
+    }
+    fn set(&self) -> Option<impl Iterator<Item = (&str, &str)>> {
+        self.set
+            .as_ref()
+            .map(|s| s.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1043,71 +1050,34 @@ impl OptStack {
             .build()
     }
 
+    /// The env options of the stack, resolved like dosr does (see [`super::env`]).
     fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> Result<SEnvOptions, String> {
-        let mut final_behavior = EnvBehavior::default();
-        let mut final_set = HashMap::new();
-        let mut final_keep = IndexSet::new();
-        let mut final_check = IndexSet::new();
-        let mut final_delete = IndexSet::new();
-        let overriden_behavior = cmd_filter.as_ref().and_then(|f| f.env_behavior);
-        self.iter_in_options(|opt| {
-            if let Some(p) = opt.env.borrow().as_ref() {
-                final_behavior = match p.default_behavior {
-                    EnvBehavior::Delete | EnvBehavior::Keep => {
-                        // a list that the level does not define is inherited, see `SEnvOptions`
-                        if let Some(keep) = &p.keep {
-                            final_keep = keep
-                                .iter()
-                                .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
-                                .cloned()
-                                .collect();
-                        }
-                        if let Some(check) = &p.check {
-                            final_check = check
-                                .iter()
-                                .filter(|e| !p.delete.env_matches(e))
-                                .cloned()
-                                .collect();
-                        }
-                        if let Some(delete) = &p.delete {
-                            final_delete = delete
-                                .iter()
-                                .filter(|e| !p.check.env_matches(e))
-                                .cloned()
-                                .collect();
-                        }
-                        if let Some(set) = &p.set {
-                            final_set.clone_from(set);
-                        }
-                        debug!("check: {final_check:?}");
-                        p.default_behavior
-                    }
-                    EnvBehavior::Inherit => {
-                        if let Some(keep) = &p.keep {
-                            final_keep.extend(keep.iter().cloned());
-                        }
-                        if let Some(check) = &p.check {
-                            final_check.extend(check.iter().cloned());
-                        }
-                        if let Some(delete) = &p.delete {
-                            final_delete.extend(delete.iter().cloned());
-                        }
-                        if let Some(set) = &p.set {
-                            final_set.extend(set.clone());
-                        }
-                        debug!("check: {final_check:?}");
-                        final_behavior
-                    }
-                };
-            }
-        });
-        let builder = SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
-            .set(final_set)
-            .keep(final_keep)
+        let levels: Vec<_> = self
+            .stack
+            .iter()
+            .flatten()
+            .map(|opt| opt.as_ref().borrow())
+            .collect();
+        let mut env = ResolvedEnv::default();
+        for level in levels.iter().filter_map(|level| level.env.as_ref()) {
+            env.apply(level);
+        }
+        let override_allowed = levels
+            .iter()
+            .rev()
+            .find_map(|level| level.env.as_ref().and_then(|env| env.override_behavior))
+            .unwrap_or(ENV_OVERRIDE_BEHAVIOR);
+        let env = env.with_requested_behavior(
+            cmd_filter.and_then(|filter| filter.env_behavior),
+            override_allowed,
+        );
+        let builder = SEnvOptions::builder(env.behavior)
+            .set(env.set.iter().map(|(key, value)| (*key, *value)))
+            .keep(env.keep.iter().copied())
             .map_err(|err| format!("Failed to set env keep list: {err}"))?
-            .check(final_check)
+            .check(env.check.iter().copied())
             .map_err(|err| format!("Failed to set env check list: {err}"))?
-            .delete(final_delete)
+            .delete(env.delete.iter().copied())
             .map_err(|err| format!("Failed to set env delete list: {err}"))?;
         Ok(builder.build())
     }
@@ -1591,8 +1561,7 @@ mod tests {
         assert!(!is_valid_env_pattern("TEST_.*"));
         assert!(EnvKey::new("TEST_.*".to_string()).is_err());
         let key = EnvKey::new("LC_*".to_string()).unwrap();
-        assert!(check_wildcarded(&key, "LC_ALL"));
-        assert!(!check_wildcarded(&key, "LANG"));
+        assert_eq!(key.env_type, EnvKeyType::Wildcarded);
     }
 
     #[test]

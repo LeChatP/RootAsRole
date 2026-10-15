@@ -1,36 +1,25 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::{
-    borrow::{Borrow, Cow},
-    collections::HashMap,
-};
+use std::{borrow::Cow, collections::HashMap};
 
 use bon::{Builder, bon, builder};
 
-use libc::PATH_MAX;
-use nix::unistd::User;
 use rootasrole_core::database::FilterMatcher;
+use rootasrole_core::database::env::{EnvLevel, ResolvedEnv};
 use rootasrole_core::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
     STimeout, SUMask, WorkdirBehavior,
 };
 use rootasrole_core::database::score::SecurityMin;
 use rootasrole_core::util::{
-    AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
-    ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
-    ENV_SET_LIST, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK,
-    WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_shell_function,
-    is_valid_env_name, is_valid_env_pattern, wildcard_match,
+    AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE,
+    ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, INFO, PRIVILEGED, TIMEOUT_DURATION,
+    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK,
+    WORKDIR_REMOVE_LIST, is_valid_env_name, is_valid_env_pattern,
 };
-use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-
-use log::{debug, error};
-
-use crate::Cred;
-use crate::error::{SrError, SrResult};
 
 use super::de::DLinkedTask;
 
@@ -183,86 +172,23 @@ impl<'a> Opt<'a> {
     }
 }
 
-impl DEnvOptions<'_> {
-    /// Whether a variable of the user's environment is passed to the command:
-    /// - shell function definitions are never passed (`is_shell_function`, in rootasrole-core),
-    /// - in delete mode, only the variables of the keep and check lists are passed,
-    /// - in keep mode, every variable is passed except those of the delete list,
-    /// - in both modes, a variable of the check list is passed only if its value is safe.
-    fn keep_user_var(&self, key: &str, value: &str) -> bool {
-        if is_shell_function(value) {
-            return false;
-        }
-        let checked = || !env_matches(self.check.as_ref(), key) || check_env(key, value);
-        match self.default_behavior {
-            EnvBehavior::Delete => {
-                if env_matches(self.check.as_ref(), key) {
-                    check_env(key, value)
-                } else {
-                    env_matches(self.keep.as_ref(), key)
-                }
-            }
-            EnvBehavior::Keep => !env_matches(self.delete.as_ref(), key) && checked(),
-            EnvBehavior::Inherit => false,
-        }
+impl EnvLevel for DEnvOptions<'_> {
+    fn behavior(&self) -> EnvBehavior {
+        self.default_behavior
     }
-
-    pub fn calc_final_env(
-        &self,
-        env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
-        env_path: impl IntoIterator<Item = impl AsRef<str>>,
-        current_user: &Cred,
-        target: Option<&User>,
-        command: String,
-    ) -> SrResult<HashMap<String, String>> {
-        if self.default_behavior == EnvBehavior::Inherit {
-            error!("Internal Error with environment behavior");
-            return Err(SrError::ConfigurationError);
-        }
-        let mut final_set = env_vars
-            .into_iter()
-            .filter_map(|(key, value)| {
-                let key: String = key.into();
-                let value: String = value.into();
-                self.keep_user_var(&key, &value).then_some((key, value))
-            })
-            .collect::<HashMap<String, String>>();
-        final_set.insert(
-            "PATH".into(),
-            env_path.into_iter().fold(String::new(), |acc, path| {
-                if acc.is_empty() {
-                    path.as_ref().to_string()
-                } else {
-                    format!("{}:{}", acc, path.as_ref())
-                }
-            }),
-        );
-        let target_user = target.unwrap_or(&current_user.user);
-        final_set.insert("LOGNAME".into(), target_user.name.clone());
-        final_set.insert("USER".into(), target_user.name.clone());
-        final_set.insert("HOME".into(), target_user.dir.to_string_lossy().to_string());
-        final_set.insert(
-            "SHELL".into(),
-            target_user.shell.to_string_lossy().to_string(),
-        );
-        final_set.insert("RAR_UID".into(), current_user.user.uid.to_string());
-        final_set.insert("RAR_GID".into(), current_user.user.gid.to_string());
-        final_set.insert("RAR_USER".into(), current_user.user.name.clone());
-        final_set.insert("RAR_COMMAND".into(), command.clone());
-        final_set.insert("SUDO_UID".into(), current_user.user.uid.to_string());
-        final_set.insert("SUDO_GID".into(), current_user.user.gid.to_string());
-        final_set.insert("SUDO_USER".into(), current_user.user.name.clone());
-        final_set.insert("SUDO_COMMAND".into(), command);
-        final_set
-            .entry("TERM".into())
-            .or_insert_with(|| "unknown".into());
-        final_set.extend(
-            self.set
-                .iter()
-                .flatten()
-                .map(|(key, value)| (key.to_string(), value.to_string())),
-        );
-        Ok(final_set)
+    fn keep(&self) -> Option<impl Iterator<Item = &str>> {
+        self.keep.as_ref().map(|l| l.iter().map(AsRef::as_ref))
+    }
+    fn check(&self) -> Option<impl Iterator<Item = &str>> {
+        self.check.as_ref().map(|l| l.iter().map(AsRef::as_ref))
+    }
+    fn delete(&self) -> Option<impl Iterator<Item = &str>> {
+        self.delete.as_ref().map(|l| l.iter().map(AsRef::as_ref))
+    }
+    fn set(&self) -> Option<impl Iterator<Item = (&str, &str)>> {
+        self.set
+            .as_ref()
+            .map(|s| s.iter().map(|(k, v)| (k.as_ref(), v.as_ref())))
     }
 }
 
@@ -338,80 +264,6 @@ impl From<DPathOptions<'_>> for SPathOptions {
             }))
             .build()
     }
-}
-
-fn check_env(key: impl AsRef<str>, value: impl AsRef<str>) -> bool {
-    debug!("Checking env: {}={}", key.as_ref(), value.as_ref());
-    match key.as_ref() {
-        "TZ" => tz_is_safe(value.as_ref()),
-        _ => !value.as_ref().chars().any(|c| c == '/' || c == '%'),
-    }
-}
-
-fn env_matches<K>(set: Option<&HashSet<K>>, needle: &str) -> bool
-where
-    K: AsRef<str> + Eq + Hash + Borrow<str>,
-{
-    // the policy entries are the patterns, never the user's variable name
-    set.is_some_and(|set| {
-        set.contains(needle) || set.iter().any(|key| wildcard_match(key.as_ref(), needle))
-    })
-}
-
-fn tz_is_safe(tzval: &str) -> bool {
-    // tzcode treats a value beginning with a ':' as a path.
-    let tzval = tzval.strip_prefix(':').map_or(tzval, |val| val);
-
-    // Reject fully-qualified TZ that doesn't begin with the zoneinfo dir.
-    if tzval.starts_with('/') {
-        return false;
-    }
-
-    // Make sure TZ only contains printable non-space characters
-    // and does not contain a '..' path element.
-    let mut lastch = '/';
-    for cp in tzval.chars() {
-        if cp.is_ascii_whitespace() || !cp.is_ascii_graphic() {
-            return false;
-        }
-        if lastch == '/'
-            && cp == '.'
-            && tzval.chars().nth({
-                let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                    return false;
-                };
-                pos + 1
-            }) == Some('.')
-            && (tzval.chars().nth({
-                let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                    return false;
-                };
-                pos + 2
-            }) == Some('/')
-                || tzval
-                    .chars()
-                    .nth({
-                        let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                            return false;
-                        };
-                        pos + 2
-                    })
-                    .is_none())
-        {
-            return false;
-        }
-        lastch = cp;
-    }
-
-    // Reject extra long TZ values (even if not a path).
-    let Ok(path_max) = <i32 as TryInto<usize>>::try_into(PATH_MAX) else {
-        return false;
-    };
-    if tzval.len() >= path_max {
-        return false;
-    }
-
-    true
 }
 
 pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
@@ -511,137 +363,21 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
             .find_map(|o| o.override_behavior)
             .unwrap_or(ENV_OVERRIDE_BEHAVIOR)
     }
-    #[allow(clippy::too_many_lines)]
+    /// The env options of the stack, resolved by rootasrole-core (`database::env`), with the
+    /// behavior that the user asked for if the policy allows to override it.
     pub fn calc_temp_env(
         &self,
         override_behavior: bool,
         opt_filter: Option<&FilterMatcher>,
-    ) -> DEnvOptions<'_> {
-        fn determine_final_behavior(
-            override_behavior: bool,
-            opt_filter: Option<&FilterMatcher>,
-            final_behavior: &mut EnvBehavior,
-            overriden: &mut bool,
-            env_behavior: EnvBehavior,
-        ) {
-            if !*overriden
-                && let Some(behavior) = opt_filter
-                    .as_ref()
-                    .and_then(|f| {
-                        if override_behavior {
-                            *overriden = true;
-                            f.env_behavior
-                        } else {
-                            None
-                        }
-                    })
-                    .or_else(|| {
-                        if env_behavior.is_inherit() {
-                            None
-                        } else {
-                            Some(env_behavior)
-                        }
-                    })
-            {
-                *final_behavior = behavior;
-            }
+    ) -> ResolvedEnv<'c> {
+        let mut env: ResolvedEnv<'c> = ResolvedEnv::defaults();
+        for level in self.get_opt_iter().filter_map(|o| o.env.as_ref()) {
+            env.apply(level);
         }
-        /// Merge a list of one level into the lists of the upper levels. A list that the level
-        /// does not define is inherited, even when the level sets its own behavior; a defined
-        /// list replaces the inherited one when the level sets its behavior, and extends it
-        /// otherwise. Only an empty list (`[]`) removes an inherited list: see `SEnvOptions` in
-        /// rootasrole-core for why this is the fail-safe choice.
-        /// The entries are borrowed from the defaults and from the stack, nothing is copied.
-        fn merge_list<'s>(
-            result: &mut Option<HashSet<Cow<'s, str>>>,
-            list: Option<impl IntoIterator<Item = &'s str>>,
-            replace: bool,
-        ) {
-            let Some(list) = list else {
-                return;
-            };
-            let result = result.get_or_insert_default();
-            if replace {
-                result.clear();
-            }
-            result.extend(list.into_iter().map(Cow::Borrowed));
-        }
-        /// Same as `merge_list`, for the variables set by the policy.
-        fn merge_set<'s>(
-            result: &mut Option<HashMap<Cow<'s, str>, Cow<'s, str>>>,
-            set: Option<impl IntoIterator<Item = (&'s str, &'s str)>>,
-            replace: bool,
-        ) {
-            let Some(set) = set else {
-                return;
-            };
-            let result = result.get_or_insert_default();
-            if replace {
-                result.clear();
-            }
-            result.extend(
-                set.into_iter()
-                    .map(|(k, v)| (Cow::Borrowed(k), Cow::Borrowed(v))),
-            );
-        }
-        #[builder]
-        fn assign_env_settings<'s>(
-            override_behavior: bool,
-            opt_filter: Option<&FilterMatcher>,
-            result: &mut DEnvOptions<'s>,
-            overriden: &mut bool,
-            default_behavior: EnvBehavior,
-            keep: Option<impl IntoIterator<Item = &'s str>>,
-            delete: Option<impl IntoIterator<Item = &'s str>>,
-            check: Option<impl IntoIterator<Item = &'s str>>,
-            set: Option<impl IntoIterator<Item = (&'s str, &'s str)>>,
-        ) {
-            determine_final_behavior(
-                override_behavior,
-                opt_filter,
-                &mut result.default_behavior,
-                overriden,
-                default_behavior,
-            );
-            let replace = !default_behavior.is_inherit();
-            merge_set(&mut result.set, set, replace);
-            merge_list(&mut result.keep, keep, replace);
-            merge_list(&mut result.delete, delete, replace);
-            merge_list(&mut result.check, check, replace);
-        }
-        let mut result = DEnvOptions::default();
-        let mut overriden = false;
-        assign_env_settings()
-            .override_behavior(override_behavior)
-            .maybe_opt_filter(opt_filter)
-            .result(&mut result)
-            .overriden(&mut overriden)
-            .default_behavior(ENV_DEFAULT_BEHAVIOR)
-            .keep(ENV_KEEP_LIST.iter().copied())
-            .check(ENV_CHECK_LIST.iter().copied())
-            .delete(ENV_DELETE_LIST.iter().copied())
-            .set(ENV_SET_LIST.iter().copied())
-            .call();
-        self.get_opt_iter()
-            .filter_map(|o| o.env.as_ref())
-            .for_each(|o| {
-                assign_env_settings()
-                    .override_behavior(override_behavior)
-                    .maybe_opt_filter(opt_filter)
-                    .result(&mut result)
-                    .overriden(&mut overriden)
-                    .default_behavior(o.default_behavior)
-                    .maybe_keep(o.keep.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
-                    .maybe_check(o.check.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
-                    .maybe_delete(o.delete.as_ref().map(|l| l.iter().map(AsRef::as_ref)))
-                    .maybe_set(
-                        o.set
-                            .as_ref()
-                            .map(|s| s.iter().map(|(k, v)| (k.as_ref(), v.as_ref()))),
-                    )
-                    .call();
-            });
-        result
+        env.with_requested_behavior(
+            opt_filter.and_then(|filter| filter.env_behavior),
+            override_behavior,
+        )
     }
 
     pub fn calc_bounding(&self) -> SBounding {
@@ -870,19 +606,9 @@ fn calculate_combined_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_tz_is_safe() {
-        assert!(tz_is_safe("America/New_York"));
-        assert!(!tz_is_safe("/America/New_York"));
-        assert!(!tz_is_safe("America/New_York/.."));
-        //assert path max
-        assert!(!tz_is_safe(
-            String::from_utf8(vec![b'a'; (PATH_MAX + 1).try_into().unwrap()])
-                .unwrap()
-                .as_str()
-        ));
-    }
+    use crate::Cred;
+    use indexmap::{IndexMap, IndexSet};
+    use rootasrole_core::util::{ENV_DELETE_LIST, ENV_KEEP_LIST};
 
     #[test]
     fn test_is_valid_env_name() {
@@ -893,282 +619,6 @@ mod tests {
         assert!(!is_valid_env_name("VAR NAME"));
         assert!(!is_valid_env_name(""));
     }
-    #[test]
-    fn test_check_env() {
-        assert!(check_env("TZ", "America/New_York"));
-        assert!(!check_env("TZ", "/America/New_York"));
-        assert!(!check_env("TZ", "America/New_York/.."));
-        assert!(!check_env("VAR_NAME", "VAR%NAME"));
-        assert!(check_env("VAR_NAME", "VAR_NAME"));
-    }
-
-    #[test]
-    fn test_env_matches() {
-        let set: HashSet<String> = ["VAR1", "VAR2"]
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
-        assert!(env_matches(Some(&set), "VAR1"));
-        assert!(!env_matches(Some(&set), "VAR3"));
-        assert!(!env_matches(None::<&HashSet<String>>, "VAR1"));
-    }
-
-    #[test]
-    fn test_env_matches_policy_patterns() {
-        let set: HashSet<String> = ["LC_*".to_string(), "HOME".to_string()].into();
-        assert!(env_matches(Some(&set), "LC_ALL"));
-        assert!(env_matches(Some(&set), "HOME"));
-        assert!(!env_matches(Some(&set), "LANG"));
-        // the user's variable name is never used as a pattern
-        assert!(!env_matches(Some(&set), "*"));
-        assert!(!env_matches(Some(&set), "HOME|X"));
-    }
-
-    fn final_user_env(
-        behavior: EnvBehavior,
-        keep: &[&str],
-        check: &[&str],
-        delete: &[&str],
-        env_vars: &[(&str, &str)],
-    ) -> HashMap<String, String> {
-        let env_options = DEnvOptions::builder(behavior)
-            .keep(keep.iter().copied())
-            .unwrap()
-            .check(check.iter().copied())
-            .unwrap()
-            .delete(delete.iter().copied())
-            .unwrap()
-            .build();
-        let target = Cred::builder()
-            .curdir()
-            .unwrap()
-            .groups()
-            .unwrap()
-            .user()
-            .unwrap()
-            .build();
-        env_options
-            .calc_final_env(
-                env_vars.iter().copied(),
-                ["/usr/bin"],
-                &target,
-                None,
-                String::new(),
-            )
-            .unwrap()
-    }
-
-    #[test]
-    fn test_calc_env_delete_list() {
-        let vars = [
-            ("LD_PRELOAD", "/tmp/evil.so"),
-            ("LD_LIBRARY_PATH", "/tmp"),
-            ("BASH_ENV", "/tmp/evil.sh"),
-            ("BASH_FUNC_ls%%", "() { evil; }"),
-            ("FOO", "bar"),
-        ];
-        // keep mode passes every variable except those of the delete list
-        let env = final_user_env(
-            EnvBehavior::Keep,
-            &[],
-            &[],
-            &["LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV"],
-            &vars,
-        );
-        assert!(!env.contains_key("LD_PRELOAD"));
-        assert!(!env.contains_key("LD_LIBRARY_PATH"));
-        assert!(!env.contains_key("BASH_ENV"));
-        assert_eq!(env.get("FOO").unwrap(), "bar");
-        let env = final_user_env(EnvBehavior::Keep, &[], &[], &["LD_*"], &vars);
-        assert!(!env.contains_key("LD_PRELOAD"));
-        assert!(!env.contains_key("LD_LIBRARY_PATH"));
-        // the keep list is not used in keep mode
-        let env = final_user_env(
-            EnvBehavior::Keep,
-            &["LD_PRELOAD"],
-            &[],
-            &["LD_PRELOAD"],
-            &vars,
-        );
-        assert!(!env.contains_key("LD_PRELOAD"));
-        // without a delete list, the policy passes everything
-        let env = final_user_env(EnvBehavior::Keep, &[], &[], &[], &vars);
-        assert_eq!(env.get("LD_PRELOAD").unwrap(), "/tmp/evil.so");
-    }
-
-    #[test]
-    fn test_calc_env_shell_functions() {
-        let vars = [
-            ("BASH_FUNC_ls%%", "() { evil; }"),
-            ("FOO", "() not a function"),
-        ];
-        // never passed, even when kept by name
-        let env = final_user_env(
-            EnvBehavior::Delete,
-            &["BASH_FUNC_ls%%", "FOO"],
-            &[],
-            &[],
-            &vars,
-        );
-        assert!(!env.contains_key("BASH_FUNC_ls%%"));
-        assert!(!env.contains_key("FOO"));
-        let env = final_user_env(EnvBehavior::Keep, &[], &[], &[], &vars);
-        assert!(!env.contains_key("BASH_FUNC_ls%%"));
-    }
-
-    #[test]
-    fn test_calc_env_check_precedence() {
-        let vars = [
-            ("CHECKED", "/unsafe"),
-            ("SAFE", "ok"),
-            ("TZ", "../../etc/x"),
-        ];
-        // a variable in both keep and check lists is still checked
-        let env = final_user_env(
-            EnvBehavior::Delete,
-            &["CHECKED", "SAFE", "TZ"],
-            &["CHECKED", "SAFE", "TZ"],
-            &[],
-            &vars,
-        );
-        assert!(!env.contains_key("CHECKED"));
-        assert_eq!(env.get("SAFE").unwrap(), "ok");
-        assert!(!env.contains_key("TZ"));
-        // in keep mode, the delete list wins over the check list
-        let env = final_user_env(EnvBehavior::Keep, &[], &["SAFE"], &["SAFE"], &vars);
-        assert!(!env.contains_key("SAFE"));
-        let env = final_user_env(EnvBehavior::Keep, &[], &["CHECKED"], &[], &vars);
-        assert!(!env.contains_key("CHECKED"));
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn test_calc_env() {
-        let env_options = DEnvOptions::builder(EnvBehavior::Delete)
-            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
-            .keep(vec!["VAR3"])
-            .unwrap()
-            .delete(vec!["VAR4"])
-            .unwrap()
-            .check(vec!["VAR5"])
-            .unwrap()
-            .build();
-        let env_vars = vec![
-            ("VAR1", "AAAA"),
-            ("VAR3", "VALUE3"),
-            ("VAR4", "VALUE4"),
-            ("VAR5", "VALUE5"),
-        ];
-        let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder()
-            .curdir()
-            .unwrap()
-            .groups()
-            .unwrap()
-            .user()
-            .unwrap()
-            .build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
-        assert!(
-            result.is_ok(),
-            "Failed to calculate final env {}",
-            result.unwrap_err()
-        );
-        let final_env = result.unwrap();
-        assert_eq!(final_env.get("PATH").unwrap(), "/usr/local/bin:/usr/bin");
-        assert_eq!(*final_env.get("RAR_USER").unwrap(), target.user.name);
-        assert_eq!(
-            *final_env.get("HOME").unwrap(),
-            target.user.dir.to_string_lossy()
-        );
-        assert_eq!(final_env.get("TERM").unwrap(), "unknown");
-        assert_eq!(
-            *final_env.get("SHELL").unwrap(),
-            target.user.shell.to_string_lossy()
-        );
-        assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
-        assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
-        assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
-        assert!(!final_env.contains_key("VAR4"));
-        assert!(final_env.get("VAR5").unwrap() == "VALUE5");
-
-        let env_options = DEnvOptions::builder(EnvBehavior::Keep)
-            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
-            .keep(vec!["VAR3"])
-            .unwrap()
-            .delete(vec!["VAR4"])
-            .unwrap()
-            .check(vec!["VAR5"])
-            .unwrap()
-            .build();
-        let env_vars = vec![
-            ("VAR1", "AAAA"),
-            ("VAR3", "VALUE3"),
-            ("VAR4", "VALUE4"),
-            ("VAR5", "VALUE5"),
-        ];
-        let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder()
-            .curdir()
-            .unwrap()
-            .groups()
-            .unwrap()
-            .user()
-            .unwrap()
-            .build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
-        assert!(
-            result.is_ok(),
-            "Failed to calculate final env {}",
-            result.unwrap_err()
-        );
-        let final_env = result.unwrap();
-        assert_eq!(final_env.get("PATH").unwrap(), "/usr/local/bin:/usr/bin");
-        assert_eq!(*final_env.get("LOGNAME").unwrap(), target.user.name);
-        assert_eq!(*final_env.get("USER").unwrap(), target.user.name);
-        assert_eq!(
-            *final_env.get("HOME").unwrap(),
-            target.user.dir.to_string_lossy()
-        );
-        assert_eq!(final_env.get("TERM").unwrap(), "unknown");
-        assert_eq!(
-            *final_env.get("SHELL").unwrap(),
-            target.user.shell.to_string_lossy()
-        );
-        assert_eq!(final_env.get("VAR1").unwrap(), "VALUE1");
-        assert_eq!(final_env.get("VAR2").unwrap(), "VALUE2");
-        assert_eq!(final_env.get("VAR3").unwrap(), "VALUE3");
-        assert!(!final_env.contains_key("VAR4"));
-        assert!(final_env.get("VAR5").unwrap() == "VALUE5");
-
-        let env_options = DEnvOptions::builder(EnvBehavior::Inherit)
-            .set(vec![("VAR1", "VALUE1"), ("VAR2", "VALUE2")])
-            .keep(vec!["VAR3"])
-            .unwrap()
-            .delete(vec!["VAR4"])
-            .unwrap()
-            .check(vec!["VAR5"])
-            .unwrap()
-            .build();
-        let env_vars = vec![
-            ("VAR1", "AAAA"),
-            ("VAR3", "VALUE3"),
-            ("VAR4", "VALUE4"),
-            ("VAR5", "VALUE5"),
-        ];
-        let env_path = vec!["/usr/local/bin", "/usr/bin"];
-        let target = Cred::builder()
-            .curdir()
-            .unwrap()
-            .groups()
-            .unwrap()
-            .user()
-            .unwrap()
-            .build();
-        let result = env_options.calc_final_env(env_vars, &env_path, &target, None, String::new());
-        assert!(result.is_err());
-    }
-
     #[test]
     fn test_is_default() {
         let default = Opt::default();
@@ -1220,22 +670,17 @@ mod tests {
         let env = stack.calc_temp_env(false, None);
         // the global level does not define its keep and delete lists: the defaults are inherited
         let with_defaults = |defaults: &[&'static str], entry: &'static str| {
-            let mut list: HashSet<Cow<'static, str>> =
-                defaults.iter().copied().map(Into::into).collect();
-            list.insert(entry.into());
-            Some(list)
+            let mut list: IndexSet<&str> = defaults.iter().copied().collect();
+            list.insert(entry);
+            list
         };
         assert_eq!(env.delete, with_defaults(ENV_DELETE_LIST, "DELETEME"));
         assert_eq!(env.keep, with_defaults(ENV_KEEP_LIST, "KEEPME"));
         // the check and set lists it defines replace the defaults
-        assert_eq!(env.check, Some(HashSet::from(["CHECKME".into()])));
-        assert_eq!(
-            env.set,
-            Some(HashMap::from([
-                ("VAR1".into(), "VALUE1".into()),
-                ("VAR2".into(), "VALUE2".into())
-            ]))
-        );
+        assert_eq!(env.check, IndexSet::from(["CHECKME"]));
+        assert_eq!(env.set.get("VAR1"), Some(&"VALUE1"));
+        assert_eq!(env.set.get("VAR2"), Some(&"VALUE2"));
+        assert_eq!(env.set.len(), 2);
     }
 
     #[test]
@@ -1272,14 +717,11 @@ mod tests {
             .build();
         stack.task = Some(&keep_task);
         let env = stack.calc_temp_env(false, None);
-        assert_eq!(env.default_behavior, EnvBehavior::Keep);
-        assert_eq!(env.delete, Some(HashSet::from(["LD_*".into()])));
-        assert_eq!(env.check, Some(HashSet::from(["CHECKME".into()])));
-        assert_eq!(env.keep, Some(HashSet::from(["KEEPME".into()])));
-        assert_eq!(
-            env.set,
-            Some(HashMap::from([("GLOBAL".into(), "one".into())]))
-        );
+        assert_eq!(env.behavior, EnvBehavior::Keep);
+        assert_eq!(env.delete, IndexSet::from(["LD_*"]));
+        assert_eq!(env.check, IndexSet::from(["CHECKME"]));
+        assert_eq!(env.keep, IndexSet::from(["KEEPME"]));
+        assert_eq!(env.set, IndexMap::from([("GLOBAL", "one")]));
         let vars = [("LD_PRELOAD", "/tmp/evil.so"), ("CHECKME", "/unsafe")];
         let target = Cred::builder()
             .curdir()
@@ -1290,7 +732,7 @@ mod tests {
             .unwrap()
             .build();
         let final_env = env
-            .calc_final_env(vars, ["/usr/bin"], &target, None, String::new())
+            .final_env(vars, ["/usr/bin"], &target, None, String::new())
             .unwrap();
         assert!(!final_env.contains_key("LD_PRELOAD"));
         assert!(!final_env.contains_key("CHECKME"));
@@ -1308,8 +750,8 @@ mod tests {
             .build();
         stack.task = Some(&replacing_task);
         let env = stack.calc_temp_env(false, None);
-        assert_eq!(env.delete, Some(HashSet::new()));
-        assert_eq!(env.check, Some(HashSet::from(["OTHER".into()])));
+        assert!(env.delete.is_empty());
+        assert_eq!(env.check, IndexSet::from(["OTHER"]));
     }
 
     #[test]
@@ -1381,13 +823,25 @@ mod tests {
             .build();
 
         let overridden = stack.calc_temp_env(true, Some(&filter));
-        assert_eq!(overridden.default_behavior, EnvBehavior::Keep);
-        let set = overridden.set.as_ref().unwrap();
+        assert_eq!(overridden.behavior, EnvBehavior::Keep);
+        let set = &overridden.set;
         assert!(set.contains_key("GLOBAL"));
         assert!(set.contains_key("TASK"));
 
         let not_overridden = stack.calc_temp_env(false, Some(&filter));
-        assert_eq!(not_overridden.default_behavior, EnvBehavior::Delete);
+        assert_eq!(not_overridden.behavior, EnvBehavior::Delete);
+
+        // a filter that does not ask for a behavior (e.g. `dosr -r role`) changes nothing,
+        // the behavior of every level is still applied
+        let keep_task = Opt::builder(Level::Task)
+            .env(DEnvOptions::builder(EnvBehavior::Keep).build())
+            .build();
+        stack.task = Some(&keep_task);
+        let role_filter = FilterMatcher::builder().role("r".to_string()).build();
+        assert_eq!(
+            stack.calc_temp_env(true, Some(&role_filter)).behavior,
+            EnvBehavior::Keep
+        );
     }
 
     #[test]
