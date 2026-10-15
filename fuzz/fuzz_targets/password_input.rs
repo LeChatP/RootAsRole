@@ -3,29 +3,16 @@
 use std::io::Cursor;
 
 use libfuzzer_sys::fuzz_target;
-
-fn set_dosr_binary() {
-    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/fuzz_bins/rootasrole_password_input");
-    unsafe { std::env::set_var("DOSR_BIN", binary) };
-}
-
-#[path = "../../src/dosr/pam/cutils.rs"]
-mod cutils;
-#[path = "../../src/dosr/pam/rpassword.rs"]
-mod rpassword;
-#[path = "../../src/dosr/pam/securemem.rs"]
-mod securemem;
+use rootasrole::fuzzing::read_password;
 
 fuzz_target!(|data: &[u8]| {
-    set_dosr_binary();
+    // the last byte of the buffer is kept for the terminating NUL
     let max_password_len = libpam_sys::PAM_MAX_RESP_SIZE as usize - 1;
     let password_len = data
         .iter()
         .position(|byte| *byte == b'\n')
         .unwrap_or(data.len());
-    let mut input = Cursor::new(data);
-    match rpassword::fuzzing_exports::fuzz_read_unbuffered(&mut input) {
+    match read_password(&mut Cursor::new(data)) {
         Ok(password) => {
             assert!(password_len <= max_password_len);
             assert_eq!(&password[..password_len], &data[..password_len]);

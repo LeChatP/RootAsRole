@@ -3,40 +3,34 @@ name = "rootasrole-fuzz"
 version = "0.0.1"
 publish = false
 edition = "2024"
-build = "build.rs"
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-libc = { version = "0.2", default-features = false, features = ["std"] }
 libpam-sys = "0.2"
-log = "0.4"
-regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
+nix = { version = ">=0.30, <0.32", default-features = false, features = ["user"] }
+rootasrole = { path = "..", default-features = false, features = ["finder", "fuzzing"] }
 rootasrole-core = { version = "4", path = "../core", features = ["finder"] }
 serde = "1"
+serde_json = "1"
+cbor4ii = { version = "1.2", default-features = false, features = ["serde", "serde1", "use_std"] }
 shell-words = "1.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
-unused = { level = "allow" }
-
-[features]
-default = ["regex", "fuzzing"]
-regex = []
-fuzzing = []
 
 [[bin]]
-name = "command_match"
-path = "fuzz_targets/command_match.rs"
+name = "password_input"
+path = "fuzz_targets/password_input.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "password_input"
-path = "fuzz_targets/password_input.rs"
+name = "command_match"
+path = "fuzz_targets/command_match.rs"
 test = false
 doc = false
 bench = false
@@ -56,8 +50,22 @@ doc = false
 bench = false
 
 [[bin]]
-name = "setup_environment"
-path = "fuzz_targets/setup_environment.rs"
+name = "policy_decision"
+path = "fuzz_targets/policy_decision.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proc_stat"
+path = "fuzz_targets/proc_stat.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_parse"
+path = "fuzz_targets/config_parse.rs"
 test = false
 doc = false
 bench = false
