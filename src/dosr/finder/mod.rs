@@ -326,20 +326,20 @@ impl BestExecSettings {
             );
             return Ok(false);
         }
-        let result = temp_opt_stack.get_workdir_temp();
-        if cli
-            .opt_filter
-            .as_ref()
-            .and_then(|f| f.workdir.as_ref())
-            .is_some_and(|w| Self::allowed_workdir(&result, w.as_str()).is_false())
-        {
-            debug!(
-                "task_settings: deny task due to the user wanted to execute to a specific folder, which do not match to settings"
-            );
-            return Ok(false);
-        }
-        if Self::allowed_workdir(&result, cred.curdir.as_os_str().to_string_lossy().as_ref())
-            .is_false()
+        // The command runs in the directory asked with -D, else in the fallback of the policy,
+        // else in the current directory: only a directory chosen by the user is checked.
+        let workdir = temp_opt_stack.get_workdir_temp();
+        let requested = cli.opt_filter.as_ref().and_then(|f| f.workdir.as_ref());
+        if let Some(requested) = requested {
+            if Self::allowed_workdir(&workdir, requested).is_false() {
+                debug!(
+                    "task_settings: deny task due to the user wanted to execute to a specific folder, which do not match to settings"
+                );
+                return Ok(false);
+            }
+        } else if workdir.fallback.is_none()
+            && Self::allowed_workdir(&workdir, cred.curdir.as_os_str().to_string_lossy().as_ref())
+                .is_false()
         {
             debug!(
                 "task_settings: deny task due to the current directory do not match to allowed settings"
@@ -796,6 +796,21 @@ mod tests {
         }
         // alone, d cannot run ls
         assert!(best_task(&[&d], "ls").is_err());
+    }
+
+    #[test]
+    fn test_forced_workdir_is_not_checked_against_the_current_directory() {
+        let task =
+            r#"{"name":"w","cred":{},"commands":["/usr/bin/ls"],"options":{"workdir":"/srv"}}"#
+                .to_string();
+        // the current directory of the tests is not allowed, but the command runs in /srv
+        let (task, final_path, _, _) = best_task(&[&task], "/usr/bin/ls").unwrap();
+        assert_eq!(task, "w");
+        assert_eq!(final_path, PathBuf::from("/usr/bin/ls"));
+        // without a forced directory, the current directory must be allowed
+        let task = r#"{"name":"w","cred":{},"commands":["/usr/bin/ls"],"options":{"workdir":{"default":"none","add":["/srv"]}}}"#
+            .to_string();
+        assert!(best_task(&[&task], "/usr/bin/ls").is_err());
     }
 
     #[test]
