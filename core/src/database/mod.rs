@@ -17,6 +17,7 @@ pub mod env;
 pub mod migration;
 pub mod migrations;
 pub mod options;
+pub mod path;
 pub mod ser;
 pub mod structs;
 pub mod versionning;

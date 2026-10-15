@@ -10,12 +10,13 @@ use rootasrole_core::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
     STimeout, SUMask, WorkdirBehavior,
 };
+use rootasrole_core::database::path::{PathLevel, ResolvedPath};
 use rootasrole_core::database::score::SecurityMin;
 use rootasrole_core::util::{
-    AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE,
-    ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, INFO, PRIVILEGED, TIMEOUT_DURATION,
-    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST, WORKDIR_BEHAVIOR, WORKDIR_FALLBACK,
-    WORKDIR_REMOVE_LIST, is_valid_env_name, is_valid_env_pattern,
+    AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_BEHAVIOR, INFO,
+    PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST,
+    WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_valid_env_name,
+    is_valid_env_pattern,
 };
 
 use serde::{Deserialize, Serialize};
@@ -172,6 +173,18 @@ impl<'a> Opt<'a> {
     }
 }
 
+impl PathLevel for DPathOptions<'_> {
+    fn behavior(&self) -> PathBehavior {
+        self.default_behavior
+    }
+    fn add(&self) -> Option<impl Iterator<Item = &str>> {
+        self.add.as_ref().map(|l| l.iter().map(AsRef::as_ref))
+    }
+    fn sub(&self) -> Option<impl Iterator<Item = &str>> {
+        self.sub.as_ref().map(|l| l.iter().map(AsRef::as_ref))
+    }
+}
+
 impl EnvLevel for DEnvOptions<'_> {
     fn behavior(&self) -> EnvBehavior {
         self.default_behavior
@@ -301,35 +314,17 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
     pub const fn set_task(&mut self, task: &DLinkedTask<'_, 'c, 'a>) {
         self.task = task.task().options.as_ref();
     }
+    /// The `PATH` of the command, resolved by rootasrole-core (`database::path`) from the
+    /// options of the stack and the `PATH` of the user.
     pub fn calc_path(&self, path_var: &[&str]) -> Vec<String> {
-        // Preallocate with a reasonable guess, but will only allocate once.
-        let mut combined_paths: Vec<String> = Vec::with_capacity(path_var.len());
-
-        // Stack of options in order: default, config, role, task
-        let stack = [
-            self.config.and_then(|c| c.path.as_ref()),
-            self.role.and_then(|c| c.path.as_ref()),
-            self.task.and_then(|c| c.path.as_ref()),
-        ];
-
-        calculate_combined_paths(
-            path_var,
-            &mut combined_paths,
-            ENV_PATH_BEHAVIOR,
-            Some(ENV_PATH_ADD_LIST_SLICE),
-            Some(ENV_PATH_REMOVE_LIST_SLICE),
-        );
-
-        for path_opt in stack.iter().flatten() {
-            calculate_combined_paths(
-                path_var,
-                &mut combined_paths,
-                path_opt.default_behavior,
-                path_opt.add.as_ref().map(|v| v.iter()),
-                path_opt.sub.as_ref().map(|v| v.iter()),
-            );
+        let mut path: ResolvedPath<'c> = ResolvedPath::defaults();
+        for level in self.get_opt_iter().filter_map(|o| o.path.as_ref()) {
+            path.apply(level);
         }
-        combined_paths
+        path.final_path(path_var)
+            .into_iter()
+            .map(ToString::to_string)
+            .collect()
     }
 
     pub fn calc_security_min(&self) -> SecurityMin {
@@ -563,46 +558,6 @@ fn update_security_min(
     }
 }
 
-fn calculate_combined_paths(
-    path_var: &[&str],
-    combined_paths: &mut Vec<String>,
-    default_behavior: PathBehavior,
-    add: Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
-    sub: Option<impl IntoIterator<Item = impl AsRef<str> + ToString> + Clone>,
-) {
-    match default_behavior {
-        PathBehavior::Inherit => {
-            if let Some(add_paths) = add {
-                combined_paths.extend(add_paths.into_iter().map(|p| p.to_string()));
-            }
-            if let Some(sub_paths) = sub {
-                // Avoid allocation by using retain and Cow::Borrowed
-                combined_paths.retain(|path| {
-                    !sub_paths
-                        .clone()
-                        .into_iter()
-                        .any(|p| path.as_str() == p.as_ref())
-                });
-            }
-        }
-        PathBehavior::Delete => {
-            combined_paths.clear();
-            if let Some(add_paths) = add {
-                combined_paths.extend(add_paths.into_iter().map(|p| p.to_string()));
-            }
-        }
-        is_safe => {
-            combined_paths.clear();
-            combined_paths.extend(
-                path_var
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .filter(|path| is_safe.is_keep_unsafe() || path.starts_with('/')),
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,6 +636,38 @@ mod tests {
         assert_eq!(env.set.get("VAR1"), Some(&"VALUE1"));
         assert_eq!(env.set.get("VAR2"), Some(&"VALUE2"));
         assert_eq!(env.set.len(), 2);
+    }
+
+    #[test]
+    fn test_calc_path_follows_the_shared_rules() {
+        let config = Opt::builder(Level::Global)
+            .path(
+                DPathOptions::builder(PathBehavior::Delete)
+                    .add(["/usr/bin"])
+                    .build(),
+            )
+            .build();
+        let mut stack = BorrowedOptStack::new(Some(&config));
+        // a level that sets the delete mode without directories inherits them
+        let delete_task = Opt::builder(Level::Task)
+            .path(DPathOptions::builder(PathBehavior::Delete).build())
+            .build();
+        stack.task = Some(&delete_task);
+        assert_eq!(stack.calc_path(&["/home/user/bin"]), ["/usr/bin"]);
+        // a keep-safe level applies its own lists, the directories of the policy come first
+        let keep_task = Opt::builder(Level::Task)
+            .path(
+                DPathOptions::builder(PathBehavior::KeepSafe)
+                    .add(["/sbin"])
+                    .sub(["/opt/bin"])
+                    .build(),
+            )
+            .build();
+        stack.task = Some(&keep_task);
+        assert_eq!(
+            stack.calc_path(&["/home/user/bin", ".", "/opt/bin"]),
+            ["/sbin", "/home/user/bin"]
+        );
     }
 
     #[test]

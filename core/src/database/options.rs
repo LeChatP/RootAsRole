@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::num::ParseIntError;
 use std::result::Result;
 use std::str::FromStr;
-use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use bon::{Builder, bon};
 
@@ -29,7 +29,9 @@ use crate::util::{
 use super::{
     FilterMatcher, deserialize_duration,
     env::{EnvLevel, ResolvedEnv},
-    is_default, serialize_duration,
+    is_default,
+    path::{PathLevel, ResolvedPath},
+    serialize_duration,
 };
 
 use super::{
@@ -712,6 +714,18 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
+impl PathLevel for SPathOptions {
+    fn behavior(&self) -> PathBehavior {
+        self.default_behavior
+    }
+    fn add(&self) -> Option<impl Iterator<Item = &str>> {
+        self.add.as_ref().map(|l| l.iter().map(String::as_str))
+    }
+    fn sub(&self) -> Option<impl Iterator<Item = &str>> {
+        self.sub.as_ref().map(|l| l.iter().map(String::as_str))
+    }
+}
+
 impl EnvLevel for SEnvOptions {
     fn behavior(&self) -> EnvBehavior {
         self.default_behavior
@@ -975,78 +989,21 @@ impl OptStack {
         None
     }
 
-    fn iter_in_options<F: FnMut(&Opt)>(&self, mut f: F) {
-        for opt in &self.stack {
-            if let Some(opt) = opt.to_owned() {
-                f(&opt.as_ref().borrow());
-            }
-        }
-    }
-
+    /// The path options of the stack, resolved like dosr does (see [`super::path`]).
     fn get_final_path(&self) -> SPathOptions {
-        let mut final_behavior = PathBehavior::Delete;
-        let default = IndexSet::new();
-        let final_add = rc_refcell!(IndexSet::new());
-        // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(IndexSet::new());
-        self.iter_in_options(|opt| {
-            let final_add_clone = Rc::clone(&final_add);
-            let final_sub_clone = Rc::clone(&final_sub);
-            if let Some(p) = opt.path.borrow().as_ref() {
-                match p.default_behavior {
-                    PathBehavior::KeepSafe | PathBehavior::KeepUnsafe | PathBehavior::Delete => {
-                        if let Some(add) = p.add.as_ref() {
-                            final_add_clone.as_ref().replace(add.clone());
-                        }
-                        if let Some(sub) = p.sub.as_ref() {
-                            final_sub_clone.as_ref().replace(sub.clone());
-                        }
-                    }
-                    PathBehavior::Inherit => {
-                        if final_behavior.is_delete() {
-                            let union: IndexSet<String> = final_add_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.add.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.sub.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_add_clone.as_ref().borrow_mut().extend(union);
-                            debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
-                        } else {
-                            let union: IndexSet<String> = final_sub_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.sub.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.add.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_sub_clone.as_ref().borrow_mut().extend(union);
-                        }
-                    }
-                }
-                if !p.default_behavior.is_inherit() {
-                    final_behavior = p.default_behavior;
-                }
-            }
-        });
-        SPathOptions::builder(final_behavior)
-            .add(
-                final_add
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .sub(
-                final_sub
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
+        let levels: Vec<_> = self
+            .stack
+            .iter()
+            .flatten()
+            .map(|opt| opt.as_ref().borrow())
+            .collect();
+        let mut path = ResolvedPath::default();
+        for level in levels.iter().filter_map(|level| level.path.as_ref()) {
+            path.apply(level);
+        }
+        SPathOptions::builder(path.behavior)
+            .add(path.add.iter())
+            .sub(path.sub.iter())
             .build()
     }
 
