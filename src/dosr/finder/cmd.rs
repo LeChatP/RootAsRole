@@ -5,6 +5,20 @@ use rootasrole_core::{
 };
 use std::path::{Path, PathBuf};
 
+/// Path of the command to run when a task allows every command, or for the `**` pattern.
+/// A name without `/` is only searched in PATH, never in the current directory (like a shell),
+/// otherwise a file named like the command in the current directory would be run instead.
+/// A path is made absolute without resolving symbolic links: multi-call binaries
+/// (e.g. `pkill` -> `pgrep`) rely on the name they are run with.
+pub(super) fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if cmd_path.as_os_str().as_bytes().contains(&b'/') {
+        std::path::absolute(cmd_path).ok()
+    } else {
+        all_paths_from_env(env_path, cmd_path).into_iter().next()
+    }
+}
+
 fn match_path(
     env_path: &[&str],
     user_path: &Path,
@@ -13,10 +27,17 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        CmdMin::builder()
+        // any binary: the command of the user, resolved like with the "all" default behavior
+        let min = CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)
-            .build()
+            .build();
+        resolve_any_command(user_path, env_path).map_or_else(CmdMin::empty, |path| {
+            if min.better(previous_min) {
+                *final_path = Some(path);
+            }
+            min
+        })
     } else if user_path.is_absolute() {
         debug!("match_path: user absolute path");
         let min = match_single_path(user_path, role_path);
@@ -201,7 +222,8 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 
     #[test]
@@ -509,7 +531,8 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 
     #[test]
@@ -595,6 +618,7 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 }

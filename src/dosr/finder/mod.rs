@@ -21,7 +21,7 @@ use rootasrole_core::{
         score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         workdir::ResolvedWorkdir,
     },
-    util::{StorageMethod, all_paths_from_env, check_others_permissions, read_with_privileges},
+    util::{StorageMethod, check_others_permissions, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
@@ -33,6 +33,7 @@ use crate::{
 
 pub mod api;
 mod cmd;
+use cmd::resolve_any_command;
 pub mod de;
 mod options;
 
@@ -197,20 +198,6 @@ where
     }
 
     parse_file(&file_path)
-}
-
-/// Path of the command to run when a task allows every command.
-/// A name without `/` is only searched in PATH, never in the current directory (like a shell),
-/// otherwise a file named like the command in the current directory would be run instead.
-/// A path is made absolute without resolving symbolic links: multi-call binaries
-/// (e.g. `pkill` -> `pgrep`) rely on the name they are run with.
-fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    if cmd_path.as_os_str().as_bytes().contains(&b'/') {
-        std::path::absolute(cmd_path).ok()
-    } else {
-        all_paths_from_env(env_path, cmd_path).into_iter().next()
-    }
 }
 
 impl BestExecSettings {
@@ -811,6 +798,28 @@ mod tests {
         let task = r#"{"name":"w","cred":{},"commands":["/usr/bin/ls"],"options":{"workdir":{"default":"none","add":["/srv"]}}}"#
             .to_string();
         assert!(best_task(&[&task], "/usr/bin/ls").is_err());
+    }
+
+    #[test]
+    fn test_any_binary_pattern() {
+        let task = r#"{"name":"any","cred":{},"commands":["**"]}"#.to_string();
+        let (name, final_path, _, _) = best_task(&[&task], "/usr/bin/ls").unwrap();
+        assert_eq!(name, "any");
+        assert_eq!(final_path, PathBuf::from("/usr/bin/ls"));
+        // a name is resolved in the PATH of the task
+        let (_, final_path, env_path, _) = best_task(&[&task], "ls").unwrap();
+        assert!(
+            env_path
+                .iter()
+                .any(|dir| final_path == Path::new(dir).join("ls"))
+        );
+        // a name that is not in PATH cannot be run
+        assert!(best_task(&[&task], "rar-no-such-command").is_err());
+        // an exact command is a better match than any binary
+        let exact = task_json("exact", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        for tasks in orders(&[&task, &exact]) {
+            assert_eq!(best_task(&tasks, "ls").unwrap().0, "exact");
+        }
     }
 
     #[test]
