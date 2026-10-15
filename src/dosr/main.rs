@@ -24,7 +24,8 @@ use rootasrole_core::{
 
 use log::{debug, error, info};
 use pam::PAM_PROMPT;
-use std::ffi::OsString;
+use std::ffi::{CString, OsString};
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::{io, process::Command};
 
@@ -406,11 +407,26 @@ fn main_inner() -> SrResult<()> {
     // Build the command
     let mut command_builder = Command::new(&execcfg.final_path);
 
+    // The command runs in the directory asked with -D, else in the one forced by the policy.
+    // It is entered by the pre-exec steps, once the target user is set.
+    let workdir = args
+        .opt_filter
+        .as_ref()
+        .and_then(|f| f.workdir.as_ref())
+        .map(PathBuf::from)
+        .or_else(|| execcfg.workdir.clone())
+        .map(|dir| CString::new(dir.into_os_string().into_vec()))
+        .transpose()
+        .map_err(|_| {
+            error!("The working directory contains a NUL character");
+            SrError::InvalidAgruments
+        })?;
     configure_pre_exec(
         execcfg.umask.0,
         execcfg.cred.clone(),
         execcfg.bounding,
         execcfg.root.is_user(),
+        workdir,
     );
 
     debug!("setuid : {:?}", execcfg.cred.setuid);
@@ -420,15 +436,6 @@ fn main_inner() -> SrResult<()> {
     let cfinal_env = execcfg.clone().env;
 
     Api::notify(finder::api::ApiEvent::PreExec(&args, &execcfg))?;
-
-    // we set workdir if -D is provided
-    if let Some(workdir) = args.opt_filter.as_ref().and_then(|f| f.workdir.as_ref()) {
-        command_builder.current_dir(workdir);
-    // if no workdir from args, we check if exec settings enforce a workdir
-    } else if let Some(workdir) = execcfg.workdir.as_ref() {
-        command_builder.current_dir(workdir);
-    }
-    // otherwise we keep the same workdir
 
     command_builder.args(cargs.iter());
     command_builder.env_clear();
