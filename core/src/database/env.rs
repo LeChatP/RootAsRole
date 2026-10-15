@@ -216,38 +216,14 @@ fn tz_is_safe(tzval: &str) -> bool {
 
     // Make sure TZ only contains printable non-space characters
     // and does not contain a '..' path element.
-    let mut lastch = '/';
-    for cp in tzval.chars() {
-        if cp.is_ascii_whitespace() || !cp.is_ascii_graphic() {
-            return false;
-        }
-        if lastch == '/'
-            && cp == '.'
-            && tzval.chars().nth({
-                let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                    return false;
-                };
-                pos + 1
-            }) == Some('.')
-            && (tzval.chars().nth({
-                let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                    return false;
-                };
-                pos + 2
-            }) == Some('/')
-                || tzval
-                    .chars()
-                    .nth({
-                        let Some(pos) = tzval.chars().position(|c| c == '.') else {
-                            return false;
-                        };
-                        pos + 2
-                    })
-                    .is_none())
-        {
-            return false;
-        }
-        lastch = cp;
+    if tzval
+        .chars()
+        .any(|c| c.is_ascii_whitespace() || !c.is_ascii_graphic())
+    {
+        return false;
+    }
+    if tzval.split('/').any(|element| element == "..") {
+        return false;
     }
 
     // Reject extra long TZ values (even if not a path).
@@ -397,6 +373,13 @@ mod tests {
         assert!(tz_is_safe("America/New_York"));
         assert!(!tz_is_safe("/America/New_York"));
         assert!(!tz_is_safe("America/New_York/.."));
+        // a '..' element is refused wherever it is, even after another dot
+        assert!(!tz_is_safe("Etc.x/../../etc/shadow"));
+        assert!(!tz_is_safe("../zoneinfo/UTC"));
+        assert!(!tz_is_safe(":Europe/../../etc/x"));
+        // a name that only contains dots is fine
+        assert!(tz_is_safe("Etc/a..b"));
+        assert!(tz_is_safe(":Europe/Paris"));
         //assert path max
         assert!(!tz_is_safe(
             String::from_utf8(vec![b'a'; (PATH_MAX + 1).try_into().unwrap()])
