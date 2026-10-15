@@ -3,7 +3,7 @@ mod helpers;
 #[cfg(test)]
 mod tests {
     #![deny(unused)]
-    use pcre2::bytes::RegexBuilder;
+    use regex::Regex;
     use test_log::test;
 
     use crate::helpers::test_runner::TestRunner;
@@ -283,8 +283,8 @@ mod tests {
             println!("stdout: {}", result.stdout);
         }
         assert!(result.success, "Command failed: {}", result.stderr);
-        let re_gid = RegexBuilder::new().build(r"gid=\d+\(nobody\)").unwrap();
-        assert!(re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b));
+        let re_gid = Regex::new(r"gid=\d+\(nobody\)").unwrap();
+        assert!(re_gid.is_match(&result.stdout));
         assert_eq!(result.exit_code, 0);
     }
 
@@ -307,19 +307,11 @@ mod tests {
             println!("stdout: {}", result.stdout);
         }
         assert!(result.success, "Command failed: {}", result.stderr);
-        let re_gid = RegexBuilder::new().build(r"gid=\d+\(daemon\)").unwrap();
-        let re_groups = RegexBuilder::new()
-            .build(r"groups=\d+\(daemon\),\d+\(nobody\)")
-            .unwrap();
+        let re_gid = Regex::new(r"gid=\d+\(daemon\)").unwrap();
+        let re_groups = Regex::new(r"groups=\d+\(daemon\),\d+\(nobody\)").unwrap();
+        assert!(re_gid.is_match(&result.stdout), "stdout: {}", result.stdout);
         assert!(
-            re_gid.is_match(result.stdout.as_bytes()).is_ok_and(|b| b),
-            "stdout: {}",
-            result.stdout
-        );
-        assert!(
-            re_groups
-                .is_match(result.stdout.as_bytes())
-                .is_ok_and(|b| b),
+            re_groups.is_match(&result.stdout),
             "stdout: {}",
             result.stdout
         );

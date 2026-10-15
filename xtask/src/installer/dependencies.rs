@@ -249,8 +249,8 @@ pub fn install(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
             )
         });
     update_package_manager(&os, priv_bin.as_deref())?;
-    // dependencies are : libpam and libpcre2
-    info!("Installing dependencies: libpam.so and libpcre2.so for running the application");
+    // dependencies are : libpam and libseccomp
+    info!("Installing dependencies: libpam.so and libseccomp.so for running the application");
 
     let manifest = dependencies_manifest()?;
     let deps = get_dependencies(manifest, &os, opts.dev)?;

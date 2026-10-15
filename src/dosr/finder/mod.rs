@@ -855,7 +855,7 @@ mod tests {
         assert!(best.score.cmd_min == CmdMin::MATCH);
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_command_settings_simple_and_complex() {
         let cli = dummy_cli();

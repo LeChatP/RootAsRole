@@ -76,15 +76,15 @@ pub(super) fn match_args(
     }
 }
 
-#[cfg(feature = "pcre2")]
+/// The regex crate matches in linear time: a pattern of the policy cannot make the matching of
+/// the user's arguments take exponential time.
+#[cfg(feature = "regex")]
 fn evaluate_regex_cmd(
     role_args: &str,
     commandline: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
-    use pcre2::bytes::RegexBuilder;
-
-    let regex = RegexBuilder::new().build(role_args)?;
-    if regex.is_match(commandline.as_bytes())? {
+    let regex = regex::Regex::new(role_args)?;
+    if regex.is_match(commandline) {
         Ok(CmdMin::builder()
             .matching()
             .order(CmdOrder::RegexArgs)
@@ -94,7 +94,7 @@ fn evaluate_regex_cmd(
     }
 }
 
-#[cfg(not(feature = "pcre2"))]
+#[cfg(not(feature = "regex"))]
 fn evaluate_regex_cmd(
     _role_args: &str,
     _commandline: &str,
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(result.unwrap(), CmdMin::MATCH);
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_full_regex() {
         let input_args = vec!["foo".to_string(), "bar".to_string()];
@@ -301,7 +301,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_full_regex_empty_input() {
         let input_args: Vec<String> = vec![];
@@ -317,7 +317,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_regex_args() {
         let input_args: Vec<String> = vec!["a".to_string(), "A".to_string()];
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_command_line_args_mismatch() {
         let env_path = ["/usr/bin", "/bin"];
