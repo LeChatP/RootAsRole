@@ -822,6 +822,284 @@ mod tests {
         }
     }
 
+    /// A directory that only the current user can write, removed with the test.
+    struct PolicyDir(PathBuf);
+
+    impl PolicyDir {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("rar-finder-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            set_mode(&dir, 0o700);
+            Self(dir)
+        }
+    }
+
+    impl Drop for PolicyDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// Write `content` in the format of `method`, with the permissions `mode`.
+    fn write_file(path: &Path, content: &Value, method: StorageMethod, mode: u32) {
+        let bytes = match method {
+            StorageMethod::JSON => serde_json::to_vec(content).unwrap(),
+            StorageMethod::CBOR => cbor4ii::serde::to_vec(Vec::new(), content).unwrap(),
+        };
+        std::fs::write(path, bytes).unwrap();
+        set_mode(path, mode);
+    }
+
+    /// Root settings whose policy is `data` (a file or a directory), with `roles` inline.
+    fn root_settings(method: StorageMethod, data: &Path, roles: Value) -> Value {
+        let mut settings = serde_json::json!({
+            "version": rootasrole_core::PACKAGE_VERSION.to_string(),
+            "storage": {
+                "method": method,
+                "settings": {"path": data, "immutable": false}
+            }
+        });
+        settings["roles"] = roles;
+        settings
+    }
+
+    /// A policy document with `roles`.
+    fn policy(roles: Value) -> Value {
+        let mut policy =
+            serde_json::json!({ "version": rootasrole_core::PACKAGE_VERSION.to_string() });
+        policy["roles"] = roles;
+        policy
+    }
+
+    /// A role of the current user, with one task allowing `command` with `caps`.
+    fn user_role(task: &str, command: &str, caps: &[&str]) -> Value {
+        serde_json::json!([{
+            "name": "r",
+            "actors": [{"type": "user", "id": nix::unistd::getuid().as_raw()}],
+            "tasks": [{"name": task, "cred": {"caps": caps}, "commands": [command]}]
+        }])
+    }
+
+    /// The task that dosr chooses for `cmd`, from the root settings file `root`.
+    fn find(root: &Path, method: StorageMethod, cmd: &str) -> SrResult<String> {
+        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+        find_best_exec_settings(
+            &cli,
+            &dummy_cred(),
+            root,
+            root,
+            method,
+            vec![("A", "B")],
+            &["/usr/bin"],
+        )
+        .map(|settings| settings.task.unwrap_or_default())
+    }
+
+    #[test]
+    fn test_find_best_exec_settings_single_file() {
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let dir = PolicyDir::new(&format!("single-{method}"));
+            let root = dir.0.join("rootasrole");
+            let roles = user_role("t", "/usr/bin/ls", &[]);
+            write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+            assert_eq!(find(&root, method, "/usr/bin/ls").unwrap(), "t", "{method}");
+            assert!(matches!(
+                find(&root, method, "/usr/bin/cat"),
+                Err(SrError::PermissionDenied)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_find_best_exec_settings_policy_directory() {
+        let dir = PolicyDir::new("directory");
+        let policies = dir.0.join("policies");
+        std::fs::create_dir(&policies).unwrap();
+        set_mode(&policies, 0o700);
+        let root = dir.0.join("rootasrole.json");
+        let settings = root_settings(StorageMethod::JSON, &policies, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let admin = policy(user_role("admin", "/usr/bin/ls", &["CAP_NET_RAW"]));
+        write_file(&policies.join("a.json"), &admin, StorageMethod::JSON, 0o600);
+        let least = policy(user_role("least", "/usr/bin/ls", &[]));
+        write_file(&policies.join("b.json"), &least, StorageMethod::JSON, 0o600);
+        // not a policy: skipped
+        std::fs::write(policies.join("c.json"), "not a policy").unwrap();
+        set_mode(&policies.join("c.json"), 0o600);
+        // the best task of all the files: the same command with fewer privileges
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "least"
+        );
+        // a file that other users can write is never used
+        let writable = policy(user_role("writable", "/usr/bin/cat", &[]));
+        write_file(
+            &policies.join("d.json"),
+            &writable,
+            StorageMethod::JSON,
+            0o646,
+        );
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/cat"),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
+    #[test]
+    fn test_find_best_exec_settings_refuses_files_writable_by_others() {
+        let dir = PolicyDir::new("writable");
+        let root = dir.0.join("rootasrole.json");
+        let settings = root_settings(
+            StorageMethod::JSON,
+            &root,
+            user_role("t", "/usr/bin/ls", &[]),
+        );
+        write_file(&root, &settings, StorageMethod::JSON, 0o646);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+        // readable by other users is only a warning
+        set_mode(&root, 0o644);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        // in a directory that other users can write
+        set_mode(&dir.0, 0o757);
+        let result = find(&root, StorageMethod::JSON, "/usr/bin/ls");
+        set_mode(&dir.0, 0o700);
+        assert!(matches!(result, Err(SrError::PermissionDenied)));
+        // a separate policy file that other users can write
+        let data = dir.0.join("policy.json");
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let roles = policy(user_role("t", "/usr/bin/ls", &[]));
+        write_file(&data, &roles, StorageMethod::JSON, 0o646);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
+    #[test]
+    fn test_find_best_exec_settings_invalid_files() {
+        let dir = PolicyDir::new("invalid");
+        let root = dir.0.join("rootasrole.json");
+        // no root settings file
+        assert!(find(&root, StorageMethod::JSON, "/usr/bin/ls").is_err());
+        // root settings without their storage section
+        let no_storage = policy(user_role("t", "/usr/bin/ls", &[]));
+        write_file(&root, &no_storage, StorageMethod::JSON, 0o600);
+        assert!(find(&root, StorageMethod::JSON, "/usr/bin/ls").is_err());
+        // a policy that cannot be read
+        let data = dir.0.join("policy.json");
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        std::fs::write(&data, "not a policy").unwrap();
+        set_mode(&data, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+    }
+
+    /// The role, task and command chosen for `cmd` with the plugins, from `roles`.
+    fn choose(roles: &Value, cmd: &str) -> SrResult<(String, Option<String>, PathBuf)> {
+        use serde::de::DeserializeSeed;
+        api::register_plugins();
+        let policy = serde_json::json!({ "roles": roles }).to_string();
+        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+        let cred = dummy_cred();
+        let env_path = ["/usr/bin"];
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        let settings =
+            BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &env_path)?;
+        Ok((settings.role, settings.task, settings.final_path))
+    }
+
+    /// A role with `actors`, one task allowing `command`, and extra fields.
+    fn role_json(name: &str, member: bool, command: Option<&str>, extra: &Value) -> Value {
+        let uid = nix::unistd::getuid().as_raw();
+        // a user id that is not the current user
+        let actor = if member { uid } else { uid + 54_321 };
+        let mut role = serde_json::json!({
+            "name": name,
+            "actors": [{"type": "user", "id": actor}],
+            "tasks": command.map_or_else(Vec::new, |command| {
+                vec![serde_json::json!({"name": format!("{name}_task"), "cred": {}, "commands": [command]})]
+            }),
+        });
+        if let (Some(role), Some(extra)) = (role.as_object_mut(), extra.as_object()) {
+            role.extend(extra.clone());
+        }
+        role
+    }
+
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_ssd_plugin() {
+        let ssd = |value: Value| serde_json::json!({ "ssd": value });
+        let none = serde_json::json!({});
+        // the user is a member of both roles: dev is disabled
+        for value in [serde_json::json!(["auditor"]), serde_json::json!("auditor")] {
+            let roles = serde_json::json!([
+                role_json("dev", true, Some("/usr/bin/ls"), &ssd(value)),
+                role_json("auditor", true, None, &none),
+            ]);
+            assert!(matches!(
+                choose(&roles, "/usr/bin/ls"),
+                Err(SrError::PermissionDenied)
+            ));
+        }
+        // the user is not a member of the conflicting role
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/ls"),
+                &ssd(serde_json::json!(["auditor"]))
+            ),
+            role_json("auditor", false, None, &none),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "dev");
+        // roles excluding each other, the user is in neither: no endless loop
+        let roles = serde_json::json!([
+            role_json(
+                "a",
+                false,
+                Some("/usr/bin/ls"),
+                &ssd(serde_json::json!(["b"]))
+            ),
+            role_json("b", false, None, &ssd(serde_json::json!(["a"]))),
+            role_json("c", true, Some("/usr/bin/ls"), &none),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "c");
+        // an invalid value is a configuration error
+        let roles = serde_json::json!([role_json(
+            "dev",
+            true,
+            Some("/usr/bin/ls"),
+            &ssd(serde_json::json!(3))
+        )]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+    }
+
     #[test]
     fn test_role_settings_calls_actors_and_tasks() {
         let mut best = BestExecSettings::default();
