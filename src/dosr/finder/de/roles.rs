@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use log::{debug, info};
+use log::{debug, warn};
 use nix::unistd::{Gid, Group};
 use rootasrole_core::{
     Cred,
@@ -203,7 +203,7 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                     debug!("ActorsSettingsVisitor: actor {actor:?}");
                     let temp = Self::user_matches(self.cred, &actor);
                     if temp != ActorMatchMin::NoMatch && temp < user_matches {
-                        info!("ActorsSettingsVisitor: Better actor found {temp:?}");
+                        debug!("ActorsSettingsVisitor: Better actor found {temp:?}");
                         user_matches = temp;
                     }
                 }
@@ -238,7 +238,8 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                         }
                     }
                     DActor::Unknown(element) => {
-                        unimplemented!("Unknown actor type: {:?}", element);
+                        // a type of actor that this version does not know never matches
+                        warn!("Unknown actor type, it never matches: {element:?}");
                     }
                 }
                 ActorMatchMin::NoMatch
@@ -299,6 +300,38 @@ mod test {
         assert_eq!(role.role, "r_test");
         assert_eq!(role.tasks.len(), 1);
         assert_eq!(role.tasks[0].id, IdTask::Name("test".into()));
+    }
+
+    #[test]
+    fn test_unknown_actor_type_never_matches() {
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        let cli = Cli::builder().cmd_path("ls").build();
+        let user_min = |actors: &str| {
+            let json = format!(r#"{{"name":"r","actors":{actors},"tasks":[]}}"#);
+            RoleFinderDeserializer {
+                cli: &cli,
+                cred: &cred,
+            }
+            .deserialize(&mut serde_json::Deserializer::from_str(&json))
+            .expect("an unknown actor type is not an error")
+            .unwrap()
+            .user_min
+        };
+        let unknown = r#"{"type": "future", "id": 0}"#;
+        assert_eq!(user_min(&format!("[{unknown}]")), ActorMatchMin::NoMatch);
+        // the other actors of the role still match
+        let user = format!(r#"{{"type": "user", "id": {}}}"#, getuid().as_raw());
+        assert_eq!(
+            user_min(&format!("[{unknown}, {user}]")),
+            ActorMatchMin::UserMatch
+        );
     }
 
     #[test]
