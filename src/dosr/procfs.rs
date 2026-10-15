@@ -12,7 +12,10 @@ fn read_proc_stat<T: FromStr>(pid: &str, field_idx: usize) -> io::Result<T> {
     parse_stat_field(&stat, field_idx)
 }
 
-fn parse_stat_field<T: FromStr>(stat: &[u8], field_idx: usize) -> io::Result<T> {
+/// Read the n-th field (0-based) of the content of a `/proc/<pid>/stat` file.
+/// # Errors
+/// Returns an error if the field does not exist or cannot be parsed as `T`.
+pub fn parse_stat_field<T: FromStr>(stat: &[u8], field_idx: usize) -> io::Result<T> {
     let invalid = || io::Error::new(io::ErrorKind::InvalidData, "Invalid process stat");
     if field_idx < 2 {
         return Err(invalid());

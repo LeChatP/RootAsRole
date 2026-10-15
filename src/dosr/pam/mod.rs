@@ -23,9 +23,9 @@ use self::rpassword::Terminal;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod cutils;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
-mod rpassword;
+pub mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
-mod securemem;
+pub mod securemem;
 
 const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
 pub const PAM_PROMPT: &str = "Password: ";

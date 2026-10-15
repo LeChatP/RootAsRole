@@ -88,7 +88,7 @@ fn safe_tcgetattr(fd: RawFd) -> io::Result<termios> {
 const EOL: u8 = 0x0A;
 
 /// Reads a password from the given file descriptor
-fn read_unbuffered(source: &mut impl io::Read) -> io::Result<PamBuffer> {
+pub fn read_unbuffered(source: &mut impl io::Read) -> io::Result<PamBuffer> {
     let mut password = PamBuffer::default();
     let mut pwd_iter = password.iter_mut();
 
@@ -262,16 +262,5 @@ mod test {
                 panic!("Expected StdIE variant, got Tty");
             }
         }
-    }
-}
-
-#[cfg(feature = "fuzzing")]
-pub mod fuzzing_exports {
-    // Ce "pub use" rend la fonction privée accessible depuis l'extérieur
-    // mais uniquement au travers du module `fuzzing_exports`
-    pub fn fuzz_read_unbuffered(
-        source: &mut impl std::io::Read,
-    ) -> std::io::Result<super::PamBuffer> {
-        super::read_unbuffered(source)
     }
 }

@@ -32,7 +32,7 @@ use crate::{
 };
 
 pub mod api;
-mod cmd;
+pub mod cmd;
 use cmd::resolve_any_command;
 pub mod de;
 mod options;
@@ -201,7 +201,7 @@ where
 }
 
 impl BestExecSettings {
-    fn retrieve_settings<'a>(
+    pub(crate) fn retrieve_settings<'a>(
         cli: &'a Cli,
         cred: &'a Cred,
         data: &'a DConfigFinder<'a>,

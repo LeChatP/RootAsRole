@@ -4,6 +4,9 @@
 
 mod error;
 mod finder;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
 mod pam;
 mod pre_exec;
 mod procfs;
