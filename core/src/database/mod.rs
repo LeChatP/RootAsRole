@@ -22,6 +22,7 @@ pub mod ser;
 pub mod structs;
 pub mod versionning;
 pub mod warn;
+pub mod workdir;
 
 #[allow(clippy::missing_errors_doc)]
 #[derive(Debug, Default, Builder)]

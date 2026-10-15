@@ -17,23 +17,18 @@ use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups},
-        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, WorkdirBehavior},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
+        workdir::ResolvedWorkdir,
     },
-    util::{
-        StorageMethod, WORKDIR_BEHAVIOR, all_paths_from_env, check_others_permissions,
-        read_with_privileges,
-    },
+    util::{StorageMethod, all_paths_from_env, check_others_permissions, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::{
-        de::{cred::CredOwnedData, settings::read_storage},
-        options::DWorkdirSet,
-    },
+    finder::de::{cred::CredOwnedData, settings::read_storage},
 };
 
 pub mod api;
@@ -458,24 +453,8 @@ impl BestExecSettings {
     }
 
     /// This function takes a workdir path, and returns whether it is allowed based on the workdir settings.
-    fn allowed_workdir(result: &DWorkdirSet<'_>, workdir: &str) -> HardenedBool {
-        // Apply logic based on final behavior
-        match result.default_behavior {
-            WorkdirBehavior::Allowlist => {
-                // Block all except what is in "add" minus "sub"
-                let is_in_add = result.add.iter().any(|path| path.as_ref() == workdir);
-                let is_in_sub = result.sub.iter().any(|path| path.as_ref() == workdir);
-                hardened_bool_from_bool(is_in_add && !is_in_sub)
-            }
-            WorkdirBehavior::Blacklist => {
-                // Allow all except what is in "sub"
-                hardened_bool_from_bool(!result.sub.iter().any(|path| path.as_ref() == workdir))
-            }
-            WorkdirBehavior::Inherit => {
-                // Should not happen after union, but default to WORKDIR_BEHAVIOR
-                hardened_bool_from_bool(WORKDIR_BEHAVIOR.is_blacklist())
-            }
-        }
+    fn allowed_workdir(result: &ResolvedWorkdir<'_>, workdir: &str) -> HardenedBool {
+        hardened_bool_from_bool(result.allows(workdir))
     }
 }
 

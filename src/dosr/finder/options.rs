@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::{borrow::Cow, collections::HashMap};
 
-use bon::{Builder, bon, builder};
+use bon::{Builder, bon};
 
 use rootasrole_core::database::FilterMatcher;
 use rootasrole_core::database::env::{EnvLevel, ResolvedEnv};
@@ -12,10 +12,10 @@ use rootasrole_core::database::options::{
 };
 use rootasrole_core::database::path::{PathLevel, ResolvedPath};
 use rootasrole_core::database::score::SecurityMin;
+use rootasrole_core::database::workdir::{ResolvedWorkdir, WorkdirLevel};
 use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_BEHAVIOR, INFO,
-    PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST,
-    WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST, is_valid_env_name,
+    PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, is_valid_env_name,
     is_valid_env_pattern,
 };
 
@@ -101,17 +101,66 @@ pub struct DWorkdirSet<'a> {
     #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Cow<'a, str>>,
 
-    #[serde(borrow, default, skip_serializing_if = "HashSet::is_empty")]
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
-    pub add: HashSet<Cow<'a, str>>,
+    pub add: Option<HashSet<Cow<'a, str>>>,
     #[serde(
         borrow,
         default,
-        skip_serializing_if = "HashSet::is_empty",
+        skip_serializing_if = "Option::is_none",
         alias = "del"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
-    pub sub: HashSet<Cow<'a, str>>,
+    pub sub: Option<HashSet<Cow<'a, str>>>,
+}
+
+/// A list of a workdir level: `"workdir": "/path"` allows no directory and falls back to it.
+enum WorkdirList<I> {
+    Set(I),
+    Empty,
+}
+
+impl<'s, I: Iterator<Item = &'s str>> Iterator for WorkdirList<I> {
+    type Item = &'s str;
+    fn next(&mut self) -> Option<&'s str> {
+        match self {
+            Self::Set(list) => list.next(),
+            Self::Empty => None,
+        }
+    }
+}
+
+impl WorkdirLevel for DWorkdirEither<'_> {
+    fn behavior(&self) -> WorkdirBehavior {
+        match self {
+            Self::Path(_) => WorkdirBehavior::Allowlist,
+            Self::Struct(set) => set.default_behavior,
+        }
+    }
+    fn add(&self) -> Option<impl Iterator<Item = &str>> {
+        match self {
+            Self::Path(_) => Some(WorkdirList::Empty),
+            Self::Struct(set) => set
+                .add
+                .as_ref()
+                .map(|l| WorkdirList::Set(l.iter().map(AsRef::as_ref))),
+        }
+    }
+    fn sub(&self) -> Option<impl Iterator<Item = &str>> {
+        match self {
+            Self::Path(_) => Some(WorkdirList::Empty),
+            Self::Struct(set) => set
+                .sub
+                .as_ref()
+                .map(|l| WorkdirList::Set(l.iter().map(AsRef::as_ref))),
+        }
+    }
+    fn fallback(&self) -> Option<&str> {
+        match self {
+            Self::Path(path) => Some(path.as_ref()),
+            Self::Struct(set) => set.fallback.as_deref(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
@@ -441,76 +490,17 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
             .find_map(|o| o.umask)
             .unwrap_or(UMASK)
     }
+    /// The working directory of the command, if the policy forces one.
     pub fn calc_workdir(&self) -> Option<PathBuf> {
-        self.get_opt_iter_rev()
-            .filter_map(|o| o.workdir.as_ref())
-            .find_map(|w| match w {
-                DWorkdirEither::Path(p) => Some(p.as_ref().into()),
-                DWorkdirEither::Struct(s) => s.fallback.as_ref().map(|f| f.to_string().into()),
-            })
+        self.get_workdir_temp().fallback.map(PathBuf::from)
     }
-    pub fn get_workdir_temp(&self) -> DWorkdirSet<'_> {
-        #[builder]
-        #[allow(clippy::ref_option)] // Because builder do not handle it well.
-        fn assign_workdir_settings(
-            result: &mut DWorkdirSet<'_>,
-            default_behavior: WorkdirBehavior,
-            add: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
-            del: &(impl IntoIterator<Item = impl AsRef<str>> + Clone),
-            fallback: &Option<impl AsRef<str>>,
-        ) {
-            // we reset as long there is a new default behavior, we don't inherit
-            if default_behavior.is_allowlist() || default_behavior.is_blacklist() {
-                result.add.clear();
-                result.sub.clear();
-                result.fallback.take();
-            }
-            result.add.extend(
-                add.clone()
-                    .into_iter()
-                    .map(|k| k.as_ref().to_string().into()),
-            );
-            result.sub.extend(
-                del.clone()
-                    .into_iter()
-                    .map(|k| k.as_ref().to_string().into()),
-            );
-            if let Some(fallback) = fallback.as_ref() {
-                result
-                    .fallback
-                    .replace(fallback.as_ref().to_string().into());
-            }
+    /// The workdir options of the stack, resolved by rootasrole-core (`database::workdir`).
+    pub fn get_workdir_temp(&self) -> ResolvedWorkdir<'c> {
+        let mut workdir: ResolvedWorkdir<'c> = ResolvedWorkdir::defaults();
+        for level in self.get_opt_iter().filter_map(|o| o.workdir.as_ref()) {
+            workdir.apply(level);
         }
-        let mut result = DWorkdirSet::default();
-        assign_workdir_settings()
-            .result(&mut result)
-            .default_behavior(WORKDIR_BEHAVIOR)
-            .add(&WORKDIR_ADD_LIST)
-            .del(&WORKDIR_REMOVE_LIST)
-            .fallback(&WORKDIR_FALLBACK)
-            .call();
-        self.get_opt_iter()
-            .filter_map(|o| o.workdir.as_ref())
-            .for_each(|o| match o {
-                DWorkdirEither::Struct(s) => assign_workdir_settings()
-                    .result(&mut result)
-                    .default_behavior(s.default_behavior)
-                    .add(&s.add)
-                    .del(&s.sub)
-                    .fallback(&s.fallback)
-                    .call(),
-                DWorkdirEither::Path(p) => {
-                    let array: [String; 0] = [];
-                    assign_workdir_settings()
-                        .result(&mut result)
-                        .default_behavior(WorkdirBehavior::Allowlist)
-                        .fallback(&Some(p))
-                        .add(&array)
-                        .del(&array)
-                        .call();
-                }
-            });
-        result
+        workdir
     }
 }
 
@@ -668,6 +658,37 @@ mod tests {
             stack.calc_path(&["/home/user/bin", ".", "/opt/bin"]),
             ["/sbin", "/home/user/bin"]
         );
+    }
+
+    #[test]
+    fn test_workdir_follows_the_shared_rules() {
+        let config = Opt::builder(Level::Global)
+            .workdir(DWorkdirEither::Struct(
+                DWorkdirSet::builder(WorkdirBehavior::Blacklist)
+                    .sub(["/root"])
+                    .build(),
+            ))
+            .build();
+        let task = Opt::builder(Level::Task)
+            .workdir(DWorkdirEither::Struct(
+                DWorkdirSet::builder(WorkdirBehavior::Allowlist)
+                    .add(["/tmp", "/root"])
+                    .build(),
+            ))
+            .build();
+        let mut stack = BorrowedOptStack::new(Some(&config));
+        stack.task = Some(&task);
+        // the task switches to the allowlist mode, the inherited sub list still applies
+        let workdir = stack.get_workdir_temp();
+        assert!(workdir.allows("/tmp"));
+        assert!(!workdir.allows("/root"));
+        // the short form allows no directory and forces its fallback
+        let forced = Opt::builder(Level::Task)
+            .workdir(DWorkdirEither::Path("/srv".into()))
+            .build();
+        stack.task = Some(&forced);
+        assert!(!stack.get_workdir_temp().allows("/tmp"));
+        assert_eq!(stack.calc_workdir(), Some(PathBuf::from("/srv")));
     }
 
     #[test]

@@ -314,6 +314,10 @@ impl WorkdirBehavior {
     pub const fn is_blacklist(&self) -> bool {
         matches!(self, Self::Blacklist)
     }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
