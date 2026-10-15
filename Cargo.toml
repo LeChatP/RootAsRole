@@ -5,7 +5,7 @@ exclude = ["fuzz", "book", "sudoers-reader"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.93.0"
-version = "4.0.4"
+version = "4.1.0"
 license = "LGPL-3.0-or-later"
 homepage = "https://lechatp.github.io/RootAsRole/"
 repository = "https://github.com/LeChatP/RootAsRole"

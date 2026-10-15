@@ -53,7 +53,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
     },
     Migration {
         from: || Version::new(4, 0, 3),
-        to: || Version::new(4, 0, 4),
+        to: || Version::new(4, 1, 0),
         up: |_, document| {
             rewrite_env_entries(document, regex_to_wildcard);
             replace_default_delete_list(document, DELETE_LIST_4_0_3, ENV_DELETE_LIST_SLICE);
@@ -68,7 +68,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
     },
 ];
 
-/// `LC_.*` -> `LC_*`: the simple regexes used before 4.0.4 become wildcards.
+/// `LC_.*` -> `LC_*`: the simple regexes used before 4.1.0 become wildcards.
 /// Anything else is left unchanged, and rejected with an explicit error when parsed.
 fn regex_to_wildcard(entry: &str) -> Option<String> {
     if is_valid_env_pattern(entry) {
@@ -80,7 +80,7 @@ fn regex_to_wildcard(entry: &str) -> Option<String> {
     is_valid_env_pattern(&wildcard).then_some(wildcard)
 }
 
-/// `LC_*` -> `LC_.*`, for versions before 4.0.4.
+/// `LC_*` -> `LC_.*`, for versions before 4.1.0.
 fn wildcard_to_regex(entry: &str) -> Option<String> {
     entry.contains('*').then(|| entry.replace('*', ".*"))
 }
@@ -101,7 +101,7 @@ fn replace_default_delete_list(document: &mut Value, from: &[&str], to: &[&str])
     }
 }
 
-/// Up to 4.0.3, a level that set its env `default` started from empty lists. Since 4.0.4, the
+/// Up to 4.0.3, a level that set its env `default` started from empty lists. Since 4.1.0, the
 /// lists that it does not define are inherited: a delete mode level would pass the inherited keep
 /// and check lists, so they are written empty to keep it as strict as it was. A keep mode level is
 /// not changed, inheriting the delete and check lists only removes or checks more variables.
