@@ -5,6 +5,20 @@ use rootasrole_core::{
 };
 use std::path::{Path, PathBuf};
 
+/// Path of the command to run when a task allows every command, or for the `**` pattern.
+/// A name without `/` is only searched in PATH, never in the current directory (like a shell),
+/// otherwise a file named like the command in the current directory would be run instead.
+/// A path is made absolute without resolving symbolic links: multi-call binaries
+/// (e.g. `pkill` -> `pgrep`) rely on the name they are run with.
+pub(super) fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if cmd_path.as_os_str().as_bytes().contains(&b'/') {
+        std::path::absolute(cmd_path).ok()
+    } else {
+        all_paths_from_env(env_path, cmd_path).into_iter().next()
+    }
+}
+
 fn match_path(
     env_path: &[&str],
     user_path: &Path,
@@ -13,10 +27,17 @@ fn match_path(
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
     if role_path == "**" {
-        CmdMin::builder()
+        // any binary: the command of the user, resolved like with the "all" default behavior
+        let min = CmdMin::builder()
             .matching()
             .order(CmdOrder::FullWildcardPath)
-            .build()
+            .build();
+        resolve_any_command(user_path, env_path).map_or_else(CmdMin::empty, |path| {
+            if min.better(previous_min) {
+                *final_path = Some(path);
+            }
+            min
+        })
     } else if user_path.is_absolute() {
         debug!("match_path: user absolute path");
         let min = match_single_path(user_path, role_path);
@@ -76,15 +97,15 @@ pub(super) fn match_args(
     }
 }
 
-#[cfg(feature = "pcre2")]
+/// The regex crate matches in linear time: a pattern of the policy cannot make the matching of
+/// the user's arguments take exponential time.
+#[cfg(feature = "regex")]
 fn evaluate_regex_cmd(
     role_args: &str,
     commandline: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
-    use pcre2::bytes::RegexBuilder;
-
-    let regex = RegexBuilder::new().build(role_args)?;
-    if regex.is_match(commandline.as_bytes())? {
+    let regex = regex::Regex::new(role_args)?;
+    if regex.is_match(commandline) {
         Ok(CmdMin::builder()
             .matching()
             .order(CmdOrder::RegexArgs)
@@ -94,7 +115,7 @@ fn evaluate_regex_cmd(
     }
 }
 
-#[cfg(not(feature = "pcre2"))]
+#[cfg(not(feature = "regex"))]
 fn evaluate_regex_cmd(
     _role_args: &str,
     _commandline: &str,
@@ -201,7 +222,8 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 
     #[test]
@@ -285,7 +307,7 @@ mod tests {
         assert_eq!(result.unwrap(), CmdMin::MATCH);
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_full_regex() {
         let input_args = vec!["foo".to_string(), "bar".to_string()];
@@ -301,7 +323,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_full_regex_empty_input() {
         let input_args: Vec<String> = vec![];
@@ -317,7 +339,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_args_regex_args() {
         let input_args: Vec<String> = vec!["a".to_string(), "A".to_string()];
@@ -384,7 +406,7 @@ mod tests {
         assert_eq!(final_path, Some(PathBuf::from("/bin/ls")));
     }
 
-    #[cfg(feature = "pcre2")]
+    #[cfg(feature = "regex")]
     #[test]
     fn test_match_command_line_args_mismatch() {
         let env_path = ["/usr/bin", "/bin"];
@@ -509,7 +531,8 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 
     #[test]
@@ -573,6 +596,27 @@ mod tests {
     }
 
     #[test]
+    fn test_argument_with_quotes_matches_a_quoted_rule() {
+        let env_path = ["/usr/bin"];
+        let matches = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+            let mut final_path = None;
+            evaluate_command_match(
+                &env_path,
+                Path::new("/usr/bin/echo"),
+                &args,
+                r#"/usr/bin/echo '"a"'"#,
+                CmdMin::empty(),
+                &mut final_path,
+            )
+            .matching()
+        };
+        // the rule is written with shell quoting, the argument holds the quotes
+        assert!(matches(&["\"a\""]));
+        assert!(!matches(&["a"]));
+    }
+
+    #[test]
     fn test_evaluate_command_match_only_wildcard() {
         let env_path = ["/usr/bin", "/bin"];
         let cmd_path = PathBuf::from("ls");
@@ -595,6 +639,7 @@ mod tests {
                 .order(CmdOrder::FullWildcardPath)
                 .build()
         );
-        assert_eq!(final_path, None);
+        // the command of the user is resolved in PATH
+        assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
 }

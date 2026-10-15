@@ -1,27 +1,31 @@
 #![no_main]
 
-use std::os::unix::process::ExitStatusExt;
-use std::process::{Command, Stdio};
+use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 use libfuzzer_sys::fuzz_target;
+use nix::unistd::{Pid, Uid, User};
+use rootasrole::fuzzing::{check_env, decide, tz_is_safe};
+use rootasrole_core::Cred;
 
-fn set_dosr_binary() {
-    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/fuzz_bins/rootasrole_environment");
-    unsafe { std::env::set_var("DOSR_BIN", binary) };
-}
+/// Policy whose `env` role is granted to root, with `KEEP` kept, `TZ` checked and `DELETE` deleted.
+const POLICY: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../tests/fixtures/env_override.json"
+));
 
-fn take_value<'a, I>(bytes: &mut I) -> String
-where
-    I: Iterator<Item = &'a u8>,
-{
-    let length = bytes.next().copied().unwrap_or_default() as usize;
-    let value: Vec<_> = bytes.by_ref().take(length).copied().collect();
-    String::from_utf8_lossy(&value).replace('\0', "?")
-}
+/// Identity variables set by dosr, that the caller must never be able to choose.
+const IDENTITY: &[&str] = &[
+    "RAR_UID",
+    "RAR_GID",
+    "RAR_USER",
+    "SUDO_UID",
+    "SUDO_GID",
+    "SUDO_USER",
+];
 
 fn variable_name(selector: u8) -> &'static str {
-    match selector % 16 {
+    match selector % 20 {
         0 => "KEEP",
         1 => "DELETE",
         2 => "TZ",
@@ -37,63 +41,108 @@ fn variable_name(selector: u8) -> &'static str {
         12 => "LD_PRELOAD",
         13 => "BASH_ENV",
         14 => "IFS",
+        15 => "SUDO_UID",
+        16 => "SUDO_USER",
+        17 => "RAR_UID",
+        18 => "RAR_USER",
         _ => "RAR_FUZZ_VALUE",
     }
 }
 
-fn policy_arguments(selector: u8, preserve_environment: bool) -> Vec<String> {
-    let mut arguments = Vec::with_capacity(6);
-    if preserve_environment {
-        arguments.push("-E".to_owned());
+fn policy_arguments(selector: u8) -> Vec<&'static str> {
+    let mut args = vec!["dosr"];
+    if selector & 1 != 0 {
+        args.push("-E");
     }
-
-    match selector % 4 {
+    match (selector >> 1) % 4 {
         0 => {}
-        1 => arguments.extend(["--role", "env", "--task", "allowed"].map(str::to_owned)),
-        2 => arguments.extend(["--role", "env", "--task", "denied"].map(str::to_owned)),
-        _ => arguments.extend(["--role", "env"].map(str::to_owned)),
+        1 => args.extend(["--role", "env", "--task", "allowed"]),
+        2 => args.extend(["--role", "env", "--task", "denied"]),
+        _ => args.extend(["--role", "env"]),
     }
-    arguments.push("/usr/bin/env".to_owned());
-    arguments
+    args.push("/usr/bin/env");
+    args
+}
+
+fn root() -> &'static Cred {
+    static ROOT: OnceLock<Cred> = OnceLock::new();
+    ROOT.get_or_init(|| Cred {
+        user: User::from_uid(Uid::from_raw(0))
+            .ok()
+            .flatten()
+            .expect("root must exist"),
+        groups: Vec::new(),
+        tty: None,
+        ppid: Pid::from_raw(1),
+        curdir: PathBuf::from("/"),
+    })
+}
+
+/// A TZ value accepted by dosr must stay below the zoneinfo directory.
+fn assert_tz_contained(value: &str) {
+    let tz = value.strip_prefix(':').unwrap_or(value);
+    assert!(!tz.starts_with('/'), "absolute TZ accepted: {value:?}");
+    assert!(
+        tz.chars().all(|c| c.is_ascii_graphic()),
+        "TZ with non printable characters accepted: {value:?}"
+    );
+    assert!(
+        Path::new(tz)
+            .components()
+            .all(|c| c != Component::ParentDir),
+        "TZ with a '..' component accepted: {value:?}"
+    );
 }
 
 fuzz_target!(|data: &[u8]| {
-    set_dosr_binary();
-    let Ok(binary) = std::env::var("DOSR_BIN") else {
+    let mut bytes = data.iter().copied();
+    let Some(options) = bytes.next() else {
         return;
     };
-    let mut bytes = data.iter();
-    let options = bytes.next().copied().unwrap_or_default();
-    let variable_count = bytes.next().copied().unwrap_or_default() as usize;
-    let mut variables = Vec::with_capacity(variable_count.min(32));
-
-    for _ in 0..variable_count.min(32) {
-        let selector = bytes.next().copied().unwrap_or_default();
-        variables.push((variable_name(selector), take_value(&mut bytes)));
+    let mut variables = Vec::new();
+    while let (Some(selector), Some(len)) = (bytes.next(), bytes.next()) {
+        let value: Vec<u8> = bytes.by_ref().take(usize::from(len)).collect();
+        // an environment value cannot contain a NUL byte
+        let value = String::from_utf8_lossy(&value).replace('\0', "?");
+        variables.push((variable_name(selector).to_owned(), value));
+        if variables.len() == 32 {
+            break;
+        }
     }
 
-    let arguments = policy_arguments(options >> 1, options & 1 != 0);
-    let mut command = Command::new(binary);
-    command
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("TERM", "xterm")
-        .env("HOME", "/tmp")
-        .envs(variables)
-        .args(arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    for (key, value) in &variables {
+        let accepted = check_env(key, value);
+        if key == "TZ" {
+            assert_eq!(accepted, tz_is_safe(value));
+            if accepted {
+                assert_tz_contained(value);
+            }
+        } else if accepted {
+            assert!(!value.contains(['/', '%']));
+        }
+    }
 
-    let Ok(status) = command.status() else {
+    let cred = root();
+    let Some(decision) = decide(
+        policy_arguments(options),
+        cred,
+        POLICY,
+        variables,
+        &["/usr/bin", "/bin"],
+    ) else {
         return;
     };
-
-    if status.code() == Some(101) {
-        panic!("dosr panicked while handling environment input");
+    assert!(!decision.env.contains_key("DELETE"));
+    if let Some(tz) = decision.env.get("TZ") {
+        assert_tz_contained(tz);
     }
-
-    if ExitStatusExt::signal(&status).is_some() {
-        panic!("dosr terminated by a signal while handling environment input");
+    for key in IDENTITY {
+        let value = decision.env.get(*key).expect("dosr always sets it");
+        let expected = match *key {
+            "RAR_UID" | "SUDO_UID" => cred.user.uid.to_string(),
+            "RAR_GID" | "SUDO_GID" => cred.user.gid.to_string(),
+            _ => cred.user.name.clone(),
+        };
+        assert_eq!(value, &expected, "{key} chosen by the caller");
     }
 });

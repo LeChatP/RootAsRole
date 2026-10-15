@@ -1,97 +1,95 @@
 #![no_main]
 
-use std::os::unix::prelude::ExitStatusExt;
-use std::process::{Command, Stdio};
+use std::path::Path;
 
 use libfuzzer_sys::fuzz_target;
+use rootasrole::fuzzing::parse_args;
 
-fn set_dosr_binary() {
-    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/fuzz_bins/rootasrole_cli_args");
-    unsafe { std::env::set_var("DOSR_BIN", binary) };
-}
+/// Options of dosr, and whether they take a value.
+/// `-v` and `--version` are left out: dosr exits the process when it reads them.
+const OPTIONS: &[(&str, bool)] = &[
+    ("-u", true),
+    ("--user", true),
+    ("-g", true),
+    ("--group", true),
+    ("-S", false),
+    ("--stdin", false),
+    ("-r", true),
+    ("--role", true),
+    ("-t", true),
+    ("--task", true),
+    ("-E", false),
+    ("--preserve-env", false),
+    ("-D", true),
+    ("--chdir", true),
+    ("-K", false),
+    ("--remove-timestamp", false),
+    ("-p", true),
+    ("--prompt", true),
+    ("-i", false),
+    ("--info", false),
+    ("-h", false),
+    ("--help", false),
+];
 
-fn take_value<'a, I>(bytes: &mut I) -> Option<String>
-where
-    I: Iterator<Item = &'a u8>,
-{
-    let length = *bytes.next()?;
-    let value: Vec<_> = bytes.by_ref().take(length as usize).copied().collect();
-    Some(String::from_utf8_lossy(&value).into_owned())
+struct Input<'a>(&'a [u8]);
+
+impl Input<'_> {
+    fn byte(&mut self) -> Option<u8> {
+        let (&first, rest) = self.0.split_first()?;
+        self.0 = rest;
+        Some(first)
+    }
+
+    fn string(&mut self) -> Option<String> {
+        let len = usize::from(self.byte()?).min(self.0.len());
+        let (value, rest) = self.0.split_at(len);
+        self.0 = rest;
+        Some(String::from_utf8_lossy(value).into_owned())
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
-    set_dosr_binary();
-    let Ok(binary) = std::env::var("DOSR_BIN") else {
+    let mut input = Input(data);
+    let Some(option_count) = input.byte() else {
         return;
     };
-
-    let mut arguments = Vec::new();
-    let mut bytes = data.iter().skip(1);
-    let chunk_count = data.first().copied().unwrap_or_default() as usize;
-
-    for _ in 0..chunk_count {
-        let Some(&byte) = bytes.next() else {
+    let mut args = vec!["dosr".to_owned()];
+    for _ in 0..option_count % 16 {
+        let Some(selector) = input.byte() else {
             break;
         };
-
-        let option = match byte % 10 {
-            0 => "-u",
-            1 => "-g",
-            2 => "-r",
-            3 => "-t",
-            4 => "-D",
-            5 => "-p",
-            6 => "-S",
-            7 => "-E",
-            8 => "-i",
-            9 => "-h",
-            _ => "-v",
-        };
-        arguments.push(option.to_owned());
-
-        if matches!(option, "-S" | "-E" | "-i" | "-h" | "-v") {
-            continue;
-        }
-
-        if let Some(value) = take_value(&mut bytes) {
-            arguments.push(value);
+        let (option, takes_value) = OPTIONS[usize::from(selector) % OPTIONS.len()];
+        args.push(option.to_owned());
+        if takes_value {
+            // a value may look like an option, it must still be taken as a value
+            let Some(value) = input.string() else {
+                // missing value at the end of the command line: must not panic
+                let _ = parse_args(&args);
+                return;
+            };
+            args.push(value);
         }
     }
 
-    // The command to execute. Keep stdio closed so flags like -S/-p do not block forever.
-    if let Some(&length) = bytes.next() {
-        if length == 0 {
-            // We use a real binary so we don't trip a "No such file or directory" error.
-            arguments.push("/bin/true".to_owned());
-            if let Some(&next_length) = bytes.next()
-                && next_length > 0
-            {
-                let value: Vec<_> = bytes.by_ref().take(next_length as usize).copied().collect();
-                arguments.push(String::from_utf8_lossy(&value).into_owned());
-            }
-        }
-
-        let value: Vec<_> = bytes.by_ref().take(length as usize).copied().collect();
-        arguments.push(String::from_utf8_lossy(&value).into_owned());
-    }
-
-    let mut command = Command::new(&binary);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .args(&arguments);
-
-    let Ok(status) = command.status() else {
+    let Some(command) = input.string() else {
+        let _ = parse_args(&args);
         return;
     };
-
-    if status.code() == Some(101) {
-        panic!("dosr panicked");
+    if command.is_empty() || command.starts_with('-') {
+        return;
     }
+    args.push(command.clone());
+    let mut tail = Vec::new();
+    while let Some(arg) = input.string() {
+        tail.push(arg);
+    }
+    args.extend(tail.iter().cloned());
 
-    if ExitStatusExt::signal(&status).is_some() {
-        panic!("dosr terminated by a signal");
+    if let Some(parsed) = parse_args(&args) {
+        // everything after the command belongs to the command, never to dosr
+        assert_eq!(parsed.cmd_path, Path::new(&command));
+        // and they are passed as they are given
+        assert_eq!(parsed.cmd_args, tail);
     }
 });

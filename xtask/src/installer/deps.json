@@ -6,10 +6,9 @@
         "refresh": ["apt-get", "update"],
         "install": ["apt-get", "install", "-y"]
       },
-      "runtime": ["libpam0g", "libpcre2-8-0", "libseccomp-dev"],
+      "runtime": ["libpam0g", "libseccomp-dev"],
       "development": [
         "libpam0g-dev",
-        "libpcre2-dev",
         "libclang-dev",
         "pandoc",
         "libseccomp-dev"
@@ -21,9 +20,8 @@
         "refresh": ["dnf", "update", "-y"],
         "install": ["dnf", "install", "-y"]
       },
-      "runtime": ["pam", "pcre2", "libseccomp"],
+      "runtime": ["pam", "libseccomp"],
       "development": [
-        "pcre2-devel",
         "clang-devel",
         "openssl-devel",
         "pam-devel",
@@ -37,9 +35,8 @@
         "refresh": ["zypper", "refresh"],
         "install": ["zypper", "install", "-y"]
       },
-      "runtime": ["pam", "pcre2", "libseccomp"],
+      "runtime": ["pam", "libseccomp"],
       "development": [
-        "pcre2-devel",
         "clang-devel",
         "libopenssl-devel",
         "pam-devel",
@@ -53,7 +50,7 @@
         "refresh": ["pacman", "-Syu"],
         "install": ["pacman", "-Syu", "--noconfirm"]
       },
-      "runtime": ["pam", "pcre2", "libseccomp"],
+      "runtime": ["pam", "libseccomp"],
       "development": ["clang", "pkg-config", "pandoc", "libseccomp"]
     }
   }

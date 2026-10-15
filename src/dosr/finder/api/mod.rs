@@ -48,7 +48,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
     BestGlobalSettingsFound(
         &'f Cli,
         &'g DConfigFinder<'a>,
-        &'j mut BorrowedOptStack<'a>,
+        &'j mut BorrowedOptStack<'g, 'a>,
         &'h mut BestExecSettings,
         &'i mut bool,
     ),
@@ -56,7 +56,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
         &'f Cli,
         &'k Cred,
         &'g DLinkedRole<'c, 'a>,
-        &'h mut BorrowedOptStack<'a>,
+        &'h mut BorrowedOptStack<'c, 'a>,
         &'k &'k [&'k str],
         &'i mut BestExecSettings,
         &'j mut bool,
@@ -64,7 +64,7 @@ pub enum ApiEvent<'a, 't, 'c, 'f, 'g, 'h, 'i, 'j, 'k> {
     BestTaskSettingsFound(
         &'f Cli,
         &'g DLinkedTask<'t, 'c, 'a>,
-        &'j mut BorrowedOptStack<'a>,
+        &'j mut BorrowedOptStack<'c, 'a>,
         &'h mut BestExecSettings,
         &'i mut Score,
     ),

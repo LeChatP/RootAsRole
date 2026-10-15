@@ -1,5 +1,6 @@
 mod convert;
 mod json;
+mod upgrade;
 
 use std::{cell::RefCell, error::Error, rc::Rc};
 
@@ -41,6 +42,10 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
                 .expect("Convertion data should be present"),
             inputs.convert_reconfigure,
         );
+    }
+    if inputs.action == InputAction::Upgrade {
+        debug!("chsr upgrade");
+        return upgrade::upgrade(storage, inputs.upgrade_check);
     }
     let rconfig = &storage.get_root().config;
     match inputs {

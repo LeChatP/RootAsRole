@@ -14,7 +14,7 @@ use capctl::{CapState, prctl};
 use jiff::SignedDuration;
 use konst::{eq_str, iter, result, string};
 use libc::{FS_IOC_GETFLAGS, FS_IOC_SETFLAGS};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use nix::{
     fcntl::{Flock, FlockArg},
     unistd::{Gid, Group},
@@ -537,9 +537,118 @@ fn remove_outer_quotes(input: &str) -> String {
     }
 }
 
+/// Whether `s` is a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`.
+#[must_use]
+pub fn is_valid_env_name(s: &str) -> bool {
+    s.bytes()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+}
+
+/// Whether `s` is a valid environment variable pattern: a variable name in which `*` may
+/// stand for any sequence of characters (e.g. `LC_*`, `*_PROXY`, `*`).
+#[must_use]
+pub fn is_valid_env_pattern(s: &str) -> bool {
+    s.bytes()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_' || c == b'*')
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'*')
+}
+
+/// Whether `subject` matches `pattern`, where `*` matches any sequence of characters,
+/// including an empty one. No other character is special.
+#[must_use]
+pub fn wildcard_match(pattern: &str, subject: &str) -> bool {
+    let (pattern, subject) = (pattern.as_bytes(), subject.as_bytes());
+    let (mut p, mut s) = (0, 0);
+    // position in the pattern after the last `*`, and the subject position it matched from
+    let mut backtrack = None;
+    while s < subject.len() {
+        if pattern.get(p) == Some(&b'*') {
+            p += 1;
+            backtrack = Some((p, s));
+        } else if pattern.get(p) == Some(&subject[s]) {
+            p += 1;
+            s += 1;
+        } else if let Some((star_p, star_s)) = backtrack {
+            // let the last `*` match one more character
+            p = star_p;
+            s = star_s + 1;
+            backtrack = Some((star_p, s));
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|&c| c == b'*')
+}
+
+/// Whether a value of the user's environment is a shell function definition (`() { ...; }`).
+///
+/// Such a value is never passed to a command, whatever the policy lists say. Bash exports its
+/// functions as variables whose value starts with `()` (`BASH_FUNC_name%%`), and every bash run
+/// by the command imports them: a kept function could replace a command used by a script that
+/// runs with the task's privileges. The lists of the policy select variables by name, this rule
+/// applies to their value.
+#[must_use]
+pub fn is_shell_function(value: &str) -> bool {
+    value.starts_with("()")
+}
+
+/// Refuse a policy file that other users can write, or that is in a directory they can write.
+///
+/// Policy files decide who may run what. A warning is logged when other users can read it.
+/// The owner is not checked: in `RootAsRole`, root is not trusted more than any other account.
+/// # Errors
+/// Returns `PermissionDenied` when other users can write the file or its directory,
+/// or an error if the metadata cannot be read.
+pub fn check_others_permissions(path: &Path, file: &File) -> io::Result<()> {
+    const OTHERS_READ: u32 = 0o004;
+    const OTHERS_WRITE: u32 = 0o002;
+    let writable = |what: &Path| {
+        let message = format!(
+            "{} is writable by other users, refusing to use it",
+            what.display()
+        );
+        error!("{message}");
+        io::Error::new(ErrorKind::PermissionDenied, message)
+    };
+    let mode = file.metadata()?.mode();
+    if mode & OTHERS_WRITE != 0 {
+        return Err(writable(path));
+    }
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let dir_mode = std::fs::metadata(dir)
+        .or_else(|e| {
+            if e.kind() != ErrorKind::PermissionDenied {
+                return Err(e);
+            }
+            with_privileges(&[Cap::DAC_READ_SEARCH], || std::fs::metadata(dir))
+        })?
+        .mode();
+    if dir_mode & OTHERS_WRITE != 0 {
+        return Err(writable(dir));
+    }
+    if mode & OTHERS_READ != 0 {
+        warn!(
+            "{} is readable by other users, consider `chmod o-r` on it",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Candidates for `exe_name` in the directories of `env_path`.
+/// Relative directories (`.`, empty entries…) are ignored: they would make the result depend
+/// on the current directory, which the user controls.
 pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec<PathBuf> {
     env_path
         .iter()
+        .filter(|dir| Path::new(dir).is_absolute())
         .filter_map(|dir| {
             let full_path = Path::new(dir).join(&exe_name);
             debug!("Checking path: {}", full_path.display());
@@ -548,25 +657,27 @@ pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec
         .collect()
 }
 
+/// Whether the command `cmd_path` matches the path `role_path` of the policy.
+///
+/// `role_path` must be absolute. With the `glob` feature, it can be a pattern (globset syntax): `*`, `?`
+/// and `[...]` match within one path component, `**` across components, `{a,b}` is an
+/// alternative. A command path with a `.` or `..` component never matches a pattern, as
+/// `/usr/bin/**` would otherwise match `/usr/bin/../../tmp/x`.
 #[cfg(feature = "finder")]
 #[must_use]
 pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
-    let Some(cmd_path_str) = cmd_path.to_str() else {
-        return CmdMin::default();
-    };
-    if !role_path.ends_with(cmd_path_str) || !role_path.starts_with('/') {
-        return CmdMin::default();
-    }
     let mut match_status = CmdMin::default();
+    if !role_path.starts_with('/') {
+        return match_status;
+    }
     debug!("Matching path {} with {role_path:?}", cmd_path.display());
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
-    } else if cfg!(feature = "glob") {
-        use glob::Pattern;
-        if let Ok(pattern) = Pattern::new(&format!("^{role_path}$"))
-            && pattern.matches_path(cmd_path)
-        {
+    } else {
+        #[cfg(feature = "glob")]
+        if glob_matches(role_path, cmd_path) {
             use crate::database::score::CmdOrder;
+            match_status.set_matching();
             match_status.union_order(CmdOrder::WildcardPath);
         }
     }
@@ -577,6 +688,20 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
         );
     }
     match_status
+}
+
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn glob_matches(pattern: &str, path: &Path) -> bool {
+    use std::path::Component;
+    let normal = path
+        .components()
+        .all(|component| matches!(component, Component::RootDir | Component::Normal(_)));
+    normal
+        && globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .inspect_err(|e| debug!("Invalid path pattern {pattern:?}: {e}"))
+            .is_ok_and(|glob| glob.compile_matcher().is_match(path))
 }
 
 /// # Errors
@@ -763,6 +888,7 @@ pub fn create_dir_all_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<(
     })
 }
 
+#[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod test {
     use std::{
@@ -790,6 +916,130 @@ mod test {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_wildcard_match() {
+        assert!(wildcard_match("LC_*", "LC_ALL"));
+        assert!(wildcard_match("LC_*", "LC_"));
+        assert!(!wildcard_match("LC_*", "LC"));
+        assert!(wildcard_match("*_PROXY", "HTTPS_PROXY"));
+        assert!(wildcard_match("XDG_*_DIR", "XDG_CONFIG_DIR"));
+        assert!(!wildcard_match("XDG_*_DIR", "XDG_CONFIG_DIRS"));
+        assert!(wildcard_match("*", ""));
+        assert!(wildcard_match("A*B*C", "AxxBxxBxxC"));
+        assert!(!wildcard_match("A*B*C", "AxxBxx"));
+        assert!(wildcard_match("HOME", "HOME"));
+        assert!(!wildcard_match("HOME", "HOMES"));
+        // no other character is special
+        assert!(!wildcard_match("LC_.*", "LC_ALL"));
+        assert!(wildcard_match("LC_.*", "LC_.ALL"));
+    }
+
+    #[cfg(feature = "finder")]
+    #[test]
+    fn test_match_single_path() {
+        let matches = |cmd: &str, role: &str| match_single_path(Path::new(cmd), role);
+        // exact path
+        let exact = matches("/usr/bin/ls", "/usr/bin/ls");
+        assert!(exact.matching());
+        assert!(exact.order.is_empty());
+        assert!(!matches("/usr/bin/ls", "/usr/bin/cat").matching());
+        // the policy path must be absolute
+        assert!(!matches("/usr/bin/ls", "usr/bin/ls").matching());
+        assert!(!matches("ls", "ls").matching());
+    }
+
+    #[cfg(all(feature = "finder", feature = "glob"))]
+    #[test]
+    fn test_match_single_path_patterns() {
+        use crate::database::score::CmdOrder;
+        let matches = |cmd: &str, role: &str| match_single_path(Path::new(cmd), role).matching();
+        let wildcard = match_single_path(Path::new("/usr/bin/ls"), "/usr/bin/*");
+        assert!(wildcard.matching());
+        assert_eq!(wildcard.order, CmdOrder::WildcardPath);
+        // `*` stays within one component, `**` crosses them
+        assert!(!matches("/usr/bin/x/ls", "/usr/bin/*"));
+        assert!(matches("/usr/bin/x/ls", "/usr/bin/**"));
+        assert!(matches("/usr/bin/python3.12", "/usr/bin/python3.*"));
+        assert!(matches("/usr/bin/cat", "/usr/bin/{ls,cat}"));
+        assert!(!matches("/usr/bin/rm", "/usr/bin/{ls,cat}"));
+        // a command path with `..` or `.` never matches a pattern
+        assert!(!matches("/usr/bin/../../tmp/evil", "/usr/bin/**"));
+        assert!(!matches("/usr/bin/./ls", "/usr/bin/*"));
+        // an invalid pattern matches nothing
+        assert!(!matches("/usr/bin/ls", "/usr/bin/[ls"));
+    }
+
+    #[test]
+    fn test_is_shell_function() {
+        assert!(is_shell_function("() { evil; }"));
+        assert!(is_shell_function("()"));
+        assert!(!is_shell_function(" () { evil; }"));
+        assert!(!is_shell_function("value ()"));
+        assert!(!is_shell_function(""));
+    }
+
+    #[test]
+    fn test_env_name_and_pattern() {
+        assert!(is_valid_env_name("_A1"));
+        assert!(!is_valid_env_name("1A"));
+        assert!(!is_valid_env_name("A*"));
+        assert!(!is_valid_env_name(""));
+        assert!(is_valid_env_pattern("A*"));
+        assert!(is_valid_env_pattern("*"));
+        assert!(is_valid_env_pattern("*_PROXY"));
+        assert!(!is_valid_env_pattern("LC_.*"));
+        assert!(!is_valid_env_pattern("A|B"));
+        assert!(!is_valid_env_pattern("1*"));
+        assert!(!is_valid_env_pattern(""));
+    }
+
+    #[test]
+    fn test_check_others_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let set_mode = |path: &Path, mode: u32| {
+            fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+        };
+        let dir = std::env::temp_dir().join(format!("rar_check_others_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        set_mode(&dir, 0o755);
+        let path = dir.join("policy.json");
+        fs::write(&path, "{}").unwrap();
+        let check = |path: &Path| check_others_permissions(path, &File::open(path).unwrap());
+
+        set_mode(&path, 0o600);
+        assert!(check(&path).is_ok());
+        // readable by others: only a warning
+        set_mode(&path, 0o644);
+        assert!(check(&path).is_ok());
+        // writable by others: refused
+        set_mode(&path, 0o646);
+        assert_eq!(
+            check(&path).unwrap_err().kind(),
+            ErrorKind::PermissionDenied
+        );
+        // directory writable by others: refused, even with the sticky bit
+        set_mode(&path, 0o600);
+        set_mode(&dir, 0o1777);
+        assert_eq!(
+            check(&path).unwrap_err().kind(),
+            ErrorKind::PermissionDenied
+        );
+        set_mode(&dir, 0o755);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_all_paths_from_env_ignores_relative_directories() {
+        // the tests run in the crate directory, which contains Cargo.toml
+        assert!(all_paths_from_env(&[".", "", "src/.."], "Cargo.toml").is_empty());
+        let dir = std::env::current_dir().unwrap();
+        assert_eq!(
+            all_paths_from_env(&[".", dir.to_str().unwrap()], "Cargo.toml"),
+            vec![dir.join("Cargo.toml")]
+        );
     }
 
     #[test]

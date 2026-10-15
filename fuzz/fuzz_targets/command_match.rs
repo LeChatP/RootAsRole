@@ -1,21 +1,12 @@
 #![no_main]
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use libfuzzer_sys::fuzz_target;
+use rootasrole::fuzzing::evaluate_command_match;
 use rootasrole_core::database::score::CmdMin;
 
-fn set_dosr_binary() {
-    let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/fuzz_bins/rootasrole_command_match");
-    unsafe { std::env::set_var("DOSR_BIN", binary) };
-}
-
-#[path = "../../src/dosr/finder/cmd.rs"]
-mod command;
-
 fuzz_target!(|data: &[u8]| {
-    set_dosr_binary();
     if data.is_empty() {
         return;
     }
@@ -38,7 +29,7 @@ fuzz_target!(|data: &[u8]| {
         .collect();
     let mut final_path = None;
 
-    let result = command::evaluate_command_match(
+    let result = evaluate_command_match(
         &environment,
         &command_path,
         &arguments,
@@ -47,8 +38,38 @@ fuzz_target!(|data: &[u8]| {
         &mut final_path,
     );
 
-    if shell_words::split(&role_command).is_err() {
+    let Ok(role_words) = shell_words::split(&role_command) else {
         assert!(!result.matching());
         assert!(final_path.is_none());
+        return;
+    };
+    if !result.matching() {
+        return;
+    }
+    // a match is only possible against a role command, and `**` is the only path matching anything
+    let role_path = &role_words[0];
+    if role_path != "**" {
+        let final_path = final_path.expect("a matching path must be selected");
+        assert!(final_path.is_absolute());
+        // without pattern syntax (globset), the selected path is exactly the one of the role
+        if role_path.contains(['*', '?', '[', '{', '\\']) {
+            // a path matched by a pattern never has `.` or `..` components
+            assert!(
+                final_path
+                    .components()
+                    .all(|c| matches!(c, Component::RootDir | Component::Normal(_))),
+                "{final_path:?} matched {role_path:?}"
+            );
+        } else {
+            assert_eq!(final_path, Path::new(role_path));
+        }
+    }
+    // literal arguments of the role must be exactly the arguments given
+    if role_words.len() > 1 {
+        let role_args = shell_words::join(&role_words[1..]);
+        let is_regex = role_args.starts_with("'^") && role_args.ends_with("$'");
+        if !is_regex {
+            assert_eq!(shell_words::join(&arguments), role_args);
+        }
     }
 });

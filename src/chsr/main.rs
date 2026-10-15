@@ -6,8 +6,8 @@ mod security;
 mod util;
 
 #[cfg(not(tarpaulin_include))]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::env::temp_dir;
+fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+    use std::{env::temp_dir, process::ExitCode};
 
     use crate::{
         cli::editor::defer,
@@ -62,16 +62,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    if cli::main(&mut settings, std::env::args().skip(1))
+    match cli::main(&mut settings, std::env::args().skip(1))
         .ruleset(&ruleset_status)
         .folder(&folder)
         .call()
-        .map_err(|e| error!("Unable to edit policy : {e}"))
-        .is_ok_and(|b| b)
     {
-        debug!("Saving configuration");
-        settings.save_all()
-    } else {
-        Ok(())
+        Ok(true) => {
+            debug!("Saving configuration");
+            settings.save_all()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Ok(false) => Ok(ExitCode::SUCCESS),
+        Err(e) => {
+            error!("Unable to edit policy : {e}");
+            Ok(ExitCode::FAILURE)
+        }
     }
 }

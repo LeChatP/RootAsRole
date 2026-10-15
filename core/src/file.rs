@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    cell::RefCell,
+    cell::{Cell, RefCell},
     error::Error,
     fmt::Debug,
     fs::{File, OpenOptions},
@@ -13,12 +13,14 @@ use bon::Builder;
 use capctl::Cap;
 use log::{debug, error, warn};
 use nix::fcntl::Flock;
+use semver::Version;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     SettingsContent,
     database::{
         migration::{Migration, MigrationError},
+        migrations::{DocumentMigration, migrate_document},
         structs::SPolicy,
         versionning::Versioning,
     },
@@ -29,6 +31,20 @@ use crate::{
 };
 
 pub const ROOT_MIGRATIONS: &[Migration<RootSettings>] = &[];
+
+/// Read a policy document without interpreting it, so that it can be migrated first.
+fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::Value> {
+    match method {
+        StorageMethod::JSON => serde_json::from_reader(file).map_err(|e| {
+            debug!("Failed to read the document: {e}");
+            io::Error::new(io::ErrorKind::InvalidData, e)
+        }),
+        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file)).map_err(|e| {
+            debug!("Failed to read the document: {e}");
+            io::Error::new(io::ErrorKind::InvalidData, e)
+        }),
+    }
+}
 pub const POLICY_MIGRATIONS: &[Migration<Rc<RefCell<SPolicy>>>] = &[];
 
 #[derive(Debug)]
@@ -36,6 +52,8 @@ pub struct LockedSettingsFile<T: Serialize + DeserializeOwned + Debug + Default>
     path: PathBuf,
     fd: Flock<File>, // file descriptor to the opened file, to keep the lock
     pub data: T,
+    /// The migration applied to the document when it was loaded, until it is saved.
+    migration: Option<DocumentMigration>,
 }
 
 /// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
@@ -91,6 +109,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
                 path: path.as_ref().to_path_buf(),
                 data: data_loader(&path, &file)?,
                 fd: file,
+                migration: None,
             })
         };
 
@@ -130,6 +149,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
             // clear the rest of the file if any
             debug!("Wrote config file");
         }
+        self.migration = None;
 
         Ok(())
     }
@@ -141,6 +161,16 @@ pub struct RootSettings {
     #[serde(flatten)]
     #[builder(default)]
     pub config: Rc<RefCell<SPolicy>>,
+}
+
+/// The version of a loaded file.
+#[derive(Debug)]
+pub struct FileVersion<'a> {
+    pub path: &'a Path,
+    /// The version of the loaded content, the current one once migrated.
+    pub version: &'a Version,
+    /// The migration applied when the file was loaded, if it was not saved since.
+    pub migration: Option<&'a DocumentMigration>,
 }
 
 pub type ConfigMap = Vec<LockedPolicy>;
@@ -160,6 +190,9 @@ pub struct FileSettings {
         })?)
     })]
     root: LockedRootSettings,
+    /// Policy files of a directory that could not be loaded, with the reason.
+    #[builder(skip)]
+    ignored: Vec<(PathBuf, String)>,
 }
 
 impl FileSettings {
@@ -234,33 +267,9 @@ impl FileSettings {
         P: AsRef<Path>,
     {
         let rar_cfg_data_path = rar_cfg_data_path.as_ref().to_path_buf();
-        let root =
-            LockedSettingsFile::open(rar_cfg_path.as_ref(), options, write, |path, file| {
-                debug!("Loading root settings from {}", path.display());
-                let mut settings: Versioning<RootSettings> = match rar_cfg_type {
-                    StorageMethod::JSON => {
-                        serde_json::from_reader(file).inspect_err(|e| debug!("{e}"))?
-                    }
-                    StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-                        .map_err(|e| {
-                            debug!("Failed to deserialize root settings: {e}");
-                            io::Error::new(io::ErrorKind::InvalidData, e)
-                        })?,
-                };
-                Self::make_weak_config(&settings.data.config);
-                settings
-                    .upgrade_version(ROOT_MIGRATIONS)
-                    .or_else(|e| match e {
-                        MigrationError::NoMigrationPath(from, to) => {
-                            debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
-                            Ok(false)
-                        }
-                        MigrationError::MigrationFailed(e) => Err(io::Error::other(e)),
-                    })?;
-                debug!("Loaded root settings from {}", path.display());
-                Ok(settings)
-            })?;
+        let root = Self::load_root_file(rar_cfg_path.as_ref(), rar_cfg_type, options, write)?;
         let mut map = ConfigMap::new();
+        let mut ignored = Vec::new();
 
         if let Some(path) = root
             .data
@@ -311,11 +320,14 @@ impl FileSettings {
                                 Self::make_weak_config(&config.data.data);
                                 map.push(config);
                             }
-                            Err(e) => debug!(
-                                "Failed to load settings from file {}: {}",
-                                path.display(),
-                                e
-                            ),
+                            Err(e) => {
+                                debug!(
+                                    "Failed to load settings from file {}: {}",
+                                    path.display(),
+                                    e
+                                );
+                                ignored.push((path, e.to_string()));
+                            }
                         }
                     }
                 }
@@ -328,7 +340,48 @@ impl FileSettings {
             }
         }
 
-        Ok(Self { map, root })
+        Ok(Self { map, root, ignored })
+    }
+
+    /// # Errors
+    /// Returns an error if the file cannot be opened or deserialized
+    fn load_root_file(
+        path: &Path,
+        file_type: StorageMethod,
+        options: &OpenOptions,
+        write: bool,
+    ) -> std::io::Result<LockedRootSettings> {
+        let migration = Cell::new(None);
+        let mut root = LockedSettingsFile::open(path, options, write, |path, file| {
+            debug!("Loading root settings from {}", path.display());
+            let mut document = read_document(file_type, file)?;
+            match migrate_document(&mut document) {
+                Ok(applied) => migration.set(applied),
+                Err(MigrationError::NoMigrationPath(from, to)) => {
+                    debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                }
+                Err(MigrationError::MigrationFailed(e)) => return Err(io::Error::other(e)),
+            }
+            let mut settings: Versioning<RootSettings> =
+                serde_json::from_value(document).map_err(|e| {
+                    debug!("Failed to deserialize root settings: {e}");
+                    io::Error::new(io::ErrorKind::InvalidData, e)
+                })?;
+            Self::make_weak_config(&settings.data.config);
+            settings
+                .upgrade_version(ROOT_MIGRATIONS)
+                .or_else(|e| match e {
+                    MigrationError::NoMigrationPath(from, to) => {
+                        debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                        Ok(false)
+                    }
+                    MigrationError::MigrationFailed(e) => Err(io::Error::other(e)),
+                })?;
+            debug!("Loaded root settings from {}", path.display());
+            Ok(settings)
+        })?;
+        root.migration = migration.take();
+        Ok(root)
     }
 
     /// # Errors
@@ -342,14 +395,17 @@ impl FileSettings {
     where
         P: AsRef<Path>,
     {
+        let migration = Cell::new(None);
         let mut policyfile: LockedPolicy =
             LockedSettingsFile::open(path, options, write, |_, file| {
-                Ok(match file_type {
-                    StorageMethod::JSON => serde_json::from_reader(file)?,
-                    StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file))
-                        .map_err(io::Error::other)?,
-                })
+                let mut document = read_document(file_type, file)?;
+                migration.set(
+                    migrate_document(&mut document).map_err(|e| io::Error::other(e.to_string()))?,
+                );
+                serde_json::from_value(document)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             })?;
+        policyfile.migration = migration.take();
         Self::make_weak_config(&policyfile.data.data);
         policyfile
             .data
@@ -368,18 +424,21 @@ impl FileSettings {
         }
     }
 
-    /// # Errors
-    /// Returns an error if any of the files cannot be written
-    pub fn save_all(&mut self) -> Result<(), Box<dyn Error>> {
-        let immutable = self
-            .root
+    fn immutable(&self) -> bool {
+        self.root
             .data
             .data
             .storage
             .settings
             .as_ref()
             .and_then(|s| s.immutable)
-            .unwrap_or(RAR_CFG_IMMUTABLE);
+            .unwrap_or(RAR_CFG_IMMUTABLE)
+    }
+
+    /// # Errors
+    /// Returns an error if any of the files cannot be written
+    pub fn save_all(&mut self) -> Result<(), Box<dyn Error>> {
+        let immutable = self.immutable();
 
         if let Some(path) = self.root.data.data.storage.settings.as_ref().and_then(|s| {
             s.path.as_ref().and_then(|p| {
@@ -430,6 +489,48 @@ impl FileSettings {
         } else {
             Ok(())
         }
+    }
+
+    /// Save only the files that were migrated when they were loaded.
+    /// # Errors
+    /// Returns an error if one of these files cannot be written
+    pub fn save_migrated(&mut self) -> Result<(), Box<dyn Error>> {
+        let immutable = self.immutable();
+        let method = self.root.data.data.storage.method;
+        if self.root.migration.is_some() {
+            self.root
+                .save(RAR_CFG_TYPE, immutable)
+                .map_err(|e| format!("Failed to save {}: {e}", self.root.path.display()))?;
+        }
+        for config in self.map.iter_mut().filter(|c| c.migration.is_some()) {
+            config
+                .save(method, immutable)
+                .map_err(|e| format!("Failed to save {}: {e}", config.path.display()))?;
+        }
+        Ok(())
+    }
+
+    /// The version of each loaded file, root settings first.
+    #[must_use]
+    pub fn get_versions(&self) -> Vec<FileVersion<'_>> {
+        let root = FileVersion {
+            path: &self.root.path,
+            version: &self.root.data.version,
+            migration: self.root.migration.as_ref(),
+        };
+        std::iter::once(root)
+            .chain(self.map.iter().map(|config| FileVersion {
+                path: &config.path,
+                version: &config.data.version,
+                migration: config.migration.as_ref(),
+            }))
+            .collect()
+    }
+
+    /// Policy files of a directory that could not be loaded, and were ignored.
+    #[must_use]
+    pub fn get_ignored(&self) -> &[(PathBuf, String)] {
+        &self.ignored
     }
 
     #[must_use]
@@ -494,6 +595,34 @@ mod tests {
 
     pub fn defer<F: FnOnce()>(f: F) -> Defer<F> {
         Defer::new(f)
+    }
+
+    #[test]
+    fn test_read_policy_migrates_older_versions() {
+        let path =
+            std::env::temp_dir().join(format!("rar_migrate_policy_{}.json", std::process::id()));
+        // saved by 4.0.2, with a regex that is not valid anymore
+        std::fs::write(
+            &path,
+            r#"{"version":"4.0.2","options":{"env":{"check":["LC_.*"]}},"roles":[]}"#,
+        )
+        .unwrap();
+        let policy = FileSettings::read_policy(&path, StorageMethod::JSON).unwrap();
+        assert_eq!(policy.data.version, PACKAGE_VERSION);
+        let options = policy.data.data.as_ref().borrow().options.clone().unwrap();
+        let check = options
+            .as_ref()
+            .borrow()
+            .env
+            .clone()
+            .unwrap()
+            .check
+            .unwrap();
+        assert_eq!(
+            check.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["LC_*"]
+        );
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

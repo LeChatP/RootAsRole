@@ -1618,6 +1618,105 @@ mod tests {
         }
     }
 
+    fn read_json(path: &str) -> Value {
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn upgrade(path: &str, command: &str) -> Result<bool, Box<dyn Error>> {
+        let mut settings = FileSettings::write_all(path, path, StorageMethod::JSON).unwrap();
+        main(&mut settings, command.split(' ')).call()
+    }
+
+    #[test]
+    fn test_upgrade() {
+        let path = format!("{RAR_CFG_PATH}.upgrade");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade"));
+        });
+        // saved by 4.0.2, with an environment regex
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":"4.0.2","storage":{{"method":"json","settings":{{"path":"{path}","immutable":false}}}},"options":{{"env":{{"check":["LC_.*"]}}}},"roles":[]}}"#
+            ),
+        )
+        .unwrap();
+
+        // --check fails and writes nothing
+        assert!(upgrade(&path, "upgrade --check").is_err());
+        let saved = read_json(&path);
+        assert_eq!(saved["version"], "4.0.2");
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_.*"])
+        );
+
+        // upgrade saves the file itself, nothing is left for save_all
+        assert!(!upgrade(&path, "upgrade").unwrap());
+        let saved = read_json(&path);
+        assert_eq!(
+            saved["version"],
+            rootasrole_core::PACKAGE_VERSION.to_string()
+        );
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_*"])
+        );
+
+        // up to date: the file is not written again
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        assert!(!upgrade(&path, "upgrade --check").unwrap());
+        assert!(!upgrade(&path, "upgrade").unwrap());
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn test_upgrade_policy_directory() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_dir");
+        let dir = format!("{path}.d");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_dir"));
+            let _ = fs::remove_dir_all(format!("{RAR_CFG_PATH}.upgrade_dir.d"));
+        });
+        let version = rootasrole_core::PACKAGE_VERSION;
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":"{version}","storage":{{"method":"json","settings":{{"path":"{dir}","immutable":false}}}}}}"#
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let policy = format!("{dir}/policy.json");
+        fs::write(
+            &policy,
+            r#"{"version":"4.0.2","options":{"env":{"keep":["^HOME$"]}},"roles":[]}"#,
+        )
+        .unwrap();
+        // not convertible, the file cannot be loaded
+        let invalid = format!("{dir}/invalid.json");
+        fs::write(
+            &invalid,
+            r#"{"version":"4.0.3","options":{"env":{"keep":["PS[1-4]"]}},"roles":[]}"#,
+        )
+        .unwrap();
+        let root = fs::read_to_string(&path).unwrap();
+
+        assert!(upgrade(&path, "upgrade --check").is_err());
+        assert_eq!(read_json(&policy)["version"], "4.0.2");
+
+        // the file that cannot be loaded is reported, the other one is upgraded
+        assert!(upgrade(&path, "upgrade").is_err());
+        let saved = read_json(&policy);
+        assert_eq!(saved["version"], version.to_string());
+        assert_eq!(saved["options"]["env"]["keep"], serde_json::json!(["HOME"]));
+        assert_eq!(
+            read_json(&invalid)["options"]["env"]["keep"],
+            serde_json::json!(["PS[1-4]"])
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), root);
+    }
+
     #[test]
     fn test_convert() {
         let _ = env_logger::builder()

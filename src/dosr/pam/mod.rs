@@ -6,7 +6,6 @@ use nonstick2::{
     AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, Result as PamResult,
     TransactionBuilder, conv::Demux, libpam::SessionActive,
 };
-use pcre2::bytes::RegexBuilder;
 
 #[cfg(feature = "timeout")]
 use crate::timeout;
@@ -24,12 +23,12 @@ use self::rpassword::Terminal;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod cutils;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
-mod rpassword;
+pub mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
-mod securemem;
+pub mod securemem;
 
 const PAM_SERVICE: &str = env!("RAR_PAM_SERVICE");
-pub(crate) const PAM_PROMPT: &str = "Password: ";
+pub const PAM_PROMPT: &str = "Password: ";
 
 #[derive(Builder)]
 pub struct SrConversationHandler<'a> {
@@ -51,19 +50,17 @@ impl SrConversationHandler<'_> {
             Terminal::open_tty()
         }
     }
+    /// Whether PAM asks for the password with its default prompt, `Password:` or
+    /// `<user>'s Password:`, optionally followed by one space.
     fn is_pam_password_prompt(&self, prompt: &impl AsRef<str>) -> bool {
+        let is_password = |prompt: &str| matches!(prompt, "Password:" | "Password: ");
         let pam_prompt = prompt.as_ref();
-        RegexBuilder::new()
-            .build("^Password: ?$")
-            .expect("Invalid regex, implementation error")
-            .is_match(pam_prompt.as_bytes())
-            .is_ok_and(|f| f)
+        is_password(pam_prompt)
             || self.username.as_ref().is_some_and(|username| {
-                RegexBuilder::new()
-                    .build(&format!("^{}'s Password: ?$", pcre2::escape(username)))
-                    .expect("invalid regex, username should be sanitized")
-                    .is_match(pam_prompt.as_bytes())
-                    .is_ok_and(|f| f)
+                pam_prompt
+                    .strip_prefix(username.as_ref())
+                    .and_then(|prompt| prompt.strip_prefix("'s "))
+                    .is_some_and(is_password)
             })
     }
 }
@@ -127,7 +124,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
-pub(super) fn start_session<'a>(
+pub fn start_session<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
@@ -296,6 +293,12 @@ mod tests {
         assert!(handler.is_pam_password_prompt(&"testuser's Password: "));
         assert!(!handler.is_pam_password_prompt(&"otheruser's Password:"));
         assert!(!handler.is_pam_password_prompt(&"testuser Password:")); // Missing apostrophe-s
+        assert!(!handler.is_pam_password_prompt(&"testuser's Password:  "));
+        assert!(!handler.is_pam_password_prompt(&"testuser's Password: x"));
+        // the username is compared as text, never as a pattern
+        let handler = SrConversationHandler::builder().username("a.b").build();
+        assert!(handler.is_pam_password_prompt(&"a.b's Password:"));
+        assert!(!handler.is_pam_password_prompt(&"axb's Password:"));
     }
 
     #[test]
