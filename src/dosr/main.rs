@@ -11,7 +11,7 @@ use capctl::{Cap, CapState};
 use const_format::formatcp;
 use nix::unistd::{Uid, User};
 use rootasrole_core::database::options::SBounding;
-use rootasrole_core::util::{escape_parser_string, initialize_capabilities, with_privileges};
+use rootasrole_core::util::{initialize_capabilities, with_privileges};
 use rootasrole_core::{
     Cred,
     database::{
@@ -158,7 +158,7 @@ where
         // matches only first options
         match arg.as_ref() {
             "-u" | "--user" => {
-                user = iter.next().map(|s| escape_parser_string(s).as_str().into());
+                user = iter.next().map(|s| s.as_ref().into());
             }
             "-g" | "--group" => {
                 group = iter.next().map(|s| {
@@ -174,16 +174,16 @@ where
                 args.stdin = true;
             }
             "-r" | "--role" => {
-                role = iter.next().map(|s| escape_parser_string(s));
+                role = iter.next().map(|s| s.as_ref().to_string());
             }
             "-t" | "--task" => {
-                task = iter.next().map(|s| escape_parser_string(s));
+                task = iter.next().map(|s| s.as_ref().to_string());
             }
             "-E" | "--preserve-env" => {
                 env.replace(EnvBehavior::Keep);
             }
             "-D" | "--chdir" => {
-                workdir = iter.next().map(|s| escape_parser_string(s));
+                workdir = iter.next().map(|s| s.as_ref().to_string());
             }
             #[cfg(feature = "timeout")]
             "-K" | "--remove-timestamp" => {
@@ -194,7 +194,7 @@ where
                     error!("Missing prompt for -p option");
                     return Err(SrError::InvalidAgruments);
                 };
-                args.prompt = Some(escape_parser_string(prompt));
+                args.prompt = Some(prompt.as_ref().to_string());
             }
             "-i" | "--info" => {
                 args.info = true;
@@ -236,7 +236,7 @@ where
             .build(),
     );
     for arg in iter {
-        args.cmd_args.push(escape_parser_string(arg));
+        args.cmd_args.push(arg.as_ref().to_string());
     }
     Ok(args)
 }
@@ -719,6 +719,19 @@ mod tests {
             })
             .filter(|uid| *uid != 0)
             .nth(nth)
+    }
+
+    #[test]
+    fn test_getopt_keeps_the_arguments_as_given() {
+        // the shell already removed its quoting: the quotes that remain belong to the arguments
+        let args = getopt([
+            "dosr", "-r", "\"role\"", "-D", "'/tmp'", "echo", "\"a\"", "'b'", "'\"c\"'",
+        ])
+        .unwrap();
+        let filter = args.opt_filter.unwrap();
+        assert_eq!(filter.role.as_deref(), Some("\"role\""));
+        assert_eq!(filter.workdir.as_deref(), Some("'/tmp'"));
+        assert_eq!(args.cmd_args, ["\"a\"", "'b'", "'\"c\"'"]);
     }
 
     #[test]

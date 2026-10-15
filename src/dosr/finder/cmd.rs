@@ -596,6 +596,27 @@ mod tests {
     }
 
     #[test]
+    fn test_argument_with_quotes_matches_a_quoted_rule() {
+        let env_path = ["/usr/bin"];
+        let matches = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+            let mut final_path = None;
+            evaluate_command_match(
+                &env_path,
+                Path::new("/usr/bin/echo"),
+                &args,
+                r#"/usr/bin/echo '"a"'"#,
+                CmdMin::empty(),
+                &mut final_path,
+            )
+            .matching()
+        };
+        // the rule is written with shell quoting, the argument holds the quotes
+        assert!(matches(&["\"a\""]));
+        assert!(!matches(&["a"]));
+    }
+
+    #[test]
     fn test_evaluate_command_match_only_wildcard() {
         let env_path = ["/usr/bin", "/bin"];
         let cmd_path = PathBuf::from("ls");
