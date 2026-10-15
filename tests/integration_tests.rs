@@ -270,6 +270,8 @@ mod tests {
         let runner = TestRunner::builder()
             .build()
             .expect("Failed to setup test environment");
+        // both tasks run id as nobody:nobody, only the variables they set differ: dosr cannot
+        // choose between them
         let result = runner
             .run_dosr(&["-g", "nobody", "id"])
             .rar_cfg_data_path("tests/fixtures/user_group.json")
@@ -277,7 +279,22 @@ mod tests {
             .groups(&["nobody"])
             .call()
             .map_err(|e| eprintln!("{e}"))
-            .expect("Failed to run dosr -u nobody id");
+            .expect("Failed to run dosr -g nobody id");
+        assert!(!result.success, "A tie was not refused: {}", result.stdout);
+        assert!(
+            result.stderr.contains("Permission denied"),
+            "stderr: {}",
+            result.stderr
+        );
+        // the user selects one of them
+        let result = runner
+            .run_dosr(&["-r", "A", "-t", "A_A", "-g", "nobody", "id"])
+            .rar_cfg_data_path("tests/fixtures/user_group.json")
+            .users(&["nobody"])
+            .groups(&["nobody"])
+            .call()
+            .map_err(|e| eprintln!("{e}"))
+            .expect("Failed to run dosr -r A -t A_A -g nobody id");
         if !result.success {
             eprintln!("stderr: {}", result.stderr);
             println!("stdout: {}", result.stdout);

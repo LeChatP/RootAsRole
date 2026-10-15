@@ -2,6 +2,7 @@
 /// It is much more efficient to do it this way, way less memory allocation and manipulation
 /// Only the settings that are needed are kept in memory
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     fs,
     io::BufReader,
@@ -11,7 +12,7 @@ use std::{
 use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
-use log::{debug, error};
+use log::{debug, error, warn};
 use options::BorrowedOptStack;
 use rootasrole_core::{
     Cred,
@@ -80,6 +81,14 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// Setting umask
     pub umask: SUMask,
+    #[builder(skip)]
+    /// The address of the best task, to tell another task as good as it from the same task
+    /// reached again through the hierarchy plugin. It is only compared, never dereferenced.
+    best_task: Option<usize>,
+    #[builder(skip)]
+    /// Another task as good as the best one (`role/task`): none of them needs fewer privileges,
+    /// so dosr cannot choose and refuses (see [`BestExecSettings::refuse_tie`]).
+    tie: Option<String>,
 }
 
 /// This functions is the main entrace to lookup at the security policy.
@@ -119,7 +128,7 @@ where
         match settings_file.data.data.method {
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
-                Ok(BestExecSettings::retrieve_settings(
+                Ok(BestExecSettings::evaluate(
                     cli,
                     cred,
                     &config_finder_deserializer
@@ -134,7 +143,7 @@ where
             }
             StorageMethod::JSON => {
                 let io_reader = serde_json::de::IoRead::new(reader);
-                Ok(BestExecSettings::retrieve_settings(
+                Ok(BestExecSettings::evaluate(
                     cli,
                     cred,
                     &config_finder_deserializer
@@ -173,11 +182,7 @@ where
             match result {
                 Ok(settings) => {
                     parsed_any = true;
-                    if best.as_ref().is_none_or(|best_settings| {
-                        settings.score.better_fully(&best_settings.score)
-                    }) {
-                        best = Some(settings);
-                    }
+                    BestExecSettings::keep_best(&mut best, settings);
                 }
                 Err(SrError::PermissionDenied) => {
                     parsed_any = true;
@@ -188,20 +193,70 @@ where
             }
         }
 
-        return best.ok_or({
-            if parsed_any {
-                SrError::PermissionDenied
-            } else {
-                SrError::ConfigurationError
-            }
-        });
+        // a tie is only refused once the best tasks of every file are compared: another file
+        // can have a better task
+        return best
+            .ok_or({
+                if parsed_any {
+                    SrError::PermissionDenied
+                } else {
+                    SrError::ConfigurationError
+                }
+            })
+            .and_then(BestExecSettings::refuse_tie);
     }
 
-    parse_file(&file_path)
+    parse_file(&file_path).and_then(BestExecSettings::refuse_tie)
 }
 
 impl BestExecSettings {
+    /// The settings of the best task of the policy `data` for the command line, refused when
+    /// another task is as good as the best one.
     pub(crate) fn retrieve_settings<'a>(
+        cli: &'a Cli,
+        cred: &'a Cred,
+        data: &'a DConfigFinder<'a>,
+        env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+        env_path: &[&str],
+    ) -> SrResult<Self> {
+        Self::evaluate(cli, cred, data, env_vars, env_path).and_then(Self::refuse_tie)
+    }
+
+    /// Refuse the settings when another task is as good as the best one: none of them needs
+    /// fewer privileges, so dosr cannot choose. The policy must tell them apart, or the user
+    /// selects one with -r and -t. A tie between tasks worse than the best one does not matter.
+    fn refuse_tie(self) -> SrResult<Self> {
+        if let Some(other) = &self.tie {
+            warn!(
+                "Permission denied: the tasks {} and {other} match the command equally, with the same privileges; the policy must tell them apart",
+                self.task_name()
+            );
+            return Err(SrError::PermissionDenied);
+        }
+        Ok(self)
+    }
+
+    /// Keep the better of the best settings of two policy files, or record that their tasks
+    /// are as good as each other.
+    fn keep_best(best: &mut Option<Self>, settings: Self) {
+        match best {
+            Some(best) if !settings.score.better_fully(&best.score) => {
+                if settings.score.cmp(&best.score) == Ordering::Equal {
+                    best.tie.get_or_insert_with(|| settings.task_name());
+                }
+            }
+            _ => *best = Some(settings),
+        }
+    }
+
+    /// The best task, as `role/task`.
+    fn task_name(&self) -> String {
+        format!("{}/{}", self.role, self.task.as_deref().unwrap_or_default())
+    }
+
+    /// The settings of the best task of the policy `data`, even when another task is as good
+    /// as it: the best tasks of the files of a policy directory are compared first.
+    fn evaluate<'a>(
         cli: &'a Cli,
         cred: &'a Cred,
         data: &'a DConfigFinder<'a>,
@@ -414,11 +469,27 @@ impl BestExecSettings {
         Api::notify(ApiEvent::BestTaskSettingsFound(
             cli, data, opt_stack, self, &mut score,
         ))?;
+        let task_address = std::ptr::from_ref(data.task).addr();
+        if found
+            && task_final_path.is_some()
+            && score.fully_matching()
+            && !score.better_fully(&self.score)
+            && score.cmp(&self.score) == Ordering::Equal
+            && self.best_task != Some(task_address)
+        {
+            // as good as the best task, which is fully matching since this one is not better
+            debug!("task {:?} is as good as the best task", data.id);
+            self.tie
+                .get_or_insert_with(|| format!("{}/{}", data.role().role().role, data.id));
+        }
         if found
             && let Some(final_path) = task_final_path
             && score.better_fully(&self.score)
         {
             debug!("found better task settings");
+            self.best_task = Some(task_address);
+            // a tie with the previous best task does not matter anymore
+            self.tie = None;
             self.final_path = final_path;
             self.role = data.role().role().role.to_string();
             self.task = Some(data.id.to_string());
@@ -691,6 +762,14 @@ mod tests {
         tasks: &[&String],
         cmd: &str,
     ) -> SrResult<(String, PathBuf, Vec<String>, Vec<String>)> {
+        best_task_for(tasks, &Cli::builder().cmd_path(cmd.to_string()).build())
+    }
+
+    /// `best_task` for a command line with options.
+    fn best_task_for(
+        tasks: &[&String],
+        cli: &Cli,
+    ) -> SrResult<(String, PathBuf, Vec<String>, Vec<String>)> {
         use serde::de::DeserializeSeed;
         let policy = format!(
             r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{}]}}]}}"#,
@@ -701,18 +780,13 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(",")
         );
-        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
         let cred = dummy_cred();
         let env_path = ["/usr/bin"];
-        let data = super::de::ConfigFinderDeserializer {
-            cli: &cli,
-            cred: &cred,
-        }
-        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
-        .expect("valid policy");
+        let data = super::de::ConfigFinderDeserializer { cli, cred: &cred }
+            .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+            .expect("valid policy");
         let user_env = vec![("A_VAR", "a"), ("B_VAR", "b"), ("C_VAR", "c")];
-        let settings =
-            BestExecSettings::retrieve_settings(&cli, &cred, &data, user_env, &env_path)?;
+        let settings = BestExecSettings::retrieve_settings(cli, &cred, &data, user_env, &env_path)?;
         let kept = ["A_VAR", "B_VAR", "C_VAR"]
             .into_iter()
             .filter(|var| settings.env.contains_key(*var))
@@ -758,6 +832,70 @@ mod tests {
             // same command, but b needs no capability
             assert_eq!(task, "b", "{tasks:?}");
             assert_eq!(kept, ["B_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_tie_between_the_best_tasks_is_refused_in_any_order() {
+        // same command and same privileges: none of them is less privileged than the other
+        let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let b = task_json("b", &[], r#"["/usr/bin/ls"]"#, "B_VAR", "/usr/bin");
+        // a worse task does not resolve it
+        let c = task_json(
+            "c",
+            &["CAP_NET_RAW"],
+            r#"["/usr/bin/ls"]"#,
+            "C_VAR",
+            "/usr/bin",
+        );
+        for tasks in orders(&[&a, &b, &c]) {
+            assert!(
+                matches!(
+                    best_task(&tasks, "/usr/bin/ls"),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{tasks:?}"
+            );
+        }
+        // the user selects one of them
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .opt_filter(
+                FilterMatcher::builder()
+                    .role("r".to_string())
+                    .task("b".to_string())
+                    .build(),
+            )
+            .build();
+        for tasks in orders(&[&a, &b, &c]) {
+            let (task, _, _, kept) = best_task_for(&tasks, &cli).unwrap();
+            assert_eq!(task, "b", "{tasks:?}");
+            assert_eq!(kept, ["B_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_tie_between_worse_tasks_does_not_matter() {
+        // a and b are as good as each other, c needs fewer privileges than both
+        let a = task_json(
+            "a",
+            &["CAP_NET_RAW"],
+            r#"["/usr/bin/ls"]"#,
+            "A_VAR",
+            "/usr/bin",
+        );
+        let b = task_json(
+            "b",
+            &["CAP_NET_RAW"],
+            r#"["/usr/bin/ls"]"#,
+            "B_VAR",
+            "/usr/bin",
+        );
+        let c = task_json("c", &[], r#"["/usr/bin/ls"]"#, "C_VAR", "/usr/bin");
+        for tasks in orders(&[&a, &b, &c]) {
+            let (task, _, _, kept) = best_task(&tasks, "/usr/bin/ls").unwrap();
+            assert_eq!(task, "c", "{tasks:?}");
+            assert_eq!(kept, ["C_VAR"], "{tasks:?}");
         }
     }
 
@@ -973,6 +1111,26 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
             "least"
         );
+        // a file with a task as good as the best one: dosr cannot choose
+        let tie = policy(user_role("tie", "/usr/bin/ls", &[]));
+        write_file(&policies.join("b2.json"), &tie, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+        // a tie between the worse tasks does not matter
+        std::fs::remove_file(policies.join("b2.json")).unwrap();
+        let admin2 = policy(user_role("admin2", "/usr/bin/ls", &["CAP_NET_RAW"]));
+        write_file(
+            &policies.join("a2.json"),
+            &admin2,
+            StorageMethod::JSON,
+            0o600,
+        );
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "least"
+        );
         // a file that other users can write is never used
         let writable = policy(user_role("writable", "/usr/bin/cat", &[]));
         write_file(
@@ -1150,6 +1308,19 @@ mod tests {
             assert_eq!(task.as_deref(), Some("junior_task"));
             assert_eq!(final_path, PathBuf::from("/usr/bin/ls"));
         }
+        // the task of a parent that the user also holds directly is the same task, not a tie
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &parents(serde_json::json!(["junior"]))
+            ),
+            role_json("other", true, None, &parents(serde_json::json!(["junior"]))),
+            role_json("junior", true, Some("/usr/bin/ls"), &none),
+        ]);
+        let (_, task, _) = choose(&roles, "/usr/bin/ls").unwrap();
+        assert_eq!(task.as_deref(), Some("junior_task"));
         // a user that is a member of no role gets nothing, hierarchy or not
         let roles = serde_json::json!([
             role_json(
