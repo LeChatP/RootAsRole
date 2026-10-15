@@ -1,4 +1,10 @@
-use std::{fs::File, io::Read, os::fd::AsRawFd, path::PathBuf};
+use std::{
+    fs::File,
+    io::Read,
+    os::fd::AsRawFd,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use ::serde::{Deserialize, Serialize};
 use libc::FS_IOC_GETFLAGS;
@@ -46,6 +52,19 @@ struct HashChecker {
     command: String,
 }
 
+/// Logged once per run: the plugin cannot guarantee that the file executed is the file checked.
+static DEPRECATION_LOGGED: AtomicBool = AtomicBool::new(false);
+
+fn log_deprecation() {
+    if !DEPRECATION_LOGGED.swap(true, Ordering::Relaxed) {
+        warn!(
+            "The hashchecker plugin is deprecated and will be removed in RootAsRole 5.0: \
+            the file can change between its check and its execution. \
+            Use the IPE LSM (fs-verity or dm-verity) to restrict which files can be executed"
+        );
+    }
+}
+
 fn new_complex_command(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::ProcessComplexCommand(
         value,
@@ -57,6 +76,7 @@ fn new_complex_command(event: &mut ApiEvent) -> SrResult<()> {
     ) = event
     {
         let hash_checker: HashChecker = serde_json::from_value(to_value(value)?)?;
+        log_deprecation();
         process_hash_check(
             &hash_checker,
             env_path,

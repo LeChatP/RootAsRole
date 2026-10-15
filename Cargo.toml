@@ -68,6 +68,7 @@ finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rootasrole-core/fi
 glob = ["rootasrole-core/glob"]
 pcre2 = ["dep:pcre2", "rootasrole-core/pcre2"]
 plugins = ["hashchecker", "ssd", "hierarchy"]
+# Deprecated: the IPE LSM restricts executed files better, this plugin is removed in 5.0
 hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
 hierarchy = []
