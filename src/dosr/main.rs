@@ -24,6 +24,7 @@ use rootasrole_core::{
 
 use log::{debug, error, info};
 use pam::PAM_PROMPT;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::{io, process::Command};
 
@@ -188,11 +189,11 @@ where
                 args.del_ts = true;
             }
             "-p" | "--prompt" => {
-                args.prompt = Some(
-                    iter.next()
-                        .map(|s| escape_parser_string(s))
-                        .expect("Missing prompt for -p option"),
-                );
+                let Some(prompt) = iter.next() else {
+                    error!("Missing prompt for -p option");
+                    return Err(SrError::InvalidAgruments);
+                };
+                args.prompt = Some(escape_parser_string(prompt));
             }
             "-i" | "--info" => {
                 args.info = true;
@@ -255,7 +256,7 @@ fn main() {
                 User::from_uid(Uid::current())
                     .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or_else(|_| Uid::current().to_string()),
-                std::env::args().skip(1).collect::<Vec<_>>().join(" ")
+                command_line()
             );
             eprintln!("This incident is reported.");
         } else {
@@ -265,7 +266,7 @@ fn main() {
                     .and_then(|u| u.map(|u| u.name).ok_or(nix::errno::Errno::EAGAIN))
                     .unwrap_or_else(|_| Uid::current().to_string()),
                 e,
-                std::env::args().skip(1).collect::<Vec<_>>().join(" ")
+                command_line()
             );
         }
         std::process::exit(1);
@@ -287,7 +288,7 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
-    let args = std::env::args();
+    let args = utf8_args(std::env::args_os())?;
     if args.len() < 2 {
         println!("{USAGE}");
         return Ok(());
@@ -323,7 +324,7 @@ fn main_inner() -> SrResult<()> {
         RAR_CFG_PATH,
         RAR_CFG_DATA_PATH,
         RAR_CFG_TYPE,
-        env::vars(),
+        utf8_vars(env::vars_os()),
         env::var("PATH")
             .unwrap_or_default()
             .split(':')
@@ -451,6 +452,36 @@ fn main_inner() -> SrResult<()> {
     // drop PAM session here for underlining to the compiler that the session ends here.
     drop(session);
     std::process::exit(status.code().unwrap_or(1));
+}
+
+/// The arguments of dosr: an argument that is not UTF-8 is refused, the policy matches text.
+fn utf8_args(args: impl IntoIterator<Item = OsString>) -> SrResult<Vec<String>> {
+    args.into_iter()
+        .map(OsString::into_string)
+        .collect::<Result<_, _>>()
+        .map_err(|_| {
+            error!("The arguments must be valid UTF-8");
+            SrError::InvalidAgruments
+        })
+}
+
+/// The environment of the user: a variable that is not UTF-8 is never passed to the command.
+fn utf8_vars(
+    vars: impl IntoIterator<Item = (OsString, OsString)>,
+) -> impl Iterator<Item = (String, String)> {
+    vars.into_iter()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+}
+
+/// The command line of dosr for the logs, whatever its encoding.
+fn command_line() -> String {
+    escape_log(
+        &std::env::args_os()
+            .skip(1)
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 /// Control characters are escaped, so a user-controlled value cannot forge another log line.
@@ -681,6 +712,37 @@ mod tests {
             })
             .filter(|uid| *uid != 0)
             .nth(nth)
+    }
+
+    #[test]
+    fn test_getopt_missing_prompt() {
+        assert!(matches!(
+            getopt(["dosr", "-p"]),
+            Err(SrError::InvalidAgruments)
+        ));
+    }
+
+    #[test]
+    fn test_utf8_args_and_vars() {
+        use std::os::unix::ffi::OsStringExt;
+        let invalid = OsString::from_vec(vec![b'a', 0xff]);
+        assert_eq!(
+            utf8_args([OsString::from("dosr"), OsString::from("ls")]).unwrap(),
+            ["dosr", "ls"]
+        );
+        // an argument that is not UTF-8 is refused, instead of a panic
+        assert!(matches!(
+            utf8_args([OsString::from("dosr"), invalid.clone()]),
+            Err(SrError::InvalidAgruments)
+        ));
+        // a variable that is not UTF-8 is never passed to the command
+        let vars: Vec<_> = utf8_vars([
+            (OsString::from("KEPT"), OsString::from("value")),
+            (OsString::from("BAD_VALUE"), invalid.clone()),
+            (invalid, OsString::from("value")),
+        ])
+        .collect();
+        assert_eq!(vars, [("KEPT".to_string(), "value".to_string())]);
     }
 
     #[test]
