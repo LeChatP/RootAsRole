@@ -67,6 +67,12 @@ trusted-publisher = "github:elastio/bon"
 start = "2025-07-18"
 end = "2027-05-25"
 
+[[trusted.bstr]]
+criteria = "safe-to-deploy"
+user-id = 189 # Andrew Gallant (BurntSushi)
+start = "2019-07-07"
+end = "2027-05-24"
+
 [[trusted.bytes]]
 criteria = "safe-to-deploy"
 user-id = 6741
@@ -137,6 +143,12 @@ end = "2027-05-24"
 criteria = "safe-to-deploy"
 user-id = 55123 # rust-lang-owner
 start = "2023-01-06"
+end = "2027-05-24"
+
+[[trusted.globset]]
+criteria = "safe-to-deploy"
+user-id = 189 # Andrew Gallant (BurntSushi)
+start = "2019-03-28"
 end = "2027-05-24"
 
 [[trusted.hashbrown]]

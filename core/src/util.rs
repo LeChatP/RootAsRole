@@ -657,25 +657,27 @@ pub fn all_paths_from_env<P: AsRef<Path>>(env_path: &[&str], exe_name: P) -> Vec
         .collect()
 }
 
+/// Whether the command `cmd_path` matches the path `role_path` of the policy.
+///
+/// `role_path` must be absolute. With the `glob` feature, it can be a pattern (globset syntax): `*`, `?`
+/// and `[...]` match within one path component, `**` across components, `{a,b}` is an
+/// alternative. A command path with a `.` or `..` component never matches a pattern, as
+/// `/usr/bin/**` would otherwise match `/usr/bin/../../tmp/x`.
 #[cfg(feature = "finder")]
 #[must_use]
 pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
-    let Some(cmd_path_str) = cmd_path.to_str() else {
-        return CmdMin::default();
-    };
-    if !role_path.ends_with(cmd_path_str) || !role_path.starts_with('/') {
-        return CmdMin::default();
-    }
     let mut match_status = CmdMin::default();
+    if !role_path.starts_with('/') {
+        return match_status;
+    }
     debug!("Matching path {} with {role_path:?}", cmd_path.display());
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
-    } else if cfg!(feature = "glob") {
-        use glob::Pattern;
-        if let Ok(pattern) = Pattern::new(&format!("^{role_path}$"))
-            && pattern.matches_path(cmd_path)
-        {
+    } else {
+        #[cfg(feature = "glob")]
+        if glob_matches(role_path, cmd_path) {
             use crate::database::score::CmdOrder;
+            match_status.set_matching();
             match_status.union_order(CmdOrder::WildcardPath);
         }
     }
@@ -686,6 +688,20 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
         );
     }
     match_status
+}
+
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn glob_matches(pattern: &str, path: &Path) -> bool {
+    use std::path::Component;
+    let normal = path
+        .components()
+        .all(|component| matches!(component, Component::RootDir | Component::Normal(_)));
+    normal
+        && globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+            .inspect_err(|e| debug!("Invalid path pattern {pattern:?}: {e}"))
+            .is_ok_and(|glob| glob.compile_matcher().is_match(path))
 }
 
 /// # Errors
@@ -918,6 +934,41 @@ mod test {
         // no other character is special
         assert!(!wildcard_match("LC_.*", "LC_ALL"));
         assert!(wildcard_match("LC_.*", "LC_.ALL"));
+    }
+
+    #[cfg(feature = "finder")]
+    #[test]
+    fn test_match_single_path() {
+        let matches = |cmd: &str, role: &str| match_single_path(Path::new(cmd), role);
+        // exact path
+        let exact = matches("/usr/bin/ls", "/usr/bin/ls");
+        assert!(exact.matching());
+        assert!(exact.order.is_empty());
+        assert!(!matches("/usr/bin/ls", "/usr/bin/cat").matching());
+        // the policy path must be absolute
+        assert!(!matches("/usr/bin/ls", "usr/bin/ls").matching());
+        assert!(!matches("ls", "ls").matching());
+    }
+
+    #[cfg(all(feature = "finder", feature = "glob"))]
+    #[test]
+    fn test_match_single_path_patterns() {
+        use crate::database::score::CmdOrder;
+        let matches = |cmd: &str, role: &str| match_single_path(Path::new(cmd), role).matching();
+        let wildcard = match_single_path(Path::new("/usr/bin/ls"), "/usr/bin/*");
+        assert!(wildcard.matching());
+        assert_eq!(wildcard.order, CmdOrder::WildcardPath);
+        // `*` stays within one component, `**` crosses them
+        assert!(!matches("/usr/bin/x/ls", "/usr/bin/*"));
+        assert!(matches("/usr/bin/x/ls", "/usr/bin/**"));
+        assert!(matches("/usr/bin/python3.12", "/usr/bin/python3.*"));
+        assert!(matches("/usr/bin/cat", "/usr/bin/{ls,cat}"));
+        assert!(!matches("/usr/bin/rm", "/usr/bin/{ls,cat}"));
+        // a command path with `..` or `.` never matches a pattern
+        assert!(!matches("/usr/bin/../../tmp/evil", "/usr/bin/**"));
+        assert!(!matches("/usr/bin/./ls", "/usr/bin/*"));
+        // an invalid pattern matches nothing
+        assert!(!matches("/usr/bin/ls", "/usr/bin/[ls"));
     }
 
     #[test]

@@ -17,7 +17,7 @@ nix = { version = ">=0.30, <0.32", features = ["user","process", "signal", "fs",
 capctl = { version= "0.2", default-features = false, features = ["std", "serde"] }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
 serde_json = { version= "1.0", default-features = false, features = ["std"] }
-glob = { version = "0.3", default-features = false, optional = true }
+globset = { version = "0.4", default-features = false, optional = true }
 bitflags = { version = "2.13", default-features = false }
 indexmap = { version = "2.14", default-features = false, features = ["std"] }
 jiff = { version = "0.2", default-features = false }
@@ -43,7 +43,7 @@ undocumented_unsafe_blocks = { level = "warn", priority = 2 }
 default = ["pcre2", "glob"]
 # kept for compatibility: environment patterns are `*` wildcards, not regexes anymore
 pcre2 = []
-glob = ["dep:glob"]
+glob = ["dep:globset"]
 finder = ["pcre2", "glob"]
 
 [lints.rust]

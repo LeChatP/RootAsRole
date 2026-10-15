@@ -75,7 +75,7 @@ hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
 hierarchy = []
 timeout = []
-landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
+landlock = ["dep:landlock", "dep:bitflags", "dep:globset"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
 fuzzing = []
 
@@ -115,7 +115,7 @@ bon = { version = "3", default-features = false }
 nonstick2 = { version = "0.1", optional = true }
 libpam-sys = { version = "0.2", default-features = false, optional = true }
 regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"], optional = true }
-glob = { version = "0.3", default-features = false, optional = true }
+globset = { version = "0.4", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 ## chsr
 pest = { version = "2.9", default-features = false, features = ["std"], optional = true }
