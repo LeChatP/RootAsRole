@@ -47,9 +47,12 @@ opt-level = 1
 inherits = "release"
 debug = true
 
+[lib]
+path = "src/dosr/lib.rs"
+
 [[bin]]
 name = "dosr"
-path = "src/dosr/main.rs"
+path = "src/dosr/bin.rs"
 required-features = ["finder"]
 
 

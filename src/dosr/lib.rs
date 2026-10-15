@@ -1,6 +1,13 @@
+//! dosr, executed by the `dosr` binary through [`dosr_main`].
+//! It is a library so that its internals can be fuzzed in-process (see the `fuzzing` feature).
+#![cfg(feature = "finder")]
+
 mod error;
 mod finder;
-pub mod pam;
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing;
+mod pam;
 mod pre_exec;
 mod procfs;
 #[cfg(feature = "timeout")]
@@ -37,14 +44,14 @@ use crate::error::SrResult;
 use crate::finder::de::cred::CredOwnedData;
 
 #[cfg(not(test))]
-pub const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
+pub(crate) const RAR_CFG_PATH: &str = env!("RAR_CFG_PATH");
 #[cfg(test)]
-pub const RAR_CFG_PATH: &str = "target/rootasrole.json";
+pub(crate) const RAR_CFG_PATH: &str = "target/rootasrole.json";
 
 #[cfg(not(test))]
-pub const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
+pub(crate) const RAR_CFG_DATA_PATH: &str = env!("RAR_CFG_DATA_PATH");
 #[cfg(test)]
-pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
+pub(crate) const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 
 //const ABOUT: &str = "Execute privileged commands with a role-based access control system";
 //const LONG_ABOUT: &str =
@@ -242,7 +249,7 @@ where
 }
 
 #[cfg(not(tarpaulin_include))]
-fn main() {
+pub fn dosr_main() {
     if let Err(e) = subsribe("sr") {
         eprintln!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
