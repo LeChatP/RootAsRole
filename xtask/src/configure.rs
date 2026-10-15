@@ -11,6 +11,7 @@ use nix::unistd::{getresuid, getuid};
 use serde_json::Value;
 
 // (Assuming your crate imports remain the same)
+use crate::installer::{CHSR_DEST, RAR_BIN_PATH};
 use crate::util::{
     ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST, ENV_OVERRIDE_BEHAVIOR,
     ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, INFO,
@@ -237,6 +238,19 @@ fn set_options(content: &mut RootSettings) {
     });
 }
 
+/// Policy files are only accessible by their owner: dosr refuses a policy file that other
+/// users can write, and warns when they can read it.
+fn write_private(path: impl AsRef<Path>, contents: &str) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(contents.as_bytes())
+}
+
 fn deploy_default_config() -> Result<(), anyhow::Error> {
     let user = retrieve_real_user()?;
     let template_content = fs::read_to_string("resources/rootasrole.json")
@@ -291,9 +305,9 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
             fs::create_dir_all(parent)?;
         }
 
-        fs::write(
+        write_private(
             &policy_path,
-            serde_json::to_string_pretty(&settings.policy)?,
+            &serde_json::to_string_pretty(&settings.policy)?,
         )
         .context("Failed to write policy config file")?;
 
@@ -304,7 +318,7 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
     if let Some(parent) = Path::new(RAR_CFG_PATH).parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(RAR_CFG_PATH, serde_json::to_string_pretty(&settings)?)
+    write_private(RAR_CFG_PATH, &serde_json::to_string_pretty(&settings)?)
         .context("Failed to write main config file")?;
 
     if is_immutable {
@@ -400,6 +414,29 @@ pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     };
     deploy_pam_config(&os).context("Failed to deploy the PAM configuration file")?;
 
-    deploy_config_file()?;
+    if deploy_config_file()?.is_modified() {
+        upgrade_policy();
+    }
     Ok(())
+}
+
+/// Save the existing policy files in the format of the installed version.
+fn upgrade_policy() {
+    let chsr = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
+    if !chsr.exists() {
+        info!(
+            "{} is not installed, skipping the policy upgrade",
+            chsr.display()
+        );
+        return;
+    }
+    match std::process::Command::new(&chsr).arg("upgrade").status() {
+        Ok(status) if status.success() => {}
+        Ok(_) => {
+            warn!(
+                "Some policy files could not be upgraded, check them with `chsr upgrade --check`"
+            );
+        }
+        Err(e) => warn!("Failed to run {}: {e}", chsr.display()),
+    }
 }

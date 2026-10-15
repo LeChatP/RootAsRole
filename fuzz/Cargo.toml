@@ -13,7 +13,7 @@ libfuzzer-sys = "0.4"
 libc = { version = "0.2", default-features = false, features = ["std"] }
 libpam-sys = "0.2"
 log = "0.4"
-pcre2 = { version = "0.2", default-features = false }
+regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
 rootasrole-core = { version = "4", path = "../core", features = ["finder"] }
 serde = "1"
 shell-words = "1.1"
@@ -23,8 +23,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
 unused = { level = "allow" }
 
 [features]
-default = ["pcre2", "fuzzing"]
-pcre2 = []
+default = ["regex", "fuzzing"]
+regex = []
 fuzzing = []
 
 [[bin]]

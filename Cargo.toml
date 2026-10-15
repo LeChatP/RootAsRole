@@ -5,7 +5,7 @@ exclude = ["fuzz", "book", "sudoers-reader"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.93.0"
-version = "4.0.3"
+version = "4.1.0"
 license = "LGPL-3.0-or-later"
 homepage = "https://lechatp.github.io/RootAsRole/"
 repository = "https://github.com/LeChatP/RootAsRole"
@@ -64,15 +64,18 @@ path = "tests/integration_tests.rs"
 required-features = ["finder"]
 
 [features]
-finder = ["plugins", "timeout", "pcre2", "glob", "landlock", "rootasrole-core/finder", "dep:nonstick2", "dep:libpam-sys", "dep:indexmap"]
+finder = ["plugins", "timeout", "regex", "glob", "landlock", "rootasrole-core/finder", "dep:nonstick2", "dep:libpam-sys", "dep:indexmap"]
 glob = ["rootasrole-core/glob"]
-pcre2 = ["dep:pcre2", "rootasrole-core/pcre2"]
+regex = ["dep:regex"]
+# Kept for compatibility with build scripts, regexes use the regex crate
+pcre2 = ["regex", "rootasrole-core/pcre2"]
 plugins = ["hashchecker", "ssd", "hierarchy"]
+# Deprecated: the IPE LSM restricts executed files better, this plugin is removed in 5.0
 hashchecker = ["dep:hex", "dep:sha2"]
 ssd = []
 hierarchy = []
 timeout = []
-landlock = ["dep:landlock", "dep:bitflags", "dep:glob"]
+landlock = ["dep:landlock", "dep:bitflags", "dep:globset"]
 editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
 fuzzing = []
 
@@ -111,8 +114,8 @@ bon = { version = "3", default-features = false }
 ## dosr
 nonstick2 = { version = "0.1", optional = true }
 libpam-sys = { version = "0.2", default-features = false, optional = true }
-pcre2 = { version = "0.2", default-features = false, optional = true }
-glob = { version = "0.3", default-features = false, optional = true }
+regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"], optional = true }
+globset = { version = "0.4", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 ## chsr
 pest = { version = "2.9", default-features = false, features = ["std"], optional = true }

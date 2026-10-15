@@ -26,5 +26,7 @@ configure() {
 if [ -f /etc/security/rootasrole.json ]; then
     if grep -q "ROOTADMINISTRATOR" /etc/security/rootasrole.json; then
         configure
+    elif ! chsr upgrade; then
+        echo "Some policy files could not be upgraded, check them with 'chsr upgrade --check'"
     fi
 fi

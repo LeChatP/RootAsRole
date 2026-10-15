@@ -115,6 +115,12 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::convert_reconfigure => {
             inputs.convert_reconfigure = true;
         }
+        Rule::upgrade => {
+            inputs.action = InputAction::Upgrade;
+        }
+        Rule::upgrade_check => {
+            inputs.upgrade_check = true;
+        }
         // === setpolicies ===
         Rule::cmd_policy => {
             inputs.action = InputAction::Set;

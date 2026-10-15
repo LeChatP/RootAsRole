@@ -4,18 +4,14 @@ use std::collections::HashMap;
 use std::num::ParseIntError;
 use std::result::Result;
 use std::str::FromStr;
-use std::{borrow::Borrow, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use bon::{Builder, bon};
 
 use indexmap::IndexSet;
 use konst::eq_str;
 
-#[cfg(feature = "pcre2")]
-use log::warn;
 use nix::sys::stat::Mode;
-#[cfg(feature = "pcre2")]
-use pcre2::bytes::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
@@ -27,10 +23,16 @@ use crate::util::{
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
     HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK,
+    UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
-use super::{FilterMatcher, deserialize_duration, is_default, serialize_duration};
+use super::{
+    FilterMatcher, deserialize_duration,
+    env::{EnvLevel, ResolvedEnv},
+    is_default,
+    path::{PathLevel, ResolvedPath},
+    serialize_duration,
+};
 
 use super::{
     lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
@@ -202,6 +204,31 @@ impl std::fmt::Display for EnvKey {
     }
 }
 
+/// Environment options of a level: global, role or task.
+///
+/// `default` selects how the user's environment is filtered:
+/// - `delete`: every variable is removed, except those of the `keep` and `check` lists,
+/// - `keep`: every variable is kept, except those of the `delete` list,
+/// - `inherit`: the behavior of the upper level applies.
+///
+/// In both modes, a variable of the `check` list is passed only if its value is safe, and a shell
+/// function definition is never passed (see [`crate::util::is_shell_function`]). The `set` list
+/// gives variables a value chosen by the policy.
+///
+/// # Lists that a level does not define are inherited
+/// A list that a level does not define is inherited from the upper levels, and from the built-in
+/// defaults, even when the level sets its own `default`. A defined list replaces the inherited one
+/// when the level sets `default`, and extends it when the level inherits. Only an explicitly empty
+/// list (`[]`) removes an inherited list.
+///
+/// This is the fail-safe choice: a protection is never lost by omission, removing it has to be
+/// written in the policy, where it can be reviewed.
+/// - In keep mode, the `delete` and `check` lists are what protect the command. A level that
+///   switches to keep mode without restating them still removes and checks the same variables.
+///   A deny list can never list every dangerous variable (CWE-184); a level that forgets the whole
+///   list must not make it worse.
+/// - In delete mode, an inherited `keep` or `check` list only passes variables that an upper level
+///   already allows, and the variables of the `check` list are still validated.
 #[allow(clippy::missing_errors_doc)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SEnvOptions {
@@ -286,6 +313,10 @@ impl WorkdirBehavior {
     #[must_use]
     pub const fn is_blacklist(&self) -> bool {
         matches!(self, Self::Blacklist)
+    }
+    #[must_use]
+    pub const fn is_inherit(&self) -> bool {
+        matches!(self, Self::Inherit)
     }
 }
 
@@ -629,33 +660,6 @@ impl SPathOptions {
     }
 }
 
-fn is_valid_env_name(s: &str) -> bool {
-    let mut chars = s.chars();
-
-    // Check if the first character is a letter or underscore
-    if let Some(first_char) = chars.next() {
-        if !(first_char.is_ascii_alphabetic() || first_char == '_') {
-            return false;
-        }
-    } else {
-        return false; // Empty string
-    }
-
-    // Check if the remaining characters are alphanumeric or underscores
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-#[cfg(feature = "pcre2")]
-fn is_regex(s: &str) -> bool {
-    Regex::new(&format!("^{s}$")).is_ok()
-}
-
-/// Without pcre2, patterns cannot be checked nor matched, so they are refused.
-#[cfg(not(feature = "pcre2"))]
-const fn is_regex(_s: &str) -> bool {
-    false
-}
-
 impl EnvKey {
     /// # Errors
     /// Returns an error if the provided string is not a valid environment variable name
@@ -667,14 +671,14 @@ impl EnvKey {
                 env_type: EnvKeyType::Normal,
                 value: s,
             })
-        } else if is_regex(&s) {
+        } else if is_valid_env_pattern(&s) {
             Ok(Self {
                 env_type: EnvKeyType::Wildcarded,
                 value: s,
             })
         } else {
             Err(format!(
-                "env key {s}, must be a valid env, or a valid regex"
+                "env key {s}, must be a variable name, where `*` matches any characters"
             ))
         }
     }
@@ -714,47 +718,42 @@ impl<'de> Deserialize<'de> for EnvKey {
     }
 }
 
-trait EnvSet {
-    fn env_matches(&self, wildcarded: &EnvKey) -> bool;
-}
-
-impl EnvSet for IndexSet<EnvKey> {
-    fn env_matches(&self, needle: &EnvKey) -> bool {
-        self.iter().any(|s| match s.env_type {
-            EnvKeyType::Normal => s == needle,
-            EnvKeyType::Wildcarded => check_wildcarded(s, &needle.value),
-        })
+impl PathLevel for SPathOptions {
+    fn behavior(&self) -> PathBehavior {
+        self.default_behavior
+    }
+    fn add(&self) -> Option<impl Iterator<Item = &str>> {
+        self.add.as_ref().map(|l| l.iter().map(String::as_str))
+    }
+    fn sub(&self) -> Option<impl Iterator<Item = &str>> {
+        self.sub.as_ref().map(|l| l.iter().map(String::as_str))
     }
 }
 
-impl EnvSet for Option<IndexSet<EnvKey>> {
-    fn env_matches(&self, needle: &EnvKey) -> bool {
-        self.as_ref().is_some_and(|set| set.env_matches(needle))
+impl EnvLevel for SEnvOptions {
+    fn behavior(&self) -> EnvBehavior {
+        self.default_behavior
     }
-}
-
-#[cfg(feature = "pcre2")]
-fn check_wildcarded(wildcarded: &EnvKey, s: &str) -> bool {
-    let pattern = format!("^{}$", wildcarded.value);
-    match Regex::new(&pattern) {
-        Ok(regex) => match regex.is_match(s.as_bytes()) {
-            Ok(is_match) => is_match,
-            Err(err) => {
-                warn!("Regex match error for '{pattern}': {err}");
-                false
-            }
-        },
-        Err(err) => {
-            warn!("Invalid regex '{pattern}': {err}");
-            false
-        }
+    fn keep(&self) -> Option<impl Iterator<Item = &str>> {
+        self.keep
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
     }
-}
-
-/// Without pcre2, a pattern matches nothing (no pattern can be created, see `is_regex`).
-#[cfg(not(feature = "pcre2"))]
-const fn check_wildcarded(_wildcarded: &EnvKey, _s: &str) -> bool {
-    false
+    fn check(&self) -> Option<impl Iterator<Item = &str>> {
+        self.check
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
+    }
+    fn delete(&self) -> Option<impl Iterator<Item = &str>> {
+        self.delete
+            .as_ref()
+            .map(|l| l.iter().map(|k| k.value.as_str()))
+    }
+    fn set(&self) -> Option<impl Iterator<Item = (&str, &str)>> {
+        self.set
+            .as_ref()
+            .map(|s| s.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -994,149 +993,52 @@ impl OptStack {
         None
     }
 
-    fn iter_in_options<F: FnMut(&Opt)>(&self, mut f: F) {
-        for opt in &self.stack {
-            if let Some(opt) = opt.to_owned() {
-                f(&opt.as_ref().borrow());
-            }
-        }
-    }
-
+    /// The path options of the stack, resolved like dosr does (see [`super::path`]).
     fn get_final_path(&self) -> SPathOptions {
-        let mut final_behavior = PathBehavior::Delete;
-        let default = IndexSet::new();
-        let final_add = rc_refcell!(IndexSet::new());
-        // Cannot use HashSet as we need to keep order
-        let final_sub = rc_refcell!(IndexSet::new());
-        self.iter_in_options(|opt| {
-            let final_add_clone = Rc::clone(&final_add);
-            let final_sub_clone = Rc::clone(&final_sub);
-            if let Some(p) = opt.path.borrow().as_ref() {
-                match p.default_behavior {
-                    PathBehavior::KeepSafe | PathBehavior::KeepUnsafe | PathBehavior::Delete => {
-                        if let Some(add) = p.add.as_ref() {
-                            final_add_clone.as_ref().replace(add.clone());
-                        }
-                        if let Some(sub) = p.sub.as_ref() {
-                            final_sub_clone.as_ref().replace(sub.clone());
-                        }
-                    }
-                    PathBehavior::Inherit => {
-                        if final_behavior.is_delete() {
-                            let union: IndexSet<String> = final_add_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.add.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.sub.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_add_clone.as_ref().borrow_mut().extend(union);
-                            debug!("inherit final_add: {:?}", final_add_clone.as_ref().borrow());
-                        } else {
-                            let union: IndexSet<String> = final_sub_clone
-                                .as_ref()
-                                .borrow()
-                                .union(p.sub.as_ref().unwrap_or(&default))
-                                .filter(|e| !p.add.as_ref().unwrap_or(&default).contains(*e))
-                                .cloned()
-                                .collect();
-                            final_sub_clone.as_ref().borrow_mut().extend(union);
-                        }
-                    }
-                }
-                if !p.default_behavior.is_inherit() {
-                    final_behavior = p.default_behavior;
-                }
-            }
-        });
-        SPathOptions::builder(final_behavior)
-            .add(
-                final_add
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .sub(
-                final_sub
-                    .as_ref()
-                    .borrow()
-                    .iter()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
+        let levels: Vec<_> = self
+            .stack
+            .iter()
+            .flatten()
+            .map(|opt| opt.as_ref().borrow())
+            .collect();
+        let mut path = ResolvedPath::default();
+        for level in levels.iter().filter_map(|level| level.path.as_ref()) {
+            path.apply(level);
+        }
+        SPathOptions::builder(path.behavior)
+            .add(path.add.iter())
+            .sub(path.sub.iter())
             .build()
     }
 
+    /// The env options of the stack, resolved like dosr does (see [`super::env`]).
     fn get_final_env(&self, cmd_filter: Option<&FilterMatcher>) -> Result<SEnvOptions, String> {
-        let mut final_behavior = EnvBehavior::default();
-        let mut final_set = HashMap::new();
-        let mut final_keep = IndexSet::new();
-        let mut final_check = IndexSet::new();
-        let mut final_delete = IndexSet::new();
-        let overriden_behavior = cmd_filter.as_ref().and_then(|f| f.env_behavior);
-        self.iter_in_options(|opt| {
-            if let Some(p) = opt.env.borrow().as_ref() {
-                final_behavior = match p.default_behavior {
-                    EnvBehavior::Delete | EnvBehavior::Keep => {
-                        // policy is to delete, so we add whitelist and remove blacklist
-                        final_keep = p
-                            .keep
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.check.env_matches(e) || !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_check = p
-                            .check
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.delete.env_matches(e))
-                            .cloned()
-                            .collect();
-                        final_delete = p
-                            .delete
-                            .as_ref()
-                            .into_iter()
-                            .flatten()
-                            .filter(|e| !p.check.env_matches(e))
-                            .cloned()
-                            .collect();
-                        if let Some(set) = &p.set {
-                            final_set.clone_from(set);
-                        }
-                        debug!("check: {final_check:?}");
-                        p.default_behavior
-                    }
-                    EnvBehavior::Inherit => {
-                        if let Some(keep) = &p.keep {
-                            final_keep.extend(keep.iter().cloned());
-                        }
-                        if let Some(check) = &p.check {
-                            final_check.extend(check.iter().cloned());
-                        }
-                        if let Some(delete) = &p.delete {
-                            final_delete.extend(delete.iter().cloned());
-                        }
-                        if let Some(set) = &p.set {
-                            final_set.extend(set.clone());
-                        }
-                        debug!("check: {final_check:?}");
-                        final_behavior
-                    }
-                };
-            }
-        });
-        let builder = SEnvOptions::builder(overriden_behavior.unwrap_or(final_behavior))
-            .set(final_set)
-            .keep(final_keep)
+        let levels: Vec<_> = self
+            .stack
+            .iter()
+            .flatten()
+            .map(|opt| opt.as_ref().borrow())
+            .collect();
+        let mut env = ResolvedEnv::default();
+        for level in levels.iter().filter_map(|level| level.env.as_ref()) {
+            env.apply(level);
+        }
+        let override_allowed = levels
+            .iter()
+            .rev()
+            .find_map(|level| level.env.as_ref().and_then(|env| env.override_behavior))
+            .unwrap_or(ENV_OVERRIDE_BEHAVIOR);
+        let env = env.with_requested_behavior(
+            cmd_filter.and_then(|filter| filter.env_behavior),
+            override_allowed,
+        );
+        let builder = SEnvOptions::builder(env.behavior)
+            .set(env.set.iter().map(|(key, value)| (*key, *value)))
+            .keep(env.keep.iter().copied())
             .map_err(|err| format!("Failed to set env keep list: {err}"))?
-            .check(final_check)
+            .check(env.check.iter().copied())
             .map_err(|err| format!("Failed to set env check list: {err}"))?
-            .delete(final_delete)
+            .delete(env.delete.iter().copied())
             .map_err(|err| format!("Failed to set env delete list: {err}"))?;
         Ok(builder.build())
     }
@@ -1308,6 +1210,64 @@ mod tests {
                 .flatten()
                 .any(|x| x == &EnvKey::from("env1"))
         );
+    }
+
+    #[test]
+    fn test_env_undefined_lists_are_inherited() {
+        let task_env = |env: SEnvOptions| {
+            SPolicy::builder()
+                .role(
+                    SRole::builder("test")
+                        .task(
+                            STask::builder(1)
+                                .options(|opt| opt.env(env.clone()).build())
+                                .build(),
+                        )
+                        .build(),
+                )
+                .options(|opt| {
+                    opt.env(
+                        SEnvOptions::builder(EnvBehavior::Delete)
+                            .keep(["KEEPME"])
+                            .unwrap()
+                            .check(["CHECKME"])
+                            .unwrap()
+                            .delete(["LD_*"])
+                            .unwrap()
+                            .build(),
+                    )
+                    .build()
+                })
+                .build()
+        };
+        let final_env = |config: &Rc<RefCell<SPolicy>>| {
+            let opt = OptStack::from_task(&config.task("test", 1).unwrap())
+                .to_opt()
+                .expect("Failed to build task options");
+            opt.as_ref().borrow().env.clone().unwrap()
+        };
+        let names = |list: &Option<IndexSet<EnvKey>>| {
+            let mut names: Vec<String> = list.iter().flatten().map(ToString::to_string).collect();
+            names.sort();
+            names
+        };
+        // a task that switches to keep mode without restating its lists inherits them
+        let env = final_env(&task_env(SEnvOptions::builder(EnvBehavior::Keep).build()));
+        assert_eq!(env.default_behavior, EnvBehavior::Keep);
+        assert_eq!(names(&env.delete), ["LD_*"]);
+        assert_eq!(names(&env.check), ["CHECKME"]);
+        assert_eq!(names(&env.keep), ["KEEPME"]);
+        // a defined list replaces the inherited one, only an empty list removes it
+        let env = final_env(&task_env(
+            SEnvOptions::builder(EnvBehavior::Keep)
+                .delete(Vec::<&str>::new())
+                .unwrap()
+                .check(["OTHER"])
+                .unwrap()
+                .build(),
+        ));
+        assert!(names(&env.delete).is_empty());
+        assert_eq!(names(&env.check), ["OTHER"]);
     }
 
     // test to_opt() for OptStack
@@ -1554,13 +1514,15 @@ mod tests {
 
     #[test]
     fn is_wildcard_env_key() {
-        assert!(!is_valid_env_name("TEST_.*"));
+        assert!(!is_valid_env_name("TEST_*"));
         assert!(!is_valid_env_name("123"));
         assert!(!is_valid_env_name(""));
-        #[cfg(feature = "pcre2")]
-        assert!(is_regex("TEST_.*"));
-        #[cfg(not(feature = "pcre2"))]
-        assert!(!is_regex("TEST_.*"));
+        assert!(is_valid_env_pattern("TEST_*"));
+        // regexes are not patterns anymore
+        assert!(!is_valid_env_pattern("TEST_.*"));
+        assert!(EnvKey::new("TEST_.*".to_string()).is_err());
+        let key = EnvKey::new("LC_*".to_string()).unwrap();
+        assert_eq!(key.env_type, EnvKeyType::Wildcarded);
     }
 
     #[test]
@@ -1709,7 +1671,9 @@ mod tests {
         assert!(env_key.is_err());
         assert_eq!(
             env_key.unwrap_err(),
-            format!("env key {invalid_env}, must be a valid env, or a valid regex")
+            format!(
+                "env key {invalid_env}, must be a variable name, where `*` matches any characters"
+            )
         );
     }
 

@@ -47,6 +47,7 @@ enum UsageSectionId {
     OptionsUmask,
     Listing,
     Convert,
+    Upgrade,
 }
 
 const USAGE_GENERAL: UsageSection = UsageSection {
@@ -544,6 +545,20 @@ const USAGE_CONVERT: UsageSection = UsageSection {
     examples: &["chsr convert --from json /etc/security/rootasrole.json cbor /tmp/rar.cbor"],
 };
 
+const USAGE_UPGRADE: UsageSection = UsageSection {
+    title: "Upgrade policy files",
+    synopsis: &[
+        "chsr upgrade (--check)",
+        "Save the policy files written by an older version in the current format.",
+    ],
+    items: &[UsageItem {
+        name: "--check",
+        description: "Only show what would be upgraded, and fail if anything needs to be.",
+        indent: 1,
+    }],
+    examples: &["chsr upgrade --check"],
+};
+
 const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
     match id {
         UsageSectionId::Usage => &USAGE_GENERAL,
@@ -563,6 +578,7 @@ const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
         UsageSectionId::OptionsUmask => &USAGE_OPTIONS_UMASK,
         UsageSectionId::Listing => &USAGE_LISTING,
         UsageSectionId::Convert => &USAGE_CONVERT,
+        UsageSectionId::Upgrade => &USAGE_UPGRADE,
     }
 }
 
@@ -675,6 +691,8 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::convert_reconfigure => "-r or --reconfigure",
         Rule::to => "[to_type] [to_file]",
         Rule::from => "[from_type] [from_file]",
+        Rule::upgrade => "upgrade",
+        Rule::upgrade_check => "--check",
         Rule::workdir_policy => "all, none, inherit",
         Rule::env_policy => "delete-all, keep-all, inherit",
         Rule::path_policy => "delete-all, keep-safe, keep-unsafe, inherit",
@@ -698,6 +716,7 @@ const DEFAULT_USAGE_SECTIONS: &[UsageSectionId] = &[
     UsageSectionId::Command,
     UsageSectionId::Credentials,
     UsageSectionId::Convert,
+    UsageSectionId::Upgrade,
 ];
 
 const OPTIONS_GENERAL_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsGeneral];
@@ -717,6 +736,7 @@ const PATH_LISTING_SECTIONS: &[UsageSectionId] =
 const ENV_LISTING_SECTIONS: &[UsageSectionId] =
     &[UsageSectionId::OptionsEnv, UsageSectionId::Listing];
 const CONVERT_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Convert];
+const UPGRADE_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Upgrade];
 
 const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]> {
     match rule {
@@ -759,6 +779,7 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         Rule::opt_path_listing => Some(PATH_LISTING_SECTIONS),
         Rule::opt_env_listing => Some(ENV_LISTING_SECTIONS),
         Rule::convert => Some(CONVERT_SECTIONS),
+        Rule::upgrade | Rule::upgrade_check => Some(UPGRADE_SECTIONS),
         _ => None,
     }
 }

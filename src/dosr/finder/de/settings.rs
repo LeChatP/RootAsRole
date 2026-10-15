@@ -5,8 +5,10 @@ use std::{
 
 use log::debug;
 use rootasrole_core::{
-    SettingsContent, database::versionning::Versioning, file::LockedSettingsFile,
-    util::StorageMethod,
+    SettingsContent,
+    database::versionning::Versioning,
+    file::LockedSettingsFile,
+    util::{StorageMethod, check_others_permissions},
 };
 use serde::{
     Deserialize, Deserializer,
@@ -26,6 +28,7 @@ where
 {
     LockedSettingsFile::open_read(rar_cfg_path, |path, file| {
         debug!("Loading root settings from {}", path.as_ref().display());
+        check_others_permissions(path.as_ref(), file)?;
 
         let buf = BufReader::new(file);
         let settings: Versioning<SettingsContent> = match rar_cfg_type {

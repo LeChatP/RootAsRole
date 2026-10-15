@@ -20,6 +20,8 @@ impl Stage {
     pub const UMASK: Self = Self(45);
     pub const PRIV_DROP: Self = Self(50);
     pub const CAPS: Self = Self(55);
+    /// The working directory is entered as the target user, after the credentials are set.
+    pub const WORKDIR: Self = Self(60);
     pub const FD_CLEANUP: Self = Self(65);
     pub const SIGNALS: Self = Self(68);
     pub const LOCKDOWN: Self = Self(70);
