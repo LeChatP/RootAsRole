@@ -71,9 +71,13 @@ fn evaluate_parent_role<'c, 'a>(
     matching: &mut bool,
     env_path: &[&str],
 ) -> SrResult<()> {
-    if let Some(role) = role.config().role(parent) {
-        for task in role.tasks() {
-            *matching |= settings.task_settings(cli, cred, &task, opt_stack, env_path)?;
+    // the event is only sent for roles that the user holds: the tasks of their parents are
+    // scored with the actors of the senior role, not with those of the parent
+    let held_through = role.role().user_min;
+    if let Some(parent) = role.config().role(parent) {
+        for task in parent.tasks() {
+            *matching |=
+                settings.task_settings_as(cli, cred, &task, held_through, opt_stack, env_path)?;
         }
     }
     Ok(())

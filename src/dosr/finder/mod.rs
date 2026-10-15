@@ -18,7 +18,7 @@ use rootasrole_core::{
     database::{
         actor::{DGroupType, DGroups},
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
-        score::{CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
+        score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         workdir::ResolvedWorkdir,
     },
     util::{StorageMethod, check_others_permissions, read_with_privileges},
@@ -212,7 +212,12 @@ impl BestExecSettings {
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.as_ref());
         for role in data.roles() {
-            matching |= result.role_settings(cli, cred, &role, &mut opt_stack, env_path)?;
+            // only the roles that the user holds: their actors match and no plugin excludes
+            // them (separation of duties), the hierarchy plugin relies on it
+            if !result.actors_settings(&role)? {
+                continue;
+            }
+            matching |= result.role_tasks_settings(cli, cred, &role, &mut opt_stack, env_path)?;
             Api::notify(ApiEvent::BestRoleSettingsFound(
                 cli,
                 cred,
@@ -256,6 +261,8 @@ impl BestExecSettings {
         Ok(result)
     }
 
+    /// What `retrieve_settings` does for one role, for the tests.
+    #[cfg(test)]
     pub fn role_settings<'c, 'a>(
         &mut self,
         cli: &'c Cli,
@@ -268,6 +275,18 @@ impl BestExecSettings {
         if !self.actors_settings(data)? {
             return Ok(false);
         }
+        self.role_tasks_settings(cli, cred, data, opt_stack, env_path)
+    }
+
+    /// The tasks of a role that the user holds.
+    fn role_tasks_settings<'c, 'a>(
+        &mut self,
+        cli: &'c Cli,
+        cred: &'c Cred,
+        data: &DLinkedRole<'c, 'a>,
+        opt_stack: &mut BorrowedOptStack<'c, 'a>,
+        env_path: &[&str],
+    ) -> SrResult<bool> {
         let mut res = false;
         for task in data.tasks() {
             res |= self.task_settings(cli, cred, &task, opt_stack, env_path)?;
@@ -281,12 +300,27 @@ impl BestExecSettings {
         Ok(res)
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn task_settings<'t, 'c, 'a>(
         &mut self,
         cli: &'t Cli,
         cred: &'t Cred,
         data: &DLinkedTask<'t, 'c, 'a>,
+        opt_stack: &mut BorrowedOptStack<'c, 'a>,
+        env_path: &[&str],
+    ) -> SrResult<bool> {
+        let held_through = data.role().role().user_min;
+        self.task_settings_as(cli, cred, data, held_through, opt_stack, env_path)
+    }
+
+    /// `task_settings` for a task that the user holds through the actors `held_through`: those
+    /// of its own role, or those of a senior role (hierarchy plugin). The task is scored with them.
+    #[allow(clippy::too_many_lines)]
+    pub fn task_settings_as<'t, 'c, 'a>(
+        &mut self,
+        cli: &'t Cli,
+        cred: &'t Cred,
+        data: &DLinkedTask<'t, 'c, 'a>,
+        held_through: ActorMatchMin,
         opt_stack: &mut BorrowedOptStack<'c, 'a>,
         env_path: &[&str],
     ) -> SrResult<bool> {
@@ -376,6 +410,7 @@ impl BestExecSettings {
         }
         let found = task_cmd_min.matching();
         let mut score = data.score(task_cmd_min, temp_opt_stack.calc_security_min());
+        score.set_role_score(&held_through);
         Api::notify(ApiEvent::BestTaskSettingsFound(
             cli, data, opt_stack, self, &mut score,
         ))?;
@@ -1097,6 +1132,68 @@ mod tests {
         assert!(matches!(
             choose(&roles, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
+        ));
+    }
+
+    #[cfg(feature = "hierarchy")]
+    #[test]
+    fn test_hierarchy_plugin() {
+        let parents = |value: Value| serde_json::json!({ "parents": value });
+        let none = serde_json::json!({});
+        // a member of the senior role gets the tasks of its parents
+        for value in [serde_json::json!(["junior"]), serde_json::json!("junior")] {
+            let roles = serde_json::json!([
+                role_json("senior", true, None, &parents(value)),
+                role_json("junior", false, Some("/usr/bin/ls"), &none),
+            ]);
+            let (_, task, final_path) = choose(&roles, "/usr/bin/ls").unwrap();
+            assert_eq!(task.as_deref(), Some("junior_task"));
+            assert_eq!(final_path, PathBuf::from("/usr/bin/ls"));
+        }
+        // a user that is a member of no role gets nothing, hierarchy or not
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                false,
+                None,
+                &parents(serde_json::json!(["junior"]))
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+        // an invalid value is a configuration error
+        let roles = serde_json::json!([role_json(
+            "senior",
+            true,
+            None,
+            &parents(serde_json::json!(3))
+        )]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_role_excluded_by_ssd_gives_no_task_of_its_parents() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"], "ssd": ["auditor"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json("auditor", true, None, &none),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
         ));
     }
 
