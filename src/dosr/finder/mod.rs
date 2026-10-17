@@ -836,6 +836,32 @@ mod tests {
     }
 
     #[test]
+    fn test_best_task_needs_no_critical_capability_in_any_order() {
+        let a = task_json(
+            "a",
+            &["CAP_NET_BIND_SERVICE"],
+            r#"["/usr/bin/ls"]"#,
+            "A_VAR",
+            "/usr/bin",
+        );
+        let b = task_json(
+            "b",
+            &["CAP_SYS_ADMIN"],
+            r#"["/usr/bin/ls"]"#,
+            "B_VAR",
+            "/usr/bin",
+        );
+        let c = task_json("c", &[], r#"["/usr/bin/ls"]"#, "C_VAR", "/usr/bin")
+            .replace(r#""caps":[]"#, r#""caps":"all""#);
+        for tasks in orders(&[&a, &b, &c]) {
+            let (task, _, _, kept) = best_task(&tasks, "/usr/bin/ls").unwrap();
+            // CAP_NET_BIND_SERVICE is the only capability that is not critical
+            assert_eq!(task, "a", "{tasks:?}");
+            assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
     fn test_tie_between_the_best_tasks_is_refused_in_any_order() {
         // same command and same privileges: none of them is less privileged than the other
         let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");

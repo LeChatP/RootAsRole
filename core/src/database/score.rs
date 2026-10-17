@@ -9,7 +9,7 @@ use crate::util::{
 
 use super::actor::{DGroupType, DGroups, DUserType, SGroupType, SGroups, SUserType};
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 #[repr(u32)]
 // Matching user groups for the role
 pub enum ActorMatchMin {
@@ -23,6 +23,31 @@ impl ActorMatchMin {
     #[must_use]
     pub const fn is_no_match(&self) -> bool {
         matches!(self, Self::NoMatch)
+    }
+
+    /// Position of the variant, the best first: a derived `Ord` would follow the hardened
+    /// discriminants, which are not in increasing order.
+    const fn rank(&self) -> u8 {
+        match self {
+            Self::UserMatch => 0,
+            Self::GroupMatch(_) => 1,
+            Self::NoMatch => 2,
+        }
+    }
+}
+
+impl PartialOrd for ActorMatchMin {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ActorMatchMin {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::GroupMatch(a), Self::GroupMatch(b)) => a.cmp(b),
+            _ => self.rank().cmp(&other.rank()),
+        }
     }
 }
 
@@ -220,7 +245,7 @@ impl CmdMin {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 #[repr(u32)]
 pub enum CapsMin {
     #[default]
@@ -229,6 +254,36 @@ pub enum CapsMin {
     CapsNoAdmin(usize) = HARDENED_ENUM_VALUE_2,
     CapsAdmin(usize) = HARDENED_ENUM_VALUE_3,
     CapsAll = HARDENED_ENUM_VALUE_4,
+}
+
+impl CapsMin {
+    /// Position of the variant, the least privileged first: a derived `Ord` would follow the
+    /// hardened discriminants, which are not in increasing order.
+    const fn rank(&self) -> u8 {
+        match self {
+            Self::Undefined => 0,
+            Self::NoCaps => 1,
+            Self::CapsNoAdmin(_) => 2,
+            Self::CapsAdmin(_) => 3,
+            Self::CapsAll => 4,
+        }
+    }
+}
+
+impl PartialOrd for CapsMin {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CapsMin {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::CapsNoAdmin(a), Self::CapsNoAdmin(b))
+            | (Self::CapsAdmin(a), Self::CapsAdmin(b)) => a.cmp(b),
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug, Default)]
@@ -647,6 +702,38 @@ mod tests {
         let setuser_other = ActorMatchMin::NoMatch;
         assert!(!setuser_other.matching());
         assert!(setuser.better(&setuser_other));
+    }
+
+    /// `values` must be sorted from the best to the worst, without equal values.
+    fn assert_sorted<T: Ord + std::fmt::Debug>(values: &[T]) {
+        for (i, a) in values.iter().enumerate() {
+            for (j, b) in values.iter().enumerate() {
+                assert_eq!(a.cmp(b), i.cmp(&j), "{a:?} against {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_actor_match_min_ordering() {
+        assert_sorted(&[
+            ActorMatchMin::UserMatch,
+            ActorMatchMin::GroupMatch(1),
+            ActorMatchMin::GroupMatch(2),
+            ActorMatchMin::NoMatch,
+        ]);
+    }
+
+    #[test]
+    fn test_caps_min_ordering() {
+        assert_sorted(&[
+            CapsMin::Undefined,
+            CapsMin::NoCaps,
+            CapsMin::CapsNoAdmin(1),
+            CapsMin::CapsNoAdmin(2),
+            CapsMin::CapsAdmin(1),
+            CapsMin::CapsAdmin(2),
+            CapsMin::CapsAll,
+        ]);
     }
 
     #[test]
