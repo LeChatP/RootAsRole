@@ -154,6 +154,22 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
     }
 }
 
+/// Fixed groups of the policy (a group or a list of groups): `-g` can only ask for the same list,
+/// in the same order, since the first group is the primary group.
+fn fixed_groups<'a, E: serde::de::Error>(
+    cli: &Cli,
+    groups: DGroups<'a>,
+) -> Result<(Option<DGroups<'a>>, Option<SetgidMin>, bool), E> {
+    if let Some(requested) = cli.opt_filter.as_ref().and_then(|f| f.group.as_ref()) {
+        let ids: Vec<u32> = (&groups).try_into().map_err(E::custom)?;
+        if *requested != ids {
+            return Ok((None, None, false));
+        }
+    }
+    let score = Some(SetgidMin::from(&groups));
+    Ok((Some(groups), score, true))
+}
+
 // New deserializer for SetGroups that returns values instead of using &mut
 struct SetGroupsDeserializerReturn<'a> {
     cli: &'a Cli,
@@ -196,18 +212,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let group: DGroupType<'_> = v
                     .parse::<u32>()
                     .map_or_else(|_| v.into(), std::convert::Into::into);
-                let score = Some(SetgidMin::from(&group));
-                let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref())
-                    && y.len() == 1
-                    && y[0]
-                        != group
-                            .fetch_id()
-                            .ok_or_else(|| serde::de::Error::custom("Group does not exist"))?
-                {
-                    return Ok((None, None, false));
-                }
-                Ok((Some(DGroups::Single(group)), score, ok))
+                fixed_groups(self.cli, DGroups::Single(group))
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
@@ -224,18 +229,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let group: DGroupType<'_> = v
                     .parse::<u32>()
                     .map_or_else(|_| Cow::<str>::from(v).into(), std::convert::Into::into);
-                let score = Some(SetgidMin::from(&group));
-                let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref())
-                    && y.len() == 1
-                    && y[0]
-                        != group
-                            .fetch_id()
-                            .ok_or_else(|| serde::de::Error::custom("Group does not exist"))?
-                {
-                    return Ok((None, None, false));
-                }
-                Ok((Some(DGroups::Single(group)), score, ok))
+                fixed_groups(self.cli, DGroups::Single(group))
             }
 
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
@@ -246,46 +240,30 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let group: DGroupType<'_> = <DGroupType<'_>>::from(
                     u32::try_from(v).map_err(|_| serde::de::Error::custom("Group id too large"))?,
                 );
-                let score = Some(SetgidMin::from(&group));
-                let ok = true;
-                if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref())
-                    && y.len() == 1
-                    && y[0]
-                        != group
-                            .fetch_id()
-                            .ok_or_else(|| serde::de::Error::custom("Group does not exist"))?
-                {
-                    return Ok((None, None, false));
-                }
-                Ok((Some(DGroups::Single(group)), score, ok))
+                fixed_groups(self.cli, DGroups::Single(group))
             }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
                 debug!("SGroupsChooserVisitor: visit_seq");
-                let mut groups = None;
-                let mut score = None;
-                let mut ok = false;
-                let filter = self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref());
+                // a list is one set of groups, the first one is the primary group
+                let mut groups = Vec::new();
                 while let Some(group) = seq.next_element::<DGroups>()? {
-                    if let Some(u) = filter {
-                        let parsed_ids: Vec<u32> =
-                            (&group).try_into().map_err(serde::de::Error::custom)?;
-                        if *u == parsed_ids {
-                            ok = true;
-                            groups = Some(group.clone());
-                            score.replace((&group).into());
-                            while seq.next_element::<IgnoredAny>()?.is_some() {}
-                            break;
+                    match group {
+                        DGroups::Single(group) => groups.push(group),
+                        // like rootasrole-core: several sets of groups need the selector form
+                        DGroups::Multiple(_) => {
+                            return Err(serde::de::Error::custom(
+                                "a list of groups cannot contain lists, use the add list of a selector",
+                            ));
                         }
-                    } else {
-                        groups = Some(group.clone());
-                        ok = true;
-                        score.replace((&group).into());
                     }
                 }
-                Ok((groups, score, ok))
+                if groups.is_empty() {
+                    return Ok((None, None, false));
+                }
+                fixed_groups(self.cli, DGroups::from(groups))
             }
             fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
             where
@@ -294,6 +272,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let mut groups = None;
                 let mut score = None;
                 let mut ok = false;
+                let mut default_all = false;
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref());
                 'fields: while let Some(key) = map.next_key()? {
                     match key {
@@ -302,6 +281,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                             let default = map.next_value::<SetBehavior>()?;
                             if default.is_all() {
                                 ok = true;
+                                default_all = true;
                             }
                         }
                         Field::Fallback => {
@@ -329,12 +309,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                                     let v: Vec<u32> =
                                         group.try_into().map_err(serde::de::Error::custom)?;
                                     if v == *filter {
+                                        // the next fields are still read: a del entry wins
                                         ok = true;
                                         groups = Some(group.to_owned());
                                         score.replace(group.into());
-                                        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some()
-                                        {
-                                        }
                                         break;
                                     }
                                 }
@@ -367,6 +345,21 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                             }
                         }
                     }
+                }
+                // allowed by `"default": "all"` without being listed: the requested groups
+                if ok
+                    && groups.is_none()
+                    && default_all
+                    && let Some(requested) = filter
+                {
+                    let requested = match requested.as_slice() {
+                        [gid] => DGroups::Single(DGroupType::from(*gid)),
+                        gids => {
+                            DGroups::Multiple(gids.iter().copied().map(DGroupType::from).collect())
+                        }
+                    };
+                    score.replace((&requested).into());
+                    groups = Some(requested);
                 }
                 Ok((groups, score, ok))
             }
@@ -482,6 +475,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 let mut user = None;
                 let mut score = None;
                 let mut ok = false;
+                let mut default_all = false;
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.user.as_ref());
                 'fields: while let Some(key) = map.next_key()? {
                     match key {
@@ -490,6 +484,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                             let default = map.next_value::<SetBehavior>()?;
                             if default.is_all() {
                                 ok = true;
+                                default_all = true;
                             }
                         }
                         Field::Fallback => {
@@ -552,6 +547,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                             }
                         }
                     }
+                }
+                // allowed by `"default": "all"` without being listed: the requested user
+                if ok
+                    && user.is_none()
+                    && default_all
+                    && let Some(uid) = filter
+                {
+                    let requested = DUserType::from(*uid);
+                    score.replace((&requested).into());
+                    user = Some(requested);
                 }
                 Ok((user, score, ok))
             }
@@ -701,6 +706,92 @@ mod test {
         assert_eq!(groups, Some(groups1));
     }
 
+    /// The uid chosen by the selector `json` for `dosr -u <requested>`, or `None` if refused.
+    fn chosen_user(json: &str, requested: Option<u32>) -> Option<(Option<u32>, SetuidMin)> {
+        let filter = requested.map(|uid| FilterMatcher::builder().user(uid).unwrap().build());
+        let cli = Cli::builder().maybe_opt_filter(filter).build();
+        let (user, score, ok) = SetUserDeserializerReturn { cli: &cli }
+            .deserialize(&mut serde_json::Deserializer::from_str(json))
+            .unwrap();
+        ok.then(|| (user.and_then(|user| user.fetch_id()), score.unwrap()))
+    }
+
+    #[test]
+    fn test_user_selector_all_applies_the_requested_user() {
+        let fallback = get_non_root_uid(0).unwrap();
+        let other = get_non_root_uid(1).unwrap();
+        let deleted = get_non_root_uid(2).unwrap();
+        let json = format!(r#"{{"default": "all", "fallback": {fallback}, "del": [{deleted}]}}"#);
+        // a user that the policy does not list runs the command as this user, not as the caller
+        let (uid, score) = chosen_user(&json, Some(other)).unwrap();
+        assert_eq!(uid, Some(other));
+        assert_eq!(score, SetuidMin::from(&DUserType::from(other)));
+        // root is scored as root
+        let (uid, score) = chosen_user(&json, Some(0)).unwrap();
+        assert_eq!(uid, Some(0));
+        assert_eq!(score, SetuidMin::from(&DUserType::from(0)));
+        assert_ne!(score, SetuidMin::from(&DUserType::from(other)));
+        assert!(chosen_user(&json, Some(deleted)).is_none());
+        assert_eq!(chosen_user(&json, None).unwrap().0, Some(fallback));
+    }
+
+    /// The groups chosen by `json` for `dosr -g <requested>`, or `None` if refused.
+    fn chosen_groups(json: &str, requested: Option<&[u32]>) -> Option<(Vec<u32>, SetgidMin)> {
+        let filter = requested.map(|gids| {
+            let gids: Vec<SGroupType> = gids.iter().map(|gid| (*gid).into()).collect();
+            FilterMatcher::builder().group(gids).unwrap().build()
+        });
+        let cli = Cli::builder().maybe_opt_filter(filter).build();
+        let (groups, score, ok) = SetGroupsDeserializerReturn { cli: &cli }
+            .deserialize(&mut serde_json::Deserializer::from_str(json))
+            .unwrap();
+        ok.then(|| ((&groups.unwrap()).try_into().unwrap(), score.unwrap()))
+    }
+
+    #[test]
+    fn test_group_selector_all_applies_the_requested_groups() {
+        let fallback = get_non_root_gid(0).unwrap();
+        let other = get_non_root_gid(1).unwrap();
+        let deleted = get_non_root_gid(2).unwrap();
+        let json =
+            format!(r#"{{"default": "all", "fallback": [{fallback}], "del": [[{deleted}]]}}"#);
+        let (groups, score) = chosen_groups(&json, Some(&[other, fallback])).unwrap();
+        assert_eq!(groups, [other, fallback]);
+        assert_eq!(score, SetgidMin::from(&vec![other, fallback]));
+        // root is scored as root
+        let (groups, score) = chosen_groups(&json, Some(&[0])).unwrap();
+        assert_eq!(groups, [0]);
+        assert_eq!(score, SetgidMin::from(&vec![0]));
+        assert_ne!(score, SetgidMin::from(&vec![other]));
+        assert!(chosen_groups(&json, Some(&[deleted])).is_none());
+        assert_eq!(chosen_groups(&json, None).unwrap().0, [fallback]);
+    }
+
+    #[test]
+    fn test_fixed_groups_need_the_same_list() {
+        let gid = get_non_root_gid(0).unwrap();
+        let list = format!("[0, {gid}]");
+        assert_eq!(chosen_groups(&list, None).unwrap().0, [0, gid]);
+        assert_eq!(chosen_groups(&list, Some(&[0, gid])).unwrap().0, [0, gid]);
+        // a part of the list, or another order (the first group is the primary group)
+        assert!(chosen_groups(&list, Some(&[0])).is_none());
+        assert!(chosen_groups(&list, Some(&[gid, 0])).is_none());
+        // a single group cannot be completed with -g
+        assert!(chosen_groups("0", Some(&[0, gid])).is_none());
+        assert_eq!(chosen_groups("0", Some(&[0])).unwrap().0, [0]);
+    }
+
+    #[test]
+    fn test_group_selector_del_wins_over_add() {
+        let gid = get_non_root_gid(0).unwrap();
+        for json in [
+            format!(r#"{{"default": "none", "add": [[{gid}]], "del": [[{gid}]]}}"#),
+            format!(r#"{{"default": "none", "del": [[{gid}]], "add": [[{gid}]]}}"#),
+        ] {
+            assert!(chosen_groups(&json, Some(&[gid])).is_none(), "{json}");
+        }
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_setgroupsdeserializerreturn_filter() {
@@ -785,7 +876,8 @@ mod test {
         let groups1 = DGroups::Single(0.into());
         assert_eq!(score, Some((&groups1).into()));
         assert_eq!(groups, Some(groups1));
-        let json = "[[\"root\", 1]]";
+        // a list is one set of groups, like in rootasrole-core
+        let json = "[\"root\", 1]";
         let cli = Cli::builder()
             .opt_filter(
                 FilterMatcher::builder()
@@ -823,6 +915,11 @@ mod test {
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
+        // a list of lists is refused, as rootasrole-core does: several sets need a selector
+        let deserializer = SetGroupsDeserializerReturn { cli: &cli };
+        let result =
+            deserializer.deserialize(&mut serde_json::Deserializer::from_str("[[\"root\", 1]]"));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -868,7 +965,7 @@ mod test {
 
         let uid = get_non_root_uid(0).unwrap();
         let gid = get_non_root_gid(0).unwrap();
-        let json = format!(r#"{{"setuid":{uid}, "setgid":[[{gid}]]}}"#);
+        let json = format!(r#"{{"setuid":{uid}, "setgid":[{gid}]}}"#);
         let cli = Cli::builder().build();
         let deserializer = CredFinderDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));

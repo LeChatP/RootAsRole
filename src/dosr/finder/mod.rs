@@ -1293,6 +1293,57 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn test_default_policy_runs_as_the_requested_user() {
+        api::register_plugins();
+        let policy = include_str!("../../../resources/rootasrole.json");
+        let root = Cred {
+            user: nix::unistd::User::from_uid(0.into()).unwrap().unwrap(),
+            groups: Vec::new(),
+            tty: None,
+            ppid: nix::unistd::Pid::from_raw(1),
+            curdir: PathBuf::from("/"),
+        };
+        let nobody = nix::unistd::User::from_name("nobody").unwrap().unwrap();
+        let group = nix::unistd::Group::from_gid(nix::unistd::getgid())
+            .unwrap()
+            .unwrap();
+        // an administrator drops its privileges with -u and -g: the command runs as asked, the
+        // policy allows every user and group (`"default": "all"`)
+        let cli = crate::getopt([
+            "dosr",
+            "-u",
+            "nobody",
+            "-g",
+            group.name.as_str(),
+            "/usr/bin/id",
+        ])
+        .unwrap();
+        let data = de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &root,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(policy))
+        .unwrap();
+        let settings = BestExecSettings::retrieve_settings(
+            &cli,
+            &root,
+            &data,
+            Vec::<(String, String)>::new(),
+            &["/usr/bin"],
+        )
+        .unwrap();
+        assert_eq!(settings.task.as_deref(), Some("t_root"));
+        assert_eq!(settings.cred.setuid.map(|user| user.uid), Some(nobody.uid));
+        assert_eq!(
+            settings
+                .cred
+                .setgroups
+                .map(|groups| groups.iter().map(|g| g.gid).collect::<Vec<_>>()),
+            Some(vec![group.gid])
+        );
+    }
+
     #[cfg(feature = "hierarchy")]
     #[test]
     fn test_hierarchy_plugin() {

@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn test_config_finder_deserializer() {
         let json = format!(
-            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0"], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
             getuid().as_raw()
         );
         let cli = Cli::builder().cmd_path("ls").build();
@@ -478,7 +478,7 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn test_config_finder_implementation() {
         let json = format!(
-            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","names":[{}, {}]}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","names":[{}, {}]}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
             getuid().as_raw(),
             getgid().as_raw(),
             getgid().as_raw()
