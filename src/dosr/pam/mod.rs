@@ -3,8 +3,8 @@ use std::{borrow::Cow, ffi::CStr};
 use bon::Builder;
 use log::{debug, error, info, warn};
 use nonstick2::{
-    AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, Result as PamResult,
-    TransactionBuilder, conv::Demux, libpam::SessionActive,
+    AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, PamShared, Result as PamResult,
+    TransactionBuilder, conv::Demux, items::ItemsMut, libpam::SessionActive,
 };
 
 #[cfg(feature = "timeout")]
@@ -124,6 +124,18 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
+/// The terminal and the requesting user of the transaction, like sudo sets them: modules such
+/// as `pam_access`, `pam_securetty` or `pam_tty_audit`, and the logs, read them.
+fn set_pam_items(txn: &mut impl PamShared, user: &Cred) -> PamResult<()> {
+    use rootasrole_exec::terminal::TerminalExt;
+    let mut items = txn.items_mut();
+    items.set_remote_user(Some(std::ffi::OsStr::new(&user.user.name)))?;
+    if let Ok(tty) = std::io::stdin().ttyname() {
+        items.set_tty_name(Some(&tty))?;
+    }
+    Ok(())
+}
+
 pub fn start_session<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
@@ -151,13 +163,17 @@ pub fn start_session<'a>(
         .use_stdin(cli.stdin)
         .build();
 
-    let txn = TransactionBuilder::new_with_service(PAM_SERVICE)
+    let mut txn = TransactionBuilder::new_with_service(PAM_SERVICE)
         .username(&user.user.name)
         .build(conv.into_conversation())
         .map_err(|e| {
             error!("Failed to create PAM transaction: {e}");
             SrError::SystemError
         })?;
+    set_pam_items(&mut txn, user).map_err(|e| {
+        error!("Failed to set the terminal and the requesting user for PAM: {e}");
+        SrError::SystemError
+    })?;
 
     let txn = if need_password_auth {
         txn.authenticate(AuthnFlags::SILENT)
@@ -203,10 +219,12 @@ mod tests {
     use super::*;
     use jiff::SignedDuration;
     use nix::{libc::dev_t, unistd::Pid};
+    use nonstick2::items::Items;
     use rootasrole_core::{
         Cred,
         database::options::{SAuthentication, STimeout, TimestampType},
     };
+    use rootasrole_exec::terminal::TerminalExt;
     use serde_json::Map;
     use std::{ffi::OsStr, sync::Mutex};
     use test_log::test;
@@ -248,6 +266,29 @@ mod tests {
         };
 
         txn.account_management(AuthnFlags::SILENT).is_ok()
+    }
+
+    #[test]
+    fn test_pam_items_are_set() {
+        let user = create_test_user();
+        let conv = SrConversationHandler::builder().no_interact(true).build();
+        let Ok(mut txn) = TransactionBuilder::new_with_service(PAM_SERVICE)
+            .username(&user.user.name)
+            .build(conv.into_conversation())
+        else {
+            eprintln!("Skipping test, PAM is not available");
+            return;
+        };
+        set_pam_items(&mut txn, &user).unwrap();
+        assert_eq!(
+            txn.items().remote_user().unwrap(),
+            Some(std::ffi::OsString::from(&user.user.name))
+        );
+        // the terminal of the test, when it has one
+        assert_eq!(
+            txn.items().tty_name().unwrap(),
+            std::io::stdin().ttyname().ok()
+        );
     }
 
     #[test]
