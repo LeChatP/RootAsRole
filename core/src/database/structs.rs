@@ -195,7 +195,13 @@ pub struct SCredentials {
     #[serde(alias = "g", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setgid: Option<SGroupsEither>,
-    #[serde(default, alias = "c", skip_serializing_if = "Option::is_none")]
+    // "caps" as in dosr: a task written with it must not look capability-free in chsr
+    #[serde(
+        default,
+        alias = "c",
+        alias = "caps",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub capabilities: Option<SCapabilities>,
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
@@ -1184,5 +1190,24 @@ mod tests {
             config,
             "{\"options\":{\"env\":{\"override_behavior\":true}}}"
         );
+    }
+
+    #[test]
+    fn test_scredentials_capability_aliases() {
+        // dosr reads the capabilities of a task under every one of these keys
+        for key in ["capabilities", "c", "caps"] {
+            let json = format!(r#"{{"{key}": ["CAP_NET_RAW"]}}"#);
+            let cred: SCredentials = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                cred.capabilities,
+                Some(
+                    SCapabilities::builder(SetBehavior::None)
+                        .add_cap(Cap::NET_RAW)
+                        .build()
+                ),
+                "{key}"
+            );
+            assert!(cred.extra_fields.is_empty(), "{key}");
+        }
     }
 }
