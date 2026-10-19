@@ -59,7 +59,6 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             replace_default_delete_list(document, DELETE_LIST_4_0_3, ENV_DELETE_LIST_SLICE);
             keep_delete_mode_levels_strict(document);
             rewrite_path_behaviors(document, path_behavior_4_1_0);
-            rewrite_commands(document, command_with_any_arguments);
             Ok(())
         },
         down: |_, document| {
@@ -172,13 +171,9 @@ fn path_only(command: &str) -> bool {
     !command.is_empty() && !command.contains(char::is_whitespace)
 }
 
-/// Up to 4.0.3, a command written without arguments allowed any arguments; since 4.1.0 it allows
-/// none. The upgrade writes `^.*$` after it, so that the policy keeps its meaning.
-fn command_with_any_arguments(command: &str) -> Option<String> {
-    path_only(command).then(|| format!("{} ^.*$", command.trim()))
-}
-
-/// The downgrade writes `^$` after a command without arguments: 4.0.3 reads it as none.
+/// Since 4.1.0, a command written without arguments allows none; 4.0.3 read it as any arguments.
+/// The upgrade leaves it as written, the downgrade writes `^$` after it, which 4.0.3 reads as no
+/// argument, so that a downgrade never allows more.
 fn command_with_no_argument(command: &str) -> Option<String> {
     path_only(command).then(|| format!("{} ^$", command.trim()))
 }
@@ -540,17 +535,30 @@ mod tests {
 
     #[test]
     fn test_commands_without_arguments_up_and_down() {
+        // the upgrade leaves them as written: since 4.1.0 they allow no argument
+        let commands = json!(["/usr/bin/id", "**", "/usr/bin/ls ^.*$"]);
+        let mut document = json!({"roles": [{"tasks": [{"commands": commands.clone()}]}]});
+        Migration::migrate_from(
+            &Version::new(4, 0, 3),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["roles"][0]["tasks"][0]["commands"], commands);
+
+        // the downgrade writes ^$: 4.0.3 would read them as any arguments
         let mut document = json!({
             "roles": [{"tasks": [
-                {"commands": ["/usr/bin/id", "/usr/bin/ls -l", "**"]},
+                {"commands": ["/usr/bin/id", "/usr/bin/ls -l", "/usr/bin/ls ^.*$"]},
                 {"commands": {"default": "none", "add": ["/usr/bin/cat"], "del": ["/usr/bin/rm"]}},
                 {"commands": [{"command": "/usr/bin/ls", "sha256": "00"}]},
                 {"commands": "all"}
             ]}]
         });
         Migration::migrate_from(
-            &Version::new(4, 0, 3),
             &PACKAGE_VERSION,
+            &Version::new(4, 0, 3),
             &mut document,
             DOCUMENT_MIGRATIONS,
         )
@@ -558,40 +566,25 @@ mod tests {
         let tasks = &document["roles"][0]["tasks"];
         assert_eq!(
             tasks[0]["commands"],
-            json!(["/usr/bin/id ^.*$", "/usr/bin/ls -l", "** ^.*$"])
+            json!(["/usr/bin/id ^$", "/usr/bin/ls -l", "/usr/bin/ls ^.*$"])
         );
         assert_eq!(
             tasks[1]["commands"],
-            json!({"default": "none", "add": ["/usr/bin/cat ^.*$"], "del": ["/usr/bin/rm ^.*$"]})
+            json!({"default": "none", "add": ["/usr/bin/cat ^$"], "del": ["/usr/bin/rm ^$"]})
         );
-        assert_eq!(tasks[2]["commands"][0]["command"], "/usr/bin/ls ^.*$");
+        assert_eq!(tasks[2]["commands"][0]["command"], "/usr/bin/ls ^$");
         assert_eq!(tasks[3]["commands"], "all");
 
         // the short keys of the CBOR format
         let mut document = json!({"r": [{"t": [{"c": ["/usr/bin/id"]}]}]});
         Migration::migrate_from(
-            &Version::new(4, 0, 3),
-            &PACKAGE_VERSION,
-            &mut document,
-            DOCUMENT_MIGRATIONS,
-        )
-        .unwrap();
-        assert_eq!(document["r"][0]["t"][0]["c"], json!(["/usr/bin/id ^.*$"]));
-
-        // since 4.1.0 a command without arguments allows none, which 4.0.3 reads with ^$
-        let mut document =
-            json!({"roles": [{"tasks": [{"commands": ["/usr/bin/id", "/usr/bin/ls ^.*$"]}]}]});
-        Migration::migrate_from(
             &PACKAGE_VERSION,
             &Version::new(4, 0, 3),
             &mut document,
             DOCUMENT_MIGRATIONS,
         )
         .unwrap();
-        assert_eq!(
-            document["roles"][0]["tasks"][0]["commands"],
-            json!(["/usr/bin/id ^$", "/usr/bin/ls ^.*$"])
-        );
+        assert_eq!(document["r"][0]["t"][0]["c"], json!(["/usr/bin/id ^$"]));
     }
 
     #[test]
