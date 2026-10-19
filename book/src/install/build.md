@@ -1,38 +1,8 @@
-# Installation
+# Build-time default configuration
 
-## Install from Linux distributions
-
-**We really need your help to bring the project to Linux distributions repositories! Please contribute 🙏!**
-
-
-### Arch Linux (AUR)
-
-```sh
-git clone https://aur.archlinux.org/dosr.git
-cd dosr
-makepkg -si
-```
-you can also use `yay` AUR manager or any other one you like. Please __**vote**__ for the [AUR](https://aur.archlinux.org/packages/dosr) if you want it into pacman `extra` repo! All you need is an [Arch AUR account](https://aur.archlinux.org/login) and you could vote for the AUR 🙂
-
-
-## Compile and install from source
-
-This is a complete process for compiling and installing `dosr` and `chsr` binaries.
-
-### Prerequisites
-
-- Linux system with PAM
-- Rust toolchain
-- Administrative rights (`sudo` or equivalent)
-
-### Retrieve the source code
-
-```bash
-git clone https://github.com/LeChatP/RootAsRole
-cd RootAsRole
-```
-
-### Configuring the fallback default behavior
+<blockquote class="caroot">
+All this configuration was thought to apply the Fail-safe default principle by Saltzer & Scroeder. This implies enforcing the most strict security options at the top-level of the configuration and overriding only at the lowest according to needs! So if you want to modify Build-time defaults, be very careful and understand the implications of your changes.
+</blockquote>
 
 Before installing the tool, you might want to set default behavior. You'll find in .cargo/config.toml :
 
@@ -71,7 +41,7 @@ RAR_WORKDIR_REMOVE_LIST = ""
 
 These variables allows a customized compilation of the binary. With these variables you'll be able to edit every behaviors, either hardcoded in the binary such as the root configuration file path, or the execution options when they aren't defined at all in the policy.
 
-#### Core Path & Configuration Storage Variables Reference
+## Core Path & Configuration Storage Variables Reference
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
@@ -87,7 +57,7 @@ These variables allows a customized compilation of the binary. With these variab
 For security reasons, you'll have to set absolute paths.
 </blockquote>
 
-### Environment Variable Management
+## Environment Variable Management
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
@@ -102,7 +72,7 @@ For security reasons, you'll have to set absolute paths.
 Malformed values strings create compile-time errors.
 </blockquote>
 
-### Execution Context & Workspace Controls
+## Execution Context & Workspace Controls
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
@@ -118,7 +88,7 @@ Malformed values strings create compile-time errors.
 Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly not reccommend it. <br/> <br/> Working directory management is somewhat useful for some cases, such as allowing restricted commands only in a specific restricted directory. Of course that means that allowed commands shouldn't change internally the working directory. For example, if you set "/bin/ls" command, and setting fallback workdir to the "/tmp", then all "dosr ls" command will only show "/tmp" content, no matter where the user is located. Otherwise, if you set "/bin/ls .*" for the command, then the user still be able to retrieve folder contents everywhere on the system.
 </blockquote>
 
-### Security, Timeouts & Authentication
+## Security, Timeouts & Authentication
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
@@ -134,28 +104,4 @@ Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly 
 
 <blockquote class="caroot-stare">
 Showing to a user their policy can help attackers in their enumeration phase. A good policy knows what command a user is allowed to do in a such way that the user don't know that there is a strict policy applied.
-</blockquote>
-
-## Dependencies installation, compiling and installing
-
-It might be trivial, but in order to install RootAsRole, you needs full administrative privileges. But only for specific cases when needed. Again, even here, we wants to apply PoLP. However, compiling a program will never need privileges. So managing unprivileged compilation and privileged installation is a bit tricky.
-
-To manage that, we developed an installation helper tool
-
-```bash
-cargo xtask install -bip sudo
-```
-
-This command performs:
-
-- dependency installation when required (privileged)
-- project build
-- deployment of `dosr` and `chsr` in `RAR_BIN_PATH` (privileged)
-- capability/ownership setup for `dosr` (privileged)
-- installation of PAM config for `dosr` with `RAR_PAM_SERVICE` name (privileged)
-- installation of the configuration and policy with `RAR_CFG_PATH` and `RAR_CFG_DATA_PATH` paths (privileged)
-- immutable flag setup on policy file when supported by the filesystem controlled with `RAR_CFG_IMMUTABLE` (privileged)
-
-<blockquote class="caroot">
-If you don't have sudo installed, you can use su, doas or please binaries. They should work as expected.
 </blockquote>

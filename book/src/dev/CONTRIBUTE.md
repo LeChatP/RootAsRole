@@ -29,7 +29,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 ## Code of Conduct
 
 This project and everyone participating in it is governed by the
-[RootAsRole Code of Conduct](https://github.com/LeChatP/RootAsRoleblob/master/CODE_OF_CONDUCT.md).
+[RootAsRole Code of Conduct](CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold this code. For now, we are too few to be able to enforce it.
 
 

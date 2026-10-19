@@ -37,7 +37,7 @@ Typical causes are:
 - broken inheritance/option structure
 
 Review the reported error, fix the corresponding field, and retry.
-For schema examples, see [Configuration File Format](chsr/file-config.md).
+For schema examples, see [Configuration File Format](configuration.md).
 
 ## Why does `chsr convert` fail?
 
@@ -48,4 +48,4 @@ Common causes:
 - `--from` format does not match the actual source content
 
 Retry with explicit `--from` and verify file permissions.
-See [File Format Conversion](chsr/convert.md) for command forms.
+See [File Format Conversion](cli/chsr.md#file-format-conversion) for command forms.
