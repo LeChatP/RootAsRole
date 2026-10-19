@@ -733,8 +733,10 @@ impl PartialEq<Vec<SGroupType>> for SGroups {
     }
 }
 
+/// An actor of a role. Policies write it `{"type": "user", "name": …}`, or for short
+/// `{"user": …}`; the typed form is the one written back.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", from = "SActorRepr")]
 pub enum SActor {
     #[serde(rename = "user")]
     User {
@@ -758,6 +760,73 @@ pub enum SActor {
     Unknown(Value),
 }
 
+/// The short forms are only recognized alone: `{"user": "alice", "group": "adm"}` is not an
+/// actor that dosr understands, so it stays unknown and never matches.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SActorRepr {
+    User(UserShorthand<SUserType>),
+    Group(GroupShorthand<SGroups>),
+    Typed(STypedActor),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UserShorthand<T> {
+    user: T,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GroupShorthand<T> {
+    group: T,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum STypedActor {
+    User {
+        #[serde(alias = "name")]
+        id: Option<SUserType>,
+        #[serde(default, flatten)]
+        extra_fields: Map<String, Value>,
+    },
+    Group {
+        #[serde(alias = "names", alias = "name", alias = "id")]
+        groups: Option<SGroups>,
+        #[serde(default, flatten)]
+        extra_fields: Map<String, Value>,
+    },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+
+impl From<SActorRepr> for SActor {
+    fn from(repr: SActorRepr) -> Self {
+        match repr {
+            SActorRepr::User(UserShorthand { user }) => Self::User {
+                id: Some(user),
+                extra_fields: Map::new(),
+            },
+            SActorRepr::Group(GroupShorthand { group }) => Self::Group {
+                groups: Some(group),
+                extra_fields: Map::new(),
+            },
+            SActorRepr::Typed(STypedActor::User { id, extra_fields }) => {
+                Self::User { id, extra_fields }
+            }
+            SActorRepr::Typed(STypedActor::Group {
+                groups,
+                extra_fields,
+            }) => Self::Group {
+                groups,
+                extra_fields,
+            },
+            SActorRepr::Typed(STypedActor::Unknown(value)) => Self::Unknown(value),
+        }
+    }
+}
+
 impl SActor {
     #[must_use]
     pub const fn is_user(&self) -> bool {
@@ -773,8 +842,9 @@ impl SActor {
     }
 }
 
+/// An actor of a role, as dosr reads it: the typed form or the short form, like [`SActor`].
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", from = "DActorRepr<'a>")]
 pub enum DActor<'a> {
     #[serde(rename = "user")]
     User {
@@ -788,6 +858,41 @@ pub enum DActor<'a> {
     },
     #[serde(untagged)]
     Unknown(Value),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DActorRepr<'a> {
+    User(#[serde(borrow)] UserShorthand<DUserType<'a>>),
+    Group(#[serde(borrow)] GroupShorthand<DGroups<'a>>),
+    Typed(#[serde(borrow)] DTypedActor<'a>),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum DTypedActor<'a> {
+    User {
+        #[serde(borrow, alias = "name")]
+        id: DUserType<'a>,
+    },
+    Group {
+        #[serde(borrow, alias = "names", alias = "name", alias = "id")]
+        groups: DGroups<'a>,
+    },
+    #[serde(untagged)]
+    Unknown(Value),
+}
+
+impl<'a> From<DActorRepr<'a>> for DActor<'a> {
+    fn from(repr: DActorRepr<'a>) -> Self {
+        match repr {
+            DActorRepr::User(UserShorthand { user }) => Self::User { id: user },
+            DActorRepr::Group(GroupShorthand { group }) => Self::Group { groups: group },
+            DActorRepr::Typed(DTypedActor::User { id }) => Self::User { id },
+            DActorRepr::Typed(DTypedActor::Group { groups }) => Self::Group { groups },
+            DActorRepr::Typed(DTypedActor::Unknown(value)) => Self::Unknown(value),
+        }
+    }
 }
 
 #[bon]
@@ -1154,5 +1259,70 @@ mod tests {
         assert_eq!(user.as_str(), "test");
         let user = SUserType::from(100);
         assert_eq!(user.as_str(), "100");
+    }
+
+    #[test]
+    fn test_sactor_short_forms() {
+        let actor = |json: &str| serde_json::from_str::<SActor>(json).unwrap();
+        assert_eq!(actor(r#"{"user": "alice"}"#), SActor::user("alice").build());
+        assert_eq!(actor(r#"{"user": 1000}"#), SActor::user(1000).build());
+        assert_eq!(actor(r#"{"group": "adm"}"#), SActor::group("adm").build());
+        // a list of groups: the user must belong to all of them
+        assert_eq!(
+            actor(r#"{"group": ["adm", "systemd-journal"]}"#),
+            SActor::group(["adm", "systemd-journal"]).build()
+        );
+        // the typed form is unchanged, and groups also accept the "id" alias, like in dosr
+        assert_eq!(
+            actor(r#"{"type": "user", "name": "alice"}"#),
+            SActor::user("alice").build()
+        );
+        assert_eq!(
+            actor(r#"{"type": "group", "id": 4}"#),
+            SActor::group(4).build()
+        );
+        // a short form is only recognized alone
+        for ambiguous in [
+            r#"{"user": "alice", "group": "adm"}"#,
+            r#"{"user": "alice", "name": "bob"}"#,
+            r#"{"user": {"name": "alice"}}"#,
+        ] {
+            assert!(actor(ambiguous).is_unknown(), "{ambiguous}");
+        }
+    }
+
+    #[test]
+    fn test_sactor_short_form_is_written_typed() {
+        let actor: SActor = serde_json::from_str(r#"{"group": ["adm", "wheel"]}"#).unwrap();
+        assert_eq!(
+            serde_json::to_value(&actor).unwrap(),
+            serde_json::json!({"type": "group", "groups": ["adm", "wheel"]})
+        );
+        // and read back the same
+        let again: SActor = serde_json::from_value(serde_json::to_value(&actor).unwrap()).unwrap();
+        assert_eq!(again, actor);
+    }
+
+    #[test]
+    fn test_dactor_short_forms() {
+        let actor = |json: &'static str| serde_json::from_str::<DActor<'static>>(json).unwrap();
+        assert_eq!(
+            actor(r#"{"user": "alice"}"#),
+            DActor::User {
+                id: DUserType::from("alice")
+            }
+        );
+        assert_eq!(
+            actor(r#"{"group": ["adm", "systemd-journal"]}"#),
+            actor(r#"{"type": "group", "names": ["adm", "systemd-journal"]}"#)
+        );
+        assert_eq!(
+            actor(r#"{"group": 4}"#),
+            actor(r#"{"type": "group", "id": 4}"#)
+        );
+        assert!(matches!(
+            actor(r#"{"user": "alice", "group": "adm"}"#),
+            DActor::Unknown(_)
+        ));
     }
 }

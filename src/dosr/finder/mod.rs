@@ -1311,6 +1311,32 @@ mod tests {
         Ok((settings.role, settings.task, settings.final_path))
     }
 
+    #[test]
+    fn test_actors_in_short_form() {
+        let uid = nix::unistd::getuid().as_raw();
+        let mut cases = vec![
+            (serde_json::json!([{"user": uid}]), true),
+            (serde_json::json!([{"user": uid + 54_321}]), false),
+        ];
+        // the groups of the test process, as dosr sees them
+        if let Some(gid) = nix::unistd::getgroups().unwrap().first() {
+            let gid = gid.as_raw();
+            cases.push((serde_json::json!([{"group": gid}]), true));
+            cases.push((serde_json::json!([{"group": [gid]}]), true));
+            // a short form is only recognized alone: this actor never matches
+            cases.push((serde_json::json!([{"user": uid, "group": gid}]), false));
+        }
+        for (actors, allowed) in cases {
+            let roles = serde_json::json!([role_json(
+                "r",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({ "actors": actors })
+            )]);
+            assert_eq!(choose(&roles, "/usr/bin/ls").is_ok(), allowed, "{actors}");
+        }
+    }
+
     /// A role with `actors`, one task allowing `command`, and extra fields.
     fn role_json(name: &str, member: bool, command: Option<&str>, extra: &Value) -> Value {
         let uid = nix::unistd::getuid().as_raw();
