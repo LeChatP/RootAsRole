@@ -1,43 +1,37 @@
 # Summary
 
-- [The RootAsRole project](README.md)
-- [Introduction](intro.md)
-- [Features](features.md)
-- [Compatibility](compatibility.md)
+[The RootAsRole project](README.md)
+
+- [Installation](install/installation.md)
+  - [Build-time default configuration](install/build.md)
+- [Quickstart: First Policy in 10 Minutes](quickstart.md)
+- [Configuration](configuration.md)
+- [Security Model](security.md)
 - [Comparison with other tools](comparison.md)
-
-# Getting Started
-
-- [Installation](guide/installation.md)
-- [Quickstart: First Policy in 10 Minutes](getting-started/quickstart.md)
+- [FAQ](faq.md)
 
 # CLI Tools
-  - [`dosr`](dosr/README.md)
-    - [`Performance`](dosr/performance.md)
-  - [`chsr`](chsr/README.md)
-  - [`capable`](capable/README.md)
 
-# Policy & Configuration
-  - [Policy Model and Inheritance](policy/model.md)
-  - [Configuration File Format](chsr/file-config.md)
-  - [File Format Conversion (JSON/CBOR)](chsr/convert.md)
+- [`dosr`](cli/dosr.md)
+- [`chsr`](cli/chsr.md)
 
-# Deep Dives & Architecture
+# Background
 
-- [Architecture Overview](architecture/overview.md)
-- [Security Model](operations/security.md)
-- [Research articles](research.md)
-- [FAQ](faq.md)
-  - [Is a Linux system without root user possible?](knowledge/no-root.md)
-  - [What is eBPF?](knowledge/ebpf.md)
-  - [Why use Linux Capabilities?](knowledge/linux_capabilities.md)
-  - [Why use a Role-Based Access Model (RBAC)?](knowledge/rbac.md)
-  - [Static/Dynamic Separation of Duties (SoD)](knowledge/sod.md)
-  - [Command matching helper](knowledge/command_match.md)
+- [Why RootAsRole](background/why.md)
+- [Why use a Role-Based Access Model (RBAC)?](background/rbac.md)
+- [Why use Linux Capabilities?](background/linux-capabilities.md)
+- [What is eBPF?](background/ebpf.md)
+- [Is a Linux system without root user possible?](background/no-root.md)
+- [Performance](background/performance.md)
+- [Research articles](background/research.md)
 
 # Community & Development
 
+- [Architecture Overview](dev/architecture.md)
 - [How to contribute](dev/CONTRIBUTE.md)
 - [Code of Conduct](dev/CODE_OF_CONDUCT.md)
-- [History](HISTORY.md)
-- [CaRoot story](caroot/README.md)
+- [History](dev/HISTORY.md)
+
+---
+
+[CaRoot story](caroot/chapter1.md)

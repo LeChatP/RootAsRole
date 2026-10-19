@@ -7,11 +7,12 @@ description = "Practical documentation for RootAsRole"
 
 [output.html]
 site-url = "/RootAsRole/"
-git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/master/book"
-edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/master/book/{path}"
+git-repository-url = "https://github.com/LeChatP/RootAsRole/tree/main/book"
+edit-url-template = "https://github.com/LeChatP/RootAsRole/edit/main/book/{path}"
 theme = "theme"
 default-theme = "rust"
 additional-css = ["book.css"]
+additional-js = ["src/assets/js/svg-pan-zoom.min.js", "src/assets/js/panzoom-init.js"]
 mathjax-support = true
 
 [preprocessor.graphviz]

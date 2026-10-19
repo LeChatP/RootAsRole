@@ -49,6 +49,12 @@ The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By defau
 **\-E, --preserve-env**  
   Preserve environment variables from the current process if allowed by a matching task.
 
+**\-D, --chdir** &lt;WORKDIR&gt;
+  Workdir option allows you to specify the working directory for the command
+
+**\-S, --stdin**
+  Use stdin for password prompt
+
 **\-p, --prompt** &lt;PROMPT&gt; 
   Prompt to display when authenticating.
 

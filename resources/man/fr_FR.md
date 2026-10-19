@@ -1,6 +1,6 @@
-% RootAsRole(8) RootAsRole 4.0.2 | Manuel de l'administrateur système
+% RootAsRole(8) RootAsRole PACKAGE_VERSION | Manuel de l'administrateur système
 % Eddie Billoir <lechatp@outlook.fr>
-% Août 2025
+% Octobre 2026
 
 # NAME
 RootAsRole - Une alternative pour les commandes sudo/su respectant le principe du moindre privilège et une gestion de la mémoire plus sécurisée.
@@ -13,7 +13,7 @@ RootAsRole - Une alternative pour les commandes sudo/su respectant le principe d
 # DESCRIPTION
 **RootAsRole** est un outil pour les administrateurs qui fournit un système structuré de contrôle d'accès basé sur les rôles (RBAC) pour déléguer les tâches administratives et les droits d'accès. Il prend notamment en charge les __Linux capabilities(7)__ pour minimiser les privilèges des utilisateurs.
 
-Le modèle de Roles Based Access Control (RBAC) est basé sur des ensembles de permissions assignées à des utilisateurs ou des groupes. Pour RootAsRole, un rôle est un ensemble de tâches administratives assignées à des utilisateurs. Les tâches sont des commandes avec des droits à utiliser. Les droits peuvent être un changement d'utilisateur, un changement de groupe ou/et des Linux capabilities.
+Le modèle de Role Based Access Control (RBAC) est basé sur des ensembles de permissions assignées à des utilisateurs ou des groupes. Pour RootAsRole, un rôle est un ensemble de tâches administratives assignées à des utilisateurs. Les tâches sont des commandes avec des droits à utiliser. Les droits peuvent être un changement d'utilisateur, un changement de groupe ou/et des Linux capabilities. Cela signifie qu'il est possible qu'un utilisateur possède des privilèges sans changer d'identité, et inversement que root n'aies plus de privilèges lorsqu'il fait une commande. Ainsi, RootAsRole permet de minimiser les droits et respecter le principe de moindre privilège.
 
 La commande **dosr** permet d'exécuter des commandes en utilisant un rôle. Elle prend en paramètre obligatoire une commande à exécuter. Il est également possible de spécifier un rôle et une tâche à sélectionner.
 
@@ -47,6 +47,12 @@ Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par 
 
 **\-E, --preserve-env**  
   Préserver les variables d'environnement du processus courant si autorisé par une tâche correspondante.
+
+**\-D, --chdir** &lt;WORKDIR&gt;
+  Forcer le dossier où va s'exécuter la commande
+
+**\-S, --stdin**
+  Utiliser l'entrée standard au lieu du tty pour la phase d'authentification.
 
 **\-p, --prompt** &lt;PROMPT&gt; 
   Prompt à afficher lors de l'authentification.
