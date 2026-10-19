@@ -1,0 +1,216 @@
+@startuml rootasrole-policy-xor
+!theme vibrant
+top to bottom direction
+skinparam linetype ortho
+
+hide empty members
+set separator none
+
+package "Root file (rootasrole.json)" {
+  struct RootFile {
+    + storage: Storage
+  }
+
+  struct Storage {
+    + method: json | cbor
+    + settings: StorageSettings
+  }
+
+  struct StorageSettings {
+    + path: path
+    + immutable: bool
+  }
+
+  note left of StorageSettings
+    The roles defined in RootFile are evaluated
+    only when settings.path points to the root file itself.
+    Otherwise, external PolicyFile(s) at path are loaded.
+  end note
+}
+
+abstract class PolicyContent {
+  + version: string
+  + options: Options [0..1]
+  + roles: Role [*]
+}
+
+struct PolicyFile
+
+package "Policy" {
+  struct Role {
+    + name: string
+    + actors: Actor [*]
+    + tasks: Task [*]
+    + options: Options [0..1]
+    -- hierarchy plugin --
+    + parents: role name [*]
+    -- ssd plugin --
+    + ssd: role name [*]
+  }
+
+  abstract class Actor
+
+  struct UserActor {
+    + id: User
+  }
+
+  struct GroupActor {
+    + groups: GroupSet
+  }
+
+  struct Task {
+    + name: string | index
+    + purpose: string [0..1]
+    + cred: Credentials
+    + commands: CommandRepresentation
+    + options: Options [0..1]
+  }
+
+  struct Credentials {
+    + setuid: User | UserSelector [0..1]
+    + setgid: GroupSet | GroupSelector [0..1]
+    + capabilities: all | none | Cap [*] | CapSelector [0..1]
+    -- landlock plugin --
+    + files: map of path to R, W, X [0..1]
+  }
+
+  enum CommandRepresentation {
+    all
+    none
+    list: Command [*]
+    selector: CommandSelector
+  }
+
+  struct Command {
+    + string: path and arguments
+  }
+
+  note top of Actor
+    User, Group: a name or a numeric id
+    GroupSet: one group, or a list of groups
+    that are all required
+  end note
+
+  struct UserSelector {
+    + default: all | none
+    + fallback: User [0..1]
+    + add: User [*]
+    + sub: User [*]
+  }
+
+  struct GroupSelector {
+    + default: all | none
+    + fallback: GroupSet [0..1]
+    + add: GroupSet [*]
+    + sub: GroupSet [*]
+  }
+
+  struct CapSelector {
+    + default: all | none
+    + add: Cap [*]
+    + sub: Cap [*]
+  }
+
+  struct CommandSelector {
+    + default: all | none
+    + add: Command [*]
+    + sub: Command [*]
+  }
+
+  note right of CommandSelector
+    del is an alias of sub
+    in every selector
+  end note
+}
+
+package "Inheritable Settings" {
+  struct Options {
+    + path: PathOptions [0..1]
+    + env: EnvOptions [0..1]
+    + root: privileged | user [0..1]
+    + bounding: strict | ignore [0..1]
+    + authentication: perform | skip [0..1]
+    + execinfo: show | hide [0..1]
+    + workdir: path | WorkdirOptions [0..1]
+    + timeout: Timeout [0..1]
+    + umask: string [0..1]
+  }
+
+  note left of Options
+    Inheritance resolution:
+    Task -> Role -> PolicyFile / RootFile -> Built-in defaults
+  end note
+
+  struct PathOptions {
+    + default: delete | keepsafe | keepunsafe | inherit
+    + add: path [*]
+    + sub: path [*]
+  }
+
+  struct EnvOptions {
+    + default: delete | keep | inherit
+    + override_behavior: bool
+    + set: map of name to value
+    + keep: pattern [*]
+    + check: pattern [*]
+    + delete: pattern [*]
+  }
+  
+  struct Timeout {
+    + type: ppid | tty | uid
+    + duration: string
+    + max_usage: int
+  }
+
+  struct WorkdirOptions {
+    + default: none | all | inherit
+    + fallback: path [0..1]
+    + add: path [*]
+    + sub: path [*]
+  }
+
+  
+
+  Options *-- "0..1" WorkdirOptions : workdir
+  Options *-- PathOptions
+  Options *-- EnvOptions
+  Options *-- Timeout
+  
+}
+
+' Relations Fichiers et Spécialisation
+RootFile *-- "1" Storage
+Storage *-- "1" StorageSettings
+StorageSettings ..> PolicyFile : loads via path
+
+PolicyContent <|-- RootFile
+PolicyContent <|-- PolicyFile
+PolicyContent "1" *-- "0..*" Role
+
+' Relations Policy
+Role "1" *-- "0..*" Actor
+Actor <|-- UserActor
+Actor <|-- GroupActor
+
+Role "1" *-- "0..*" Task
+Task "1" *-- "1" Credentials
+Task "1" *-- "1" CommandRepresentation : commands
+CommandRepresentation *-- "0..*" Command : list
+CommandRepresentation *-- "0..1" CommandSelector : selector
+CommandSelector *-- "0..*" Command
+
+' Relations Selectors
+Credentials "1" *-- "0..1" UserSelector : setuid
+Credentials "1" *-- "0..1" GroupSelector : setgid
+Credentials "1" *-- "0..1" CapSelector : capabilities
+
+' Relations Options (composition locale)
+PolicyContent "1" *-- "0..1" Options : options
+Role "1" *-- "0..1" Options : options
+Task "1" *-l- "0..1" Options : options
+
+
+' Alignement vertical du package Inheritable Settings sous Policy
+PolicyFile -[hidden]down-> "Inheritable Settings"
+PolicyContent -[hidden]right-> Policy
+@enduml
