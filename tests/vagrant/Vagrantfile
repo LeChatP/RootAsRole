@@ -1,0 +1,46 @@
+# End-to-end tests of RootAsRole in throwaway virtual machines, with the libvirt provider.
+#
+# The current tree is copied into each machine, built and installed with `cargo xtask install`,
+# which gives the layout of the Debian package (/etc/security/rootasrole.json,
+# /etc/security/rootasrole.d/default.json, immutable flags). Then the root integration tests
+# (`cargo integration-test`) and the end-to-end checks (e2e.sh) run.
+#
+#   cd tests/vagrant
+#   vagrant up debian                                     # build, install, test
+#   vagrant rsync debian && vagrant provision debian      # again, after a change of the tree
+#   vagrant provision debian --provision-with e2e         # only the end-to-end checks
+#   vagrant destroy -f
+#
+# Machines: debian (the distribution of the official package) and arch (the AUR package dosr).
+# Their boxes can be replaced with RAR_BOX_DEBIAN and RAR_BOX_ARCH.
+
+BOXES = {
+  "debian" => ENV.fetch("RAR_BOX_DEBIAN", "debian/testing64"),
+  "arch" => ENV.fetch("RAR_BOX_ARCH", "archlinux/archlinux"),
+}.freeze
+
+Vagrant.configure("2") do |config|
+  config.vm.provider "libvirt" do |libvirt|
+    libvirt.memory = 4096
+    libvirt.cpus = 4
+  end
+
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.synced_folder "../..", "/home/vagrant/RootAsRole",
+    type: "rsync",
+    rsync__exclude: [
+      ".git/", "target/", "fuzz/target/", "fuzz/corpus/", "fuzz/artifacts/",
+      "book/book/", "sudo-rs/", "perf/", "thesis/",
+    ]
+
+  BOXES.each do |name, box|
+    config.vm.define name, autostart: name == "debian" do |machine|
+      machine.vm.box = box
+      machine.vm.hostname = "rar-#{name}"
+      machine.vm.provision "build", type: "shell", path: "provision.sh"
+      machine.vm.provision "integration", type: "shell", privileged: false,
+        inline: '. "$HOME/.cargo/env" && cd "$HOME/RootAsRole" && cargo integration-test'
+      machine.vm.provision "e2e", type: "shell", path: "e2e.sh"
+    end
+  end
+end

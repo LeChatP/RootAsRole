@@ -267,24 +267,17 @@ where
                 }
             },
             SGroupsEither::GroupSelector(chooser) => {
-                match &chooser.fallback {
-                    SGroups::Single(sgroup_type) => {
-                        if sgroup_type.fetch_group().is_none() {
-                            warn(format!(
-                                "Warning: Unknown group in role '{}' task '{:?}' setgid fallback: '{:?}'",
-                                role.name, task.name, sgroup_type
-                            ));
-                        }
-                    }
-                    SGroups::Multiple(sgroup_types) => {
-                        for sgroup_type in sgroup_types {
-                            if sgroup_type.fetch_group().is_none() {
-                                warn(format!(
-                                    "Warning: Unknown group in role '{}' task '{:?}' setgid fallback: '{:?}'",
-                                    role.name, task.name, sgroup_type
-                                ));
-                            }
-                        }
+                let fallback = match &chooser.fallback {
+                    None => &[][..],
+                    Some(SGroups::Single(sgroup_type)) => std::slice::from_ref(sgroup_type),
+                    Some(SGroups::Multiple(sgroup_types)) => sgroup_types.as_slice(),
+                };
+                for sgroup_type in fallback {
+                    if sgroup_type.fetch_group().is_none() {
+                        warn(format!(
+                            "Warning: Unknown group in role '{}' task '{:?}' setgid fallback: '{:?}'",
+                            role.name, task.name, sgroup_type
+                        ));
                     }
                 }
                 chooser.add.iter().for_each(|group| {

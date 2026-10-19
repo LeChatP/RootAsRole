@@ -198,7 +198,9 @@ pub struct RemoteStorageSettings {
 #[derive(Default)]
 pub enum PathBehavior {
     Delete,
+    #[serde(rename = "keep-safe", alias = "keepsafe", alias = "keep_safe")]
     KeepSafe,
+    #[serde(rename = "keep-unsafe", alias = "keepunsafe", alias = "keep_unsafe")]
     KeepUnsafe,
     #[default]
     Inherit,
@@ -211,8 +213,18 @@ impl PathBehavior {
     pub const fn const_parse(input: &str) -> Self {
         match input {
             _ if eq_str(input, "delete") => Self::Delete,
-            _ if eq_str(input, "keep_safe") => Self::KeepSafe,
-            _ if eq_str(input, "keep_unsafe") => Self::KeepUnsafe,
+            _ if eq_str(input, "keep-safe")
+                || eq_str(input, "keep_safe")
+                || eq_str(input, "keepsafe") =>
+            {
+                Self::KeepSafe
+            }
+            _ if eq_str(input, "keep-unsafe")
+                || eq_str(input, "keep_unsafe")
+                || eq_str(input, "keepunsafe") =>
+            {
+                Self::KeepUnsafe
+            }
             _ if eq_str(input, "inherit") => Self::Inherit,
             _ => panic!("fail to parse PathBehavior"),
         }
@@ -831,9 +843,10 @@ pub fn output_checked(command: &mut Command, action: &str) -> Result<Output, any
     Ok(output)
 }
 
-/// Set or unset the immutable flag on a file
+/// Set or unset the immutable flag on a file, or on a directory and the files in it: an
+/// immutable policy directory accepts no new policy file.
 /// # Arguments
-/// * `file` - The file to set the immutable flag on
+/// * `file` - The file or directory to set the immutable flag on
 /// * `lock` - Whether to set or unset the immutable flag
 /// # Errors
 /// Will return an error if the file cannot be opened, if the immutable flag cannot be set
@@ -843,25 +856,28 @@ pub fn toggle_lock_config<P: AsRef<Path>>(file: &P, lock: &ImmutableLock) -> io:
             let entry = entry?;
             toggle_lock_config(&entry.path(), lock)?;
         }
-    } else if file.as_ref().is_file() {
-        let file = open_with_privileges(file)?;
-        let mut val = 0;
-        let fd = file.as_raw_fd();
-        if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if lock.is_unset() {
-            val &= !(FS_IMMUTABLE_FL);
-        } else {
-            val |= FS_IMMUTABLE_FL;
-        }
-
-        immutable_required_privileges(&file, true)?;
-        if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        immutable_required_privileges(&file, false)?;
+    } else if !file.as_ref().is_file() {
+        return Ok(());
     }
+    let file = open_with_privileges(file)?;
+    let mut val = 0;
+    let fd = file.as_raw_fd();
+    // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `val` is a valid and writable int
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if lock.is_unset() {
+        val &= !(FS_IMMUTABLE_FL);
+    } else {
+        val |= FS_IMMUTABLE_FL;
+    }
+
+    immutable_required_privileges(&file, true)?;
+    // SAFETY: FS_IOC_SETFLAGS reads an int through the pointer, `val` is a valid int
+    if unsafe { nix::libc::ioctl(fd, FS_IOC_SETFLAGS, &mut val) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    immutable_required_privileges(&file, false)?;
     Ok(())
 }
 

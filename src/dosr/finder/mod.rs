@@ -22,7 +22,7 @@ use rootasrole_core::{
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         workdir::ResolvedWorkdir,
     },
-    util::{StorageMethod, check_others_permissions, read_with_privileges},
+    util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
@@ -113,17 +113,19 @@ where
         .map(|(key, value)| (key.into(), value.into()))
         .collect();
     let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
-    let file_path = settings_file
-        .data
-        .data
-        .settings
-        .unwrap_or_default()
+    let storage_settings = settings_file.data.data.settings.unwrap_or_default();
+    let immutable = storage_settings.immutable.unwrap_or(false);
+    let file_path = storage_settings
         .path
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
     let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
         let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
         let file = read_with_privileges(file_path)?;
         check_others_permissions(file_path, &file)?;
+        if immutable {
+            // a file added to the policy without CAP_LINUX_IMMUTABLE is not trusted
+            check_immutable(file_path, &file)?;
+        }
         let reader = BufReader::new(file);
         match settings_file.data.data.method {
             StorageMethod::CBOR => {
@@ -446,9 +448,10 @@ impl BestExecSettings {
                     resolve_any_command(&cli.cmd_path, &t_env_path_ref)
                         .ok_or(SrError::ExecutionFailed)?,
                 );
+                // any command with any arguments, like a "**" rule
                 task_cmd_min = CmdMin::builder()
                     .matching()
-                    .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
+                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
                     .build();
             } else {
                 for command in commands.add() {
@@ -836,6 +839,32 @@ mod tests {
     }
 
     #[test]
+    fn test_best_task_needs_no_critical_capability_in_any_order() {
+        let a = task_json(
+            "a",
+            &["CAP_NET_BIND_SERVICE"],
+            r#"["/usr/bin/ls"]"#,
+            "A_VAR",
+            "/usr/bin",
+        );
+        let b = task_json(
+            "b",
+            &["CAP_SYS_ADMIN"],
+            r#"["/usr/bin/ls"]"#,
+            "B_VAR",
+            "/usr/bin",
+        );
+        let c = task_json("c", &[], r#"["/usr/bin/ls"]"#, "C_VAR", "/usr/bin")
+            .replace(r#""caps":[]"#, r#""caps":"all""#);
+        for tasks in orders(&[&a, &b, &c]) {
+            let (task, _, _, kept) = best_task(&tasks, "/usr/bin/ls").unwrap();
+            // CAP_NET_BIND_SERVICE is the only capability that is not critical
+            assert_eq!(task, "a", "{tasks:?}");
+            assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
     fn test_tie_between_the_best_tasks_is_refused_in_any_order() {
         // same command and same privileges: none of them is less privileged than the other
         let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
@@ -921,7 +950,7 @@ mod tests {
 
     #[test]
     fn test_losing_task_does_not_degrade_the_best_score() {
-        let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let a = task_json("a", &[], r#"["/usr/bin/ls -l"]"#, "A_VAR", "/usr/bin");
         let b = task_json(
             "b",
             &["CAP_NET_RAW"],
@@ -931,10 +960,34 @@ mod tests {
         );
         // a regex on the arguments is a worse match than a exact command
         let c = task_json("c", &[], r#"["/usr/bin/ls ^.*$"]"#, "C_VAR", "/usr/bin");
+        let cli = crate::getopt(["dosr", "ls", "-l"]).unwrap();
         for tasks in orders(&[&a, &b, &c]) {
-            let (task, _, _, kept) = best_task(&tasks, "ls").unwrap();
+            let (task, _, _, kept) = best_task_for(&tasks, &cli).unwrap();
             assert_eq!(task, "a", "{tasks:?}");
             assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_command_without_arguments_allows_none() {
+        let none = task_json("none", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let any = task_json("any", &[], r#"["/usr/bin/ls ^.*$"]"#, "B_VAR", "/usr/bin");
+        let with_args = crate::getopt(["dosr", "ls", "-l"]).unwrap();
+        let without_args = crate::getopt(["dosr", "ls"]).unwrap();
+        // alone, a command without arguments does not allow ls -l
+        assert!(best_task_for(&[&none], &with_args).is_err());
+        for tasks in orders(&[&none, &any]) {
+            assert_eq!(
+                best_task_for(&tasks, &with_args).unwrap().0,
+                "any",
+                "{tasks:?}"
+            );
+            // without arguments, the exact rule is more precise than any arguments
+            assert_eq!(
+                best_task_for(&tasks, &without_args).unwrap().0,
+                "none",
+                "{tasks:?}"
+            );
         }
     }
 
@@ -1091,6 +1144,43 @@ mod tests {
     }
 
     #[test]
+    fn test_immutable_policy_refuses_a_mutable_file() {
+        // a file added by someone who could not set the immutable flag (uid 0 without
+        // capabilities owns /etc/security), in a policy directory or as the policy file
+        let dir = PolicyDir::new("immutable");
+        let policies = dir.0.join("policies");
+        std::fs::create_dir(&policies).unwrap();
+        set_mode(&policies, 0o700);
+        let planted = policy(user_role("planted", "/usr/bin/ls", &[]));
+        write_file(
+            &policies.join("planted.json"),
+            &planted,
+            StorageMethod::JSON,
+            0o600,
+        );
+        let single = dir.0.join("policy.json");
+        write_file(&single, &planted, StorageMethod::JSON, 0o600);
+        let root = dir.0.join("rootasrole.json");
+        for data in [&policies, &single] {
+            let mut settings = root_settings(StorageMethod::JSON, data, serde_json::json!([]));
+            write_file(&root, &settings, StorageMethod::JSON, 0o600);
+            assert_eq!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+                "planted",
+                "{}",
+                data.display()
+            );
+            settings["storage"]["settings"]["immutable"] = serde_json::json!(true);
+            write_file(&root, &settings, StorageMethod::JSON, 0o600);
+            assert!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").is_err(),
+                "{}",
+                data.display()
+            );
+        }
+    }
+
+    #[test]
     fn test_find_best_exec_settings_policy_directory() {
         let dir = PolicyDir::new("directory");
         let policies = dir.0.join("policies");
@@ -1223,6 +1313,32 @@ mod tests {
         Ok((settings.role, settings.task, settings.final_path))
     }
 
+    #[test]
+    fn test_actors_in_short_form() {
+        let uid = nix::unistd::getuid().as_raw();
+        let mut cases = vec![
+            (serde_json::json!([{"user": uid}]), true),
+            (serde_json::json!([{"user": uid + 54_321}]), false),
+        ];
+        // the groups of the test process, as dosr sees them
+        if let Some(gid) = nix::unistd::getgroups().unwrap().first() {
+            let gid = gid.as_raw();
+            cases.push((serde_json::json!([{"group": gid}]), true));
+            cases.push((serde_json::json!([{"group": [gid]}]), true));
+            // a short form is only recognized alone: this actor never matches
+            cases.push((serde_json::json!([{"user": uid, "group": gid}]), false));
+        }
+        for (actors, allowed) in cases {
+            let roles = serde_json::json!([role_json(
+                "r",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({ "actors": actors })
+            )]);
+            assert_eq!(choose(&roles, "/usr/bin/ls").is_ok(), allowed, "{actors}");
+        }
+    }
+
     /// A role with `actors`, one task allowing `command`, and extra fields.
     fn role_json(name: &str, member: bool, command: Option<&str>, extra: &Value) -> Value {
         let uid = nix::unistd::getuid().as_raw();
@@ -1291,6 +1407,57 @@ mod tests {
             choose(&roles, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
         ));
+    }
+
+    #[test]
+    fn test_default_policy_runs_as_the_requested_user() {
+        api::register_plugins();
+        let policy = include_str!("../../../resources/rootasrole.json");
+        let root = Cred {
+            user: nix::unistd::User::from_uid(0.into()).unwrap().unwrap(),
+            groups: Vec::new(),
+            tty: None,
+            ppid: nix::unistd::Pid::from_raw(1),
+            curdir: PathBuf::from("/"),
+        };
+        let nobody = nix::unistd::User::from_name("nobody").unwrap().unwrap();
+        let group = nix::unistd::Group::from_gid(nix::unistd::getgid())
+            .unwrap()
+            .unwrap();
+        // an administrator drops its privileges with -u and -g: the command runs as asked, the
+        // policy allows every user and group (`"default": "all"`)
+        let cli = crate::getopt([
+            "dosr",
+            "-u",
+            "nobody",
+            "-g",
+            group.name.as_str(),
+            "/usr/bin/id",
+        ])
+        .unwrap();
+        let data = de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &root,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(policy))
+        .unwrap();
+        let settings = BestExecSettings::retrieve_settings(
+            &cli,
+            &root,
+            &data,
+            Vec::<(String, String)>::new(),
+            &["/usr/bin"],
+        )
+        .unwrap();
+        assert_eq!(settings.task.as_deref(), Some("t_root"));
+        assert_eq!(settings.cred.setuid.map(|user| user.uid), Some(nobody.uid));
+        assert_eq!(
+            settings
+                .cred
+                .setgroups
+                .map(|groups| groups.iter().map(|g| g.gid).collect::<Vec<_>>()),
+            Some(vec![group.gid])
+        );
     }
 
     #[cfg(feature = "hierarchy")]
@@ -1366,6 +1533,69 @@ mod tests {
             choose(&roles, "/usr/bin/ls"),
             Err(SrError::PermissionDenied)
         ));
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_ssd_counts_the_roles_held_through_parents() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            // the user holds junior through senior: auditor is excluded
+            role_json(
+                "auditor",
+                true,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"ssd": ["junior"]})
+            ),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/cat"),
+            Err(SrError::PermissionDenied)
+        ));
+        assert!(choose(&roles, "/usr/bin/ls").is_ok());
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_conflicting_parents_give_no_conflicting_task() {
+        let none = serde_json::json!({});
+        let ssd = |other: &str| serde_json::json!({ "ssd": [other] });
+        let senior = role_json(
+            "senior",
+            true,
+            None,
+            &serde_json::json!({"parents": ["a", "b"]}),
+        );
+        // a declares the conflict: its tasks are not inherited, those of b are
+        let roles = serde_json::json!([
+            senior,
+            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, Some("/usr/bin/cat"), &none),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+        assert!(choose(&roles, "/usr/bin/cat").is_ok());
+        // declared on both sides: no task of either
+        let roles = serde_json::json!([
+            senior,
+            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, Some("/usr/bin/cat"), &ssd("a")),
+        ]);
+        for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+        }
     }
 
     #[test]

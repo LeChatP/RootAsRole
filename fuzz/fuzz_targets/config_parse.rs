@@ -12,6 +12,11 @@ fn assert_round_trip<T: Serialize + DeserializeOwned>(value: &T) {
     let again: T =
         serde_json::from_value(first.clone()).expect("a serialized policy must parse back");
     assert_eq!(serde_json::to_value(&again).unwrap(), first);
+    // chsr convert writes the same content in CBOR, which has its own compact forms
+    let cbor = cbor4ii::serde::to_vec(Vec::new(), value).expect("a parsed policy must serialize");
+    let from_cbor: T =
+        cbor4ii::serde::from_slice(&cbor).expect("a policy written in CBOR must parse back");
+    assert_eq!(serde_json::to_value(&from_cbor).unwrap(), first);
 }
 
 fuzz_target!(|data: &[u8]| {

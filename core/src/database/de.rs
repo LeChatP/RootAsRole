@@ -154,6 +154,18 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 })
             }
 
+            // the binary formats write a list of capabilities as a bitmask
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(SCapabilities {
+                    default_behavior: SetBehavior::None,
+                    add: CapSet::from_bitmask_truncate(v),
+                    sub: CapSet::empty(),
+                })
+            }
+
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
                 A: MapAccess<'de>,
@@ -166,9 +178,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
+                            default_behavior = map.next_value()?;
                         }
                         Field::Add => {
                             add = map.next_value_seed(CapSetDeserializer)?;
@@ -305,28 +315,21 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                 while let Some(key) = map.next_key::<Field>()? {
                     match key {
                         Field::Default => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
+                            default_behavior = map.next_value()?;
                         }
                         Field::Fallback => {
                             fallback.replace(map.next_value::<SGroups>()?);
                         }
                         Field::Add => {
-                            let values: Vec<SGroups> =
-                                map.next_value().expect("add entry must be a list");
+                            let values: Vec<SGroups> = map.next_value()?;
                             add.extend(values);
                         }
                         Field::Sub => {
-                            let values: Vec<SGroups> =
-                                map.next_value().expect("sub entry must be a list");
+                            let values: Vec<SGroups> = map.next_value()?;
                             sub.extend(values);
                         }
                     }
                 }
-                let fallback = fallback.ok_or_else(|| {
-                    de::Error::custom("Missing required field 'fallback' in SSetgidSet")
-                })?;
                 Ok(SSetgidSet {
                     default_behavior,
                     fallback,
@@ -446,19 +449,14 @@ impl<'de> Deserialize<'de> for SCommands {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Fields::Default => {
-                            default_behavior = Some(
-                                map.next_value()
-                                    .expect("default entry must be either 'all' or 'none'"),
-                            );
+                            default_behavior = Some(map.next_value()?);
                         }
                         Fields::Add => {
-                            let values: Vec<SCommand> =
-                                map.next_value().expect("add entry must be a list");
+                            let values: Vec<SCommand> = map.next_value()?;
                             add.extend(values);
                         }
                         Fields::Sub => {
-                            let values: Vec<SCommand> =
-                                map.next_value().expect("sub entry must be a list");
+                            let values: Vec<SCommand> = map.next_value()?;
                             sub.extend(values);
                         }
                         Fields::Other(other) => {
@@ -554,6 +552,9 @@ mod tests {
     fn test_invalid_capabilities() {
         let invalid_data = json!(["INVALID_CAPABILITY", "CAP_FAKE"]);
         assert!(serde_json::from_value::<SCapabilities>(invalid_data).is_err());
+        // a wrong default is an error, the policy comes from a file
+        let invalid_default = json!({"default": "some", "add": ["CAP_NET_RAW"]});
+        assert!(serde_json::from_value::<SCapabilities>(invalid_default).is_err());
     }
 
     #[test]
@@ -583,7 +584,7 @@ mod tests {
         });
         let setgid_set: SSetgidSet = serde_json::from_value(json_data).unwrap();
         assert_eq!(setgid_set.default_behavior, SetBehavior::All);
-        assert_eq!(setgid_set.fallback, SGroups::from("group1"));
+        assert_eq!(setgid_set.fallback, Some(SGroups::from("group1")));
         assert_eq!(setgid_set.add.len(), 2);
         assert_eq!(setgid_set.add[0], SGroups::from("group2"));
         assert_eq!(setgid_set.add[1], SGroups::from("group3"));
@@ -617,5 +618,49 @@ mod tests {
         assert_eq!(commands.add[0], "/bin/ls".into());
         assert_eq!(commands.sub.len(), 1);
         assert_eq!(commands.sub[0], "/bin/cat".into());
+    }
+
+    #[test]
+    fn test_s_setgid_set_without_fallback() {
+        // like in dosr: without fallback, -g is required, or with "all" the groups of the
+        // caller are kept
+        for json_data in [
+            json!({"default": "none", "add": ["adm"]}),
+            json!({"default": "all", "del": ["root"]}),
+        ] {
+            let set: SSetgidSet = serde_json::from_value(json_data.clone()).unwrap();
+            assert_eq!(set.fallback, None, "{json_data}");
+            let again: SSetgidSet =
+                serde_json::from_value(serde_json::to_value(&set).unwrap()).unwrap();
+            assert_eq!(again, set, "{json_data}");
+            let cbor = cbor4ii::serde::to_vec(Vec::new(), &set).unwrap();
+            let again: SSetgidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
+            assert_eq!(again, set, "{json_data}");
+        }
+    }
+
+    #[test]
+    fn test_invalid_selector_entries_are_errors() {
+        // the policy comes from a file: a mistake is an error, never a panic
+        for setgid in [
+            json!({"default": "some", "fallback": "root"}),
+            json!({"default": "none", "fallback": "root", "add": "root"}),
+            json!({"default": "none", "fallback": "root", "sub": 0}),
+        ] {
+            assert!(
+                serde_json::from_value::<SSetgidSet>(setgid.clone()).is_err(),
+                "{setgid}"
+            );
+        }
+        for commands in [
+            json!({"default": "some"}),
+            json!({"default": "none", "add": "/bin/ls"}),
+            json!({"default": "all", "sub": {"a": 1}}),
+        ] {
+            assert!(
+                serde_json::from_value::<SCommands>(commands.clone()).is_err(),
+                "{commands}"
+            );
+        }
     }
 }

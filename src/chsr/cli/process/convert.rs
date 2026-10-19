@@ -8,7 +8,7 @@ use rootasrole_core::{
     RemoteStorageSettings,
     database::versionning::Versioning,
     file::{FileSettings, LockedSettingsFile},
-    util::RAR_CFG_TYPE,
+    util::{RAR_CFG_TYPE, with_mutable_dir},
 };
 
 use crate::{
@@ -58,8 +58,17 @@ pub fn convert(
             "Writing configuration to new file : {}",
             convertion.to.display()
         );
-        let mut c = LockedSettingsFile::open_write(convertion.to, |_, _| {
-            Ok(Versioning::new(config.clone()))
+        // the destination may be a new file in an immutable policy directory
+        let parent = convertion
+            .to
+            .parent()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let mut c = with_mutable_dir(&parent, || {
+            LockedSettingsFile::open_write(convertion.to, |_, _| {
+                Ok(Versioning::new(config.clone()))
+            })
         })?;
         c.save(convertion.to_type, RAR_CFG_IMMUTABLE)?;
 

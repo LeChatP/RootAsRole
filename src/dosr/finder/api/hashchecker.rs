@@ -214,8 +214,15 @@ fn match_command_line(
     final_path: &mut Option<PathBuf>,
 ) {
     let mut result = match_path(checker, env_path, cmd_path, &role_command[0], final_path);
-    if !result.matching() || role_command.len() == 1 {
+    if !result.matching() {
         *cmd_min = result;
+        return;
+    }
+    // a command written without arguments allows none, like without the plugin
+    if role_command.len() == 1 {
+        if cmd_args.is_empty() {
+            *cmd_min = result;
+        }
         return;
     }
     match match_args(cmd_args, &shell_words::join(&role_command[1..])) {
@@ -480,7 +487,8 @@ mod tests {
                 json,
                 &["/usr/bin"],
                 &PathBuf::from(&filename).canonicalize().unwrap(),
-                &["-l".to_string()],
+                // the commands of the policy have no arguments: they allow none
+                &[],
                 &mut final_path,
                 &mut cmd_min,
             );

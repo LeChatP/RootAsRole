@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn test_config_finder_deserializer() {
         let json = format!(
-            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0", 0], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type": "user", "id": {}}}], "tasks": [{{"name": "test", "cred": {{"setuid":"0", "setgid":["0"], "caps": []}}, "commands": ["/usr/bin/ls"]}}]}}]}}"#,
             getuid().as_raw()
         );
         let cli = Cli::builder().cmd_path("ls").build();
@@ -478,7 +478,7 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn test_config_finder_implementation() {
         let json = format!(
-            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","names":[{}, {}]}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0",0],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
+            r#"{{"roles":[{{"name":"r_test","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"test","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/ls"]}},{{"name":"test2","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/ls","/usr/bin/cat"]}}]}},{{"name":"r_test2","actors":[{{"type":"group","names":[{}, {}]}}],"tasks":[{{"name":"test3","cred":{{"setuid":"0","setgid":["0"],"caps":[]}},"commands":["/usr/bin/cat","/usr/bin/ls"]}}]}}]}}"#,
             getuid().as_raw(),
             getgid().as_raw(),
             getgid().as_raw()
@@ -965,6 +965,43 @@ mod tests {
                 assert_eq!(final_path, expected, "task PATH {task_path}");
             }
         }
+    }
+
+    #[test]
+    fn test_capability_list_written_by_chsr_in_cbor() {
+        // chsr writes a list of capabilities as a bitmask in CBOR
+        let uid = getuid().as_raw();
+        let json = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{uid}}}],"tasks":[{{"name":"t","cred":{{"capabilities":["CAP_NET_RAW"]}},"commands":["/usr/bin/ls"]}}]}}]}}"#
+        );
+        let policy: rootasrole_core::database::structs::SPolicy =
+            serde_json::from_str(&json).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let cli = Cli::builder().cmd_path("ls").build();
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        let config = ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut cbor4ii::serde::Deserializer::new(SliceReader::new(
+            cbor.as_slice(),
+        )))
+        .unwrap();
+        assert_eq!(
+            config.roles[0].tasks[0].cred.caps,
+            Some(capctl::CapSet::from_iter([capctl::Cap::NET_RAW]))
+        );
+        assert_eq!(
+            config.roles[0].tasks[0].score.caps_min,
+            CapsMin::CapsNoAdmin(1)
+        );
     }
 
     #[test]

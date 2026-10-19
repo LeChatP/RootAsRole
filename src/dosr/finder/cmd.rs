@@ -72,6 +72,51 @@ fn match_path(
     }
 }
 
+/// The regular expression of the arguments of a command of the policy, as written after its
+/// path: arguments starting with `^` and ending with `$`, single-quoted or not.
+fn regex_arguments(args: &str) -> Option<&str> {
+    let args = args.trim();
+    let args = args
+        .strip_prefix('\'')
+        .and_then(|quoted| quoted.strip_suffix('\''))
+        .filter(|quoted| quoted.starts_with('^') && quoted.ends_with('$'))
+        .unwrap_or(args);
+    (args.len() >= 2 && args.starts_with('^') && args.ends_with('$')).then_some(args)
+}
+
+/// The path of a command of the policy, unquoted, and its arguments as written: a regular
+/// expression must not go through shell splitting, which removes its backslashes.
+fn split_role_command(role_cmd: &str) -> Option<(String, &str)> {
+    let role_cmd = role_cmd.trim_start();
+    let first = role_cmd.chars().next()?;
+    let path_end = if first == '\'' || first == '"' {
+        role_cmd[1..].find(first)? + 2
+    } else {
+        role_cmd.find(char::is_whitespace).unwrap_or(role_cmd.len())
+    };
+    let path = shell_words::split(&role_cmd[..path_end])
+        .ok()?
+        .into_iter()
+        .next()?;
+    Some((path, &role_cmd[path_end..]))
+}
+
+/// Whether the arguments of the user match the regular expression `regex` of the policy.
+fn match_regex_args(
+    input_args: &[String],
+    regex: &str,
+) -> Result<CmdMin, Box<dyn std::error::Error>> {
+    if regex == "^.*$" {
+        return Ok(CmdMin::builder()
+            .matching()
+            .order(CmdOrder::FullRegexArgs)
+            .build());
+    }
+    evaluate_regex_cmd(regex, &shell_words::join(input_args)).inspect_err(|e| {
+        warn!("Invalid regular expression in the policy, it never matches: {regex}: {e}");
+    })
+}
+
 /// Check if input args is matching with role args and return the score
 /// role args can contains regex
 /// input args is the command line args
@@ -79,18 +124,10 @@ pub(super) fn match_args(
     input_args: &[String],
     role_args: &str,
 ) -> Result<CmdMin, Box<dyn std::error::Error>> {
-    if role_args == "'^.*$'" {
-        return Ok(CmdMin::builder()
-            .matching()
-            .order(CmdOrder::FullRegexArgs)
-            .build());
+    if let Some(regex) = regex_arguments(role_args) {
+        return match_regex_args(input_args, regex);
     }
-    let commandline = shell_words::join(input_args);
-    if role_args.starts_with("\'^") && role_args.ends_with("$\'") {
-        evaluate_regex_cmd(role_args.trim_matches('\''), &commandline).inspect_err(|e| {
-            debug!("{e:?},No match for args {input_args:?}");
-        })
-    } else if commandline == role_args {
+    if shell_words::join(input_args) == role_args {
         Ok(CmdMin::builder().matching().build())
     } else {
         Ok(CmdMin::builder().build())
@@ -151,9 +188,19 @@ fn match_command_line(
         previous_min,
         final_path,
     );
-    if result.is_empty() || role_command.len() == 1 {
+    if result.is_empty() {
         debug!("preresult : {result:?}");
         return result;
+    }
+    if role_command.len() == 1 {
+        // a command written without arguments allows none: arguments are always explicit,
+        // '^.*$' allows any of them
+        debug!("preresult : {result:?}");
+        return if user_args.is_empty() {
+            result
+        } else {
+            CmdMin::empty()
+        };
     }
     match match_args(user_args, &shell_words::join(&role_command[1..])) {
         Ok(args_result) => {
@@ -179,6 +226,23 @@ pub fn evaluate_command_match(
     previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
+    // a regular expression is taken as written: unquoted, it may contain spaces, quotes and
+    // backslashes that shell splitting would change
+    if let Some((role_path, args)) = split_role_command(role_cmd)
+        && let Some(regex) = regex_arguments(args)
+    {
+        let mut result = match_path(env_path, cmd_path, &role_path, previous_min, final_path);
+        if result.is_empty() {
+            return result;
+        }
+        return match match_regex_args(cmd_args, regex) {
+            Ok(args_result) if !args_result.is_empty() => {
+                result.union_order(args_result.order);
+                result
+            }
+            _ => CmdMin::empty(),
+        };
+    }
     match shell_words::split(role_cmd).map_err(Into::<Box<dyn std::error::Error>>::into) {
         Ok(role_cmd) => match_command_line(
             env_path,
@@ -614,6 +678,110 @@ mod tests {
         // the rule is written with shell quoting, the argument holds the quotes
         assert!(matches(&["\"a\""]));
         assert!(!matches(&["a"]));
+    }
+
+    #[test]
+    fn test_command_without_arguments_allows_none() {
+        // no argument written: none allowed, as precise as an exact command line
+        assert_eq!(
+            allows("/usr/bin/ls", "/usr/bin/ls", &[]),
+            CmdMin::builder().matching().build()
+        );
+        assert!(!allows("/usr/bin/ls", "/usr/bin/ls", &["-l"]).matching());
+        // any binary, without arguments either
+        assert!(allows("**", "/usr/bin/ls", &[]).matching());
+        assert!(!allows("**", "/usr/bin/ls", &["-l"]).matching());
+        // any arguments are written explicitly
+        assert!(allows("/usr/bin/ls ^.*$", "/usr/bin/ls", &["-l"]).matching());
+        assert!(allows("/usr/bin/ls ^.*$", "/usr/bin/ls", &[]).matching());
+        // '^$' also allows none, as a regular expression
+        assert!(allows("/usr/bin/ls ^$", "/usr/bin/ls", &[]).matching());
+        assert!(!allows("/usr/bin/ls ^$", "/usr/bin/ls", &["-l"]).matching());
+        // without arguments, the command without arguments is the most precise rule
+        assert!(allows("/usr/bin/ls", "/usr/bin/ls", &[]).better(allows(
+            "/usr/bin/ls ^.*$",
+            "/usr/bin/ls",
+            &[]
+        )));
+    }
+
+    /// Whether `role_cmd` allows `cmd` with `args`.
+    fn allows(role_cmd: &str, cmd: &str, args: &[&str]) -> CmdMin {
+        let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+        let mut final_path = None;
+        evaluate_command_match(
+            &["/usr/bin"],
+            Path::new(cmd),
+            &args,
+            role_cmd,
+            CmdMin::empty(),
+            &mut final_path,
+        )
+    }
+
+    #[test]
+    fn test_regex_arguments_with_or_without_quotes() {
+        for rule in [
+            "/usr/bin/journalctl ^-u caddy( -f)?$",
+            "/usr/bin/journalctl '^-u caddy( -f)?$'",
+        ] {
+            let journalctl = |args: &[&str]| allows(rule, "/usr/bin/journalctl", args).matching();
+            assert!(journalctl(&["-u", "caddy"]), "{rule}");
+            assert!(journalctl(&["-u", "caddy", "-f"]), "{rule}");
+            assert!(!journalctl(&["-u", "sshd"]), "{rule}");
+            assert!(
+                !journalctl(&["-u", "caddy", "-f", "-o", "export"]),
+                "{rule}"
+            );
+        }
+        // written as is: the backslash still escapes the dot
+        let rule = r"/usr/bin/tail ^-n [0-9]+ /var/log/caddy/(access|error)\.log$";
+        assert!(
+            allows(
+                rule,
+                "/usr/bin/tail",
+                &["-n", "10", "/var/log/caddy/access.log"]
+            )
+            .matching()
+        );
+        assert!(
+            !allows(
+                rule,
+                "/usr/bin/tail",
+                &["-n", "10", "/var/log/caddy/accessXlog"]
+            )
+            .matching()
+        );
+        // any arguments, quoted or not
+        for rule in ["/usr/bin/ls ^.*$", "/usr/bin/ls '^.*$'"] {
+            assert_eq!(
+                allows(rule, "/usr/bin/ls", &["-l"]),
+                CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::FullRegexArgs)
+                    .build(),
+                "{rule}"
+            );
+        }
+        // an invalid regular expression never matches
+        assert!(!allows("/usr/bin/ls ^-l($", "/usr/bin/ls", &["-l"]).matching());
+        // exact arguments are unchanged
+        assert!(
+            allows(
+                "/usr/bin/systemctl status --no-pager caddy",
+                "/usr/bin/systemctl",
+                &["status", "--no-pager", "caddy"]
+            )
+            .matching()
+        );
+        assert!(
+            !allows(
+                "/usr/bin/systemctl status --no-pager caddy",
+                "/usr/bin/systemctl",
+                &["status", "caddy"]
+            )
+            .matching()
+        );
     }
 
     #[test]

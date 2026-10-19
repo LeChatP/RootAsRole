@@ -140,13 +140,15 @@ impl Serialize for SSetgidSet {
     where
         S: serde::Serializer,
     {
-        if self.default_behavior.is_none() && self.sub.is_empty() && self.add.is_empty() {
-            serializer.serialize_some(&self.fallback)
+        if let Some(fallback) = self.fallback.as_ref().filter(|_| {
+            self.default_behavior.is_none() && self.sub.is_empty() && self.add.is_empty()
+        }) {
+            serializer.serialize_some(fallback)
         } else if serializer.is_human_readable() {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("default", &self.default_behavior)?;
-            if !self.fallback.is_empty() {
-                map.serialize_entry("fallback", &self.fallback)?;
+            if let Some(fallback) = &self.fallback {
+                map.serialize_entry("fallback", fallback)?;
             }
             if !self.add.is_empty() {
                 map.serialize_entry("add", &self.add)?;
@@ -158,8 +160,8 @@ impl Serialize for SSetgidSet {
         } else {
             let mut map = serializer.serialize_map(None)?;
             map.serialize_entry("d", &(self.default_behavior as u32))?;
-            if !self.fallback.is_empty() {
-                map.serialize_entry("f", &self.fallback)?;
+            if let Some(fallback) = &self.fallback {
+                map.serialize_entry("f", fallback)?;
             }
             if !self.add.is_empty() {
                 map.serialize_entry("a", &self.add)?;
@@ -483,7 +485,9 @@ mod tests {
 
     #[test]
     fn test_ssetgidset_seq() {
-        let set = SSetgidSet::builder(SetBehavior::None, vec![0, 1]).build();
+        let set = SSetgidSet::builder(SetBehavior::None)
+            .fallback(vec![0, 1])
+            .build();
         let value = to_value(&set).unwrap();
         assert!(value.is_array());
         assert_eq!(value.as_array().unwrap().len(), 2);
@@ -633,6 +637,61 @@ mod tests {
     }
 
     #[test]
+    fn test_scapabilities_every_form_round_trips() {
+        let forms = [
+            SCapabilities::builder(SetBehavior::None).build(),
+            SCapabilities::builder(SetBehavior::All).build(),
+            // a list of capabilities, written as a bitmask in CBOR
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .build(),
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .add_cap(Cap::LINUX_IMMUTABLE)
+                .build(),
+            SCapabilities::builder(SetBehavior::All)
+                .sub_cap(Cap::SYS_ADMIN)
+                .build(),
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .sub_cap(Cap::SYS_ADMIN)
+                .build(),
+        ];
+        for caps in forms {
+            let cbor = cbor4ii::serde::to_vec(Vec::new(), &caps).unwrap();
+            let from_cbor: SCapabilities =
+                cbor4ii::serde::from_slice(&cbor).unwrap_or_else(|e| panic!("CBOR {caps:?}: {e}"));
+            assert_eq!(from_cbor, caps);
+            let json = serde_json::to_string(&caps).unwrap();
+            let from_json: SCapabilities =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("JSON {caps:?}: {e}"));
+            assert_eq!(from_json, caps);
+        }
+    }
+
+    #[test]
+    fn test_policy_with_a_capability_list_round_trips_in_cbor() {
+        // the task of the default policy that runs chsr: chsr convert must not lock it out
+        let json = r#"{"version":"4.1.0","roles":[{"name":"r_root","actors":[{"type":"user","name":"root"}],"tasks":[{"name":"t_chsr","cred":{"setuid":"root","setgid":"root","capabilities":["CAP_LINUX_IMMUTABLE"]},"commands":["/usr/bin/chsr"]}]}]}"#;
+        let policy: SPolicy = serde_json::from_str(json).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let again: SPolicy = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(to_value(&again).unwrap(), to_value(&policy).unwrap());
+    }
+
+    #[test]
+    fn test_policy_with_a_group_selector_without_fallback() {
+        // dosr accepts it, chsr must load and write it back
+        let json = r#"{"version":"4.1.0","roles":[{"name":"r","actors":[{"type":"user","name":"root"}],"tasks":[{"name":"t","cred":{"setgid":{"default":"none","add":[["adm","systemd-journal"]]}},"commands":["/usr/bin/journalctl"]}]}]}"#;
+        let policy: SPolicy = serde_json::from_str(json).unwrap();
+        let from_json: SPolicy = serde_json::from_value(to_value(&policy).unwrap()).unwrap();
+        assert_eq!(to_value(&from_json).unwrap(), to_value(&policy).unwrap());
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let from_cbor: SPolicy = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(to_value(&from_cbor).unwrap(), to_value(&policy).unwrap());
+    }
+
+    #[test]
     fn test_scommands_cbor_roundtrip() {
         let test_cases = vec![
             // Simple string case
@@ -719,7 +778,8 @@ mod tests {
         assert_eq!(mandatory_multiple, deserialized);
 
         let gidset = SGroupsEither::GroupSelector(
-            SSetgidSet::builder(SetBehavior::None, vec![1, 2])
+            SSetgidSet::builder(SetBehavior::None)
+                .fallback(vec![1, 2])
                 .add(vec![4.into(), 5.into()])
                 .sub(vec![3.into(), 4.into()])
                 .build(),

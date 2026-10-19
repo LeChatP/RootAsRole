@@ -133,11 +133,16 @@ fn convert_string_to_duration(s: &str) -> Result<Option<jiff::SignedDuration>, B
         let hours: i64 = hours.parse()?;
         let minutes: i64 = minutes.parse()?;
         let seconds: i64 = seconds.parse()?;
-        return Ok(Some(
-            jiff::SignedDuration::from_hours(hours)
-                + jiff::SignedDuration::from_mins(minutes)
-                + jiff::SignedDuration::from_secs(seconds),
-        ));
+        if hours < 0 || minutes < 0 || seconds < 0 {
+            return Err("A duration cannot be negative".into());
+        }
+        // checked: a value of the policy must be an error, never a panic of the parser
+        let total = hours
+            .checked_mul(3600)
+            .and_then(|total| total.checked_add(minutes.checked_mul(60)?))
+            .and_then(|total| total.checked_add(seconds))
+            .ok_or("The duration is too long")?;
+        return Ok(Some(jiff::SignedDuration::from_secs(total)));
     }
     Err("Invalid duration format".into())
 }
@@ -145,6 +150,24 @@ fn convert_string_to_duration(s: &str) -> Result<Option<jiff::SignedDuration>, B
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_duration_of_the_policy() {
+        assert_eq!(
+            convert_string_to_duration("01:30:15").unwrap(),
+            Some(jiff::SignedDuration::from_secs(5415))
+        );
+        // too long or negative: an error, not a panic
+        for duration in [
+            "9223372036854775807:00:00",
+            "2562047788015216:00:00",
+            "00:9223372036854775807:00",
+            "00:00:-1",
+            "-01:00:00",
+        ] {
+            assert!(convert_string_to_duration(duration).is_err(), "{duration}");
+        }
+    }
 
     struct IndexSetTester<T>(pub Option<IndexSet<T>>);
 
@@ -542,16 +565,14 @@ mod serde_tests {
     #[test]
     fn test_group_selector() {
         let groups = SGroupsEither::GroupSelector(
-            SSetgidSet::builder(
-                SetBehavior::None,
-                SGroups::Multiple(vec![1000.into(), 1001.into()]),
-            )
-            .add(vec![
-                SGroups::Multiple(vec![1002.into(), 1003.into()]),
-                SGroups::Single(1003.into()),
-            ])
-            .sub(vec![1004.into(), 1005.into()])
-            .build(),
+            SSetgidSet::builder(SetBehavior::None)
+                .fallback(SGroups::Multiple(vec![1000.into(), 1001.into()]))
+                .add(vec![
+                    SGroups::Multiple(vec![1002.into(), 1003.into()]),
+                    SGroups::Single(1003.into()),
+                ])
+                .sub(vec![1004.into(), 1005.into()])
+                .build(),
         );
 
         assert_tokens(

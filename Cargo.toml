@@ -97,8 +97,8 @@ undocumented_unsafe_blocks = { level = "warn", priority = 2 }
 allow-unwrap-in-tests = true
 
 [workspace.dependencies]
-rootasrole-core = { version = "4.0.2", path = "core" }
-rootasrole-exec = { version = "4.0.2", path = "exec" }
+rootasrole-core = { version = "4.1.0", path = "core" }
+rootasrole-exec = { version = "4.1.0", path = "exec" }
 
 [dependencies]
 rootasrole-core = { workspace = true }
