@@ -324,11 +324,8 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
     if is_immutable {
         toggle_lock_config(&RAR_CFG_PATH.to_string(), &ImmutableLock::Set)?;
         if RAR_CFG_PATH != RAR_CFG_DATA_PATH {
-            let policy_path = resolve_policy_path(Path::new(RAR_CFG_DATA_PATH));
-            toggle_lock_config(
-                &policy_path.to_string_lossy().to_string(),
-                &ImmutableLock::Set,
-            )?;
+            // the policy file, and the policy directory itself when there is one
+            toggle_lock_config(&RAR_CFG_DATA_PATH.to_string(), &ImmutableLock::Set)?;
         }
     }
 

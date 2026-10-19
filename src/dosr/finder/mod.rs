@@ -22,7 +22,7 @@ use rootasrole_core::{
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         workdir::ResolvedWorkdir,
     },
-    util::{StorageMethod, check_others_permissions, read_with_privileges},
+    util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
 };
 use serde::de::DeserializeSeed;
 
@@ -113,17 +113,19 @@ where
         .map(|(key, value)| (key.into(), value.into()))
         .collect();
     let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
-    let file_path = settings_file
-        .data
-        .data
-        .settings
-        .unwrap_or_default()
+    let storage_settings = settings_file.data.data.settings.unwrap_or_default();
+    let immutable = storage_settings.immutable.unwrap_or(false);
+    let file_path = storage_settings
         .path
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
     let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
         let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
         let file = read_with_privileges(file_path)?;
         check_others_permissions(file_path, &file)?;
+        if immutable {
+            // a file added to the policy without CAP_LINUX_IMMUTABLE is not trusted
+            check_immutable(file_path, &file)?;
+        }
         let reader = BufReader::new(file);
         match settings_file.data.data.method {
             StorageMethod::CBOR => {
@@ -1136,6 +1138,43 @@ mod tests {
                 find(&root, method, "/usr/bin/cat"),
                 Err(SrError::PermissionDenied)
             ));
+        }
+    }
+
+    #[test]
+    fn test_immutable_policy_refuses_a_mutable_file() {
+        // a file added by someone who could not set the immutable flag (uid 0 without
+        // capabilities owns /etc/security), in a policy directory or as the policy file
+        let dir = PolicyDir::new("immutable");
+        let policies = dir.0.join("policies");
+        std::fs::create_dir(&policies).unwrap();
+        set_mode(&policies, 0o700);
+        let planted = policy(user_role("planted", "/usr/bin/ls", &[]));
+        write_file(
+            &policies.join("planted.json"),
+            &planted,
+            StorageMethod::JSON,
+            0o600,
+        );
+        let single = dir.0.join("policy.json");
+        write_file(&single, &planted, StorageMethod::JSON, 0o600);
+        let root = dir.0.join("rootasrole.json");
+        for data in [&policies, &single] {
+            let mut settings = root_settings(StorageMethod::JSON, data, serde_json::json!([]));
+            write_file(&root, &settings, StorageMethod::JSON, 0o600);
+            assert_eq!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+                "planted",
+                "{}",
+                data.display()
+            );
+            settings["storage"]["settings"]["immutable"] = serde_json::json!(true);
+            write_file(&root, &settings, StorageMethod::JSON, 0o600);
+            assert!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").is_err(),
+                "{}",
+                data.display()
+            );
         }
     }
 

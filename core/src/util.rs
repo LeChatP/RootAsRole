@@ -642,6 +642,46 @@ pub fn check_others_permissions(path: &Path, file: &File) -> io::Result<()> {
     Ok(())
 }
 
+/// Refuse a policy file without the immutable flag, when the policy is declared immutable.
+///
+/// Owner and mode are not enough: uid 0 without any capability still owns `/etc/security` and
+/// could add a policy file. Setting the flag requires `CAP_LINUX_IMMUTABLE`, which chsr has.
+/// # Errors
+/// Returns `PermissionDenied` when the flag is not set, or an error if the flags cannot be read.
+pub fn check_immutable(path: &Path, file: &File) -> io::Result<()> {
+    if is_immutable(file)? {
+        return Ok(());
+    }
+    let message = format!(
+        "{} is not immutable, refusing to use it: write it with chsr or set its immutable flag",
+        path.display()
+    );
+    error!("{message}");
+    Err(io::Error::new(ErrorKind::PermissionDenied, message))
+}
+
+/// Run `f`, which adds or removes a file in `dir`, with the immutable flag of `dir` lifted.
+///
+/// An immutable directory accepts no new entry. Nothing is lifted when `dir` has no flag, or
+/// when its filesystem has no flags at all.
+/// # Errors
+/// Returns an error if the flag cannot be lifted or set back, or the error of `f`.
+pub fn with_mutable_dir<F, R>(dir: &Path, f: F) -> io::Result<R>
+where
+    F: FnOnce() -> io::Result<R>,
+{
+    let Ok(mut dir_file) = File::open(dir) else {
+        return f();
+    };
+    if !is_immutable(&dir_file).unwrap_or(false) {
+        return f();
+    }
+    let val = unlock_immutable(&mut dir_file)?;
+    let res = f();
+    lock_immutable(&mut dir_file, val | FS_IMMUTABLE_FL)?;
+    res
+}
+
 /// Candidates for `exe_name` in the directories of `env_path`.
 /// Relative directories (`.`, empty entries…) are ignored: they would make the result depend
 /// on the current directory, which the user controls.
@@ -1028,6 +1068,46 @@ mod test {
             ErrorKind::PermissionDenied
         );
         set_mode(&dir, 0o755);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_check_immutable_refuses_a_mutable_file() {
+        let dir = std::env::temp_dir().join(format!("rar_check_immutable_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("planted.json");
+        fs::write(&path, "{}").unwrap();
+        // without CAP_LINUX_IMMUTABLE, the flag cannot be set: such a file is refused
+        assert!(check_immutable(&path, &File::open(&path).unwrap()).is_err());
+        // a directory without the flag is left as is
+        with_mutable_dir(&dir, || fs::write(dir.join("new.json"), "{}")).unwrap();
+        assert!(dir.join("new.json").is_file());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_with_mutable_dir_sets_the_flag_back() {
+        let current = capctl::CapState::get_current().unwrap();
+        if !current.permitted.has(Cap::LINUX_IMMUTABLE) {
+            eprintln!("Skipping test, requires CAP_LINUX_IMMUTABLE");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("rar_mutable_dir_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        let mut dir_file = File::open(&dir).unwrap();
+        let Ok(flags) = unlock_immutable(&mut dir_file) else {
+            eprintln!("Skipping test, the filesystem has no flags");
+            return;
+        };
+        lock_immutable(&mut dir_file, flags | FS_IMMUTABLE_FL).unwrap();
+        // no new entry in an immutable directory
+        assert!(fs::write(dir.join("refused.json"), "{}").is_err());
+        with_mutable_dir(&dir, || fs::write(dir.join("added.json"), "{}")).unwrap();
+        assert!(dir.join("added.json").is_file());
+        assert!(is_immutable(&File::open(&dir).unwrap()).unwrap());
+        unlock_immutable(&mut dir_file).unwrap();
         fs::remove_dir_all(&dir).unwrap();
     }
 
