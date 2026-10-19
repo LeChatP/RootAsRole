@@ -69,7 +69,10 @@ pub enum OptType {
 #[repr(u32)]
 pub enum PathBehavior {
     Delete = HARDENED_ENUM_VALUE_0,
+    // written like in chsr; the spellings of 4.0 and of the build settings are still read
+    #[serde(rename = "keep-safe", alias = "keepsafe", alias = "keep_safe")]
     KeepSafe = HARDENED_ENUM_VALUE_1,
+    #[serde(rename = "keep-unsafe", alias = "keepunsafe", alias = "keep_unsafe")]
     KeepUnsafe = HARDENED_ENUM_VALUE_2,
     #[default]
     Inherit = HARDENED_ENUM_VALUE_3,
@@ -776,8 +779,18 @@ impl PathBehavior {
     pub const fn const_parse(input: &str) -> Self {
         match input {
             _ if eq_str(input, "delete") => Self::Delete,
-            _ if eq_str(input, "keep_safe") => Self::KeepSafe,
-            _ if eq_str(input, "keep_unsafe") => Self::KeepUnsafe,
+            _ if eq_str(input, "keep-safe")
+                || eq_str(input, "keep_safe")
+                || eq_str(input, "keepsafe") =>
+            {
+                Self::KeepSafe
+            }
+            _ if eq_str(input, "keep-unsafe")
+                || eq_str(input, "keep_unsafe")
+                || eq_str(input, "keepunsafe") =>
+            {
+                Self::KeepUnsafe
+            }
             _ if eq_str(input, "inherit") => Self::Inherit,
             _ => panic!("fail to parse PathBehavior"),
         }
@@ -1683,6 +1696,38 @@ mod tests {
         assert_eq!(env_key.to_string(), "TEST_VALUE");
         assert_eq!(EnvKey::from("TEST_VALUE"), env_key);
         assert_eq!(String::from(env_key), "TEST_VALUE");
+    }
+
+    #[test]
+    fn test_path_behavior_spellings() {
+        // written like in chsr, every spelling read: 4.0 policies and build settings
+        assert_eq!(
+            serde_json::to_value(PathBehavior::KeepSafe).unwrap(),
+            serde_json::json!("keep-safe")
+        );
+        assert_eq!(
+            serde_json::to_value(PathBehavior::KeepUnsafe).unwrap(),
+            serde_json::json!("keep-unsafe")
+        );
+        for (spellings, behavior) in [
+            (
+                ["keep-safe", "keepsafe", "keep_safe"],
+                PathBehavior::KeepSafe,
+            ),
+            (
+                ["keep-unsafe", "keepunsafe", "keep_unsafe"],
+                PathBehavior::KeepUnsafe,
+            ),
+        ] {
+            for spelling in spellings {
+                assert_eq!(
+                    serde_json::from_value::<PathBehavior>(serde_json::json!(spelling)).unwrap(),
+                    behavior,
+                    "{spelling}"
+                );
+                assert_eq!(PathBehavior::const_parse(spelling), behavior, "{spelling}");
+            }
+        }
     }
 
     #[test]

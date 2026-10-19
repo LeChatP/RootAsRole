@@ -58,11 +58,13 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             rewrite_env_entries(document, regex_to_wildcard);
             replace_default_delete_list(document, DELETE_LIST_4_0_3, ENV_DELETE_LIST_SLICE);
             keep_delete_mode_levels_strict(document);
+            rewrite_path_behaviors(document, path_behavior_4_1_0);
             Ok(())
         },
         down: |_, document| {
             replace_default_delete_list(document, ENV_DELETE_LIST_SLICE, DELETE_LIST_4_0_3);
             rewrite_env_entries(document, wildcard_to_regex);
+            rewrite_path_behaviors(document, path_behavior_4_0_3);
             Ok(())
         },
     },
@@ -119,6 +121,45 @@ fn keep_delete_mode_levels_strict(document: &mut Value) {
             map.values_mut().for_each(keep_delete_mode_levels_strict);
         }
         Value::Array(values) => values.iter_mut().for_each(keep_delete_mode_levels_strict),
+        _ => {}
+    }
+}
+
+/// Since 4.1.0, the PATH behaviors are written like in chsr: `keep-safe` and `keep-unsafe`.
+fn path_behavior_4_1_0(behavior: &str) -> Option<&'static str> {
+    match behavior {
+        "keepsafe" | "keep_safe" => Some("keep-safe"),
+        "keepunsafe" | "keep_unsafe" => Some("keep-unsafe"),
+        _ => None,
+    }
+}
+
+/// Up to 4.0.3, only `keepsafe` and `keepunsafe` are read.
+fn path_behavior_4_0_3(behavior: &str) -> Option<&'static str> {
+    match behavior {
+        "keep-safe" | "keep_safe" => Some("keepsafe"),
+        "keep-unsafe" | "keep_unsafe" => Some("keepunsafe"),
+        _ => None,
+    }
+}
+
+/// Rewrite the `default` behavior of every `path` option of the document.
+fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'static str>) {
+    match document {
+        Value::Object(map) => {
+            if let Some(Value::Object(path)) = map.get_mut("path")
+                && let Some(Value::String(behavior)) = path.get_mut("default")
+                && let Some(rewritten) = rewrite(behavior)
+            {
+                info!("Migrating path default `{behavior}` to `{rewritten}`");
+                *behavior = rewritten.to_string();
+            }
+            map.values_mut()
+                .for_each(|value| rewrite_path_behaviors(value, rewrite));
+        }
+        Value::Array(values) => values
+            .iter_mut()
+            .for_each(|value| rewrite_path_behaviors(value, rewrite)),
         _ => {}
     }
 }
@@ -423,5 +464,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(document["options"]["env"]["keep"], json!(["LC_.*", "HOME"]));
+    }
+
+    #[test]
+    fn test_path_behaviors_up_and_down() {
+        let mut document = json!({
+            "options": {"path": {"default": "keepsafe"}},
+            "roles": [{"options": {"path": {"default": "keep_unsafe"}}, "tasks": [
+                {"options": {"path": {"default": "delete"}}}
+            ]}]
+        });
+        Migration::migrate_from(
+            &Version::new(4, 0, 3),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"]["path"]["default"], "keep-safe");
+        assert_eq!(
+            document["roles"][0]["options"]["path"]["default"],
+            "keep-unsafe"
+        );
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["options"]["path"]["default"],
+            "delete"
+        );
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 0, 3),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"]["path"]["default"], "keepsafe");
+        assert_eq!(
+            document["roles"][0]["options"]["path"]["default"],
+            "keepunsafe"
+        );
     }
 }

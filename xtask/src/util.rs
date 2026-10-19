@@ -198,7 +198,9 @@ pub struct RemoteStorageSettings {
 #[derive(Default)]
 pub enum PathBehavior {
     Delete,
+    #[serde(rename = "keep-safe", alias = "keepsafe", alias = "keep_safe")]
     KeepSafe,
+    #[serde(rename = "keep-unsafe", alias = "keepunsafe", alias = "keep_unsafe")]
     KeepUnsafe,
     #[default]
     Inherit,
@@ -211,8 +213,18 @@ impl PathBehavior {
     pub const fn const_parse(input: &str) -> Self {
         match input {
             _ if eq_str(input, "delete") => Self::Delete,
-            _ if eq_str(input, "keep_safe") => Self::KeepSafe,
-            _ if eq_str(input, "keep_unsafe") => Self::KeepUnsafe,
+            _ if eq_str(input, "keep-safe")
+                || eq_str(input, "keep_safe")
+                || eq_str(input, "keepsafe") =>
+            {
+                Self::KeepSafe
+            }
+            _ if eq_str(input, "keep-unsafe")
+                || eq_str(input, "keep_unsafe")
+                || eq_str(input, "keepunsafe") =>
+            {
+                Self::KeepUnsafe
+            }
             _ if eq_str(input, "inherit") => Self::Inherit,
             _ => panic!("fail to parse PathBehavior"),
         }
