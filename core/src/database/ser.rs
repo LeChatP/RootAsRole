@@ -633,6 +633,49 @@ mod tests {
     }
 
     #[test]
+    fn test_scapabilities_every_form_round_trips() {
+        let forms = [
+            SCapabilities::builder(SetBehavior::None).build(),
+            SCapabilities::builder(SetBehavior::All).build(),
+            // a list of capabilities, written as a bitmask in CBOR
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .build(),
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .add_cap(Cap::LINUX_IMMUTABLE)
+                .build(),
+            SCapabilities::builder(SetBehavior::All)
+                .sub_cap(Cap::SYS_ADMIN)
+                .build(),
+            SCapabilities::builder(SetBehavior::None)
+                .add_cap(Cap::NET_RAW)
+                .sub_cap(Cap::SYS_ADMIN)
+                .build(),
+        ];
+        for caps in forms {
+            let cbor = cbor4ii::serde::to_vec(Vec::new(), &caps).unwrap();
+            let from_cbor: SCapabilities =
+                cbor4ii::serde::from_slice(&cbor).unwrap_or_else(|e| panic!("CBOR {caps:?}: {e}"));
+            assert_eq!(from_cbor, caps);
+            let json = serde_json::to_string(&caps).unwrap();
+            let from_json: SCapabilities =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("JSON {caps:?}: {e}"));
+            assert_eq!(from_json, caps);
+        }
+    }
+
+    #[test]
+    fn test_policy_with_a_capability_list_round_trips_in_cbor() {
+        // the task of the default policy that runs chsr: chsr convert must not lock it out
+        let json = r#"{"version":"4.1.0","roles":[{"name":"r_root","actors":[{"type":"user","name":"root"}],"tasks":[{"name":"t_chsr","cred":{"setuid":"root","setgid":"root","capabilities":["CAP_LINUX_IMMUTABLE"]},"commands":["/usr/bin/chsr"]}]}]}"#;
+        let policy: SPolicy = serde_json::from_str(json).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let again: SPolicy = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(to_value(&again).unwrap(), to_value(&policy).unwrap());
+    }
+
+    #[test]
     fn test_scommands_cbor_roundtrip() {
         let test_cases = vec![
             // Simple string case

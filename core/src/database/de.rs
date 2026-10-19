@@ -154,6 +154,18 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 })
             }
 
+            // the binary formats write a list of capabilities as a bitmask
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(SCapabilities {
+                    default_behavior: SetBehavior::None,
+                    add: CapSet::from_bitmask_truncate(v),
+                    sub: CapSet::empty(),
+                })
+            }
+
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
                 A: MapAccess<'de>,
@@ -166,9 +178,7 @@ impl<'de> Deserialize<'de> for SCapabilities {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Default => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
+                            default_behavior = map.next_value()?;
                         }
                         Field::Add => {
                             add = map.next_value_seed(CapSetDeserializer)?;
@@ -554,6 +564,9 @@ mod tests {
     fn test_invalid_capabilities() {
         let invalid_data = json!(["INVALID_CAPABILITY", "CAP_FAKE"]);
         assert!(serde_json::from_value::<SCapabilities>(invalid_data).is_err());
+        // a wrong default is an error, the policy comes from a file
+        let invalid_default = json!({"default": "some", "add": ["CAP_NET_RAW"]});
+        assert!(serde_json::from_value::<SCapabilities>(invalid_default).is_err());
     }
 
     #[test]

@@ -968,6 +968,43 @@ mod tests {
     }
 
     #[test]
+    fn test_capability_list_written_by_chsr_in_cbor() {
+        // chsr writes a list of capabilities as a bitmask in CBOR
+        let uid = getuid().as_raw();
+        let json = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{uid}}}],"tasks":[{{"name":"t","cred":{{"capabilities":["CAP_NET_RAW"]}},"commands":["/usr/bin/ls"]}}]}}]}}"#
+        );
+        let policy: rootasrole_core::database::structs::SPolicy =
+            serde_json::from_str(&json).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let cli = Cli::builder().cmd_path("ls").build();
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        let config = ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut cbor4ii::serde::Deserializer::new(SliceReader::new(
+            cbor.as_slice(),
+        )))
+        .unwrap();
+        assert_eq!(
+            config.roles[0].tasks[0].cred.caps,
+            Some(capctl::CapSet::from_iter([capctl::Cap::NET_RAW]))
+        );
+        assert_eq!(
+            config.roles[0].tasks[0].score.caps_min,
+            CapsMin::CapsNoAdmin(1)
+        );
+    }
+
+    #[test]
     fn test_optimized_config() {
         let uid = getuid().as_raw();
         let json = format!(
