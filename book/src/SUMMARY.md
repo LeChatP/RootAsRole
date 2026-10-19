@@ -19,7 +19,7 @@
 
 # Policy & Configuration
   - [Policy Model and Inheritance](policy/model.md)
-  - [Configuration File Format](chsr/file-config.md)
+  - [Configuration File Format](chsr/configuration.md)
   - [File Format Conversion (JSON/CBOR)](chsr/convert.md)
 
 # Deep Dives & Architecture

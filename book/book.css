@@ -1,5 +1,28 @@
 @import "assets/css/excon.css";
 
+/* Conteneur d'affichage pour les schémas interactifs */
+.diagram-container {
+  width: 100%;
+  height: 550px;
+  border: 1px solid var(--table-border-color, #ccc);
+  border-radius: 6px;
+  margin: 1.5rem 0;
+  overflow: hidden;
+  background-color: var(--bg);
+}
+
+.diagram-container object {
+  width: 100%;
+  height: 100%;
+}
+
+/* Inversion de couleurs pour les thèmes sombres (Option 2) */
+.coal .diagram-container,
+.navy .diagram-container,
+.ayu .diagram-container {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Excon-Variable', sans-serif;
     font-weight: 900;
@@ -62,6 +85,37 @@ blockquote.caroot:after {
     background-size: contain;
     background-repeat: no-repeat;
     bottom: 0;
+}
+
+.human-written {
+    position: relative;
+    margin: 1.5em 0 1.5em;
+    padding: 2.4em 1.2em 0.2em;
+    border: 1px dashed #dc7228;
+    border-left: 4px solid #dc7228;
+    border-radius: 4px;
+}
+
+.human-written h2, .human-written h3, .human-written h4, .human-written h5, .human-written h6 {
+    margin-block-start: 0em;
+}
+
+.human-written::before {
+    content: "\270D  Human-written";
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 0.2em 0.8em;
+    font-family: 'Excon-Variable', sans-serif;
+    font-size: 0.8em;
+    font-weight: 700;
+    color: #fff;
+    background-color: #c2410c;
+    border-bottom-left-radius: 4px;
+}
+
+.human-written[data-by]::before {
+    content: "\270D  Written by " attr(data-by);
 }
 
 .part-title {
