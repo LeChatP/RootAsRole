@@ -335,9 +335,10 @@ fn deploy_default_config() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// The file holding the default policy: `default.json` in a policy directory (`*.d`).
 fn resolve_policy_path(base_path: &Path) -> PathBuf {
     if base_path.extension().is_some_and(|ext| ext == "d") {
-        base_path.join("policy.json")
+        base_path.join("default.json")
     } else {
         base_path.to_path_buf()
     }
@@ -438,5 +439,22 @@ fn upgrade_policy() {
             );
         }
         Err(e) => warn!("Failed to run {}: {e}", chsr.display()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_policy_file_of_a_policy_directory() {
+        assert_eq!(
+            resolve_policy_path(Path::new("/etc/security/rootasrole.d/")),
+            PathBuf::from("/etc/security/rootasrole.d/default.json")
+        );
+        assert_eq!(
+            resolve_policy_path(Path::new("/etc/security/rootasrole.json")),
+            PathBuf::from("/etc/security/rootasrole.json")
+        );
     }
 }
