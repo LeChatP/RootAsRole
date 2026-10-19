@@ -330,9 +330,6 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                         }
                     }
                 }
-                let fallback = fallback.ok_or_else(|| {
-                    de::Error::custom("Missing required field 'fallback' in SSetgidSet")
-                })?;
                 Ok(SSetgidSet {
                     default_behavior,
                     fallback,
@@ -587,7 +584,7 @@ mod tests {
         });
         let setgid_set: SSetgidSet = serde_json::from_value(json_data).unwrap();
         assert_eq!(setgid_set.default_behavior, SetBehavior::All);
-        assert_eq!(setgid_set.fallback, SGroups::from("group1"));
+        assert_eq!(setgid_set.fallback, Some(SGroups::from("group1")));
         assert_eq!(setgid_set.add.len(), 2);
         assert_eq!(setgid_set.add[0], SGroups::from("group2"));
         assert_eq!(setgid_set.add[1], SGroups::from("group3"));
@@ -621,6 +618,25 @@ mod tests {
         assert_eq!(commands.add[0], "/bin/ls".into());
         assert_eq!(commands.sub.len(), 1);
         assert_eq!(commands.sub[0], "/bin/cat".into());
+    }
+
+    #[test]
+    fn test_s_setgid_set_without_fallback() {
+        // like in dosr: without fallback, -g is required, or with "all" the groups of the
+        // caller are kept
+        for json_data in [
+            json!({"default": "none", "add": ["adm"]}),
+            json!({"default": "all", "del": ["root"]}),
+        ] {
+            let set: SSetgidSet = serde_json::from_value(json_data.clone()).unwrap();
+            assert_eq!(set.fallback, None, "{json_data}");
+            let again: SSetgidSet =
+                serde_json::from_value(serde_json::to_value(&set).unwrap()).unwrap();
+            assert_eq!(again, set, "{json_data}");
+            let cbor = cbor4ii::serde::to_vec(Vec::new(), &set).unwrap();
+            let again: SSetgidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
+            assert_eq!(again, set, "{json_data}");
+        }
     }
 
     #[test]

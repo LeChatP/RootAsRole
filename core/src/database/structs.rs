@@ -344,8 +344,10 @@ impl From<u32> for SGroupsEither {
 pub struct SSetgidSet {
     #[builder(start_fn)]
     pub default_behavior: SetBehavior,
-    #[builder(start_fn, into)]
-    pub fallback: SGroups,
+    /// The groups when the user does not choose any with `-g`. Without it, `-g` is required,
+    /// or with the `all` default, the groups of the caller are kept.
+    #[builder(into)]
+    pub fallback: Option<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]

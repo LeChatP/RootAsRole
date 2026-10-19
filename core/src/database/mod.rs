@@ -542,16 +542,14 @@ mod serde_tests {
     #[test]
     fn test_group_selector() {
         let groups = SGroupsEither::GroupSelector(
-            SSetgidSet::builder(
-                SetBehavior::None,
-                SGroups::Multiple(vec![1000.into(), 1001.into()]),
-            )
-            .add(vec![
-                SGroups::Multiple(vec![1002.into(), 1003.into()]),
-                SGroups::Single(1003.into()),
-            ])
-            .sub(vec![1004.into(), 1005.into()])
-            .build(),
+            SSetgidSet::builder(SetBehavior::None)
+                .fallback(SGroups::Multiple(vec![1000.into(), 1001.into()]))
+                .add(vec![
+                    SGroups::Multiple(vec![1002.into(), 1003.into()]),
+                    SGroups::Single(1003.into()),
+                ])
+                .sub(vec![1004.into(), 1005.into()])
+                .build(),
         );
 
         assert_tokens(
