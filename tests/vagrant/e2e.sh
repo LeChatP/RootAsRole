@@ -75,7 +75,8 @@ setup() {
     "name": "e2e",
     "actors": [{ "user": "$TEST_USER" }],
     "tasks": [
-      { "name": "shell", "commands": ["/usr/bin/sh"] },
+      { "name": "shell", "commands": ["/usr/bin/sh ^.*$"] },
+      { "name": "date", "commands": ["/usr/bin/date"] },
       { "name": "echo", "commands": ["/usr/bin/echo ^hello( world)?$"] },
       {
         "name": "service",
@@ -85,7 +86,7 @@ setup() {
       {
         "name": "net-bind",
         "cred": { "capabilities": ["CAP_NET_BIND_SERVICE"] },
-        "commands": ["/usr/bin/python3"]
+        "commands": ["/usr/bin/python3 ^-c .*$"]
       },
       {
         "name": "net-raw",
@@ -127,7 +128,7 @@ planted_policy_is_refused() {
   "roles": [{
     "name": "planted",
     "actors": [{ "user": "$TEST_USER" }],
-    "tasks": [{ "name": "id", "cred": { "setuid": "root" }, "commands": ["/usr/bin/id"] }]
+    "tasks": [{ "name": "id", "cred": { "setuid": "root" }, "commands": ["/usr/bin/id ^-u$"] }]
   }]
 }
 EOF
@@ -151,6 +152,12 @@ signal_is_forwarded() {
 unquoted_regex() {
     [ "$(as_user dosr /usr/bin/echo hello world)" = "hello world" ] &&
         ! as_user dosr /usr/bin/echo hello there >/dev/null 2>&1
+}
+
+# a command written without arguments allows none
+command_without_arguments_allows_none() {
+    as_user dosr /usr/bin/date >/dev/null &&
+        ! as_user dosr /usr/bin/date +%s >/dev/null 2>&1
 }
 
 # uid 0 without any capability manages a unit: systemd authorizes uid 0
@@ -183,6 +190,7 @@ check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused" planted_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "a regular expression without quotes" unquoted_regex
+check "a command written without arguments allows none" command_without_arguments_allows_none
 check "uid 0 without capabilities manages a unit" root_without_capabilities_manages_a_unit
 check "CAP_NET_BIND_SERVICE is granted" capability_is_granted
 check "the bounding set is checked before running the command" bounding_set_is_checked_first

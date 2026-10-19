@@ -969,23 +969,25 @@ mod tests {
     }
 
     #[test]
-    fn test_command_without_arguments_loses_to_a_stricter_rule_in_any_order() {
-        // a command written without arguments accepts any arguments
-        let any = task_json("any", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
-        let exact = task_json("exact", &[], r#"["/usr/bin/ls -l"]"#, "B_VAR", "/usr/bin");
-        let regex = task_json(
-            "regex",
-            &[],
-            r#"["/usr/bin/ls '^-[al]$'"]"#,
-            "C_VAR",
-            "/usr/bin",
-        );
-        let cli = crate::getopt(["dosr", "ls", "-l"]).unwrap();
-        for tasks in orders(&[&any, &exact]) {
-            assert_eq!(best_task_for(&tasks, &cli).unwrap().0, "exact", "{tasks:?}");
-        }
-        for tasks in orders(&[&any, &regex]) {
-            assert_eq!(best_task_for(&tasks, &cli).unwrap().0, "regex", "{tasks:?}");
+    fn test_command_without_arguments_allows_none() {
+        let none = task_json("none", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let any = task_json("any", &[], r#"["/usr/bin/ls ^.*$"]"#, "B_VAR", "/usr/bin");
+        let with_args = crate::getopt(["dosr", "ls", "-l"]).unwrap();
+        let without_args = crate::getopt(["dosr", "ls"]).unwrap();
+        // alone, a command without arguments does not allow ls -l
+        assert!(best_task_for(&[&none], &with_args).is_err());
+        for tasks in orders(&[&none, &any]) {
+            assert_eq!(
+                best_task_for(&tasks, &with_args).unwrap().0,
+                "any",
+                "{tasks:?}"
+            );
+            // without arguments, the exact rule is more precise than any arguments
+            assert_eq!(
+                best_task_for(&tasks, &without_args).unwrap().0,
+                "none",
+                "{tasks:?}"
+            );
         }
     }
 
