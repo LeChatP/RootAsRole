@@ -101,7 +101,7 @@ The data is split into two parts: the **root file**, which tells RaR where the p
 
 - `version`: policy schema version written by tooling. It is mainly used to facilitate migrations during upgrades.
 - `storage`: describes where the policy data is stored.
-- `method`: can be `json` or `cbor`. To migrate from one format to another, use the `chsr convert` command. See [File Format Conversion](convert.md) for more details.
+- `method`: can be `json` or `cbor`. To migrate from one format to another, use the `chsr convert` command. See [File Format Conversion](cli/chsr.md#file-format-conversion) for more details.
 - `settings`: parameters of the storage method. JSON and CBOR are both file-based, so they have a `path` parameter. If `path` points to the root file itself, the roles declared directly in the root file are used. Otherwise, the policy files found at `path` are loaded.
 - `immutable`: enforces the IMMUTABLE flag on the policy directory and files, to prevent accidental overwriting. Only privileged users with `CAP_LINUX_IMMUTABLE` can modify the policy. Therefore, **this capability becomes a highly sensitive one**: we will make sure no WebOps task grants it.
 
@@ -765,7 +765,7 @@ The result is not a prevention mechanism: charly can still do anything as root. 
 ## The final configuration structure in UML
 
 <div class="diagram-container">
-  <object class="zoomable-svg" type="image/svg+xml" data="../assets/policy.svg">
+  <object class="zoomable-svg" type="image/svg+xml" data="assets/policy.svg">
     Your browser does not support the SVG format.
   </object>
 </div>
@@ -809,5 +809,5 @@ As shown by the three composition links originating from `PolicyContent`, `Role`
 
 ## See also
 
-- [chsr command overview](index.md)
-- [File Format Conversion](convert.md)
+- [chsr command overview](cli/chsr.md)
+- [File Format Conversion](cli/chsr.md#file-format-conversion)

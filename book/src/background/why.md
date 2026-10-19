@@ -1,4 +1,4 @@
-# Introduction
+# Why RootAsRole
 
 Cybersecurity threats are not just from outside. The major landscape of cybersecurity is undergoing a shift, with threats originating from within organizations' trusted boundaries now posing a risk as significant as external attacks.
 
