@@ -59,12 +59,14 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             replace_default_delete_list(document, DELETE_LIST_4_0_3, ENV_DELETE_LIST_SLICE);
             keep_delete_mode_levels_strict(document);
             rewrite_path_behaviors(document, path_behavior_4_1_0);
+            rewrite_commands(document, command_with_any_arguments);
             Ok(())
         },
         down: |_, document| {
             replace_default_delete_list(document, ENV_DELETE_LIST_SLICE, DELETE_LIST_4_0_3);
             rewrite_env_entries(document, wildcard_to_regex);
             rewrite_path_behaviors(document, path_behavior_4_0_3);
+            rewrite_commands(document, command_with_no_argument);
             Ok(())
         },
     },
@@ -161,6 +163,76 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
             .iter_mut()
             .for_each(|value| rewrite_path_behaviors(value, rewrite)),
         _ => {}
+    }
+}
+
+/// Whether a command of the policy is only a path, without arguments.
+fn path_only(command: &str) -> bool {
+    let command = command.trim();
+    !command.is_empty() && !command.contains(char::is_whitespace)
+}
+
+/// Up to 4.0.3, a command written without arguments allowed any arguments; since 4.1.0 it allows
+/// none. The upgrade writes `^.*$` after it, so that the policy keeps its meaning.
+fn command_with_any_arguments(command: &str) -> Option<String> {
+    path_only(command).then(|| format!("{} ^.*$", command.trim()))
+}
+
+/// The downgrade writes `^$` after a command without arguments: 4.0.3 reads it as none.
+fn command_with_no_argument(command: &str) -> Option<String> {
+    path_only(command).then(|| format!("{} ^$", command.trim()))
+}
+
+/// Rewrite every command of the tasks of the document, in its lists and in the lists of its
+/// selectors, whatever the keys (the CBOR format writes short ones).
+fn rewrite_commands(document: &mut Value, rewrite: fn(&str) -> Option<String>) {
+    let Value::Object(document) = document else {
+        return;
+    };
+    for roles in ["roles", "r"] {
+        let Some(Value::Array(roles)) = document.get_mut(roles) else {
+            continue;
+        };
+        for role in roles {
+            for tasks in ["tasks", "t"] {
+                let Some(Value::Array(tasks)) = role.get_mut(tasks) else {
+                    continue;
+                };
+                for task in tasks {
+                    for commands in ["commands", "cmds", "c"] {
+                        match task.get_mut(commands) {
+                            Some(Value::Array(list)) => rewrite_command_list(list, rewrite),
+                            Some(Value::Object(selector)) => {
+                                for list in ["add", "a", "sub", "del", "s"] {
+                                    if let Some(Value::Array(list)) = selector.get_mut(list) {
+                                        rewrite_command_list(list, rewrite);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Rewrite the commands of a list, the ones of plugins (an object with a `command`) included.
+fn rewrite_command_list(list: &mut [Value], rewrite: fn(&str) -> Option<String>) {
+    for command in list {
+        let command = match command {
+            Value::String(command) => command,
+            Value::Object(object) => match object.get_mut("command") {
+                Some(Value::String(command)) => command,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if let Some(rewritten) = rewrite(command) {
+            info!("Migrating command `{command}` to `{rewritten}`");
+            *command = rewritten;
+        }
     }
 }
 
@@ -464,6 +536,62 @@ mod tests {
         )
         .unwrap();
         assert_eq!(document["options"]["env"]["keep"], json!(["LC_.*", "HOME"]));
+    }
+
+    #[test]
+    fn test_commands_without_arguments_up_and_down() {
+        let mut document = json!({
+            "roles": [{"tasks": [
+                {"commands": ["/usr/bin/id", "/usr/bin/ls -l", "**"]},
+                {"commands": {"default": "none", "add": ["/usr/bin/cat"], "del": ["/usr/bin/rm"]}},
+                {"commands": [{"command": "/usr/bin/ls", "sha256": "00"}]},
+                {"commands": "all"}
+            ]}]
+        });
+        Migration::migrate_from(
+            &Version::new(4, 0, 3),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        let tasks = &document["roles"][0]["tasks"];
+        assert_eq!(
+            tasks[0]["commands"],
+            json!(["/usr/bin/id ^.*$", "/usr/bin/ls -l", "** ^.*$"])
+        );
+        assert_eq!(
+            tasks[1]["commands"],
+            json!({"default": "none", "add": ["/usr/bin/cat ^.*$"], "del": ["/usr/bin/rm ^.*$"]})
+        );
+        assert_eq!(tasks[2]["commands"][0]["command"], "/usr/bin/ls ^.*$");
+        assert_eq!(tasks[3]["commands"], "all");
+
+        // the short keys of the CBOR format
+        let mut document = json!({"r": [{"t": [{"c": ["/usr/bin/id"]}]}]});
+        Migration::migrate_from(
+            &Version::new(4, 0, 3),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["r"][0]["t"][0]["c"], json!(["/usr/bin/id ^.*$"]));
+
+        // since 4.1.0 a command without arguments allows none, which 4.0.3 reads with ^$
+        let mut document =
+            json!({"roles": [{"tasks": [{"commands": ["/usr/bin/id", "/usr/bin/ls ^.*$"]}]}]});
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 0, 3),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["commands"],
+            json!(["/usr/bin/id ^$", "/usr/bin/ls ^.*$"])
+        );
     }
 
     #[test]
