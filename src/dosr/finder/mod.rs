@@ -446,9 +446,10 @@ impl BestExecSettings {
                     resolve_any_command(&cli.cmd_path, &t_env_path_ref)
                         .ok_or(SrError::ExecutionFailed)?,
                 );
+                // any command with any arguments, like a "**" rule
                 task_cmd_min = CmdMin::builder()
                     .matching()
-                    .order(CmdOrder::FullWildcardPath | CmdOrder::RegexArgs)
+                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
                     .build();
             } else {
                 for command in commands.add() {
@@ -947,7 +948,7 @@ mod tests {
 
     #[test]
     fn test_losing_task_does_not_degrade_the_best_score() {
-        let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let a = task_json("a", &[], r#"["/usr/bin/ls -l"]"#, "A_VAR", "/usr/bin");
         let b = task_json(
             "b",
             &["CAP_NET_RAW"],
@@ -957,10 +958,32 @@ mod tests {
         );
         // a regex on the arguments is a worse match than a exact command
         let c = task_json("c", &[], r#"["/usr/bin/ls ^.*$"]"#, "C_VAR", "/usr/bin");
+        let cli = crate::getopt(["dosr", "ls", "-l"]).unwrap();
         for tasks in orders(&[&a, &b, &c]) {
-            let (task, _, _, kept) = best_task(&tasks, "ls").unwrap();
+            let (task, _, _, kept) = best_task_for(&tasks, &cli).unwrap();
             assert_eq!(task, "a", "{tasks:?}");
             assert_eq!(kept, ["A_VAR"], "{tasks:?}");
+        }
+    }
+
+    #[test]
+    fn test_command_without_arguments_loses_to_a_stricter_rule_in_any_order() {
+        // a command written without arguments accepts any arguments
+        let any = task_json("any", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
+        let exact = task_json("exact", &[], r#"["/usr/bin/ls -l"]"#, "B_VAR", "/usr/bin");
+        let regex = task_json(
+            "regex",
+            &[],
+            r#"["/usr/bin/ls '^-[al]$'"]"#,
+            "C_VAR",
+            "/usr/bin",
+        );
+        let cli = crate::getopt(["dosr", "ls", "-l"]).unwrap();
+        for tasks in orders(&[&any, &exact]) {
+            assert_eq!(best_task_for(&tasks, &cli).unwrap().0, "exact", "{tasks:?}");
+        }
+        for tasks in orders(&[&any, &regex]) {
+            assert_eq!(best_task_for(&tasks, &cli).unwrap().0, "regex", "{tasks:?}");
         }
     }
 

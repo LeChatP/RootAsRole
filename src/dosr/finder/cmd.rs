@@ -151,7 +151,13 @@ fn match_command_line(
         previous_min,
         final_path,
     );
-    if result.is_empty() || role_command.len() == 1 {
+    if result.is_empty() {
+        debug!("preresult : {result:?}");
+        return result;
+    }
+    if role_command.len() == 1 {
+        // a command written without arguments accepts any arguments: it is as precise as '^.*$'
+        result.union_order(CmdOrder::FullRegexArgs);
         debug!("preresult : {result:?}");
         return result;
     }
@@ -524,11 +530,12 @@ mod tests {
             previous_min,
             &mut final_path,
         );
+        // any binary and, without arguments in the rule, any arguments
         assert_eq!(
             result,
             CmdMin::builder()
                 .matching()
-                .order(CmdOrder::FullWildcardPath)
+                .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
                 .build()
         );
         // the command of the user is resolved in PATH
@@ -617,6 +624,53 @@ mod tests {
     }
 
     #[test]
+    fn test_command_without_arguments_is_as_precise_as_any_arguments() {
+        let env_path = ["/usr/bin"];
+        let cmd_path = PathBuf::from("/usr/bin/ls");
+        for cmd_args in [vec![], vec!["-l".to_string()]] {
+            let mut final_path = None;
+            let without = evaluate_command_match(
+                &env_path,
+                &cmd_path,
+                &cmd_args,
+                "/usr/bin/ls",
+                CmdMin::empty(),
+                &mut final_path,
+            );
+            let mut final_path = None;
+            let any = evaluate_command_match(
+                &env_path,
+                &cmd_path,
+                &cmd_args,
+                "/usr/bin/ls '^.*$'",
+                CmdMin::empty(),
+                &mut final_path,
+            );
+            assert!(without.matching(), "{cmd_args:?}");
+            assert_eq!(without, any, "{cmd_args:?}");
+            // a rule that fixes the arguments is more precise: the exact command line, or '^$'
+            // for no argument at all
+            let strict = if cmd_args.is_empty() {
+                "/usr/bin/ls '^$'".to_string()
+            } else {
+                shell_words::join(
+                    std::iter::once("/usr/bin/ls").chain(cmd_args.iter().map(String::as_str)),
+                )
+            };
+            let mut final_path = None;
+            let strict = evaluate_command_match(
+                &env_path,
+                &cmd_path,
+                &cmd_args,
+                &strict,
+                CmdMin::empty(),
+                &mut final_path,
+            );
+            assert!(strict.better(without), "{cmd_args:?}");
+        }
+    }
+
+    #[test]
     fn test_evaluate_command_match_only_wildcard() {
         let env_path = ["/usr/bin", "/bin"];
         let cmd_path = PathBuf::from("ls");
@@ -632,11 +686,12 @@ mod tests {
             previous_min,
             &mut final_path,
         );
+        // any binary and, without arguments in the rule, any arguments
         assert_eq!(
             result,
             CmdMin::builder()
                 .matching()
-                .order(CmdOrder::FullWildcardPath)
+                .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
                 .build()
         );
         // the command of the user is resolved in PATH
