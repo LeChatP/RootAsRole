@@ -315,21 +315,17 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                 while let Some(key) = map.next_key::<Field>()? {
                     match key {
                         Field::Default => {
-                            default_behavior = map
-                                .next_value()
-                                .expect("default entry must be either 'all' or 'none'");
+                            default_behavior = map.next_value()?;
                         }
                         Field::Fallback => {
                             fallback.replace(map.next_value::<SGroups>()?);
                         }
                         Field::Add => {
-                            let values: Vec<SGroups> =
-                                map.next_value().expect("add entry must be a list");
+                            let values: Vec<SGroups> = map.next_value()?;
                             add.extend(values);
                         }
                         Field::Sub => {
-                            let values: Vec<SGroups> =
-                                map.next_value().expect("sub entry must be a list");
+                            let values: Vec<SGroups> = map.next_value()?;
                             sub.extend(values);
                         }
                     }
@@ -456,19 +452,14 @@ impl<'de> Deserialize<'de> for SCommands {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Fields::Default => {
-                            default_behavior = Some(
-                                map.next_value()
-                                    .expect("default entry must be either 'all' or 'none'"),
-                            );
+                            default_behavior = Some(map.next_value()?);
                         }
                         Fields::Add => {
-                            let values: Vec<SCommand> =
-                                map.next_value().expect("add entry must be a list");
+                            let values: Vec<SCommand> = map.next_value()?;
                             add.extend(values);
                         }
                         Fields::Sub => {
-                            let values: Vec<SCommand> =
-                                map.next_value().expect("sub entry must be a list");
+                            let values: Vec<SCommand> = map.next_value()?;
                             sub.extend(values);
                         }
                         Fields::Other(other) => {
@@ -630,5 +621,30 @@ mod tests {
         assert_eq!(commands.add[0], "/bin/ls".into());
         assert_eq!(commands.sub.len(), 1);
         assert_eq!(commands.sub[0], "/bin/cat".into());
+    }
+
+    #[test]
+    fn test_invalid_selector_entries_are_errors() {
+        // the policy comes from a file: a mistake is an error, never a panic
+        for setgid in [
+            json!({"default": "some", "fallback": "root"}),
+            json!({"default": "none", "fallback": "root", "add": "root"}),
+            json!({"default": "none", "fallback": "root", "sub": 0}),
+        ] {
+            assert!(
+                serde_json::from_value::<SSetgidSet>(setgid.clone()).is_err(),
+                "{setgid}"
+            );
+        }
+        for commands in [
+            json!({"default": "some"}),
+            json!({"default": "none", "add": "/bin/ls"}),
+            json!({"default": "all", "sub": {"a": 1}}),
+        ] {
+            assert!(
+                serde_json::from_value::<SCommands>(commands.clone()).is_err(),
+                "{commands}"
+            );
+        }
     }
 }
