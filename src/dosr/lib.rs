@@ -112,6 +112,9 @@ const USAGE: &str = formatcp!(
   {BOLD}-D, --chdir <WORKDIR>{RST}
           Workdir option allows you to specify the working directory for the command
 
+  {BOLD}-S, --stdin{RST}
+          Use stdin for password prompt
+
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
@@ -127,6 +130,9 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-g --group <GROUP>(,<GROUP>...){RST}
           Specify the group to execute the command as
+  
+  {BOLD}-K, --remove-timestamp{RST}
+          Delete timestamp cookie after successful authentication
 
   {BOLD}-i, --info{RST}
           Display rights of executor
