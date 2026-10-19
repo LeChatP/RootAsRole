@@ -1533,6 +1533,69 @@ mod tests {
         ));
     }
 
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_ssd_counts_the_roles_held_through_parents() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            // the user holds junior through senior: auditor is excluded
+            role_json(
+                "auditor",
+                true,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"ssd": ["junior"]})
+            ),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/cat"),
+            Err(SrError::PermissionDenied)
+        ));
+        assert!(choose(&roles, "/usr/bin/ls").is_ok());
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_conflicting_parents_give_no_conflicting_task() {
+        let none = serde_json::json!({});
+        let ssd = |other: &str| serde_json::json!({ "ssd": [other] });
+        let senior = role_json(
+            "senior",
+            true,
+            None,
+            &serde_json::json!({"parents": ["a", "b"]}),
+        );
+        // a declares the conflict: its tasks are not inherited, those of b are
+        let roles = serde_json::json!([
+            senior.clone(),
+            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, Some("/usr/bin/cat"), &none),
+        ]);
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
+        assert!(choose(&roles, "/usr/bin/cat").is_ok());
+        // declared on both sides: no task of either
+        let roles = serde_json::json!([
+            senior,
+            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, Some("/usr/bin/cat"), &ssd("a")),
+        ]);
+        for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+        }
+    }
+
     #[test]
     fn test_role_settings_calls_actors_and_tasks() {
         let mut best = BestExecSettings::default();
