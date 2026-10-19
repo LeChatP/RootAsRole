@@ -1036,6 +1036,13 @@ mod test {
     }
 
     #[test]
+    fn test_default_keep_list_has_the_x_authority_file() {
+        // X11 clients find their cookie through XAUTHORITY
+        assert!(ENV_KEEP_LIST_SLICE.contains(&"XAUTHORITY"));
+        assert!(!ENV_KEEP_LIST_SLICE.contains(&"XAUTHORY"));
+    }
+
+    #[test]
     fn test_check_others_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let set_mode = |path: &Path, mode: u32| {
