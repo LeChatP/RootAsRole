@@ -487,7 +487,44 @@ fn main_inner() -> SrResult<()> {
     };
     // drop PAM session here for underlining to the compiler that the session ends here.
     drop(session);
-    std::process::exit(status.code().unwrap_or(1));
+    exit_like(status)
+}
+
+/// How the command ended: its exit code, or the signal that killed it.
+#[derive(Debug, PartialEq, Eq)]
+enum CommandEnd {
+    Code(i32),
+    Signal(i32),
+}
+
+impl From<std::process::ExitStatus> for CommandEnd {
+    fn from(status: std::process::ExitStatus) -> Self {
+        use std::os::unix::process::ExitStatusExt;
+        status
+            .signal()
+            .map_or_else(|| Self::Code(status.code().unwrap_or(1)), Self::Signal)
+    }
+}
+
+/// End dosr like the command: with its exit code, or killed by the same signal, so that the
+/// shell reports it (128+n), like sudo.
+fn exit_like(status: std::process::ExitStatus) -> ! {
+    use nix::sys::signal::{SigHandler, SigSet, Signal, raise, signal};
+    match CommandEnd::from(status) {
+        CommandEnd::Code(code) => std::process::exit(code),
+        CommandEnd::Signal(number) => {
+            if let Ok(sig) = Signal::try_from(number) {
+                // SAFETY: SIG_DFL installs no handler, no code of dosr runs in a signal context
+                let _ = unsafe { signal(sig, SigHandler::SigDfl) };
+                let mut set = SigSet::empty();
+                set.add(sig);
+                let _ = set.thread_unblock();
+                let _ = raise(sig);
+            }
+            // the signal did not end dosr: the status that a shell reports for it
+            std::process::exit(128 + number)
+        }
+    }
 }
 
 /// The arguments of dosr: an argument that is not UTF-8 is refused, the policy matches text.
@@ -919,6 +956,46 @@ mod tests {
             }
             capset.effective.clear();
             capset.set_current().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_command_end() {
+        use std::os::unix::process::ExitStatusExt;
+        // wait statuses: exit code in the second byte, terminating signal in the low bits
+        assert_eq!(
+            CommandEnd::from(std::process::ExitStatus::from_raw(0)),
+            CommandEnd::Code(0)
+        );
+        assert_eq!(
+            CommandEnd::from(std::process::ExitStatus::from_raw(3 << 8)),
+            CommandEnd::Code(3)
+        );
+        assert_eq!(
+            CommandEnd::from(std::process::ExitStatus::from_raw(libc::SIGTERM)),
+            CommandEnd::Signal(libc::SIGTERM)
+        );
+    }
+
+    #[test]
+    fn test_exit_like_a_command_killed_by_a_signal() {
+        use nix::sys::{
+            signal::Signal,
+            wait::{WaitStatus, waitpid},
+        };
+        use nix::unistd::{ForkResult, fork};
+        let status = std::process::Command::new("sh")
+            .args(["-c", "kill -TERM $$"])
+            .status()
+            .unwrap();
+        // SAFETY: the child only calls async-signal-safe functions (signal, pthread_sigmask,
+        // raise) before the signal ends it
+        match unsafe { fork() }.unwrap() {
+            ForkResult::Child => exit_like(status),
+            ForkResult::Parent { child } => assert_eq!(
+                waitpid(child, None).unwrap(),
+                WaitStatus::Signaled(child, Signal::SIGTERM, false)
+            ),
         }
     }
 
