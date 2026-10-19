@@ -357,6 +357,28 @@ fn main_inner() -> SrResult<()> {
         std::process::exit(1);
     }
 
+    // after authentication, so that the policy is not revealed, but before the execution is
+    // logged as granted: these capabilities can never be granted in this session
+    let missing = caps_outside_bounding(execcfg.cred.caps, capctl::bounding::probe());
+    if !missing.is_empty() {
+        let names = missing
+            .iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln!(
+            "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
+        );
+        error!(
+            "User {} cannot run {} with the task {:?} of the role {}: {names} are not in the bounding set (a container, or a session started with a strict bounding set)",
+            &user.user.name,
+            execcfg.final_path.display(),
+            execcfg.task,
+            execcfg.role
+        );
+        std::process::exit(1);
+    }
+
     if args.info {
         use capctl::CapSet;
         println!(
@@ -592,6 +614,12 @@ fn make_cred() -> std::io::Result<Cred> {
         .curdir()?
         .maybe_tty(procfs::controlling_tty())
         .build())
+}
+
+/// The capabilities of the task that the bounding set does not have anymore: no process of
+/// this session can obtain them, in a container or under a strict bounding set.
+fn caps_outside_bounding(caps: Option<capctl::CapSet>, bounding: capctl::CapSet) -> capctl::CapSet {
+    caps.unwrap_or_default() & !bounding
 }
 
 fn set_capabilities(cred: &CredOwnedData, bounding: SBounding) -> SrResult<()> {
@@ -892,6 +920,23 @@ mod tests {
             capset.effective.clear();
             capset.set_current().unwrap();
         }
+    }
+
+    #[test]
+    fn test_caps_outside_bounding() {
+        use capctl::{Cap, CapSet};
+        let bounding = CapSet::from_iter([Cap::NET_RAW, Cap::SETUID]);
+        assert!(caps_outside_bounding(None, bounding).is_empty());
+        assert!(
+            caps_outside_bounding(Some(CapSet::from_iter([Cap::NET_RAW])), bounding).is_empty()
+        );
+        assert_eq!(
+            caps_outside_bounding(
+                Some(CapSet::from_iter([Cap::NET_RAW, Cap::SYS_ADMIN])),
+                bounding
+            ),
+            CapSet::from_iter([Cap::SYS_ADMIN])
+        );
     }
 
     #[test]
