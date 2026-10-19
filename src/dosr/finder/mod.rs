@@ -1573,7 +1573,7 @@ mod tests {
         );
         // a declares the conflict: its tasks are not inherited, those of b are
         let roles = serde_json::json!([
-            senior.clone(),
+            senior,
             role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
             role_json("b", false, Some("/usr/bin/cat"), &none),
         ]);
