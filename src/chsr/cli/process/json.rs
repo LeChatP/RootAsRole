@@ -1151,17 +1151,14 @@ pub fn workdir_setpolicy(
             || {
                 SWorkdirEither::Struct(SWorkdirSet {
                     default_behavior: options_workdir_policy,
-                    fallback: None,
-                    add: None,
-                    sub: None,
+                    ..Default::default()
                 })
             },
             |workdir| match workdir {
                 SWorkdirEither::Path(p) => SWorkdirEither::Struct(SWorkdirSet {
                     default_behavior: options_workdir_policy,
                     fallback: Some(p.clone()),
-                    add: None,
-                    sub: None,
+                    ..Default::default()
                 }),
                 SWorkdirEither::Struct(sworkdir_set) => {
                     sworkdir_set.default_behavior = options_workdir_policy;

@@ -172,6 +172,10 @@ pub struct SPathOptions {
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
@@ -386,6 +390,10 @@ pub struct SWorkdirSet {
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]

@@ -60,6 +60,7 @@ use konst::result;
 use libc::dev_t;
 use nix::unistd::{Gid, Group, Pid, Uid, User, getgroups};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// [`println!`] that ignores write errors: a privileged program must not panic because its
 /// output is a closed pipe (`dosr -i | true` gets `EPIPE`, since Rust ignores `SIGPIPE`).
@@ -184,6 +185,10 @@ pub struct RemoteStorageSettings {
     #[cfg(feature = "sgbd")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Properties>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -202,6 +207,10 @@ pub struct SettingsContent {
     #[cfg(feature = "ldap")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ldap: Option<LdapSettings>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

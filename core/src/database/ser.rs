@@ -117,6 +117,9 @@ impl Serialize for SSetuidSet {
             if !self.sub.is_empty() {
                 map.serialize_entry("del", &self.sub)?;
             }
+            for (key, value) in &self.extra_fields {
+                map.serialize_entry(key, value)?;
+            }
             map.end()
         } else {
             let mut map = serializer.serialize_map(None)?;
@@ -129,6 +132,9 @@ impl Serialize for SSetuidSet {
             }
             if !self.sub.is_empty() {
                 map.serialize_entry("s", &self.sub)?;
+            }
+            for (key, value) in &self.extra_fields {
+                map.serialize_entry(key, value)?;
             }
             map.end()
         }

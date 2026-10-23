@@ -264,6 +264,10 @@ pub struct SSetuidSet {
     )]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
@@ -926,6 +930,8 @@ mod tests {
         let options = binding.as_ref().borrow();
         let env = &options.env.as_ref().unwrap();
         assert_eq!(env.extra_fields.get("unknown").unwrap(), "unknown");
+        let path = options.path.as_ref().unwrap();
+        assert_eq!(path.extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(options.extra_fields.get("unknown").unwrap(), "unknown");
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.extra_fields.get("unknown").unwrap(), "unknown");
@@ -964,6 +970,30 @@ mod tests {
         assert_eq!(cred.extra_fields.get("unknown").unwrap(), "unknown");
         let commands = &as_borrow!(role[0]).commands;
         assert_eq!(commands.extra_fields.get("unknown").unwrap(), "unknown");
+    }
+
+    #[test]
+    fn test_unknown_fields_of_sets_survive_a_round_trip() {
+        use crate::{RemoteStorageSettings, SettingsContent, database::options::SWorkdirSet};
+        let setuid: SSetuidSet =
+            serde_json::from_str(r#"{"default": "all", "fallback": "root", "future": 1}"#).unwrap();
+        assert_eq!(setuid.extra_fields.get("future"), Some(&Value::from(1)));
+        assert_eq!(serde_json::to_value(&setuid).unwrap()["future"], 1);
+        let mut cbor = Vec::new();
+        cbor4ii::serde::to_writer(&mut cbor, &setuid).unwrap();
+        let back: SSetuidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(back, setuid);
+        let workdir: SWorkdirSet =
+            serde_json::from_str(r#"{"default": "all", "future": 1}"#).unwrap();
+        assert_eq!(serde_json::to_value(&workdir).unwrap()["future"], 1);
+        let storage: SettingsContent = serde_json::from_str(
+            r#"{"method": "json", "settings": {"path": "/p", "future": 2}, "future": 1}"#,
+        )
+        .unwrap();
+        let storage = serde_json::to_value(&storage).unwrap();
+        assert_eq!(storage["future"], 1);
+        assert_eq!(storage["settings"]["future"], 2);
+        let _: RemoteStorageSettings = serde_json::from_value(storage["settings"].clone()).unwrap();
     }
 
     #[allow(clippy::too_many_lines)]

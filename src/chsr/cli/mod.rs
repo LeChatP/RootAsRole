@@ -1198,6 +1198,78 @@ mod tests {
         }
     }
 
+    /// The paths of the fields named `future` in `value`.
+    fn future_fields(value: &Value, prefix: &str, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    let path = format!("{prefix}/{key}");
+                    if key == "future" {
+                        out.push(path.clone());
+                    }
+                    future_fields(value, &path, out);
+                }
+            }
+            Value::Array(items) => {
+                for (i, value) in items.iter().enumerate() {
+                    future_fields(value, &format!("{prefix}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_unknown_fields_survive_a_save() {
+        let path = format!("{RAR_CFG_PATH}.unknown_fields_survive_a_save");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.unknown_fields_survive_a_save"));
+        });
+        // cred.capabilities and cred.setgid refuse unknown fields, a typo there is an error
+        let policy = serde_json::json!({
+            "version": rootasrole_core::PACKAGE_VERSION.to_string(),
+            "future": 1,
+            "storage": {"method": "json", "settings": {"path": path, "future": 1}, "future": 1},
+            "options": {"future": 1,
+                "path": {"default": "delete", "add": ["/usr/bin"], "future": 1},
+                "env": {"default": "delete", "keep": ["A"], "future": 1},
+                "timeout": {"type": "tty", "future": 1},
+                "password": {"tries": 3, "future": 1},
+                "workdir": {"default": "all", "fallback": "/", "future": 1}},
+            "roles": [{"name": "r", "future": 1,
+                "actors": [{"type": "user", "id": 0, "future": 1},
+                    {"type": "group", "groups": ["root"], "future": 1}],
+                "options": {"future": 1, "path": {"default": "keep-safe", "future": 1}},
+                "tasks": [{"name": "t", "future": 1,
+                    "cred": {"future": 1,
+                        "setuid": {"default": "all", "fallback": "root", "future": 1},
+                        "setgid": {"default": "all", "fallback": ["root"]},
+                        "capabilities": {"default": "none", "add": ["CAP_NET_RAW"]}},
+                    "commands": {"default": "none", "add": ["/usr/bin/ls"], "future": 1},
+                    "options": {"future": 1}}]}]
+        });
+        fs::write(&path, serde_json::to_string_pretty(&policy).unwrap()).unwrap();
+        let mut settings =
+            FileSettings::write_all(path.clone(), path.clone(), StorageMethod::JSON).unwrap();
+        assert!(
+            main(&mut settings, "o bounding strict".split(' '))
+                .call()
+                .unwrap()
+        );
+        settings.save_all().unwrap();
+        drop(settings);
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+        future_fields(&policy, "", &mut before);
+        future_fields(&saved, "", &mut after);
+        assert_eq!(before.len(), 19);
+        let lost: Vec<_> = before
+            .iter()
+            .filter(|field| !after.contains(field))
+            .collect();
+        assert!(lost.is_empty(), "lost: {lost:?}");
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)
