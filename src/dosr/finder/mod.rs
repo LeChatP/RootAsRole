@@ -18,6 +18,7 @@ use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups},
+        env::EnvFilter,
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         workdir::ResolvedWorkdir,
@@ -63,6 +64,10 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// The final set of environment variable to keep/set
     pub env: HashMap<String, String>,
+    #[builder(default)]
+    /// The filter of the policy on the environment, for the variables that PAM modules set once
+    /// the session is open
+    pub env_filter: EnvFilter,
     #[builder(default)]
     /// The PATH variable is managed indepedently given the policy
     pub env_path: Vec<String>,
@@ -293,8 +298,10 @@ impl BestExecSettings {
         if !matching {
             return Err(SrError::PermissionDenied);
         }
-        result.env = opt_stack
-            .calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref())
+        let env =
+            opt_stack.calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref());
+        result.env_filter = env.filter();
+        result.env = env
             .final_env(
                 env_vars,
                 opt_stack.calc_path(env_path),
@@ -1888,5 +1895,68 @@ mod tests {
             Some(std::env::current_dir().unwrap().join("./Cargo.toml"))
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The environment that dosr decides for `cli`, completed with variables set by PAM.
+    fn env_with_pam_vars(cli: &Cli, pam_vars: &[(&str, &str)]) -> HashMap<String, String> {
+        use serde::de::DeserializeSeed;
+        let policy = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"t","commands":["/usr/bin/true"],"options":{{"env":{{"default":"delete","override_behavior":true,"keep":["PAM_*"],"check":["CHECKED"],"delete":["LD_*"],"set":{{"SET":"policy"}}}}}}}}]}}]}}"#,
+            nix::unistd::getuid()
+        );
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer { cli, cred: &cred }
+            .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+            .expect("valid policy");
+        let mut settings = BestExecSettings::retrieve_settings(
+            cli,
+            &cred,
+            &data,
+            [("PAM_USER_VAR", "user")],
+            &["/usr/bin"],
+        )
+        .unwrap();
+        settings.env_filter.add_vars(
+            &mut settings.env,
+            pam_vars
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string())),
+        );
+        settings.env
+    }
+
+    #[test]
+    fn test_pam_vars_go_through_the_env_filter_of_the_task() {
+        let pam_vars = [
+            ("PAM_NEW", "pam"),
+            ("PAM_USER_VAR", "pam"),
+            ("SET", "pam"),
+            ("PATH", "/tmp/evil"),
+            ("CHECKED", "/unsafe"),
+            ("OTHER", "pam"),
+            ("LD_PRELOAD", "/tmp/evil.so"),
+        ];
+        let cli = Cli::builder().cmd_path("/usr/bin/true".to_string()).build();
+        let env = env_with_pam_vars(&cli, &pam_vars);
+        assert_eq!(env.get("PAM_NEW").unwrap(), "pam");
+        assert_eq!(env.get("PAM_USER_VAR").unwrap(), "user");
+        assert_eq!(env.get("SET").unwrap(), "policy");
+        assert!(!env.get("PATH").unwrap().contains("/tmp/evil"));
+        assert!(!env.contains_key("CHECKED"));
+        assert!(!env.contains_key("OTHER"));
+        assert!(!env.contains_key("LD_PRELOAD"));
+        // dosr -E, which this task allows: the PAM variables are kept but for the delete list
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/true".to_string())
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        let env = env_with_pam_vars(&cli, &pam_vars);
+        assert_eq!(env.get("OTHER").unwrap(), "pam");
+        assert!(!env.contains_key("CHECKED"));
+        assert!(!env.contains_key("LD_PRELOAD"));
     }
 }

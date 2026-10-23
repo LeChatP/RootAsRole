@@ -1,10 +1,15 @@
 //! How the environment of a command is decided, for dosr and chsr alike.
 //!
 //! The env options of the default, global, role and task levels are merged into one set of
-//! lists ([`ResolvedEnv`]), then the variables of the user are filtered with them.
+//! lists ([`ResolvedEnv`]), then the variables of the user are filtered with them. The same
+//! filter ([`EnvFilter`]) applies to the variables that PAM modules set, such as `pam_env`.
 //! See [`SEnvOptions`](super::options::SEnvOptions) for the meaning of each list.
 
-use std::collections::HashMap;
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, hash_map::Entry},
+    hash::Hash,
+};
 
 use indexmap::{IndexMap, IndexSet};
 use libc::PATH_MAX;
@@ -112,22 +117,25 @@ impl<'a> ResolvedEnv<'a> {
     /// - in both modes, a variable of the check list is passed only if its value is safe.
     #[must_use]
     pub fn keep_user_var(&self, key: &str, value: &str) -> bool {
-        if is_shell_function(value) {
-            return false;
-        }
-        let checked = env_matches(&self.check, key);
-        match self.behavior {
-            EnvBehavior::Delete => {
-                if checked {
-                    check_env(key, value)
-                } else {
-                    env_matches(&self.keep, key)
-                }
-            }
-            EnvBehavior::Keep => {
-                !env_matches(&self.delete, key) && (!checked || check_env(key, value))
-            }
-            EnvBehavior::Inherit => false,
+        keeps_var(
+            self.behavior,
+            &self.keep,
+            &self.check,
+            &self.delete,
+            key,
+            value,
+        )
+    }
+
+    /// The same filter as [`ResolvedEnv::keep_user_var`], owned: it outlives the policy.
+    #[must_use]
+    pub fn filter(&self) -> EnvFilter {
+        let owned = |list: &IndexSet<&str>| list.iter().map(|entry| (*entry).to_string()).collect();
+        EnvFilter {
+            behavior: self.behavior,
+            keep: owned(&self.keep),
+            check: owned(&self.check),
+            delete: owned(&self.delete),
         }
     }
 
@@ -189,6 +197,83 @@ impl<'a> ResolvedEnv<'a> {
     }
 }
 
+/// The filter of the policy on the variables passed to the command, once the policy is gone.
+///
+/// dosr decides the environment of the command before the PAM session is open; the variables
+/// that PAM modules set then (`pam_env`, `pam_systemd`, `pam_getenvlist(3)`) go through this
+/// filter, like the variables of the user: they may come from files that the user writes, such
+/// as `~/.pam_environment` with `pam_env user_readenv=1`. The default filter keeps nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnvFilter {
+    behavior: EnvBehavior,
+    keep: IndexSet<String>,
+    check: IndexSet<String>,
+    delete: IndexSet<String>,
+}
+
+impl EnvFilter {
+    /// Whether a variable is passed to the command, see [`ResolvedEnv::keep_user_var`].
+    #[must_use]
+    pub fn keeps(&self, key: &str, value: &str) -> bool {
+        keeps_var(
+            self.behavior,
+            &self.keep,
+            &self.check,
+            &self.delete,
+            key,
+            value,
+        )
+    }
+
+    /// Add to the environment of the command the variables that the filter keeps, unless the
+    /// environment already has them: the kept variables of the user, the variables set by dosr
+    /// and the `set` list of the policy take precedence.
+    pub fn add_vars(
+        &self,
+        env: &mut HashMap<String, String>,
+        vars: impl IntoIterator<Item = (String, String)>,
+    ) {
+        for (key, value) in vars {
+            match env.entry(key) {
+                Entry::Occupied(var) => {
+                    debug!("{} is already set, its other value is left out", var.key());
+                }
+                Entry::Vacant(var) if self.keeps(var.key(), &value) => {
+                    var.insert(value);
+                }
+                Entry::Vacant(var) => debug!("{} is left out by the policy", var.key()),
+            }
+        }
+    }
+}
+
+/// The rule of [`ResolvedEnv::keep_user_var`] and [`EnvFilter::keeps`], whether the lists are
+/// borrowed from the policy or owned.
+fn keeps_var<S: Borrow<str> + Hash + Eq>(
+    behavior: EnvBehavior,
+    keep: &IndexSet<S>,
+    check: &IndexSet<S>,
+    delete: &IndexSet<S>,
+    key: &str,
+    value: &str,
+) -> bool {
+    if is_shell_function(value) {
+        return false;
+    }
+    let checked = env_matches(check, key);
+    match behavior {
+        EnvBehavior::Delete => {
+            if checked {
+                check_env(key, value)
+            } else {
+                env_matches(keep, key)
+            }
+        }
+        EnvBehavior::Keep => !env_matches(delete, key) && (!checked || check_env(key, value)),
+        EnvBehavior::Inherit => false,
+    }
+}
+
 /// Whether the value of a variable of the check list is safe: no `/` nor `%`, except for `TZ`
 /// which must be a relative time zone name.
 #[must_use]
@@ -201,8 +286,11 @@ pub fn check_env(key: &str, value: &str) -> bool {
 }
 
 /// The policy entries are the patterns, never the user's variable name.
-fn env_matches(list: &IndexSet<&str>, name: &str) -> bool {
-    list.contains(name) || list.iter().any(|pattern| wildcard_match(pattern, name))
+fn env_matches<S: Borrow<str> + Hash + Eq>(list: &IndexSet<S>, name: &str) -> bool {
+    list.contains(name)
+        || list
+            .iter()
+            .any(|pattern| wildcard_match(pattern.borrow(), name))
 }
 
 fn tz_is_safe(tzval: &str) -> bool {
@@ -529,5 +617,74 @@ mod tests {
             env.final_env(user_env, ["/usr/bin"], &target, None, String::new())
                 .is_none()
         );
+    }
+
+    #[test]
+    fn test_env_filter_is_the_policy_filter() {
+        let vars = [
+            ("LC_ALL", "C"),
+            ("KEPT", "value"),
+            ("LD_PRELOAD", "/tmp/evil.so"),
+            ("CHECKED", "/unsafe"),
+            ("CHECKED", "safe"),
+            ("TZ", "../../etc/x"),
+            ("TZ", "Europe/Paris"),
+            ("BASH_FUNC_ls%%", "() { evil; }"),
+            ("OTHER", "value"),
+        ];
+        for behavior in [EnvBehavior::Delete, EnvBehavior::Keep, EnvBehavior::Inherit] {
+            let env = resolved(behavior, &["LC_*", "KEPT"], &["CHECKED", "TZ"], &["LD_*"]);
+            let filter = env.filter();
+            for (key, value) in vars {
+                assert_eq!(
+                    filter.keeps(key, value),
+                    env.keep_user_var(key, value),
+                    "{behavior:?} {key}={value}"
+                );
+            }
+        }
+        // a filter that no policy decided keeps nothing
+        assert!(!EnvFilter::default().keeps("LC_ALL", "C"));
+    }
+
+    #[test]
+    fn test_env_filter_add_vars() {
+        let target = cred();
+        let mut env = resolved(EnvBehavior::Delete, &["KEPT", "PAM_*"], &["CHECKED"], &[]);
+        env.set = IndexMap::from([("SET", "policy")]);
+        let mut final_env = env
+            .final_env(
+                [("KEPT", "user")],
+                ["/usr/bin"],
+                &target,
+                None,
+                String::new(),
+            )
+            .unwrap();
+        let pam_vars = [
+            ("PATH", "/tmp/evil"),
+            ("HOME", "/tmp"),
+            ("SET", "pam"),
+            ("KEPT", "pam"),
+            ("PAM_NEW", "pam"),
+            ("CHECKED", "/unsafe"),
+            ("LD_PRELOAD", "/tmp/evil.so"),
+            ("PAM_FUNC", "() { evil; }"),
+        ]
+        .map(|(key, value)| (key.to_string(), value.to_string()));
+        env.filter().add_vars(&mut final_env, pam_vars);
+        // the variables of dosr, of the set list and the kept ones of the user take precedence
+        assert_eq!(final_env.get("PATH").unwrap(), "/usr/bin");
+        assert_eq!(
+            *final_env.get("HOME").unwrap(),
+            target.user.dir.to_string_lossy()
+        );
+        assert_eq!(final_env.get("SET").unwrap(), "policy");
+        assert_eq!(final_env.get("KEPT").unwrap(), "user");
+        // a new variable goes through the filter of the policy
+        assert_eq!(final_env.get("PAM_NEW").unwrap(), "pam");
+        assert!(!final_env.contains_key("CHECKED"));
+        assert!(!final_env.contains_key("LD_PRELOAD"));
+        assert!(!final_env.contains_key("PAM_FUNC"));
     }
 }

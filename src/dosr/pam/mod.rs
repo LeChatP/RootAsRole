@@ -10,8 +10,9 @@ use std::{
 use bon::Builder;
 use log::{debug, error, info, warn};
 use nonstick2::{
-    AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, PamShared, Result as PamResult,
-    TransactionBuilder, conv::Demux, items::Items, items::ItemsMut, libpam::SessionActive,
+    AuthnFlags, ConversationAdapter, EnvironMap, ErrorCode, LibPamTransaction, PamShared,
+    Result as PamResult, TransactionBuilder, conv::Demux, items::Items, items::ItemsMut,
+    libpam::SessionActive,
 };
 
 use crate::finder::PasswordSettings;
@@ -167,6 +168,22 @@ fn check_pam_user(txn: &impl PamShared, user: &Cred) -> SrResult<()> {
     }
 }
 
+/// The variables that PAM modules set for the session (`pam_getenvlist(3)`), such as `pam_env`
+/// or `pam_systemd`. The environment of the command is UTF-8: another variable is left out, as
+/// a variable without a name.
+pub fn session_env(txn: &impl PamShared) -> Vec<(String, String)> {
+    txn.environ()
+        .iter()
+        .filter_map(|(key, value)| match (key.into_string(), value.into_string()) {
+            (Ok(key), Ok(value)) if !key.is_empty() => Some((key, value)),
+            (key, _) => {
+                warn!("A variable of the PAM session is left out, it is not UTF-8 or has no name: {key:?}");
+                None
+            }
+        })
+        .collect()
+}
+
 /// An exclusive lock on the user's terminal, released when dropped (when its file is closed).
 struct TerminalLock {
     _terminal: File,
@@ -319,7 +336,7 @@ mod tests {
     use super::*;
     use jiff::SignedDuration;
     use nix::{libc::dev_t, unistd::Pid};
-    use nonstick2::items::Items;
+    use nonstick2::{EnvironMapMut, items::Items};
     use rootasrole_core::{
         Cred,
         database::options::{SAuthentication, STimeout, TimestampType},
@@ -692,5 +709,38 @@ mod tests {
         assert!(same_pam_user(Some(OsStr::new("alice")), "alice"));
         assert!(!same_pam_user(Some(OsStr::new("root")), "alice"));
         assert!(!same_pam_user(None, "alice"));
+    }
+
+    #[test]
+    fn test_session_env_reads_the_pam_environment() {
+        let user = create_test_user();
+        let conv = SrConversationHandler::builder().no_interact(true).build();
+        let Ok(mut txn) = TransactionBuilder::new_with_service(PAM_SERVICE)
+            .username(&user.user.name)
+            .build(conv.into_conversation())
+        else {
+            eprintln!("Skipping test, PAM is not available");
+            return;
+        };
+        // what a module such as pam_env does (pam_putenv(3))
+        {
+            let mut environ = txn.environ_mut();
+            environ.insert("PAM_TEST_VAR", "value=with=equals");
+            environ.insert("PAM_TEST_EMPTY", "");
+            environ.insert(
+                OsStr::from_bytes(b"PAM_TEST_\xff"),
+                "a name that is not UTF-8",
+            );
+            environ.insert("PAM_TEST_BYTES", OsStr::from_bytes(b"\xff"));
+        }
+        let env = session_env(&txn);
+        let pam_test_vars: Vec<_> = env
+            .iter()
+            .filter(|(key, _)| key.starts_with("PAM_TEST_"))
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        assert_eq!(pam_test_vars.len(), 2, "{pam_test_vars:?}");
+        assert!(pam_test_vars.contains(&("PAM_TEST_VAR", "value=with=equals")));
+        assert!(pam_test_vars.contains(&("PAM_TEST_EMPTY", "")));
     }
 }

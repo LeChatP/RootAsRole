@@ -289,7 +289,7 @@ fn main_inner() -> SrResult<()> {
     use crate::{
         RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
-        pam::start_session,
+        pam::{session_env, start_session},
     };
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
@@ -326,7 +326,7 @@ fn main_inner() -> SrResult<()> {
         }
     }
     register_plugins();
-    let execcfg = find_best_exec_settings(
+    let mut execcfg = find_best_exec_settings(
         &args,
         &user,
         RAR_CFG_PATH,
@@ -350,6 +350,10 @@ fn main_inner() -> SrResult<()> {
         &user,
         &args,
     )?;
+    // The variables that PAM modules set go through the filter of the policy, like the user's
+    execcfg
+        .env_filter
+        .add_vars(&mut execcfg.env, session_env(&session));
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
