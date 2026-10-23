@@ -11,7 +11,7 @@ use bon::Builder;
 use log::{debug, error, info, warn};
 use nonstick2::{
     AuthnFlags, ConversationAdapter, ErrorCode, LibPamTransaction, PamShared, Result as PamResult,
-    TransactionBuilder, conv::Demux, items::ItemsMut, libpam::SessionActive,
+    TransactionBuilder, conv::Demux, items::Items, items::ItemsMut, libpam::SessionActive,
 };
 
 use crate::finder::PasswordSettings;
@@ -144,6 +144,29 @@ fn set_pam_items(txn: &mut impl PamShared, user: &Cred) -> PamResult<()> {
     Ok(())
 }
 
+/// Whether the user of the PAM transaction is still the one dosr asked for.
+fn same_pam_user(pam_user: Option<&std::ffi::OsStr>, requested: &str) -> bool {
+    pam_user == Some(std::ffi::OsStr::new(requested))
+}
+
+/// A PAM module may change `PAM_USER` during the transaction (`pam_get_item(3)`): dosr refuses
+/// to go on for another user than the one it authenticates.
+fn check_pam_user(txn: &impl PamShared, user: &Cred) -> SrResult<()> {
+    let pam_user = txn.items().user().map_err(|e| {
+        error!("Cannot read the user of the PAM transaction: {e}");
+        SrError::AuthenticationFailed
+    })?;
+    if same_pam_user(pam_user.as_deref(), &user.user.name) {
+        Ok(())
+    } else {
+        error!(
+            "A PAM module changed the user from {} to {pam_user:?}",
+            user.user.name
+        );
+        Err(SrError::AuthenticationFailed)
+    }
+}
+
 /// An exclusive lock on the user's terminal, released when dropped (when its file is closed).
 struct TerminalLock {
     _terminal: File,
@@ -267,6 +290,7 @@ pub fn start_session<'a>(
             SrError::AuthenticationFailed
         })?
     };
+    check_pam_user(&txn, user)?;
 
     let txn = txn
         .establish_credentials()
@@ -279,6 +303,7 @@ pub fn start_session<'a>(
             error!("Failed to open session: {}", e.1);
             SrError::SystemError
         })?;
+    check_pam_user(&txn, user)?;
 
     // Failing to save the cookie only means that the user will be asked to authenticate again
     #[cfg(feature = "timeout")]
@@ -660,5 +685,12 @@ mod tests {
             assert_eq!(calls, 1);
             assert!(start.elapsed() < std::time::Duration::from_millis(500));
         }
+    }
+
+    #[test]
+    fn test_same_pam_user() {
+        assert!(same_pam_user(Some(OsStr::new("alice")), "alice"));
+        assert!(!same_pam_user(Some(OsStr::new("root")), "alice"));
+        assert!(!same_pam_user(None, "alice"));
     }
 }
