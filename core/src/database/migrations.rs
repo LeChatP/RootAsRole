@@ -562,7 +562,7 @@ mod tests {
     fn test_commands_without_arguments_up_and_down() {
         // the upgrade leaves them as written: since 4.1.0 they allow no argument
         let commands = json!(["/usr/bin/id", "**", "/usr/bin/ls ^.*$"]);
-        let mut document = json!({"roles": [{"tasks": [{"commands": commands.clone()}]}]});
+        let mut document = json!({"roles": [{"tasks": [{"commands": commands}]}]});
         Migration::migrate_from(
             &Version::new(4, 0, 3),
             &PACKAGE_VERSION,
