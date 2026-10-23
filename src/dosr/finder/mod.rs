@@ -38,6 +38,8 @@ use cmd::resolve_any_command;
 pub mod de;
 mod options;
 
+pub use options::PasswordSettings;
+
 #[derive(Debug, Default, Clone, Builder)]
 pub struct BestExecSettings {
     #[builder(default)]
@@ -75,6 +77,9 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// Information about whether the user should authenticate or bypass it
     pub auth: SAuthentication,
+    #[builder(default)]
+    /// How many times the password is asked, and the delay after a wrong one
+    pub password: PasswordSettings,
     #[builder(default)]
     /// Is root id has it's privileges or not? If not, root is going to be a simple user
     pub root: SPrivileged,
@@ -312,6 +317,7 @@ impl BestExecSettings {
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
+        result.password = opt_stack.calc_password();
         result.root = opt_stack.calc_privileged();
         result.umask = opt_stack.calc_umask();
         result.workdir = opt_stack.calc_workdir();

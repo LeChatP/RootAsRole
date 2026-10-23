@@ -1,7 +1,7 @@
 use core::panic;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::num::ParseIntError;
+use std::num::{NonZeroU8, ParseIntError};
 use std::result::Result;
 use std::str::FromStr;
 use std::{cell::RefCell, rc::Rc};
@@ -22,8 +22,8 @@ use crate::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
-    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK, is_valid_env_name, is_valid_env_pattern,
+    HARDENED_ENUM_VALUE_3, INFO, PASSWORD_DELAY, PASSWORD_TRIES, PRIVILEGED, TIMEOUT_DURATION,
+    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
 use super::{
@@ -106,6 +106,27 @@ pub enum TimestampType {
     PPID,
     TTY,
     UID,
+}
+
+/// How many times the password is asked, and how long dosr waits after a wrong one.
+///
+/// A level that does not set a field inherits it from the upper levels, down to the build-time
+/// defaults (`RAR_PASSWORD_TRIES`, `RAR_PASSWORD_DELAY`). `tries` is at least 1: 0 would never
+/// let anyone in, or never stop asking.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct SPassword {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tries: Option<NonZeroU8>,
+    #[serde(
+        default,
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub delay: Option<jiff::SignedDuration>,
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
@@ -581,6 +602,8 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<SPassword>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Map<String, Value>,
@@ -599,6 +622,7 @@ impl Opt {
         execinfo: Option<SInfo>,
         workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
+        password: Option<SPassword>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Self {
@@ -612,6 +636,7 @@ impl Opt {
             execinfo,
             workdir,
             timeout,
+            password,
             umask,
             extra_fields,
         }
@@ -647,6 +672,12 @@ impl Opt {
                     .type_field(TIMEOUT_TYPE)
                     .maybe_duration(TIMEOUT_DURATION)
                     .maybe_max_usage(TIMEOUT_MAX_USAGE)
+                    .build(),
+            )
+            .password(
+                SPassword::builder()
+                    .tries(PASSWORD_TRIES)
+                    .delay(PASSWORD_DELAY)
                     .build(),
             )
             .build()
@@ -1091,6 +1122,26 @@ impl OptStack {
                         .clone()
                         .map(|timeout| (opt.level, timeout)))
                         .map(|(_, timeout)| timeout),
+                )
+                .password(
+                    SPassword::builder()
+                        .maybe_tries(
+                            self.find_in_options(|opt| opt
+                                .password
+                                .as_ref()
+                                .and_then(|password| password.tries)
+                                .map(|tries| (opt.level, tries)))
+                                .map(|(_, tries)| tries)
+                        )
+                        .maybe_delay(
+                            self.find_in_options(|opt| opt
+                                .password
+                                .as_ref()
+                                .and_then(|password| password.delay)
+                                .map(|delay| (opt.level, delay)))
+                                .map(|(_, delay)| delay)
+                        )
+                        .build(),
                 )
                 .build()
         ))
@@ -1872,5 +1923,42 @@ mod tests {
 
         // This should serialize as just a string, not as a struct
         assert_tokens(&umask, &[Token::Str("644")]);
+    }
+
+    #[test]
+    fn test_password_option() {
+        let password: SPassword =
+            serde_json::from_str(r#"{"tries": 2, "delay": "00:00:01"}"#).unwrap();
+        assert_eq!(password.tries, std::num::NonZeroU8::new(2));
+        assert_eq!(password.delay, Some(SignedDuration::from_secs(1)));
+        assert_eq!(
+            serde_json::to_value(&password).unwrap(),
+            serde_json::json!({"tries": 2, "delay": "00:00:01"})
+        );
+        // 0 tries would never let anyone in, or never stop asking; a delay is never negative
+        for invalid in [
+            r#"{"tries": 0}"#,
+            r#"{"tries": 256}"#,
+            r#"{"tries": -1}"#,
+            r#"{"delay": "-00:00:01"}"#,
+            r#"{"delay": "5s"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SPassword>(invalid).is_err(),
+                "{invalid} is refused"
+            );
+        }
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &password).unwrap();
+        let from_cbor: SPassword = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(from_cbor, password);
+    }
+
+    #[test]
+    fn test_password_defaults() {
+        let defaults = Opt::level_default().password.unwrap();
+        assert_eq!(defaults.tries, Some(crate::util::PASSWORD_TRIES));
+        assert_eq!(defaults.delay, Some(crate::util::PASSWORD_DELAY));
+        assert_eq!(crate::util::PASSWORD_TRIES.get(), 3);
+        assert_eq!(crate::util::PASSWORD_DELAY, SignedDuration::from_secs(5));
     }
 }

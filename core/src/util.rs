@@ -20,6 +20,7 @@ use nix::{
     unistd::{Gid, Group},
 };
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU8;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
@@ -140,6 +141,26 @@ pub const TIMEOUT_MAX_USAGE: Option<u64> = match option_env!("RAR_TIMEOUT_MAX_US
     },
     None => None,
 };
+
+//=== SPassword ===
+
+/// How many times the password is asked before dosr gives up (`RAR_PASSWORD_TRIES`). A value
+/// that is not a number from 1 to 255, or a missing build variable, stops the build.
+pub const PASSWORD_TRIES: NonZeroU8 = match u8::from_str_radix(env!("RAR_PASSWORD_TRIES"), 10) {
+    Ok(n) => match NonZeroU8::new(n) {
+        Some(n) => n,
+        None => panic!("RAR_PASSWORD_TRIES must be at least 1"),
+    },
+    Err(_) => panic!("RAR_PASSWORD_TRIES must be a number from 1 to 255"),
+};
+
+/// How long dosr waits after a wrong password (`RAR_PASSWORD_DELAY`, hh:mm:ss). A value that is
+/// not a duration, or a missing build variable, stops the build.
+pub const PASSWORD_DELAY: SignedDuration =
+    match convert_string_to_duration(env!("RAR_PASSWORD_DELAY")) {
+        Ok(delay) => delay,
+        Err(_) => panic!("RAR_PASSWORD_DELAY must be a duration written hh:mm:ss"),
+    };
 
 pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
     assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));

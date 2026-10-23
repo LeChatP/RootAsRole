@@ -7,16 +7,16 @@ use bon::{Builder, bon};
 use rootasrole_core::database::FilterMatcher;
 use rootasrole_core::database::env::{EnvLevel, ResolvedEnv};
 use rootasrole_core::database::options::{
-    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPathOptions, SPrivileged,
-    STimeout, SUMask, WorkdirBehavior,
+    EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPassword, SPathOptions,
+    SPrivileged, STimeout, SUMask, WorkdirBehavior,
 };
 use rootasrole_core::database::path::{PathLevel, ResolvedPath};
 use rootasrole_core::database::score::SecurityMin;
 use rootasrole_core::database::workdir::{ResolvedWorkdir, WorkdirLevel};
 use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_BEHAVIOR, INFO,
-    PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, is_valid_env_name,
-    is_valid_env_pattern,
+    PASSWORD_DELAY, PASSWORD_TRIES, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
+    UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
 use serde::{Deserialize, Serialize};
@@ -185,6 +185,8 @@ pub struct Opt<'a> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<SPassword>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Value,
@@ -203,6 +205,7 @@ impl<'a> Opt<'a> {
         execinfo: Option<SInfo>,
         workdir: Option<DWorkdirEither<'a>>,
         timeout: Option<STimeout>,
+        password: Option<SPassword>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Value,
     ) -> Self {
@@ -216,8 +219,25 @@ impl<'a> Opt<'a> {
             execinfo,
             workdir,
             timeout,
+            password,
             umask,
             extra_fields,
+        }
+    }
+}
+
+/// How many times dosr asks for the password, and how long it waits after a wrong one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PasswordSettings {
+    pub tries: std::num::NonZeroU8,
+    pub delay: jiff::SignedDuration,
+}
+
+impl Default for PasswordSettings {
+    fn default() -> Self {
+        Self {
+            tries: PASSWORD_TRIES,
+            delay: PASSWORD_DELAY,
         }
     }
 }
@@ -307,6 +327,7 @@ impl From<Opt<'_>> for rootasrole_core::database::options::Opt {
             .maybe_bounding(val.bounding)
             .maybe_authentication(val.authentication)
             .maybe_timeout(val.timeout)
+            .maybe_password(val.password)
             .build()
     }
 }
@@ -469,6 +490,20 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
                 max_usage: TIMEOUT_MAX_USAGE,
                 extra_fields: Map::new(),
             })
+    }
+    /// The password tries and delay: each one from the most specific level that sets it, or the
+    /// build-time default.
+    pub fn calc_password(&self) -> PasswordSettings {
+        PasswordSettings {
+            tries: self
+                .get_opt_iter_rev()
+                .find_map(|o| o.password.as_ref()?.tries)
+                .unwrap_or(PASSWORD_TRIES),
+            delay: self
+                .get_opt_iter_rev()
+                .find_map(|o| o.password.as_ref()?.delay)
+                .unwrap_or(PASSWORD_DELAY),
+        }
     }
     pub fn calc_info(&self) -> SInfo {
         self.get_opt_iter_rev()
@@ -873,5 +908,46 @@ mod tests {
             PathBehavior::Inherit
         );
         assert_eq!(rar_opt.env.unwrap().default_behavior, EnvBehavior::Keep);
+    }
+
+    // each field of the password option comes from the most specific level that sets it
+    #[test]
+    fn test_calc_password_inherits_each_field() {
+        let stack = BorrowedOptStack::new(None);
+        assert_eq!(stack.calc_password(), PasswordSettings::default());
+
+        let config = Opt::builder(Level::Global)
+            .password(
+                SPassword::builder()
+                    .tries(std::num::NonZeroU8::new(5).unwrap())
+                    .build(),
+            )
+            .build();
+        let mut stack = BorrowedOptStack::new(Some(&config));
+        let task = Opt::builder(Level::Task)
+            .password(
+                SPassword::builder()
+                    .delay(jiff::SignedDuration::from_secs(1))
+                    .build(),
+            )
+            .build();
+        stack.task = Some(&task);
+        assert_eq!(
+            stack.calc_password(),
+            PasswordSettings {
+                tries: std::num::NonZeroU8::new(5).unwrap(),
+                delay: jiff::SignedDuration::from_secs(1),
+            }
+        );
+    }
+
+    #[test]
+    fn test_password_option_of_the_policy() {
+        let opt: Opt = serde_json::from_str(r#"{"password": {"tries": 2, "delay": "00:00:01"}}"#)
+            .expect("a valid password option");
+        let password = opt.password.expect("the password option");
+        assert_eq!(password.tries, std::num::NonZeroU8::new(2));
+        assert_eq!(password.delay, Some(jiff::SignedDuration::from_secs(1)));
+        assert!(serde_json::from_str::<Opt>(r#"{"password": {"tries": 0}}"#).is_err());
     }
 }

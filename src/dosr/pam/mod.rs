@@ -14,6 +14,7 @@ use nonstick2::{
     TransactionBuilder, conv::Demux, items::ItemsMut, libpam::SessionActive,
 };
 
+use crate::finder::PasswordSettings;
 #[cfg(feature = "timeout")]
 use crate::timeout;
 use crate::{
@@ -171,9 +172,40 @@ fn lock_terminal(path: &Path) -> Option<TerminalLock> {
     }
 }
 
+/// Run `attempt` until it succeeds, at most `settings.tries` times. Only a wrong password
+/// (`PAM_AUTH_ERR`) is asked again, after `settings.delay`: any other error, such as the end of
+/// the input or an unknown user, stops at once.
+fn retry_authentication<T, U>(
+    mut state: T,
+    settings: PasswordSettings,
+    mut attempt: impl FnMut(T) -> Result<U, (T, ErrorCode)>,
+) -> Result<U, ErrorCode> {
+    let tries = settings.tries.get();
+    let mut try_number = 1;
+    loop {
+        match attempt(state) {
+            Ok(done) => return Ok(done),
+            Err((next, error)) => {
+                warn!("Authentication failed (try {try_number} of {tries}): {error}");
+                if error != ErrorCode::AuthenticationError {
+                    return Err(error);
+                }
+                std::thread::sleep(settings.delay.unsigned_abs());
+                if try_number >= tries {
+                    return Err(error);
+                }
+                eprintln!("Sorry, try again.");
+                try_number += 1;
+                state = next;
+            }
+        }
+    }
+}
+
 pub fn start_session<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
+    password: PasswordSettings,
     user: &Cred,
     cli: &Cli,
 ) -> SrResult<LibPamTransaction<Demux<SrConversationHandler<'a>>, SessionActive>> {
@@ -219,9 +251,9 @@ pub fn start_session<'a>(
     })?;
 
     let txn = if need_password_auth {
-        txn.authenticate(AuthnFlags::SILENT)
+        retry_authentication(txn, password, |txn| txn.authenticate(AuthnFlags::SILENT))
             .map_err(|e| {
-                error!("Authentication failed: {}", e.1);
+                error!("Authentication failed: {e}");
                 SrError::AuthenticationFailed
             })?
             .account_management(AuthnFlags::SILENT)
@@ -419,7 +451,13 @@ mod tests {
 
         // When authentication is skipped, it should always succeed
         let cli = Cli::builder().prompt("Password: ").build();
-        let result = start_session(authentication, &timeout, &user, &cli);
+        let result = start_session(
+            authentication,
+            &timeout,
+            PasswordSettings::default(),
+            &user,
+            &cli,
+        );
         assert!(result.is_ok());
     }
 
@@ -437,7 +475,13 @@ mod tests {
         let user = create_test_user();
 
         let cli = Cli::builder().prompt("Password: ").build();
-        let _ = start_session(authentication, &timeout, &user, &cli);
+        let _ = start_session(
+            authentication,
+            &timeout,
+            PasswordSettings::default(),
+            &user,
+            &cli,
+        );
     }
 
     #[test]
@@ -526,8 +570,19 @@ mod tests {
 
         let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(start_session(auth, &timeout_ppid, &user, &cli).is_ok());
-        assert!(start_session(auth, &timeout_tty, &user, &cli).is_ok());
+        assert!(
+            start_session(
+                auth,
+                &timeout_ppid,
+                PasswordSettings::default(),
+                &user,
+                &cli
+            )
+            .is_ok()
+        );
+        assert!(
+            start_session(auth, &timeout_tty, PasswordSettings::default(), &user, &cli).is_ok()
+        );
     }
 
     // Another dosr of the same pipeline opens the terminal on its own: while one holds the lock,
@@ -549,5 +604,61 @@ mod tests {
     #[test]
     fn test_no_terminal_lock_without_a_terminal() {
         assert!(lock_terminal(Path::new("/nonexistent/tty")).is_none());
+    }
+
+    fn quick(tries: u8, delay_ms: i64) -> PasswordSettings {
+        PasswordSettings {
+            tries: std::num::NonZeroU8::new(tries).unwrap(),
+            delay: SignedDuration::from_millis(delay_ms),
+        }
+    }
+
+    #[test]
+    fn test_retry_authentication_until_the_password_is_right() {
+        let mut calls = 0;
+        let result = retry_authentication((), quick(3, 10), |state| {
+            calls += 1;
+            if calls < 2 {
+                Err((state, ErrorCode::AuthenticationError))
+            } else {
+                Ok("authenticated")
+            }
+        });
+        assert_eq!(result, Ok("authenticated"));
+        assert_eq!(calls, 2);
+    }
+
+    // a delay after each wrong password, the last one included, then dosr gives up
+    #[test]
+    fn test_retry_authentication_gives_up_after_the_tries() {
+        let start = std::time::Instant::now();
+        let mut calls = 0;
+        let result: Result<(), _> = retry_authentication((), quick(3, 50), |state| {
+            calls += 1;
+            Err((state, ErrorCode::AuthenticationError))
+        });
+        assert_eq!(result, Err(ErrorCode::AuthenticationError));
+        assert_eq!(calls, 3);
+        assert!(start.elapsed() >= std::time::Duration::from_millis(150));
+    }
+
+    // the end of the input or an unknown user is not a wrong password: no retry, no delay
+    #[test]
+    fn test_retry_authentication_stops_on_other_errors() {
+        for error in [
+            ErrorCode::ConversationError,
+            ErrorCode::UserUnknown,
+            ErrorCode::MaxTries,
+        ] {
+            let start = std::time::Instant::now();
+            let mut calls = 0;
+            let result: Result<(), _> = retry_authentication((), quick(3, 1000), |state| {
+                calls += 1;
+                Err((state, error))
+            });
+            assert_eq!(result, Err(error));
+            assert_eq!(calls, 1);
+            assert!(start.elapsed() < std::time::Duration::from_millis(500));
+        }
     }
 }

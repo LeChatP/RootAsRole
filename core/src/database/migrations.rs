@@ -73,7 +73,10 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         from: || Version::new(4, 1, 0),
         to: || Version::new(4, 2, 0),
         up: unchanged,
-        down: unchanged,
+        down: |_, document| {
+            remove_password_options(document);
+            Ok(())
+        },
     },
 ];
 
@@ -172,6 +175,22 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
 }
 
 /// Whether a command of the policy is only a path, without arguments.
+/// 4.1.0 has no `password` option: it is removed from the options of every level.
+fn remove_password_options(document: &mut Value) {
+    match document {
+        Value::Object(map) => {
+            if let Some(Value::Object(options)) = map.get_mut("options")
+                && options.remove("password").is_some()
+            {
+                info!("Removing the password option, unknown before 4.2.0");
+            }
+            map.values_mut().for_each(remove_password_options);
+        }
+        Value::Array(values) => values.iter_mut().for_each(remove_password_options),
+        _ => {}
+    }
+}
+
 fn path_only(command: &str) -> bool {
     let command = command.trim();
     !command.is_empty() && !command.contains(char::is_whitespace)
@@ -591,6 +610,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(document["r"][0]["t"][0]["c"], json!(["/usr/bin/id ^$"]));
+    }
+
+    #[test]
+    fn test_password_option_up_and_down() {
+        let mut document = json!({
+            "options": {"password": {"tries": 5}, "timeout": {"type": "tty"}},
+            "roles": [{
+                "name": "r",
+                "options": {"password": {"delay": "00:00:01"}},
+                "tasks": [{"name": "t", "options": {"password": {"tries": 1}}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade keeps the option");
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
+        assert_eq!(document["roles"][0]["options"], json!({}));
+        assert_eq!(document["roles"][0]["tasks"][0]["options"], json!({}));
     }
 
     #[test]

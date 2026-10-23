@@ -343,7 +343,13 @@ fn main_inner() -> SrResult<()> {
     debug!("Best exec settings: {execcfg:?}");
 
     // Let the PAM session live until the end of the program
-    let session = start_session(execcfg.auth, &execcfg.timeout, &user, &args)?;
+    let session = start_session(
+        execcfg.auth,
+        &execcfg.timeout,
+        execcfg.password,
+        &user,
+        &args,
+    )?;
 
     if !execcfg.score.fully_matching() {
         println!("You are not allowed to execute this command, this incident will be reported.");
