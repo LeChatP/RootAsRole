@@ -36,6 +36,22 @@ pub fn recurse_pair(pair: Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn
     recurse_pair_with_action(pair, inputs, &match_pair)
 }
 
+/// A duration written `ss`, `mm:ss` or `hh:mm:ss`: a field that does not fit, or a duration
+/// that does not, is an error, never 0 nor a panic.
+fn parse_time(time: &str) -> Result<SignedDuration, Box<dyn Error>> {
+    let mut seconds: i64 = 0;
+    for field in time.split(':') {
+        let value: i64 = field
+            .parse()
+            .map_err(|_| format!("Invalid duration: {time}"))?;
+        seconds = seconds
+            .checked_mul(60)
+            .and_then(|seconds| seconds.checked_add(value))
+            .ok_or_else(|| format!("Duration too long: {time}"))?;
+    }
+    Ok(SignedDuration::from_secs(seconds))
+}
+
 #[allow(clippy::too_many_lines)]
 fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Error>> {
     match pair.as_rule() {
@@ -174,31 +190,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         // === timeout ===
         Rule::time => {
-            let mut reversed = pair.as_str().split(':').rev();
-            let mut duration: SignedDuration = SignedDuration::from_secs(
-                reversed
-                    .next()
-                    .ok_or("No seconds in time")?
-                    .parse::<i64>()
-                    .unwrap_or(0),
-            );
-            if let Some(mins) = reversed.next() {
-                duration = duration
-                    .checked_add(
-                        SignedDuration::try_from_mins(mins.parse::<i64>().unwrap_or(0))
-                            .unwrap_or_default(),
-                    )
-                    .expect("Invalid minutes");
-                if let Some(hours) = reversed.next() {
-                    duration = duration
-                        .checked_add(
-                            SignedDuration::try_from_hours(hours.parse::<i64>().unwrap_or(0))
-                                .unwrap_or_default(),
-                        )
-                        .expect("Invalid hours");
-                }
-            }
-            inputs.timeout_duration = Some(duration);
+            inputs.timeout_duration = Some(parse_time(pair.as_str())?);
         }
         Rule::opt_timeout_type => {
             if pair.as_str() == "tty" {
@@ -506,7 +498,8 @@ mod test {
         util::{BOLD, RED, RST},
     };
 
-    use super::Inputs;
+    use super::{Inputs, parse_time};
+    use jiff::SignedDuration;
 
     fn make_args(args: &str) -> String {
         shell_words::join(shell_words::split(args).expect("Failed to split args"))
@@ -579,6 +572,33 @@ mod test {
         assert_eq!(inputs.action, InputAction::List);
         assert_eq!(inputs.role_id, Some("r1".to_string()));
         assert_eq!(inputs.role_type, Some(RoleType::Tasks));
+    }
+
+    #[test]
+    fn test_parse_time() {
+        assert_eq!(parse_time("5").unwrap(), SignedDuration::from_secs(5));
+        assert_eq!(parse_time("5:00").unwrap(), SignedDuration::from_secs(300));
+        assert_eq!(
+            parse_time("01:02:03").unwrap(),
+            SignedDuration::from_secs(3723)
+        );
+        // too long: an error, never 0 nor a panic
+        assert!(parse_time("99999999999999999999").is_err());
+        assert!(parse_time("153722867280912930:59:59").is_err());
+    }
+
+    #[test]
+    fn test_timeout_duration_too_long_is_an_error() {
+        let binding = make_args("o timeout set --duration 153722867280912930:59:59");
+        let pairs = Cli::parse(Rule::cli, &binding).unwrap();
+        let mut inputs = Inputs::default();
+        assert!(
+            pairs
+                .into_iter()
+                .try_for_each(|pair| recurse_pair(pair, &mut inputs))
+                .is_err()
+        );
+        assert_eq!(inputs.timeout_duration, None);
     }
 
     #[test]
