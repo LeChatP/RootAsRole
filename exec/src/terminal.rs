@@ -561,4 +561,15 @@ mod tests {
             .expect("ttyname should work on pty follower");
         assert_eq!(ttyname.as_os_str().as_bytes(), pty.path.as_bytes());
     }
+
+    // A stdio terminal that is not the controlling terminal of dosr is not the user's terminal:
+    // it is given to the command as it is, never proxied through the pty nor set to raw mode.
+    #[test]
+    fn test_a_terminal_that_is_not_ours_is_not_the_user_terminal() {
+        let pty = Pty::open().expect("Failed to open PTY");
+        assert!(terminal::safe_isatty(&pty.follower));
+        // SAFETY: getpgrp does not access memory
+        let pgrp = ProcessId::new(unsafe { libc::getpgrp() });
+        assert!(!pty.follower.is_terminal_for_pgrp(pgrp));
+    }
 }
