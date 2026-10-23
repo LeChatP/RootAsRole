@@ -179,6 +179,65 @@ fn cap_effective_error(caplist: &str) -> String {
     format!("Unable to toggle {caplist} privilege. {CAPABILITIES_ERROR}")
 }
 
+/// Why dosr lacks the capabilities that it needs to run at all (see [`CAPABILITIES_ERROR`]),
+/// from the state of its process: `None` when it has them.
+///
+/// Without them, reading the policy fails and the user would only see "Permission denied", as if
+/// the policy refused the command. The usual case is dosr run from a command that dosr started:
+/// with `root: user`, that command has `no_new_privs`, and under a strict bounding set it lacks
+/// the capabilities dosr needs.
+fn missing_privileges_reason(
+    no_new_privs: bool,
+    permitted: capctl::CapSet,
+    bounding: capctl::CapSet,
+) -> Option<String> {
+    let mut missing: capctl::CapSet = [Cap::SETPCAP, Cap::SETUID]
+        .into_iter()
+        .filter(|cap| !permitted.has(*cap))
+        .collect();
+    if !permitted.has(Cap::DAC_READ_SEARCH) && !permitted.has(Cap::DAC_OVERRIDE) {
+        missing.add(Cap::DAC_READ_SEARCH);
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    let names = |caps: capctl::CapSet| {
+        caps.iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let outside_bounding = missing & !bounding;
+    Some(if no_new_privs {
+        "no_new_privs is set in this session, so the kernel does not give dosr the capabilities \
+         of its file: it is set by a service with NoNewPrivileges=yes, a container, \
+         setpriv --no-new-privs, or a command that dosr runs with \"root\": \"user\""
+            .to_string()
+    } else if !outside_bounding.is_empty() {
+        format!(
+            "the bounding set of this session lacks {}, which dosr needs: it is reduced by a \
+             service with CapabilityBoundingSet=, a container, or a command that dosr runs with \
+             a strict bounding set",
+            names(outside_bounding)
+        )
+    } else {
+        format!(
+            "dosr lacks {}: its file has no capabilities (setcap '=p'), or its file system is \
+             mounted nosuid",
+            names(missing)
+        )
+    })
+}
+
+/// [`missing_privileges_reason`] for this process.
+fn missing_privileges() -> Option<String> {
+    let no_new_privs = capctl::prctl::get_no_new_privs().unwrap_or(false);
+    let permitted = CapState::get_current()
+        .map(|state| state.permitted)
+        .unwrap_or_default();
+    missing_privileges_reason(no_new_privs, permitted, capctl::bounding::probe())
+}
+
 fn getopt<S, I>(s: I) -> SrResult<Cli>
 where
     I: IntoIterator<Item = S>,
@@ -288,8 +347,16 @@ pub fn dosr_main() {
     }
     if let Err(e) = main_inner() {
         eprintln_ignore_io_error!("dosr: {e}");
-        if e == SrError::InsufficientPrivileges {
-            error!("Insufficient privileges to run sr. {CAPABILITIES_ERROR}");
+        // whatever the error, it comes from the missing capabilities when dosr lacks them
+        let missing = missing_privileges();
+        if let Some(reason) = &missing {
+            eprintln_ignore_io_error!("dosr: {reason}");
+        }
+        if e == SrError::InsufficientPrivileges || missing.is_some() {
+            error!(
+                "Insufficient privileges to run dosr: {}",
+                missing.as_deref().unwrap_or(CAPABILITIES_ERROR)
+            );
         } else if e == SrError::AuthenticationFailed {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
@@ -1041,6 +1108,36 @@ mod tests {
                 WaitStatus::Signaled(child, Signal::SIGTERM, false)
             ),
         }
+    }
+
+    #[test]
+    fn test_missing_privileges_reason() {
+        let all = CapSet::from_iter([
+            Cap::SETPCAP,
+            Cap::SETUID,
+            Cap::SETGID,
+            Cap::DAC_READ_SEARCH,
+            Cap::DAC_OVERRIDE,
+        ]);
+        assert_eq!(missing_privileges_reason(false, all, all), None);
+        // one of the two DAC capabilities is enough to read the policy
+        let only_override = CapSet::from_iter([Cap::SETPCAP, Cap::SETUID, Cap::DAC_OVERRIDE]);
+        assert_eq!(
+            missing_privileges_reason(false, only_override, only_override),
+            None
+        );
+        // the file capabilities are ignored under no_new_privs
+        let reason = missing_privileges_reason(true, CapSet::empty(), all).unwrap();
+        assert!(reason.contains("no_new_privs"), "{reason}");
+        // a reduced bounding set names what it lacks
+        let bounding = CapSet::from_iter([Cap::SETPCAP, Cap::DAC_READ_SEARCH]);
+        let reason = missing_privileges_reason(false, bounding, bounding).unwrap();
+        assert!(reason.contains("bounding set"), "{reason}");
+        assert!(reason.contains(&Cap::SETUID.to_string()), "{reason}");
+        assert!(!reason.contains(&Cap::SETPCAP.to_string()), "{reason}");
+        // in the bounding set but not permitted: the file of dosr
+        let reason = missing_privileges_reason(false, CapSet::empty(), all).unwrap();
+        assert!(reason.contains("setcap"), "{reason}");
     }
 
     #[test]
