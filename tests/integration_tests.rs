@@ -65,7 +65,10 @@ mod tests {
     /// chsr prints its usage without reading the policy, so without any privilege.
     #[test]
     fn test_chsr_help_without_the_policy() {
-        let Some(chsr) = option_env!("CARGO_BIN_EXE_chsr") else {
+        // set even when chsr is not built (without the feature editor)
+        let Some(chsr) =
+            option_env!("CARGO_BIN_EXE_chsr").filter(|chsr| std::path::Path::new(chsr).exists())
+        else {
             eprintln!("Skipping: chsr is not built (feature editor)");
             return;
         };

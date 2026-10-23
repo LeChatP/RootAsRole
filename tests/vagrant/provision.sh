@@ -18,13 +18,17 @@ case "$ID" in
         ;;
 esac
 
+# The scripts run as vagrant with -H, not -i: sudo -i escapes the newlines of a command, which
+# the login shell then joins as line continuations, so only the first line ran.
 # the build needs a recent Rust, the one of the distribution may be too old
-sudo -u vagrant -i bash -c '
+sudo -u vagrant -H bash -c '
+    set -euo pipefail
     command -v "$HOME/.cargo/bin/cargo" >/dev/null ||
         curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 '
 # the other dependencies come from xtask (-i), sudo is the privilege escalation it uses (-p)
-sudo -u vagrant -i bash -c '
+sudo -u vagrant -H bash -c '
+    set -euo pipefail
     . "$HOME/.cargo/env"
     cd "$HOME/RootAsRole"
     cargo xtask install -bip sudo
