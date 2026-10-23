@@ -1,3 +1,4 @@
+use rootasrole_core::println_ignore_io_error;
 use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
 
 use indexmap::IndexSet;
@@ -30,7 +31,7 @@ pub fn list_json(
     let config = rconfig.as_ref().borrow();
     role_id.map_or_else(
         || {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&*config)
                     .unwrap_or_else(|_| "Failed to serialize config".to_string())
@@ -65,35 +66,59 @@ fn list_task(
                 if let Some(opttype) = options_type {
                     match opttype {
                         OptType::Env => {
-                            println!("{}", serde_json::to_string_pretty(&opt.env)?);
+                            println_ignore_io_error!("{}", serde_json::to_string_pretty(&opt.env)?);
                         }
                         OptType::Path => {
-                            println!("{}", serde_json::to_string_pretty(&opt.path)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.path)?
+                            );
                         }
                         OptType::Root => {
-                            println!("{}", serde_json::to_string_pretty(&opt.root)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.root)?
+                            );
                         }
                         OptType::Bounding => {
-                            println!("{}", serde_json::to_string_pretty(&opt.bounding)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.bounding)?
+                            );
                         }
                         OptType::Timeout => {
-                            println!("{}", serde_json::to_string_pretty(&opt.timeout)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.timeout)?
+                            );
                         }
                         OptType::Authentication => {
-                            println!("{}", serde_json::to_string_pretty(&opt.authentication)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.authentication)?
+                            );
                         }
                         OptType::ExecInfo => {
-                            println!("{}", serde_json::to_string_pretty(&opt.execinfo)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.execinfo)?
+                            );
                         }
                         OptType::UMask => {
-                            println!("{}", serde_json::to_string_pretty(&opt.umask)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.umask)?
+                            );
                         }
                         OptType::Workdir => {
-                            println!("{}", serde_json::to_string_pretty(&opt.workdir)?);
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.workdir)?
+                            );
                         }
                     }
                 } else {
-                    println!("{}", serde_json::to_string_pretty(&rcopt)?);
+                    println_ignore_io_error!("{}", serde_json::to_string_pretty(&rcopt)?);
                 }
             } else {
                 print_task(task, task_type.unwrap_or(TaskType::All))?;
@@ -105,7 +130,7 @@ fn list_task(
         let rcopt = OptStack::from_role(&role.clone())
             .to_opt()
             .map_err(std::io::Error::other)?;
-        println!("{}", serde_json::to_string_pretty(&rcopt)?);
+        println_ignore_io_error!("{}", serde_json::to_string_pretty(&rcopt)?);
     } else {
         print_role(role, role_type.unwrap_or(RoleType::All))?;
     }
@@ -118,16 +143,16 @@ fn print_task(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match task_type {
         TaskType::All => {
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println_ignore_io_error!("{}", serde_json::to_string_pretty(&task)?);
         }
         TaskType::Commands => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&task.as_ref().borrow().commands)?
             );
         }
         TaskType::Credentials => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&task.as_ref().borrow().cred)?
             );
@@ -142,16 +167,16 @@ fn print_role(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match role_type {
         RoleType::All => {
-            println!("{}", serde_json::to_string_pretty(&role)?);
+            println_ignore_io_error!("{}", serde_json::to_string_pretty(&role)?);
         }
         RoleType::Actors => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&role.as_ref().borrow().actors)?
             );
         }
         RoleType::Tasks => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&role.as_ref().borrow().tasks)?
             );
@@ -300,7 +325,7 @@ pub fn grant_revoke(
             //remove already existing actors
             actors.retain(|a| {
                 if role.as_ref().borrow().actors.contains(a) {
-                    println!("Actor {a} already in role");
+                    println_ignore_io_error!("Actor {a} already in role");
                     false
                 } else {
                     true
@@ -312,7 +337,7 @@ pub fn grant_revoke(
         InputAction::Del => {
             //if actor is not in role, warns
             if !role.as_ref().borrow().actors.contains(&actors[0]) {
-                println!("Actor {} not in role", actors[0]);
+                println_ignore_io_error!("Actor {} not in role", actors[0]);
             }
             role.as_ref()
                 .borrow_mut()
@@ -500,7 +525,7 @@ pub fn cmd_whitelist_action(
             InputAction::Del => {
                 //if command is not in task, warns
                 if !task.as_ref().borrow().commands.add.contains(&cmd) {
-                    println!("Command {cmd:?} not in task");
+                    println_ignore_io_error!("Command {cmd:?} not in task");
                 }
                 task.as_ref().borrow_mut().commands.add.retain(|c| {
                     debug!("'{:?}' != '{:?}' : {}", c, &cmd, *c != cmd);
@@ -520,7 +545,7 @@ pub fn cmd_whitelist_action(
             InputAction::Del => {
                 //if command is not in task, warns
                 if !task.as_ref().borrow().commands.sub.contains(&cmd) {
-                    println!("Command {cmd:?} not in task");
+                    println_ignore_io_error!("Command {cmd:?} not in task");
                 }
                 task.as_ref()
                     .borrow_mut()

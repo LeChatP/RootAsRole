@@ -1,5 +1,36 @@
 //extern crate sudoers_reader;
 
+// `println!` and the like panic when the output is a closed pipe (`EPIPE`, since Rust ignores
+// `SIGPIPE`): outside the tests, the `*_ignore_io_error` macros of rootasrole-core are used.
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! println {
+    ($($tt:tt)*) => {
+        compile_error!("println! panics on EPIPE, use println_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! print {
+    ($($tt:tt)*) => {
+        compile_error!("print! panics on EPIPE, use print_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprintln {
+    ($($tt:tt)*) => {
+        compile_error!("eprintln! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprint {
+    ($($tt:tt)*) => {
+        compile_error!("eprint! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+
 mod cli;
 #[cfg(not(tarpaulin_include))]
 mod security;

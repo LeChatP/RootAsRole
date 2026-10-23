@@ -14,6 +14,7 @@ use nonstick2::{
     Result as PamResult, TransactionBuilder, conv::Demux, items::Items, items::ItemsMut,
     libpam::SessionActive,
 };
+use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
 
 use crate::finder::PasswordSettings;
 #[cfg(feature = "timeout")]
@@ -124,12 +125,12 @@ impl ConversationAdapter for SrConversationHandler<'_> {
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
         error!("{}", message.as_ref().to_string_lossy());
-        eprintln!("{}", message.as_ref().to_string_lossy());
+        eprintln_ignore_io_error!("{}", message.as_ref().to_string_lossy());
     }
 
     fn info_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
         info!("{}", message.as_ref().to_string_lossy());
-        println!("{}", message.as_ref().to_string_lossy());
+        println_ignore_io_error!("{}", message.as_ref().to_string_lossy());
     }
 }
 
@@ -234,7 +235,7 @@ fn retry_authentication<T, U>(
                 if try_number >= tries {
                     return Err(error);
                 }
-                eprintln!("Sorry, try again.");
+                eprintln_ignore_io_error!("Sorry, try again.");
                 try_number += 1;
                 state = next;
             }

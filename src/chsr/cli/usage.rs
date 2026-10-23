@@ -1,3 +1,4 @@
+use rootasrole_core::println_ignore_io_error;
 use std::{error::Error, fmt::Write};
 
 use log::debug;
@@ -638,8 +639,8 @@ fn render_usage(sections: &[UsageSectionId]) -> String {
 
 pub fn help() {
     debug!("chsr help");
-    println!("{LONG_ABOUT}");
-    println!(
+    println_ignore_io_error!("{LONG_ABOUT}");
+    println_ignore_io_error!(
         "{}",
         render_usage(&[UsageSectionId::Usage, UsageSectionId::Commands])
     );
@@ -701,7 +702,7 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::del => "del",
         Rule::purge => "purge",
         _ => {
-            println!("{rule:?}");
+            println_ignore_io_error!("{rule:?}");
             "unknown rule"
         }
     }
@@ -792,8 +793,8 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
         }
         rule_to_string(*rule)
     });
-    println!("{usage}");
-    println!(
+    println_ignore_io_error!("{usage}");
+    println_ignore_io_error!(
         "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
         e.line(),
         underline(&e),

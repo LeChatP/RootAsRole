@@ -2,6 +2,37 @@
 //! It is a library so that its internals can be fuzzed in-process (see the `fuzzing` feature).
 #![cfg(feature = "finder")]
 
+// `println!` and the like panic when the output is a closed pipe (`EPIPE`, since Rust ignores
+// `SIGPIPE`): outside the tests, the `*_ignore_io_error` macros of rootasrole-core are used.
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! println {
+    ($($tt:tt)*) => {
+        compile_error!("println! panics on EPIPE, use println_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! print {
+    ($($tt:tt)*) => {
+        compile_error!("print! panics on EPIPE, use print_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprintln {
+    ($($tt:tt)*) => {
+        compile_error!("eprintln! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprint {
+    ($($tt:tt)*) => {
+        compile_error!("eprint! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+
 mod error;
 mod finder;
 #[cfg(feature = "fuzzing")]
@@ -31,6 +62,7 @@ use rootasrole_core::{
 
 use log::{debug, error, info};
 use pam::PAM_PROMPT;
+use rootasrole_core::{eprintln_ignore_io_error, print_ignore_io_error, println_ignore_io_error};
 use std::ffi::{CString, OsString};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
@@ -210,7 +242,7 @@ where
                 args.help = true;
             }
             "-v" | "--version" => {
-                println!("dosr: version {}", env!("CARGO_PKG_VERSION"));
+                println_ignore_io_error!("dosr: version {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             _ => {
@@ -251,11 +283,11 @@ where
 #[cfg(not(tarpaulin_include))]
 pub fn dosr_main() {
     if let Err(e) = subsribe("sr") {
-        eprintln!("dosr: Failed to initialize logging: {e}");
+        eprintln_ignore_io_error!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
     if let Err(e) = main_inner() {
-        eprintln!("dosr: {e}");
+        eprintln_ignore_io_error!("dosr: {e}");
         if e == SrError::InsufficientPrivileges {
             error!("Insufficient privileges to run sr. {CAPABILITIES_ERROR}");
         } else if e == SrError::AuthenticationFailed {
@@ -266,7 +298,7 @@ pub fn dosr_main() {
                     .unwrap_or_else(|_| Uid::current().to_string()),
                 command_line()
             );
-            eprintln!("This incident is reported.");
+            eprintln_ignore_io_error!("This incident is reported.");
         } else {
             error!(
                 "User '{}' got a '{}' when trying running '''{}'''",
@@ -298,13 +330,13 @@ fn main_inner() -> SrResult<()> {
     drop_effective()?;
     let args = utf8_args(std::env::args_os())?;
     if args.len() < 2 {
-        println!("{USAGE}");
+        println_ignore_io_error!("{USAGE}");
         return Ok(());
     }
     let args = getopt(args)?;
 
     if args.help {
-        println!("{USAGE}");
+        println_ignore_io_error!("{USAGE}");
         return Ok(());
     }
     let user = make_cred().map_err(|_| SrError::SystemError)?;
@@ -356,7 +388,9 @@ fn main_inner() -> SrResult<()> {
         .add_vars(&mut execcfg.env, session_env(&session));
 
     if !execcfg.score.fully_matching() {
-        println!("You are not allowed to execute this command, this incident will be reported.");
+        println_ignore_io_error!(
+            "You are not allowed to execute this command, this incident will be reported."
+        );
         error!(
             "User {} tried to execute command : {} {:?} without the permission.",
             &user.user.name,
@@ -376,7 +410,7 @@ fn main_inner() -> SrResult<()> {
             .map(|cap| cap.to_string())
             .collect::<Vec<_>>()
             .join(" ");
-        eprintln!(
+        eprintln_ignore_io_error!(
             "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
         );
         error!(
@@ -391,7 +425,7 @@ fn main_inner() -> SrResult<()> {
 
     if args.info {
         use capctl::CapSet;
-        println!(
+        println_ignore_io_error!(
             "Role: {}",
             if execcfg.role.is_empty() {
                 "None"
@@ -399,8 +433,8 @@ fn main_inner() -> SrResult<()> {
                 &execcfg.role
             }
         );
-        println!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
-        print!(
+        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
+        print_ignore_io_error!(
             "Execute as user: {}",
             if let Some(u) = execcfg.cred.setuid {
                 format!("{} ({})", u.name, u.uid)
@@ -409,17 +443,17 @@ fn main_inner() -> SrResult<()> {
             }
         );
         if let Some(gids) = execcfg.cred.setgroups.as_ref() {
-            print!(" and group(s): ");
+            print_ignore_io_error!(" and group(s): ");
             let groups = gids
                 .iter()
                 .map(|g| format!("{} ({})", g.name, g.gid))
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!("{groups}");
+            println_ignore_io_error!("{groups}");
         } else {
-            println!(" your current group(s)");
+            println_ignore_io_error!(" your current group(s)");
         }
-        println!(
+        println_ignore_io_error!(
             "With capabilities: {}",
             execcfg.cred.caps.map_or_else(
                 || "None".to_string(),
@@ -433,7 +467,7 @@ fn main_inner() -> SrResult<()> {
                 }
             )
         );
-        println!(
+        println_ignore_io_error!(
             "Command: {} {:?}",
             execcfg.final_path.display(),
             args.cmd_args
@@ -491,7 +525,7 @@ fn main_inner() -> SrResult<()> {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
-            eprintln!("dosr: {} : {}", cfinal_path.display(), e);
+            eprintln_ignore_io_error!("dosr: {} : {}", cfinal_path.display(), e);
             std::process::exit(1);
         }
     };

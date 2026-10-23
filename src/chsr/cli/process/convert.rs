@@ -1,3 +1,4 @@
+use rootasrole_core::println_ignore_io_error;
 use std::{
     error::Error,
     path::{Path, PathBuf},
@@ -49,7 +50,7 @@ pub fn convert(
         }
         None => settings.get_root().config.clone(),
     };
-    println!(
+    println_ignore_io_error!(
         "Config : {}",
         serde_json::to_string_pretty(&Versioning::new(config.clone()))?
     );

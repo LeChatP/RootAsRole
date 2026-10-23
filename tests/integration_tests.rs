@@ -44,6 +44,24 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
+    /// Nobody reads the output anymore (`dosr --help | true`): writing gets EPIPE, since Rust
+    /// ignores SIGPIPE, and dosr must not panic.
+    #[test]
+    fn test_dosr_output_to_a_closed_pipe() {
+        let (reader, writer) = std::io::pipe().expect("Failed to create a pipe");
+        drop(reader);
+        for arg in ["--help", "--version"] {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_dosr"))
+                .arg(arg)
+                .stdout(writer.try_clone().expect("Failed to clone the pipe"))
+                .output()
+                .expect("Failed to run dosr");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(0), "dosr {arg}: {stderr}");
+            assert!(!stderr.contains("panicked"), "dosr {arg}: {stderr}");
+        }
+    }
+
     #[test]
     fn test_all_dosr() {
         if let Ok(r) = try_run_dosr(

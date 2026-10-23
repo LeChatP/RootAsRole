@@ -61,6 +61,65 @@ use libc::dev_t;
 use nix::unistd::{Gid, Group, Pid, Uid, User, getgroups};
 use serde::{Deserialize, Serialize};
 
+/// [`println!`] that ignores write errors: a privileged program must not panic because its
+/// output is a closed pipe (`dosr -i | true` gets `EPIPE`, since Rust ignores `SIGPIPE`).
+#[macro_export]
+macro_rules! println_ignore_io_error {
+    ($($tt:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stdout(), $($tt)*);
+    }};
+}
+
+/// [`print!`] that ignores write errors, see [`println_ignore_io_error`].
+#[macro_export]
+macro_rules! print_ignore_io_error {
+    ($($tt:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::write!(::std::io::stdout(), $($tt)*);
+    }};
+}
+
+/// [`eprintln!`] that ignores write errors, see [`println_ignore_io_error`].
+#[macro_export]
+macro_rules! eprintln_ignore_io_error {
+    ($($tt:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stderr(), $($tt)*);
+    }};
+}
+
+// `println!` and the like panic when the output is a closed pipe (`EPIPE`, since Rust ignores
+// `SIGPIPE`): outside the tests, the `*_ignore_io_error` macros of rootasrole-core are used.
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! println {
+    ($($tt:tt)*) => {
+        compile_error!("println! panics on EPIPE, use println_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! print {
+    ($($tt:tt)*) => {
+        compile_error!("print! panics on EPIPE, use print_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprintln {
+    ($($tt:tt)*) => {
+        compile_error!("eprintln! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprint {
+    ($($tt:tt)*) => {
+        compile_error!("eprint! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+
 //pub mod api;
 pub mod database;
 //pub mod plugin;
