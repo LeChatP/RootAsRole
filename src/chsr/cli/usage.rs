@@ -126,8 +126,22 @@ const USAGE_ROLE: UsageSection = UsageSection {
             description: "Specify one or more group combinations for grant or revoke operations.",
             indent: 2,
         },
+        UsageItem {
+            name: "ssd [add|del|set] [roles], ssd purge",
+            description: "Roles that a member of this role must not hold (separation of duties).",
+            indent: 1,
+        },
+        UsageItem {
+            name: "parents [add|del|set] [roles], parents purge",
+            description: "Roles whose tasks this role gets (hierarchy).",
+            indent: 1,
+        },
     ],
-    examples: &["chsr role admin add", "chsr role admin grant -u alice"],
+    examples: &[
+        "chsr role admin add",
+        "chsr role admin grant -u alice",
+        "chsr role dev ssd add auditor",
+    ],
 };
 
 const USAGE_TASK: UsageSection = UsageSection {
@@ -152,6 +166,11 @@ const USAGE_TASK: UsageSection = UsageSection {
         UsageItem {
             name: "del, delete, unset, d, rm",
             description: "Remove a task.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "purpose set [text], purpose unset",
+            description: "Describe what the task is for.",
             indent: 1,
         },
     ],
@@ -184,6 +203,16 @@ const USAGE_COMMAND: UsageSection = UsageSection {
             name: "blacklist, bl [listing]",
             description: "Manage the blacklist for commands.",
             indent: 1,
+        },
+        UsageItem {
+            name: "--sha256 [hash], --sha224, --sha384, --sha512",
+            description: "With add: the file of the command must have this hash (hashchecker plugin, deprecated, removed in 5.0).",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--read-only, --immutable",
+            description: "With add: the file of the command must be read-only, or immutable (hashchecker plugin, deprecated).",
+            indent: 2,
         },
     ],
     examples: &["chsr role admin task backup command setpolicy allow-all"],
@@ -371,6 +400,11 @@ const USAGE_OPTIONS_ENV: UsageSection = UsageSection {
         UsageItem {
             name: "set [key=value,...]",
             description: "Set variables to enforce.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "override [allow|deny|unset]",
+            description: "Whether dosr -E may change the environment behavior.",
             indent: 1,
         },
         UsageItem {
@@ -712,6 +746,15 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::opt_password => "password",
         Rule::opt_path | Rule::path => "path",
         Rule::opt_env => "env",
+        Rule::role_links | Rule::role_link_kind => "ssd, parents",
+        Rule::linked_roles | Rule::linked_role => "role names, separated by commas",
+        Rule::purpose_text => "the purpose of the task",
+        Rule::cmd_hash | Rule::cmd_hash_type => {
+            "--sha224, --sha256, --sha384 or --sha512 and a hash"
+        }
+        Rule::cmd_hash_value => "a hash in hexadecimal",
+        Rule::opt_env_override => "override",
+        Rule::env_override_value => "allow, deny",
         Rule::env_key | Rule::env_key_list => "a variable name, where * matches any characters",
         Rule::env_key_value | Rule::env_value_list => "NAME=value",
         Rule::opt_workdir => "workdir",
@@ -759,6 +802,8 @@ const DEFAULT_USAGE_SECTIONS: &[UsageSectionId] = &[
     UsageSectionId::Upgrade,
 ];
 
+const ROLE_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Role];
+const TASK_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Task];
 const OPTIONS_GENERAL_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsGeneral];
 const OPTIONS_AUTH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsAuth];
 const OPTIONS_EXECINFO_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsExecinfo];
@@ -818,9 +863,20 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         | Rule::opt_env_set
         | Rule::env_key_list
         | Rule::env_value_list
-        | Rule::env_key => Some(OPTIONS_ENV_SECTIONS),
+        | Rule::env_key
+        | Rule::opt_env_override
+        | Rule::env_override_value => Some(OPTIONS_ENV_SECTIONS),
+        Rule::role_links | Rule::role_link_kind | Rule::linked_roles | Rule::linked_role => {
+            Some(ROLE_SECTIONS)
+        }
+        Rule::purpose_keyword | Rule::purpose_text => Some(TASK_SECTIONS),
         Rule::caps_listing => Some(CREDENTIALS_CAPS_SECTIONS),
-        Rule::cmd_checklisting => Some(COMMAND_LISTING_SECTIONS),
+        Rule::cmd_checklisting
+        | Rule::cmd_checks
+        | Rule::cmd_hash
+        | Rule::cmd_hash_type
+        | Rule::cmd_hash_value
+        | Rule::cmd_check_flag => Some(COMMAND_LISTING_SECTIONS),
         Rule::opt_path_listing => Some(PATH_LISTING_SECTIONS),
         Rule::opt_env_listing => Some(ENV_LISTING_SECTIONS),
         Rule::convert => Some(CONVERT_SECTIONS),

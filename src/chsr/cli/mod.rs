@@ -1554,6 +1554,122 @@ mod tests {
         assert!(role_names(&format!("{dir}/a.json")).is_empty());
     }
 
+    #[test]
+    fn test_role_links() {
+        let name = "role_links";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r auditor create");
+        ctx.assert_command_success("r junior create");
+        ctx.assert_command_success("r complete ssd add auditor");
+        ctx.assert_command_success("r complete ssd add auditor,other");
+        ctx.assert_command_success("r complete parents set junior");
+        let saved = saved_policy(&mut ctx, name);
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["ssd"], serde_json::json!(["auditor", "other"]));
+        assert_eq!(role["parents"], serde_json::json!(["junior"]));
+        // del and purge change the links, never the role (del also deletes a role)
+        ctx.assert_command_success("r complete ssd del other");
+        ctx.assert_command_success("r complete parents purge");
+        let saved = saved_policy(&mut ctx, name);
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["ssd"], serde_json::json!(["auditor"]));
+        assert!(role.get("parents").is_none());
+        // a role cannot exclude itself or be its own parent
+        assert!(ctx.run_command("r complete ssd add complete").is_err());
+        assert!(
+            ctx.run_command("r complete parents add junior,complete")
+                .is_err()
+        );
+        assert!(ctx.run_command("r nope ssd add auditor").is_err());
+    }
+
+    #[test]
+    fn test_task_purpose() {
+        let name = "task_purpose";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r complete t t_complete purpose set Back up the \"databases\"");
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(
+            saved_task(&saved, "complete", "t_complete")["purpose"],
+            "Back up the databases"
+        );
+        // unset removes the purpose, never the task (unset also deletes a task)
+        ctx.assert_command_success("r complete t t_complete purpose unset");
+        let saved = saved_policy(&mut ctx, name);
+        assert!(
+            saved_task(&saved, "complete", "t_complete")
+                .get("purpose")
+                .is_none()
+        );
+        assert!(ctx.run_command("r complete t nope purpose set x").is_err());
+    }
+
+    #[test]
+    fn test_options_env_override() {
+        let name = "options_env_override";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o env override allow");
+        ctx.assert_command_success("r complete t t_complete o env override deny");
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o env override allow");
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(saved["options"]["env"]["override_behavior"], true);
+        assert_eq!(
+            saved_task(&saved, "complete", "t_complete")["options"]["env"]["override_behavior"],
+            false
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"env": {"override_behavior": true}})
+        );
+        ctx.assert_command_success("o env override unset");
+        assert!(
+            saved_policy(&mut ctx, name)["options"]["env"]
+                .get("override_behavior")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_commands_with_checks() {
+        let name = "commands_with_checks";
+        let (mut ctx, _defer) = TestContext::new(name);
+        let hash = "a".repeat(64);
+        ctx.assert_command_success(&format!(
+            "r complete t t_complete cmd whitelist add --sha256 {hash} --read-only /usr/bin/id -u"
+        ));
+        ctx.assert_command_success(
+            "r complete t t_complete cmd blacklist add --immutable /usr/bin/rm",
+        );
+        let saved = saved_policy(&mut ctx, name);
+        let commands = &saved_task(&saved, "complete", "t_complete")["commands"];
+        assert!(commands["add"].as_array().unwrap().contains(
+            &serde_json::json!({"command": "/usr/bin/id -u", "sha256": hash, "read_only": true})
+        ));
+        assert!(
+            commands["del"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!({"command": "/usr/bin/rm", "immutable": true}))
+        );
+        // the same command line in either form is the same command
+        assert!(
+            ctx.run_command("r complete t t_complete cmd whitelist add /usr/bin/id -u")
+                .is_err()
+        );
+        ctx.assert_command_success("r complete t t_complete cmd whitelist del /usr/bin/id -u");
+        let saved = saved_policy(&mut ctx, name);
+        let add = &saved_task(&saved, "complete", "t_complete")["commands"]["add"];
+        assert!(!add.to_string().contains("/usr/bin/id -u"), "{add}");
+        // a hash of the wrong length, or not hexadecimal
+        for command in [
+            "r complete t t_complete cmd whitelist add --sha256 abcd /usr/bin/ls",
+            "r complete t t_complete cmd whitelist add --sha512 zz /usr/bin/ls",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)

@@ -58,6 +58,42 @@ pub enum SetListType {
     Set,
 }
 
+/// The links of a role to other roles, kept in the role for the plugins.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RoleLink {
+    /// The roles that a member of the role must not hold (ssd plugin)
+    Ssd,
+    /// The roles whose tasks the role gets (hierarchy plugin)
+    Parents,
+}
+
+impl RoleLink {
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Ssd => "ssd",
+            Self::Parents => "parents",
+        }
+    }
+}
+
+/// Whether `dosr -E` may change the env behavior, for `chsr o env override`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum EnvOverride {
+    Allow,
+    Deny,
+    Unset,
+}
+
+/// The checks of the hashchecker plugin on the file of a command (deprecated, removed in 5.0).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CommandChecks {
+    /// The hash type (`sha256`...) and the hash in hexadecimal
+    pub hash: Option<(String, String)>,
+    pub read_only: bool,
+    pub immutable: bool,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
 pub enum PasswordOpt {
@@ -85,6 +121,12 @@ pub struct Inputs {
     pub timeout_type: Option<TimestampType>,
     pub timeout_duration: Option<SignedDuration>,
     pub timeout_max_usage: Option<u64>,
+    pub role_link: Option<RoleLink>,
+    pub role_links: Option<Vec<String>>,
+    pub purpose: bool,
+    pub task_purpose: Option<String>,
+    pub cmd_checks: CommandChecks,
+    pub options_env_override: Option<EnvOverride>,
     pub password_arg: Option<[bool; 2]>,
     pub password_tries: Option<NonZeroU8>,
     pub password_delay: Option<SignedDuration>,

@@ -72,11 +72,19 @@ policy_path = @{ name }
 role         = { ("role" | "r") ~ roles_operations }
 roles_operations = { purge | role_operations }
 
-role_operations = { role_id ~ ( add | del | role_show_purge | role_grant_revoke | tasks_operations | options_operations) }
+role_operations = { role_id ~ ( add | del | role_show_purge | role_grant_revoke | role_links | tasks_operations | options_operations) }
 role_id         = @{ name }
 role_grant_revoke  = { (grant | revoke) ~ user_or_groups }
 role_show_purge    = { (list|purge) ~ role_type_arg? }
 role_type_arg = @{ "actors" | "tasks" | all }
+
+// chsr r r1 ssd add r2,r3       the roles that a member of r1 must not hold (ssd plugin)
+// chsr r r1 parents set r2      the roles whose tasks r1 gets (hierarchy plugin)
+// chsr r r1 ssd purge
+role_links     = { role_link_kind ~ ((add | del | set) ~ linked_roles | purge) }
+role_link_kind = { "ssd" | "parents" }
+linked_roles   = { linked_role ~ ("," ~ linked_role)* }
+linked_role    = @{ (!("," | WHITESPACE) ~ ANY)+ }
 
 
 user_or_groups   =  { (user | group)+ }
@@ -95,7 +103,13 @@ actor_name             = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT 
 // chsr r r1 t t1 del
 
 tasks_operations        = { task_spec ~ (task_operations | options_operations) }
-task_operations = { task_show_purge | add | del | command_operations | credentials_operations }
+task_operations = { task_show_purge | add | del | command_operations | credentials_operations | purpose_operations }
+
+// chsr r r1 t t1 purpose set Back up the databases
+// chsr r r1 t t1 purpose unset
+purpose_operations = _{ purpose_keyword ~ (set ~ purpose_text | del) }
+purpose_keyword    = { "purpose" }
+purpose_text       = ${ ANY+ }
 task_show_purge = { (list | purge) ~ task_type_arg? }
 task_type_arg = { all | cmd_keyword | cred_keyword }
 
@@ -116,8 +130,15 @@ command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
 cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
-cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
-cmd = ${  ANY+  }
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd_checks? ~ cmd | purge) }
+// chsr r r1 t t1 cmd whitelist add --sha256 <hash> --read-only /usr/bin/ls   (hashchecker plugin)
+cmd_checks     = { (cmd_hash | cmd_check_flag)+ }
+cmd_hash       = ${ cmd_hash_type ~ ("=" | WHITESPACE+) ~ cmd_hash_value }
+cmd_hash_type  = { "--sha224" | "--sha256" | "--sha384" | "--sha512" }
+cmd_hash_value = @{ (!WHITESPACE ~ ANY)+ }
+cmd_check_flag = { "--read-only" | "--immutable" }
+// a command never starts with a check: a malformed check is an error, not part of the command
+cmd = ${ !("--sha" | "--read-only" | "--immutable") ~ ANY+ }
 
 // ========================
 // credentials
@@ -192,7 +213,10 @@ opt_workdir_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path)
 workdir_policy = { "all" | "none" | "inherit" }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
-opt_env_args    = _{ opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }
+opt_env_args    = _{ opt_env_override | opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }
+// chsr o env override allow|deny|unset     whether dosr -E may change the env behavior
+opt_env_override   = { "override" ~ (env_override_value | del) }
+env_override_value = { "allow" | "deny" }
 opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
 opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_key_list) | purge) }

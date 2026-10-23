@@ -18,7 +18,9 @@ use rootasrole_core::{
     util::{StorageMethod, is_valid_env_name},
 };
 
-use super::data::{InputAction, Inputs, PasswordOpt, Rule, SetListType, TimeoutOpt};
+use super::data::{
+    EnvOverride, InputAction, Inputs, PasswordOpt, RoleLink, Rule, SetListType, TimeoutOpt,
+};
 
 type MatchingFunction = dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>;
 
@@ -269,6 +271,77 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         // === roles ===
         Rule::role_id => {
             inputs.role_id = Some(pair.as_str().to_string());
+        }
+        Rule::role_link_kind => {
+            inputs.role_link = Some(if pair.as_str() == "ssd" {
+                RoleLink::Ssd
+            } else {
+                RoleLink::Parents
+            });
+        }
+        Rule::linked_role => {
+            inputs
+                .role_links
+                .get_or_insert_default()
+                .push(pair.as_str().to_string());
+        }
+        Rule::purpose_keyword => {
+            inputs.purpose = true;
+        }
+        Rule::purpose_text => {
+            // the words of the purpose, unquoted like the arguments of a command
+            inputs.task_purpose = Some(shell_words::split(pair.as_str())?.join(" "));
+        }
+        Rule::cmd_hash => {
+            let mut inner = pair.clone().into_inner();
+            let kind = inner
+                .next()
+                .ok_or("a hash type is needed")?
+                .as_str()
+                .trim_start_matches('-')
+                .to_string();
+            let hash = inner
+                .next()
+                .ok_or("a hash is needed")?
+                .as_str()
+                .to_ascii_lowercase();
+            let length = match kind.as_str() {
+                "sha224" => 56,
+                "sha256" => 64,
+                "sha384" => 96,
+                "sha512" => 128,
+                other => return Err(format!("Unknown hash type: {other}").into()),
+            };
+            if !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(format!("A {kind} hash is hexadecimal: {hash}").into());
+            }
+            if hash.len() != length {
+                return Err(format!(
+                    "A {kind} hash has {length} hexadecimal digits, this one has {}",
+                    hash.len()
+                )
+                .into());
+            }
+            inputs.cmd_checks.hash = Some((kind, hash));
+        }
+        Rule::cmd_check_flag => {
+            if pair.as_str() == "--read-only" {
+                inputs.cmd_checks.read_only = true;
+            } else {
+                inputs.cmd_checks.immutable = true;
+            }
+        }
+        Rule::opt_env_override => {
+            // unset, unless a value follows
+            inputs.options_env_override = Some(EnvOverride::Unset);
+        }
+        Rule::env_override_value => {
+            inputs.action = InputAction::Set;
+            inputs.options_env_override = Some(if pair.as_str() == "allow" {
+                EnvOverride::Allow
+            } else {
+                EnvOverride::Deny
+            });
         }
         Rule::role_type_arg => {
             if pair.as_str() == "all" {

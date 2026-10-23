@@ -5,7 +5,11 @@ use indexmap::IndexSet;
 use jiff::SignedDuration;
 use log::{debug, warn};
 
-use crate::cli::data::{InputAction, PasswordOpt, RoleType, SetListType, TaskType, TimeoutOpt};
+use crate::cli::data::{
+    CommandChecks, EnvOverride, InputAction, PasswordOpt, RoleLink, RoleType, SetListType,
+    TaskType, TimeoutOpt,
+};
+use serde_json::Value;
 
 use rootasrole_core::database::{
     options::{
@@ -481,54 +485,168 @@ pub fn cmd_whitelist_action(
     cmd_id: impl IntoIterator<Item = String>,
     setlist_type: SetListType,
     action: InputAction,
+    checks: &CommandChecks,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command whitelist add c1");
     let task = rconfig.task(role_id, task_id)?;
-    let cmd = SCommand::Simple(shell_words::join(cmd_id));
-    match setlist_type {
-        SetListType::White => match action {
-            InputAction::Add => {
-                //verify if command exists
-                if task.as_ref().borrow().commands.add.contains(&cmd) {
-                    return Err("Command already exists".into());
-                }
-                task.as_ref().borrow_mut().commands.add.push(cmd);
-            }
-            InputAction::Del => {
-                //if command is not in task, warns
-                if !task.as_ref().borrow().commands.add.contains(&cmd) {
-                    println_ignore_io_error!("Command {cmd:?} not in task");
-                }
-                task.as_ref().borrow_mut().commands.add.retain(|c| {
-                    debug!("'{:?}' != '{:?}' : {}", c, &cmd, *c != cmd);
-                    *c != cmd
-                });
-            }
-            _ => return Err(format!("Unknown action {action:?}").into()),
-        },
-        SetListType::Black => match action {
-            InputAction::Add => {
-                //verify if command exists
-                if task.as_ref().borrow().commands.sub.contains(&cmd) {
-                    return Err("Command already exists".into());
-                }
-                task.as_ref().borrow_mut().commands.sub.push(cmd);
-            }
-            InputAction::Del => {
-                //if command is not in task, warns
-                if !task.as_ref().borrow().commands.sub.contains(&cmd) {
-                    println_ignore_io_error!("Command {cmd:?} not in task");
-                }
-                task.as_ref()
-                    .borrow_mut()
-                    .commands
-                    .sub
-                    .retain(|c| c != &cmd);
-            }
-            _ => return Err(format!("Unknown action {action:?}").into()),
-        },
+    let line = shell_words::join(cmd_id);
+    let mut task = task.as_ref().borrow_mut();
+    let list = match setlist_type {
+        SetListType::White => &mut task.commands.add,
+        SetListType::Black => &mut task.commands.sub,
         _ => return Err("Unknown list type".into()),
+    };
+    let listed = |command: &SCommand| command_line(command) == Some(line.as_str());
+    match action {
+        InputAction::Add => {
+            if list.iter().any(listed) {
+                return Err("Command already exists".into());
+            }
+            list.push(command_entry(line.clone(), checks));
+        }
+        InputAction::Del => {
+            if !list.iter().any(listed) {
+                println_ignore_io_error!("Command {line:?} not in task");
+            }
+            // in either form, with checks or not
+            list.retain(|command| !listed(command));
+        }
+        _ => return Err(format!("Unknown action {action:?}").into()),
     }
+    Ok(true)
+}
+
+/// The command line of an entry of a command list: the string, or the `command` of an entry
+/// with the checks of the hashchecker plugin.
+fn command_line(command: &SCommand) -> Option<&str> {
+    match command {
+        SCommand::Simple(line) => Some(line),
+        SCommand::Complex(entry) => entry.get("command").and_then(Value::as_str),
+    }
+}
+
+/// The entry of a command line: the string, or an object with the checks of the hashchecker
+/// plugin.
+fn command_entry(line: String, checks: &CommandChecks) -> SCommand {
+    if *checks == CommandChecks::default() {
+        return SCommand::Simple(line);
+    }
+    warn!(
+        "The hashchecker plugin is deprecated and will be removed in RootAsRole 5.0: \
+        use the IPE LSM to restrict which files can be executed"
+    );
+    let mut entry = serde_json::Map::new();
+    entry.insert("command".into(), Value::from(line));
+    if let Some((kind, hash)) = &checks.hash {
+        entry.insert(kind.clone(), Value::from(hash.clone()));
+    }
+    if checks.read_only {
+        entry.insert("read_only".into(), Value::Bool(true));
+    }
+    if checks.immutable {
+        entry.insert("immutable".into(), Value::Bool(true));
+    }
+    SCommand::Complex(Value::Object(entry))
+}
+
+/// `chsr role R ssd|parents add|del|set R2,R3` and `... purge`: the roles that a member of R
+/// must not hold (ssd), or whose tasks R gets (parents), kept as a list of names in R.
+pub fn edit_role_links(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: &str,
+    link: RoleLink,
+    action: InputAction,
+    names: Vec<String>,
+) -> Result<bool, Box<dyn Error>> {
+    let key = link.key();
+    debug!("chsr role r1 {key} {action:?}");
+    let role = rconfig.role(role_id).ok_or("Role not found")?;
+    if names.iter().any(|name| name == role_id) {
+        return Err(format!("The {key} of {role_id} cannot name {role_id} itself").into());
+    }
+    if matches!(action, InputAction::Add | InputAction::Set) {
+        for name in names.iter().filter(|name| rconfig.role(name).is_none()) {
+            println_ignore_io_error!("Role {name} does not exist (yet)");
+        }
+    }
+    let mut role = role.as_ref().borrow_mut();
+    let mut current: Vec<String> = match role.extra_fields.get(key) {
+        None => Vec::new(),
+        Some(Value::String(name)) => vec![name.clone()],
+        Some(Value::Array(linked)) => linked
+            .iter()
+            .map(|name| name.as_str().map(str::to_string))
+            .collect::<Option<_>>()
+            .ok_or_else(|| format!("The {key} of {role_id} holds something else than names"))?,
+        Some(other) => {
+            return Err(format!("The {key} of {role_id} is not a list of roles: {other}").into());
+        }
+    };
+    match action {
+        InputAction::Add | InputAction::Set => {
+            if action == InputAction::Set {
+                current.clear();
+            }
+            for name in names {
+                if !current.contains(&name) {
+                    current.push(name);
+                }
+            }
+        }
+        InputAction::Del => current.retain(|name| !names.contains(name)),
+        InputAction::Purge => current.clear(),
+        _ => return Err(format!("Unknown action {action:?}").into()),
+    }
+    if current.is_empty() {
+        role.extra_fields.remove(key);
+    } else {
+        role.extra_fields
+            .insert(key.to_string(), Value::from(current));
+    }
+    Ok(true)
+}
+
+/// `chsr role R task T purpose set <text>` and `... purpose unset`.
+pub fn edit_task_purpose(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: &str,
+    task_id: IdTask,
+    action: InputAction,
+    purpose: Option<String>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 purpose {action:?}");
+    let task = rconfig.task(role_id, task_id)?;
+    task.as_ref().borrow_mut().purpose = match action {
+        InputAction::Set => Some(purpose.ok_or("purpose set needs a text")?),
+        InputAction::Del => None,
+        _ => return Err(format!("Unknown action {action:?}").into()),
+    };
+    Ok(true)
+}
+
+/// `chsr o env override allow|deny|unset`: whether `dosr -E` may change the env behavior.
+pub fn set_env_override(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    value: EnvOverride,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env override {value:?}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        match value {
+            EnvOverride::Allow | EnvOverride::Deny => {
+                binding.env.get_or_insert_default().override_behavior =
+                    Some(value == EnvOverride::Allow);
+            }
+            EnvOverride::Unset => {
+                if let Some(env) = binding.env.as_mut() {
+                    env.override_behavior = None;
+                }
+            }
+        }
+        Ok(())
+    })?;
     Ok(true)
 }
 

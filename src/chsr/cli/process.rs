@@ -6,10 +6,10 @@ use std::{cell::RefCell, error::Error, ffi::OsStr, path::Path, rc::Rc};
 
 use json::{
     cmd_setpolicy, cmd_whitelist_action, cred_caps, cred_set, cred_setpolicy, cred_unset,
-    env_set_policylist, env_setlist_add, env_setpolicy, env_whitelist_set, grant_revoke,
-    path_purge, path_set, path_setlist2, path_setpolicy, role_add_del, set_authentication,
-    set_bounding, set_execinfo, set_password, set_privileged, set_timeout, set_umask, task_add_del,
-    unset_password, unset_timeout,
+    edit_role_links, edit_task_purpose, env_set_policylist, env_setlist_add, env_setpolicy,
+    env_whitelist_set, grant_revoke, path_purge, path_set, path_setlist2, path_setpolicy,
+    role_add_del, set_authentication, set_bounding, set_env_override, set_execinfo, set_password,
+    set_privileged, set_timeout, set_umask, task_add_del, unset_password, unset_timeout,
 };
 
 use log::debug;
@@ -110,6 +110,38 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
                 }
             }
         }
+        // before the role and task deletions below, which use the same keywords
+        Inputs {
+            // chsr role r1 ssd|parents add|del|set r2,r3, chsr role r1 ssd|parents purge
+            action,
+            role_id: Some(role_id),
+            role_link: Some(link),
+            role_links,
+            ..
+        } => edit_role_links(
+            rconfig,
+            &role_id,
+            link,
+            action,
+            role_links.unwrap_or_default(),
+        ),
+        Inputs {
+            // chsr role r1 task t1 purpose set <text>, chsr role r1 task t1 purpose unset
+            action,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            purpose: true,
+            task_purpose,
+            ..
+        } => edit_task_purpose(rconfig, &role_id, task_id, action, task_purpose),
+        Inputs {
+            // chsr o env override allow|deny|unset
+            role_id,
+            task_id,
+            options_env_override: Some(value),
+            ..
+        } => set_env_override(rconfig, role_id.as_ref(), task_id, value),
+
         Inputs {
             // chsr role r1 add|del
             action,
@@ -217,8 +249,17 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             task_id: Some(task_id),
             cmd_id: Some(cmd_id),
             setlist_type: Some(setlist_type),
+            cmd_checks,
             ..
-        } => cmd_whitelist_action(rconfig, &role_id, task_id, cmd_id, setlist_type, action),
+        } => cmd_whitelist_action(
+            rconfig,
+            &role_id,
+            task_id,
+            cmd_id,
+            setlist_type,
+            action,
+            &cmd_checks,
+        ),
         Inputs {
             role_id: Some(role_id),
             task_id: Some(task_id),
