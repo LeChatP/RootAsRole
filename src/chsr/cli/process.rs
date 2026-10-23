@@ -541,7 +541,10 @@ pub fn perform_on_target_opt(
         } else {
             let new_opt = Rc::new(RefCell::new(Opt::builder(level).build()));
             let result = exec_on_opt(new_opt.clone());
-            *options = Some(new_opt);
+            // a command that removes from options that the level does not have changes nothing
+            if *new_opt.as_ref().borrow() != Opt::builder(level).build() {
+                *options = Some(new_opt);
+            }
             result
         }
     }

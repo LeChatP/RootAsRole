@@ -9,8 +9,8 @@ use crate::cli::data::{InputAction, PasswordOpt, RoleType, SetListType, TaskType
 
 use rootasrole_core::database::{
     options::{
-        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPassword,
-        SPathOptions, STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SPassword, SPathOptions,
+        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
     },
     structs::{
         IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
@@ -305,9 +305,11 @@ pub fn grant_revoke(
             Ok(true)
         }
         InputAction::Del => {
-            //if actor is not in role, warns
-            if !role.as_ref().borrow().actors.contains(&actors[0]) {
-                println_ignore_io_error!("Actor {} not in role", actors[0]);
+            //if an actor is not in role, warns
+            for actor in &actors {
+                if !role.as_ref().borrow().actors.contains(actor) {
+                    println_ignore_io_error!("Actor {actor} not in role");
+                }
             }
             role.as_ref()
                 .borrow_mut()
@@ -546,6 +548,8 @@ pub fn cmd_setpolicy(
     Ok(true)
 }
 
+/// `chsr o env keep-only|delete-only`: the behavior and its list (keep in delete mode, delete
+/// in keep mode); the other env fields of the level (check, set, override, unknown fields) stay.
 pub fn env_set_policylist(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -555,20 +559,14 @@ pub fn env_set_policylist(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o env set keep-only|delete-only {options_env:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        opt.as_ref().borrow_mut().env = Some(SEnvOptions {
-            default_behavior: options_env_policy,
-            keep: if options_env_policy.is_delete() {
-                Some(options_env.clone())
-            } else {
-                None
-            },
-            delete: if options_env_policy.is_keep() {
-                Some(options_env.clone())
-            } else {
-                None
-            },
-            ..Default::default()
-        });
+        let mut binding = opt.as_ref().borrow_mut();
+        let env = binding.env.get_or_insert_default();
+        env.default_behavior = options_env_policy;
+        if options_env_policy.is_delete() {
+            env.keep = Some(options_env.clone());
+        } else if options_env_policy.is_keep() {
+            env.delete = Some(options_env.clone());
+        }
         Ok(())
     })?;
     Ok(true)
@@ -688,6 +686,9 @@ pub fn path_set(
     Ok(true)
 }
 
+/// `chsr o path (whitelist|blacklist) purge`: the level no longer defines the list, which is
+/// inherited again, like the env lists. An explicit empty list would also remove the inherited
+/// one: for the `sub` list, protections of the upper levels.
 pub fn path_purge(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -697,18 +698,12 @@ pub fn path_purge(
     debug!("chsr o path purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.get_or_insert_default();
+        let Some(path) = binding.path.as_mut() else {
+            return Ok(());
+        };
         match setlist_type {
-            Some(SetListType::White) => {
-                if let Some(add) = &mut path.add {
-                    add.clear();
-                }
-            }
-            Some(SetListType::Black) => {
-                if let Some(sub) = &mut path.sub {
-                    sub.clear();
-                }
-            }
+            Some(SetListType::White) => path.add = None,
+            Some(SetListType::Black) => path.sub = None,
             _ => return Err("Unknown list type".into()),
         }
         Ok(())
@@ -716,6 +711,8 @@ pub fn path_purge(
     Ok(true)
 }
 
+/// `chsr o workdir (whitelist|blacklist) purge`: the level no longer defines the list, see
+/// [`path_purge`].
 pub fn workdir_purge(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -725,29 +722,15 @@ pub fn workdir_purge(
     debug!("chsr o workdir purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut binding = opt.as_ref().borrow_mut();
-        let workdir_current = binding.workdir.take();
-        let mut workdir_set = match workdir_current {
-            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
-            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
-                fallback: Some(path),
-                ..Default::default()
-            },
-            None => SWorkdirSet::default(),
+        let Some(SWorkdirEither::Struct(workdir_set)) = binding.workdir.as_mut() else {
+            // no list at this level: a bare path or nothing
+            return Ok(());
         };
         match setlist_type {
-            Some(SetListType::White) => {
-                if let Some(add) = &mut workdir_set.add {
-                    add.clear();
-                }
-            }
-            Some(SetListType::Black) => {
-                if let Some(sub) = &mut workdir_set.sub {
-                    sub.clear();
-                }
-            }
+            Some(SetListType::White) => workdir_set.add = None,
+            Some(SetListType::Black) => workdir_set.sub = None,
             _ => return Err("Unknown list type".into()),
         }
-        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
         Ok(())
     })?;
     Ok(true)

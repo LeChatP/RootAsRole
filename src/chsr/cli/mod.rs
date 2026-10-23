@@ -1270,6 +1270,62 @@ mod tests {
         assert!(lost.is_empty(), "lost: {lost:?}");
     }
 
+    #[test]
+    fn test_purge_returns_to_inheritance() {
+        let name = "purge_returns_to_inheritance";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o workdir whitelist add /srv");
+        ctx.assert_command_success("o workdir blacklist add /tmp");
+        // the level no longer defines the list, the upper ones apply again
+        for command in [
+            "o path whitelist purge",
+            "o path blacklist purge",
+            "o workdir whitelist purge",
+            "o env checklist purge",
+            "o env blacklist purge",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let policy = saved(&mut ctx, name);
+        let options = &policy["options"];
+        assert!(options["path"].get("add").is_none(), "{options}");
+        assert!(options["path"].get("sub").is_none(), "{options}");
+        assert!(options["workdir"].get("add").is_none(), "{options}");
+        assert_eq!(options["workdir"]["sub"], serde_json::json!(["/tmp"]));
+        assert!(options["env"].get("check").is_none(), "{options}");
+        assert!(options["env"].get("delete").is_none(), "{options}");
+        // on a level without the option, nothing changes
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o path blacklist purge");
+        ctx.assert_command_success("r fresh o workdir whitelist purge");
+        let policy = saved(&mut ctx, name);
+        assert!(saved_role(&policy, "fresh").get("options").is_none());
+    }
+
+    #[test]
+    fn test_env_keep_only_keeps_the_other_fields() {
+        let name = "env_keep_only_keeps_the_other_fields";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o env keep-only A,B");
+        let env = saved(&mut ctx, name)["options"]["env"].clone();
+        assert_eq!(
+            env,
+            serde_json::json!({
+                "default": "delete",
+                "keep": ["A", "B"],
+                "check": ["env3", "env4"],
+                "delete": ["env5", "env6"],
+                "set": {"env7": "val7", "env8": "val8"}
+            })
+        );
+        ctx.assert_command_success("o env delete-only C");
+        let env = saved(&mut ctx, name)["options"]["env"].clone();
+        assert_eq!(env["default"], "keep");
+        assert_eq!(env["delete"], serde_json::json!(["C"]));
+        assert_eq!(env["keep"], serde_json::json!(["A", "B"]));
+        assert_eq!(env["check"], serde_json::json!(["env3", "env4"]));
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)
