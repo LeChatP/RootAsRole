@@ -2,7 +2,7 @@ mod convert;
 mod json;
 mod upgrade;
 
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, ffi::OsStr, path::Path, rc::Rc};
 
 use json::{
     cmd_setpolicy, cmd_whitelist_action, cred_caps, cred_set, cred_setpolicy, cred_unset,
@@ -17,9 +17,11 @@ use log::debug;
 use rootasrole_core::{
     database::{
         options::{Level, Opt, OptType},
-        structs::{IdTask, RoleGetter},
+        structs::{IdTask, RoleGetter, SPolicy},
     },
     file::FileSettings,
+    println_ignore_io_error,
+    util::DEFAULT_POLICY_FILE,
 };
 
 use crate::cli::process::json::{
@@ -45,7 +47,31 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         debug!("chsr upgrade");
         return upgrade::upgrade(storage, inputs.upgrade_check);
     }
-    let rconfig = &storage.get_root().config;
+    if inputs.action == InputAction::List && inputs.policy && inputs.policy_path.is_none() {
+        // chsr file list: the files of the policy, the root file last
+        for file in storage.get_files() {
+            println_ignore_io_error!("{file}");
+        }
+        return Ok(false);
+    }
+    if inputs.action == InputAction::List
+        && inputs.policy_path.is_none()
+        && inputs.role_id.is_none()
+        && !inputs.options
+        && storage.policy_files().next().is_some()
+    {
+        // chsr list: every policy file, by path
+        let mut files = serde_json::Map::new();
+        for (path, policy) in storage.policy_files() {
+            files.insert(
+                path.display().to_string(),
+                serde_json::to_value(&*policy.as_ref().borrow())?,
+            );
+        }
+        println_ignore_io_error!("{}", serde_json::to_string_pretty(&files)?);
+        return Ok(false);
+    }
+    let rconfig = &target_policy(storage, inputs.policy_path.as_deref())?;
     match inputs {
         Inputs {
             action: InputAction::Help,
@@ -522,6 +548,51 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         _ => Err("Unknown Input".into()),
     }
 }
+/// The policy that a command edits: the file named with `chsr file <path>` (its path, or its
+/// name in the policy directory), else `default.json` of the policy directory, the only policy
+/// file, or the policy of the root file when there is no other file.
+fn target_policy(
+    storage: &FileSettings,
+    policy_path: Option<&str>,
+) -> Result<Rc<RefCell<SPolicy>>, Box<dyn Error>> {
+    let files: Vec<_> = storage.policy_files().collect();
+    let names = || {
+        files
+            .iter()
+            .map(|(path, _)| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if let Some(name) = policy_path {
+        let wanted = Path::new(name);
+        if let Some(policy) = storage.get(wanted) {
+            return Ok(policy.clone());
+        }
+        return files
+            .iter()
+            .find(|(path, _)| {
+                wanted.components().count() == 1 && path.file_name() == Some(wanted.as_os_str())
+            })
+            .map(|(_, policy)| Rc::clone(policy))
+            .ok_or_else(|| format!("{name} is not a file of the policy: {}", names()).into());
+    }
+    match files.as_slice() {
+        [] => Ok(storage.get_root().config.clone()),
+        [(_, policy)] => Ok(Rc::clone(policy)),
+        _ => files
+            .iter()
+            .find(|(path, _)| path.file_name() == Some(OsStr::new(DEFAULT_POLICY_FILE)))
+            .map(|(_, policy)| Rc::clone(policy))
+            .ok_or_else(|| {
+                format!(
+                    "The policy has several files and no {DEFAULT_POLICY_FILE}, choose one with chsr file <path>: {}",
+                    names()
+                )
+                .into()
+            }),
+    }
+}
+
 pub fn perform_on_target_opt(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,

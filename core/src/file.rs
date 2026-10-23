@@ -55,9 +55,11 @@ pub struct LockedSettingsFile<T: Serialize + DeserializeOwned + Debug + Default>
     pub data: T,
     /// The migration applied to the document when it was loaded, until it is saved.
     migration: Option<DocumentMigration>,
+    /// The data as loaded, or as last saved: a file whose data is the same is not written
+    /// again. `None` when the data did not come from the file.
+    saved: Option<serde_json::Value>,
 }
 
-/// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
 /// How a policy file is opened to be written. A new file is only readable and writable by its
 /// owner (the umask can only remove more), like the files of the installers: the policy must not
 /// be readable, nor writable, by other users (see `check_others_permissions`). An existing file
@@ -68,6 +70,7 @@ fn write_options() -> OpenOptions {
     options
 }
 
+/// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
 /// it allows to save the settings file later
 impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     /// # Errors
@@ -111,9 +114,11 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
                 nix::fcntl::FlockArg::LockExclusive,
             )?;
 
+            let data = data_loader(&path, &file)?;
             Ok(Self {
                 path: path.as_ref().to_path_buf(),
-                data: data_loader(&path, &file)?,
+                saved: serde_json::to_value(&data).ok(),
+                data,
                 fd: file,
                 migration: None,
             })
@@ -127,6 +132,13 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         }
 
         load_data()
+    }
+
+    /// Whether the data differs from what the file holds: changed since it was loaded or saved,
+    /// or not loaded from the file.
+    #[must_use]
+    pub fn changed(&self) -> bool {
+        self.saved.is_none() || self.saved != serde_json::to_value(&self.data).ok()
     }
 
     /// # Errors
@@ -156,6 +168,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
             debug!("Wrote config file");
         }
         self.migration = None;
+        self.saved = serde_json::to_value(&self.data).ok();
 
         Ok(())
     }
@@ -190,10 +203,13 @@ pub struct FileSettings {
     ///# Errors
     /// Returns an error if any of the files cannot be opened or locked
     #[builder(with = |path: PathBuf,config : RootSettings| -> Result<_, Box<dyn Error>> {
-        Ok(LockedSettingsFile::open_write(path, |_, _| {
+        let mut root = LockedSettingsFile::open_write(path, |_, _| {
             let versioned: Versioning<RootSettings> = Versioning::new(config.clone());
             Ok(versioned)
-        })?)
+        })?;
+        // made from these settings, not read from the file: it is written by the next save
+        root.saved = None;
+        Ok(root)
     })]
     root: LockedRootSettings,
     /// Policy files of a directory that could not be loaded, with the reason.
@@ -456,9 +472,11 @@ impl FileSettings {
             })
         }) {
             // Open the new file with the new path
-            let new_root = LockedSettingsFile::open_write(path, |_, _| {
+            let mut new_root = LockedSettingsFile::open_write(path, |_, _| {
                 Ok(Versioning::new(self.root.data.data.clone()))
             })?;
+            // the file at the new path does not hold these settings yet
+            new_root.saved = None;
             debug!(
                 "Moved root settings to new path: {}",
                 new_root.path.display()
@@ -466,7 +484,11 @@ impl FileSettings {
             drop(std::mem::replace(&mut self.root, new_root));
         }
 
-        let mut has_errors = if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
+        // only the files that changed: the others are not rewritten (in the typed form of the
+        // actors, without their immutable flag for a while...)
+        let mut has_errors = if !self.root.changed() {
+            false
+        } else if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
             error!("Failed to save root settings: {e}");
             true
         } else {
@@ -474,7 +496,7 @@ impl FileSettings {
             false
         };
 
-        for config in &mut self.map {
+        for config in self.map.iter_mut().filter(|config| config.changed()) {
             if let Err(e) = config.save(self.root.data.data.storage.method, immutable) {
                 error!(
                     "Failed to save settings for {}: {}",
@@ -565,6 +587,14 @@ impl FileSettings {
     #[must_use]
     pub fn get_policies(&self) -> Vec<&Rc<RefCell<SPolicy>>> {
         self.map.iter().map(|config| &config.data.data).collect()
+    }
+
+    /// The policy files apart from the root file (those of a policy directory, or the one file
+    /// that the root file names), with their path.
+    pub fn policy_files(&self) -> impl Iterator<Item = (&Path, &Rc<RefCell<SPolicy>>)> {
+        self.map
+            .iter()
+            .map(|config| (config.path.as_path(), &config.data.data))
     }
 }
 

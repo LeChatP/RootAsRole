@@ -1441,6 +1441,119 @@ mod tests {
         assert!(ctx.opt(Level::Global).as_ref().borrow().umask.is_none());
     }
 
+    /// A root file pointing to a policy directory holding `files`, as the Debian package and
+    /// `cargo xtask install` lay them out. Returns the root file and the directory.
+    fn policy_directory(
+        name: &str,
+        files: &[(&str, Value)],
+    ) -> (String, String, impl Drop + use<>) {
+        let root = format!("{RAR_CFG_PATH}.{name}");
+        let dir = format!("{RAR_CFG_PATH}.{name}.d");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &root,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"path": dir, "immutable": false}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        for (file, policy) in files {
+            let mut policy = policy.clone();
+            policy["version"] = Value::from(version.clone());
+            fs::write(
+                format!("{dir}/{file}"),
+                serde_json::to_string_pretty(&policy).unwrap(),
+            )
+            .unwrap();
+        }
+        let (root_cleanup, dir_cleanup) = (root.clone(), dir.clone());
+        let cleanup = defer(move || {
+            let _ = fs::remove_file(&root_cleanup);
+            let _ = fs::remove_dir_all(&dir_cleanup);
+        });
+        (root, dir, cleanup)
+    }
+
+    /// Run `command` with chsr on the policy of `root`, and save it like chsr does.
+    fn chsr_on(root: &str, command: &str) -> Result<bool, Box<dyn Error>> {
+        let mut settings =
+            FileSettings::write_all(root.to_string(), root.to_string(), StorageMethod::JSON)?;
+        let changed = main(&mut settings, command.split(' ')).call()?;
+        if changed {
+            settings.save_all()?;
+        }
+        Ok(changed)
+    }
+
+    fn role_names(path: &str) -> Vec<String> {
+        let policy: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        policy["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|role| role["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_policy_directory_targets_one_file() {
+        let (root, dir, _cleanup) = policy_directory(
+            "policy_directory_targets_one_file",
+            &[
+                ("default.json", serde_json::json!({"roles": []})),
+                (
+                    "extra.json",
+                    serde_json::json!({"roles": [{"name": "x", "actors": [{"user": "root"}]}]}),
+                ),
+            ],
+        );
+        let (default, extra) = (format!("{dir}/default.json"), format!("{dir}/extra.json"));
+        let root_before = fs::read_to_string(&root).unwrap();
+        let extra_before = fs::read_to_string(&extra).unwrap();
+        // without a file named, the role goes to default.json, the files that did not change
+        // are not written again (extra.json keeps its short form)
+        assert!(chsr_on(&root, "r newrole create").unwrap());
+        assert_eq!(role_names(&default), ["newrole"]);
+        assert_eq!(fs::read_to_string(&root).unwrap(), root_before);
+        assert_eq!(fs::read_to_string(&extra).unwrap(), extra_before);
+        // a file named by its name in the directory, or by its path
+        let default_before = fs::read_to_string(&default).unwrap();
+        assert!(chsr_on(&root, "file extra.json r other create").unwrap());
+        assert!(chsr_on(&root, &format!("file {extra} r another create")).unwrap());
+        assert_eq!(role_names(&extra), ["x", "other", "another"]);
+        assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+        assert!(chsr_on(&root, "file extra.json r x grant -u daemon").unwrap());
+        // a file that is not one of the policy
+        assert!(chsr_on(&root, "file nope.json r y create").is_err());
+        assert!(chsr_on(&root, "file /etc/passwd r y create").is_err());
+        // listings change nothing
+        assert!(!chsr_on(&root, "list").unwrap());
+        assert!(!chsr_on(&root, "file list").unwrap());
+        assert!(!chsr_on(&root, "file extra.json list").unwrap());
+        assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+    }
+
+    #[test]
+    fn test_policy_directory_without_default_file() {
+        let (root, dir, _cleanup) = policy_directory(
+            "policy_directory_without_default_file",
+            &[
+                ("a.json", serde_json::json!({"roles": []})),
+                ("b.json", serde_json::json!({"roles": []})),
+            ],
+        );
+        // which file a role belongs to is not guessed
+        let error = chsr_on(&root, "r y create").unwrap_err().to_string();
+        assert!(error.contains("chsr file"), "{error}");
+        assert!(chsr_on(&root, "file b.json r y create").unwrap());
+        assert_eq!(role_names(&format!("{dir}/b.json")), ["y"]);
+        assert!(role_names(&format!("{dir}/a.json")).is_empty());
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)

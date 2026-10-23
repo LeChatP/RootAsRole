@@ -59,6 +59,9 @@ pub(super) const RAR_CFG_IMMUTABLE: bool = false;
 #[cfg(not(debug_assertions))]
 pub(super) const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
 
+/// The policy file that chsr edits in a policy directory, when no file is named: the file that
+/// the installers write there.
+pub const DEFAULT_POLICY_FILE: &str = "default.json";
 pub const RAR_CFG_TYPE: StorageMethod = StorageMethod::const_parse(env!("RAR_CFG_TYPE"));
 
 pub const ENV_PATH_BEHAVIOR: PathBehavior = PathBehavior::const_parse(env!("RAR_PATH_DEFAULT"));
