@@ -14,6 +14,9 @@ UNIT=rar-e2e
 PAM_SERVICE=/etc/pam.d/dosr
 PAM_SERVICE_BACKUP=/etc/pam.d/.dosr.rar-e2e
 PAM_ENV_FILE=/etc/rar-e2e.env
+BIG_GROUP=rar-e2e-big
+GROUP_BACKUP=/etc/.group.rar-e2e
+GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
 FAILED=0
 
 # 0: pass, 77: skip, anything else: fail
@@ -113,6 +116,15 @@ setup() {
         "commands": ["/usr/bin/true"]
       }
     ]
+  }, {
+    "name": "e2e-guarded",
+    "actors": [{ "user": "$TEST_USER" }],
+    "ssd": ["e2e-other"],
+    "tasks": [{ "name": "uid", "commands": ["/usr/bin/id ^-u$"] }]
+  }, {
+    "name": "e2e-other",
+    "actors": [{ "group": "$BIG_GROUP" }],
+    "tasks": []
   }]
 }
 EOF
@@ -127,8 +139,19 @@ restore_pam_service() {
     rm -f "$PAM_ENV_FILE"
 }
 
+# /etc/group and /etc/gshadow as they were before ssd_role_disabled_by_a_failed_lookup
+restore_groups() {
+    if [ -e "$GROUP_BACKUP" ]; then
+        mv -f "$GROUP_BACKUP" /etc/group
+    fi
+    if [ -e "$GSHADOW_BACKUP" ]; then
+        mv -f "$GSHADOW_BACKUP" /etc/gshadow
+    fi
+}
+
 cleanup() {
     restore_pam_service
+    restore_groups
     systemctl stop "$UNIT" 2>/dev/null
     rm -f "/etc/systemd/system/$UNIT.service"
     systemctl daemon-reload
@@ -257,6 +280,35 @@ password_is_asked_again() {
     [ "$(grep -c 'Sorry, try again.' <<<"$out")" -eq 2 ]
 }
 
+# a failed lookup of an actor disables the roles with a separation of duties: the members of
+# a group take more than the 1 MiB that the lookups of dosr allow, getgrnam_r fails with ERANGE
+ssd_role_disabled_by_a_failed_lookup() {
+    local uid before after members since
+    uid=$(id -u "$TEST_USER")
+    cp -p /etc/group "$GROUP_BACKUP" && cp -p /etc/gshadow "$GSHADOW_BACKUP" || return 1
+    groupadd "$BIG_GROUP" || {
+        restore_groups
+        return 1
+    }
+    before=$(as_user dosr -r e2e-guarded -t uid /usr/bin/id -u 2>/dev/null)
+    # one argument is limited to 128 KiB: the member list goes through a file
+    members=$(mktemp)
+    seq -f 'rar%07g' 1 120000 | paste -sd, >"$members"
+    awk -F: -v OFS=: -v group="$BIG_GROUP" -v list="$members" \
+        'BEGIN { getline all < list } $1 == group { $4 = all } { print }' \
+        "$GROUP_BACKUP" >"$members.group"
+    cat "$members.group" >/etc/group
+    since=$(date +%s)
+    after=$(as_user dosr -r e2e-guarded -t uid /usr/bin/id -u 2>/dev/null)
+    rm -f "$members" "$members.group"
+    restore_groups
+    [ "$before" = "$uid" ] && [ "$after" != "$uid" ] || return 1
+    # the refusal comes from the lookup, when the journal tells
+    if command -v journalctl >/dev/null; then
+        journalctl -q --since "@$since" | grep -q "Cannot look up the group $BIG_GROUP"
+    fi
+}
+
 trap cleanup EXIT
 setup
 check "the policy, its directory included, is immutable" policy_is_immutable
@@ -269,4 +321,5 @@ check "CAP_NET_BIND_SERVICE is granted" capability_is_granted
 check "the bounding set is checked before running the command" bounding_set_is_checked_first
 check "the variables of pam_env go through the env filter of the task" pam_env_is_filtered
 check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
+check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 exit "$FAILED"
