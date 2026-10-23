@@ -46,7 +46,7 @@ fn failure(message: &str) -> std::process::ExitCode {
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
-    use std::{env::temp_dir, process::ExitCode};
+    use std::{path::Path, process::ExitCode};
 
     use crate::{
         cli::editor::defer,
@@ -90,7 +90,9 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         });
     }
 
-    let folder = match nix::unistd::mkdtemp(&temp_dir().join("chsr_XXXXXX")) {
+    // not in TMPDIR, which the user chooses when the policy keeps it: a folder in a directory
+    // that the user owns can be renamed and replaced; /tmp is sticky
+    let folder = match nix::unistd::mkdtemp(&Path::new("/tmp").join("chsr_XXXXXX")) {
         Ok(folder) => folder,
         Err(e) => return Ok(failure(&format!("cannot create a temporary folder: {e}"))),
     };
