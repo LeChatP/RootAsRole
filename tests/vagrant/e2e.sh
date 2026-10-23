@@ -160,6 +160,14 @@ cleanup() {
     userdel -r "$TEST_USER" 2>/dev/null
 }
 
+# the installed binaries are files of root, not shared with the build tree (one link), and dosr
+# has its file capabilities
+installed_binaries_belong_to_root() {
+    [ "$(stat -c '%u %h' /usr/bin/dosr)" = "0 1" ] &&
+        [ "$(stat -c '%u %h' /usr/bin/chsr)" = "0 1" ] &&
+        getcap /usr/bin/dosr | grep -q '=p'
+}
+
 # the installation sets the immutable flag on the policy, its directory included
 policy_is_immutable() {
     immutable_policy || return 77
@@ -296,7 +304,7 @@ ssd_role_disabled_by_a_failed_lookup() {
     seq -f 'rar%07g' 1 120000 | paste -sd, >"$members"
     awk -F: -v OFS=: -v group="$BIG_GROUP" -v list="$members" \
         'BEGIN { getline all < list } $1 == group { $4 = all } { print }' \
-        "$GROUP_BACKUP" >"$members.group"
+        /etc/group >"$members.group"
     cat "$members.group" >/etc/group
     since=$(date +%s)
     after=$(as_user dosr -r e2e-guarded -t uid /usr/bin/id -u 2>/dev/null)
@@ -328,6 +336,7 @@ chsr_edits_the_default_file() {
 
 trap cleanup EXIT
 setup
+check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
 check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused" planted_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded

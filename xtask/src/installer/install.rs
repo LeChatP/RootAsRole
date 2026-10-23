@@ -1,6 +1,7 @@
 use std::env::{self, current_exe, set_current_dir};
 use std::fs::{self, File};
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -31,6 +32,35 @@ fn shell_quote(arg: &str) -> String {
     }
 }
 
+/// Install `source` at `dest` as a new file of root: a copy, never the build artifact itself.
+/// The artifact belongs to the user who built it, and cargo keeps it linked in `target/`: once
+/// renamed to `dest`, the installed binary was the same file as one of the build tree, so a
+/// `chown -R` of the tree gave it to the user and removed its capabilities, and the user owned
+/// it until the installer changed its owner. The copy is made beside `dest` then renamed over
+/// it, so that a running binary is never overwritten.
+fn install_file(source: &Path, dest: &Path) -> Result<(), anyhow::Error> {
+    let name = dest
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("the destination has no file name")?;
+    let tmp = dest.with_file_name(format!(".{name}.{}.new", std::process::id()));
+    // a file of a failed installation, in a directory that only root can write
+    let _ = fs::remove_file(&tmp);
+    let mut input = File::open(source)?;
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&tmp)?;
+    let copied = io::copy(&mut input, &mut output).and_then(|_| output.sync_all());
+    drop(output);
+    if let Err(e) = copied.and_then(|()| fs::rename(&tmp, dest)) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
 fn copy_executables(profile: Profile) -> Result<(), anyhow::Error> {
     let chsr_dest = Path::new(RAR_BIN_PATH).join(CHSR_DEST);
     let sr_dest = Path::new(RAR_BIN_PATH).join(SR_DEST);
@@ -58,41 +88,8 @@ fn copy_executables(profile: Profile) -> Result<(), anyhow::Error> {
         return Err(anyhow!("sr or chsr does not exist in the target directory.
         \nYou may need first to do `sudo cargo clean`.\n{BOLD}{RED}Please build the project first using `cargo xtask build`{RST}"));
     }
-    // We can't use fs::copy directly because it will overwrite the destination file
-    // and it is possible that the destination file is currently under execution.
-    debug!("Copying sr to sr.tmp");
-    fs::copy(sr, format!("{s_sr}.tmp"))?;
-    debug!("Copying chsr to chsr.tmp");
-    fs::copy(chsr, format!("{s_chsr}.tmp"))?;
-    debug!("Moving sr to /usr/bin/dosr");
-    match fs::rename(sr, &sr_dest) {
-        Ok(()) => {}
-        Err(e) if e.raw_os_error() == Some(18) => {
-            // EXDEV (errno 18): Invalid cross-device link
-            // Fall back to copy + remove for cross-filesystem operations
-            debug!("Cross-device link detected, using copy+remove instead");
-            fs::copy(sr, &sr_dest)?;
-            fs::remove_file(sr)?;
-        }
-        Err(e) => return Err(e.into()),
-    }
-    debug!("Moving chsr to /usr/bin/chsr");
-    match fs::rename(chsr, &chsr_dest) {
-        Ok(()) => {}
-        Err(e) if e.raw_os_error() == Some(18) => {
-            // EXDEV (errno 18): Invalid cross-device link
-            // Fall back to copy + remove for cross-filesystem operations
-            debug!("Cross-device link detected, using copy+remove instead");
-            fs::copy(chsr, &chsr_dest)?;
-            fs::remove_file(chsr)?;
-        }
-        Err(e) => return Err(e.into()),
-    }
-    debug!("Renaming sr.tmp to sr");
-    fs::rename(format!("{s_sr}.tmp"), sr)?;
-    debug!("Renaming chsr.tmp to chsr");
-    fs::rename(format!("{s_chsr}.tmp"), chsr)?;
-
+    install_file(sr, &sr_dest).context("Failed to install dosr")?;
+    install_file(chsr, &chsr_dest).context("Failed to install chsr")?;
     Ok(())
 }
 
