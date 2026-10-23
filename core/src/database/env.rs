@@ -162,13 +162,19 @@ impl<'a> ResolvedEnv<'a> {
             })
             .collect::<HashMap<String, String>>();
         let path: Vec<_> = path.into_iter().collect();
-        final_env.insert(
-            "PATH".into(),
-            path.iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<&str>>()
-                .join(":"),
-        );
+        if path.is_empty() {
+            // An empty PATH is the working directory for shells and execvp(3): without any
+            // directory, the command has no PATH, and its own default applies.
+            final_env.remove("PATH");
+        } else {
+            final_env.insert(
+                "PATH".into(),
+                path.iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<&str>>()
+                    .join(":"),
+            );
+        }
         let target_user = target.unwrap_or(&current_user.user);
         final_env.insert("LOGNAME".into(), target_user.name.clone());
         final_env.insert("USER".into(), target_user.name.clone());
@@ -227,13 +233,19 @@ impl EnvFilter {
 
     /// Add to the environment of the command the variables that the filter keeps, unless the
     /// environment already has them: the kept variables of the user, the variables set by dosr
-    /// and the `set` list of the policy take precedence.
+    /// and the `set` list of the policy take precedence. `PATH` is never added: the path options
+    /// decide it, and leave it out when no directory remains.
     pub fn add_vars(
         &self,
         env: &mut HashMap<String, String>,
         vars: impl IntoIterator<Item = (String, String)>,
     ) {
         for (key, value) in vars {
+            // the path options decide the PATH, which may be absent on purpose
+            if key == "PATH" {
+                debug!("PATH is decided by the path options, the one of PAM is left out");
+                continue;
+            }
             match env.entry(key) {
                 Entry::Occupied(var) => {
                     debug!("{} is already set, its other value is left out", var.key());
@@ -686,5 +698,27 @@ mod tests {
         assert!(!final_env.contains_key("CHECKED"));
         assert!(!final_env.contains_key("LD_PRELOAD"));
         assert!(!final_env.contains_key("PAM_FUNC"));
+    }
+
+    #[test]
+    fn test_final_env_without_any_directory_has_no_path() {
+        let target = cred();
+        // even a PATH of the user that the policy keeps by name, or one set by PAM
+        let env = resolved(EnvBehavior::Delete, &["PATH"], &[], &[]);
+        let no_dir: [&str; 0] = [];
+        let mut final_env = env
+            .final_env([("PATH", ".:/tmp")], no_dir, &target, None, String::new())
+            .unwrap();
+        assert!(!final_env.contains_key("PATH"));
+        env.filter()
+            .add_vars(&mut final_env, [("PATH".into(), ".".into())]);
+        assert!(!final_env.contains_key("PATH"));
+        // the set list of the policy can still give one
+        let mut env = env;
+        env.set = IndexMap::from([("PATH", "/usr/bin")]);
+        let final_env = env
+            .final_env([("PATH", ".:/tmp")], no_dir, &target, None, String::new())
+            .unwrap();
+        assert_eq!(final_env.get("PATH").unwrap(), "/usr/bin");
     }
 }

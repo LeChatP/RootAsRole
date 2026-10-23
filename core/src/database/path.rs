@@ -5,6 +5,7 @@
 //! `PATH` of the user.
 
 use indexmap::IndexSet;
+use log::warn;
 
 use crate::{
     database::options::PathBehavior,
@@ -56,8 +57,11 @@ impl<'a> ResolvedPath<'a> {
 
     /// The `PATH` of the command, from the `PATH` of the user:
     /// - in delete mode, the directories of the `add` list,
-    /// - in keep-safe mode, the directories of the `add` list then the absolute directories of
-    ///   the user's `PATH`, in keep-unsafe mode every directory of the user's `PATH`,
+    /// - in keep-safe mode, the directories of the `add` list then those of the user's `PATH`,
+    ///   in keep-unsafe mode every directory of the user's `PATH`,
+    /// - a relative directory (`.`, an empty one, `bin`) is the working directory of the command,
+    ///   which the user chooses: only the keep-unsafe mode keeps it, from the policy as from the
+    ///   user, and a relative directory of the policy that is left out is logged,
     /// - the directories of the `sub` list are always removed, and each directory appears once.
     ///
     /// The directories of the policy come first, so they win over those of the user.
@@ -70,7 +74,13 @@ impl<'a> ResolvedPath<'a> {
         };
         let keep_relative = self.behavior.is_keep_unsafe();
         let mut path: IndexSet<&str> = IndexSet::new();
-        path.extend(self.add.iter().copied());
+        path.extend(self.add.iter().copied().filter(|dir| {
+            let kept = keep_relative || dir.starts_with('/');
+            if !kept {
+                warn!("The directory {dir:?} of the path option is relative, it is left out");
+            }
+            kept
+        }));
         path.extend(
             user_path
                 .iter()
@@ -167,6 +177,27 @@ mod tests {
         assert_eq!(
             final_path(&[level(PathBehavior::KeepUnsafe)]).1,
             ["/sbin", "/home/user/bin", ".", "/usr/bin"]
+        );
+    }
+
+    #[test]
+    fn test_relative_directories_only_in_keep_unsafe() {
+        let path = |behavior| ResolvedPath {
+            behavior,
+            add: IndexSet::from(["/sbin", ".", "", "bin"]),
+            sub: IndexSet::new(),
+        };
+        let user_path = ["/usr/bin", "", ".", "tools"];
+        // the relative directories of the policy and of the user are left out, the empty one
+        // (the working directory too) included
+        assert_eq!(path(PathBehavior::Delete).final_path(&user_path), ["/sbin"]);
+        assert_eq!(
+            path(PathBehavior::KeepSafe).final_path(&user_path),
+            ["/sbin", "/usr/bin"]
+        );
+        assert_eq!(
+            path(PathBehavior::KeepUnsafe).final_path(&user_path),
+            ["/sbin", ".", "", "bin", "/usr/bin", "tools"]
         );
     }
 

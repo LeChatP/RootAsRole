@@ -1926,6 +1926,33 @@ mod tests {
     }
 
     #[test]
+    fn test_a_task_without_any_directory_gives_no_path() {
+        // an empty PATH would be the working directory for a shell, which the user chooses
+        let policy = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"t","commands":["/usr/bin/true"],"options":{{"path":{{"default":"delete","add":[".",""]}},"env":{{"default":"delete","keep":["PATH"]}}}}}}]}}]}}"#,
+            nix::unistd::getuid()
+        );
+        let cli = Cli::builder().cmd_path("/usr/bin/true".to_string()).build();
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        let settings = BestExecSettings::retrieve_settings(
+            &cli,
+            &cred,
+            &data,
+            [("PATH", ".:/tmp")],
+            &[".", "/usr/bin"],
+        )
+        .unwrap();
+        assert!(!settings.env.contains_key("PATH"), "{:?}", settings.env);
+        assert!(settings.env_path.is_empty(), "{:?}", settings.env_path);
+    }
+
+    #[test]
     fn test_pam_vars_go_through_the_env_filter_of_the_task() {
         let pam_vars = [
             ("PAM_NEW", "pam"),
