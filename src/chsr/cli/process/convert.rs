@@ -37,7 +37,7 @@ pub fn convert(
     let config = match convertion.from {
         Some(ref from) => {
             debug!("Convert from: {}", from.display());
-            let from_type = convertion.from_type.expect("Impossible state");
+            let from_type = convertion.from_type.ok_or("--from needs a type")?;
             if from == &convertion.to {
                 error!("The source and destination paths are the same");
                 return Ok(false);

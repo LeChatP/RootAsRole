@@ -114,7 +114,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             convertion.from_type = Some(
                 inner
                     .next()
-                    .expect("from_type not found")
+                    .ok_or("a type is needed")?
                     .as_str()
                     .to_lowercase()
                     .parse()
@@ -126,7 +126,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                         );
                     })?,
             );
-            convertion.from = Some(inner.next().expect("from_value not found").as_str().into());
+            convertion.from = Some(inner.next().ok_or("--from needs a path")?.as_str().into());
         }
         Rule::convert_reconfigure => {
             inputs.convert_reconfigure = true;
@@ -145,7 +145,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "allow-all" {
                 inputs.cmd_policy = Some(SetBehavior::All);
             } else {
-                unreachable!("Unknown cmd policy: {}", pair.as_str())
+                return Err(format!("Unknown cmd policy: {}", pair.as_str()).into());
             }
         }
         Rule::caps_policy => {
@@ -155,7 +155,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "allow-all" {
                 inputs.cred_policy = Some(SetBehavior::All);
             } else {
-                unreachable!("Unknown caps policy: {}", pair.as_str())
+                return Err(format!("Unknown caps policy: {}", pair.as_str()).into());
             }
         }
         Rule::path_policy => {
@@ -169,7 +169,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "inherit" {
                 inputs.options_path_policy = Some(PathBehavior::Inherit);
             } else {
-                unreachable!("Unknown path policy: {}", pair.as_str())
+                return Err(format!("Unknown path policy: {}", pair.as_str()).into());
             }
         }
         Rule::env_policy => {
@@ -181,7 +181,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "inherit" {
                 inputs.options_env_policy = Some(EnvBehavior::Inherit);
             } else {
-                unreachable!("Unknown env policy: {}", pair.as_str())
+                return Err(format!("Unknown env policy: {}", pair.as_str()).into());
             }
         }
         Rule::workdir_policy => {
@@ -200,7 +200,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "uid" {
                 inputs.timeout_type = Some(TimestampType::UID);
             } else {
-                unreachable!("Unknown timeout type: {}", pair.as_str())
+                return Err(format!("Unknown timeout type: {}", pair.as_str()).into());
             }
         }
         Rule::opt_timeout_t_arg => {
@@ -262,7 +262,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str() == "tasks" {
                 inputs.role_type = Some(RoleType::Tasks);
             } else {
-                unreachable!("Unknown role type: {}", pair.as_str())
+                return Err(format!("Unknown role type: {}", pair.as_str()).into());
             }
         }
         // === actors ===
@@ -320,7 +320,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             } else if pair.as_str().starts_with("cred") {
                 inputs.task_type = Some(TaskType::Credentials);
             } else {
-                unreachable!("Unknown task type: {}", pair.as_str());
+                return Err(format!("Unknown task type: {}", pair.as_str()).into());
             }
         }
         // === commands ===
@@ -395,29 +395,20 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.options_type = Some(OptType::Workdir);
         }
         Rule::opt_show_arg => {
-            if pair.as_str() == "all" {
-                inputs.options_type = None;
-            } else if pair.as_str() == "path" {
-                inputs.options_type = Some(OptType::Path);
-            } else if pair.as_str() == "env" {
-                inputs.options_type = Some(OptType::Env);
-            } else if pair.as_str() == "root" {
-                inputs.options_type = Some(OptType::Root);
-            } else if pair.as_str() == "bounding" {
-                inputs.options_type = Some(OptType::Bounding);
-            } else if pair.as_str() == "timeout" {
-                inputs.options_type = Some(OptType::Timeout);
-            } else if pair.as_str() == "password" {
-                inputs.options_type = Some(OptType::Password);
-            } else if pair.as_str() == "authentication" {
-                inputs.options_type = Some(OptType::Authentication);
-            } else if pair.as_str() == "execinfo" {
-                inputs.options_type = Some(OptType::ExecInfo);
-            } else if pair.as_str() == "umask" {
-                inputs.options_type = Some(OptType::UMask);
-            } else {
-                unreachable!("Unknown option type: {}", pair.as_str())
-            }
+            inputs.options_type = match pair.as_str() {
+                "all" => None,
+                "path" => Some(OptType::Path),
+                "env" => Some(OptType::Env),
+                "root" => Some(OptType::Root),
+                "bounding" => Some(OptType::Bounding),
+                "timeout" => Some(OptType::Timeout),
+                "password" => Some(OptType::Password),
+                "authentication" | "auth" => Some(OptType::Authentication),
+                "execinfo" | "info" => Some(OptType::ExecInfo),
+                "umask" | "mask" => Some(OptType::UMask),
+                "workdir" => Some(OptType::Workdir),
+                other => return Err(format!("Unknown option: {other}").into()),
+            };
         }
         Rule::path => {
             inputs.options_path = Some(pair.as_str().to_string());
@@ -489,7 +480,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             inputs.editor_type = Some(
                 inner
                     .next()
-                    .expect("from_type not found")
+                    .ok_or("a type is needed")?
                     .as_str()
                     .to_lowercase()
                     .parse()

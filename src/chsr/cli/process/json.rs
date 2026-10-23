@@ -28,23 +28,42 @@ pub fn list_json(
     task_type: Option<TaskType>,
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
-    let config = rconfig.as_ref().borrow();
-    role_id.map_or_else(
-        || {
+    let Some(role_id) = role_id else {
+        if options {
+            let rcopt = OptStack::from_roles(rconfig)
+                .to_opt()
+                .map_err(std::io::Error::other)?;
             println_ignore_io_error!(
                 "{}",
-                serde_json::to_string_pretty(&*config)
-                    .unwrap_or_else(|_| "Failed to serialize config".to_string())
+                options_to_show(&rcopt.as_ref().borrow(), options_type)?
             );
-            Ok(())
-        },
-        |role_id| {
-            rconfig.role(role_id).map_or_else(
-                || Err("Role not found".into()),
-                |role| list_task(task_id, &role, options, options_type, task_type, role_type),
-            )
-        },
-    )
+        } else {
+            println_ignore_io_error!(
+                "{}",
+                serde_json::to_string_pretty(&*rconfig.as_ref().borrow())?
+            );
+        }
+        return Ok(());
+    };
+    let role = rconfig.role(role_id).ok_or("Role not found")?;
+    list_task(task_id, &role, options, options_type, task_type, role_type)
+}
+
+/// The options of a level, resolved with the upper levels, or only the one asked for.
+fn options_to_show(opt: &Opt, options_type: Option<OptType>) -> serde_json::Result<String> {
+    match options_type {
+        None => serde_json::to_string_pretty(opt),
+        Some(OptType::Path) => serde_json::to_string_pretty(&opt.path),
+        Some(OptType::Env) => serde_json::to_string_pretty(&opt.env),
+        Some(OptType::Root) => serde_json::to_string_pretty(&opt.root),
+        Some(OptType::Bounding) => serde_json::to_string_pretty(&opt.bounding),
+        Some(OptType::Timeout) => serde_json::to_string_pretty(&opt.timeout),
+        Some(OptType::Password) => serde_json::to_string_pretty(&opt.password),
+        Some(OptType::Authentication) => serde_json::to_string_pretty(&opt.authentication),
+        Some(OptType::ExecInfo) => serde_json::to_string_pretty(&opt.execinfo),
+        Some(OptType::UMask) => serde_json::to_string_pretty(&opt.umask),
+        Some(OptType::Workdir) => serde_json::to_string_pretty(&opt.workdir),
+    }
 }
 
 fn list_task(
@@ -56,87 +75,32 @@ fn list_task(
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(task_id) = task_id {
-        if let Some(task) = role.as_ref().borrow().task(&task_id) {
-            if options {
-                debug!("task {task:?}");
-                let rcopt = OptStack::from_task(&task.clone())
-                    .to_opt()
-                    .map_err(std::io::Error::other)?;
-                let opt = rcopt.as_ref().borrow();
-                if let Some(opttype) = options_type {
-                    match opttype {
-                        OptType::Env => {
-                            println_ignore_io_error!("{}", serde_json::to_string_pretty(&opt.env)?);
-                        }
-                        OptType::Path => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.path)?
-                            );
-                        }
-                        OptType::Root => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.root)?
-                            );
-                        }
-                        OptType::Bounding => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.bounding)?
-                            );
-                        }
-                        OptType::Timeout => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.timeout)?
-                            );
-                        }
-                        OptType::Password => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.password)?
-                            );
-                        }
-                        OptType::Authentication => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.authentication)?
-                            );
-                        }
-                        OptType::ExecInfo => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.execinfo)?
-                            );
-                        }
-                        OptType::UMask => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.umask)?
-                            );
-                        }
-                        OptType::Workdir => {
-                            println_ignore_io_error!(
-                                "{}",
-                                serde_json::to_string_pretty(&opt.workdir)?
-                            );
-                        }
-                    }
-                } else {
-                    println_ignore_io_error!("{}", serde_json::to_string_pretty(&rcopt)?);
-                }
-            } else {
-                print_task(task, task_type.unwrap_or(TaskType::All))?;
-            }
+        let task = role
+            .as_ref()
+            .borrow()
+            .task(&task_id)
+            .cloned()
+            .ok_or("Task not found")?;
+        if options {
+            debug!("task {task:?}");
+            let rcopt = OptStack::from_task(&task)
+                .to_opt()
+                .map_err(std::io::Error::other)?;
+            println_ignore_io_error!(
+                "{}",
+                options_to_show(&rcopt.as_ref().borrow(), options_type)?
+            );
         } else {
-            return Err("Task not found".into());
+            print_task(&task, task_type.unwrap_or(TaskType::All))?;
         }
     } else if options {
         let rcopt = OptStack::from_role(&role.clone())
             .to_opt()
             .map_err(std::io::Error::other)?;
-        println_ignore_io_error!("{}", serde_json::to_string_pretty(&rcopt)?);
+        println_ignore_io_error!(
+            "{}",
+            options_to_show(&rcopt.as_ref().borrow(), options_type)?
+        );
     } else {
         print_role(role, role_type.unwrap_or(RoleType::All))?;
     }
@@ -290,7 +254,7 @@ pub fn task_add_del(
         }
         InputAction::Purge => {
             let borrow = &role.as_ref().borrow();
-            let task = borrow.task(&task_id).expect("Task do not exists");
+            let task = borrow.task(&task_id).ok_or("Task not found")?;
             match task_type {
                 Some(TaskType::Commands) => {
                     task.as_ref().borrow_mut().commands.add.clear();
@@ -313,7 +277,7 @@ pub fn task_add_del(
             }
             Ok(true)
         }
-        _ => unreachable!("Invalid action"),
+        _ => Err("Invalid action".into()),
     }
 }
 
@@ -351,7 +315,7 @@ pub fn grant_revoke(
                 .retain(|a| !actors.contains(a));
             Ok(true)
         }
-        _ => unreachable!("Invalid action"),
+        _ => Err("Invalid action".into()),
     }
 }
 
@@ -451,7 +415,7 @@ pub fn cred_caps(
                     .get_or_insert_default()
                     .add = cred_caps;
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
         SetListType::Black => match action {
             InputAction::Add => {
@@ -477,9 +441,9 @@ pub fn cred_caps(
                     .get_or_insert_default()
                     .sub = cred_caps;
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
-        _ => unreachable!("Unknown setlist type"),
+        _ => return Err("Unknown list type".into()),
     }
     Ok(true)
 }
@@ -538,7 +502,7 @@ pub fn cmd_whitelist_action(
                     *c != cmd
                 });
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
         SetListType::Black => match action {
             InputAction::Add => {
@@ -559,9 +523,9 @@ pub fn cmd_whitelist_action(
                     .sub
                     .retain(|c| c != &cmd);
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
-        _ => unreachable!("Unknown setlist type"),
+        _ => return Err("Unknown list type".into()),
     }
     Ok(true)
 }
@@ -717,7 +681,7 @@ pub fn path_set(
                         .collect(),
                 );
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
@@ -745,7 +709,7 @@ pub fn path_purge(
                     sub.clear();
                 }
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
@@ -781,7 +745,7 @@ pub fn workdir_purge(
                     sub.clear();
                 }
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
         Ok(())
@@ -814,7 +778,7 @@ pub fn env_whitelist_set(
                 env.default_behavior = EnvBehavior::Delete;
                 env.keep = Some(options_env.clone());
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
@@ -1003,7 +967,7 @@ pub fn path_setlist2(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -1036,9 +1000,9 @@ pub fn path_setlist2(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
@@ -1111,7 +1075,7 @@ pub fn workdir_setlist(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -1144,9 +1108,9 @@ pub fn workdir_setlist(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
         Ok(())
@@ -1253,7 +1217,7 @@ pub fn env_setlist_add(
                     env.keep
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -1276,7 +1240,7 @@ pub fn env_setlist_add(
                     env.delete
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Check) => match action {
                 InputAction::Add => {
@@ -1298,7 +1262,7 @@ pub fn env_setlist_add(
                 InputAction::Purge => {
                     env.check = None;
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Set) => match action {
                 InputAction::Add => {
@@ -1328,14 +1292,14 @@ pub fn env_setlist_add(
                     env.set
                         .replace(options_env_values.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             None => match action {
                 InputAction::Set => {
                     env.keep
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
         }
         Ok(())
@@ -1357,4 +1321,28 @@ pub fn env_setpolicy(
         Ok(())
     })?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use rootasrole_core::database::options::{Level, Opt, OptType, SBounding, STimeout};
+
+    use super::options_to_show;
+
+    #[test]
+    fn test_options_to_show_only_the_option_asked_for() {
+        let opt = Opt::builder(Level::Role)
+            .bounding(SBounding::Strict)
+            .timeout(STimeout::default())
+            .build();
+        assert_eq!(
+            options_to_show(&opt, Some(OptType::Bounding)).unwrap(),
+            "\"strict\""
+        );
+        assert_eq!(options_to_show(&opt, Some(OptType::Root)).unwrap(), "null");
+        let all: serde_json::Value =
+            serde_json::from_str(&options_to_show(&opt, None).unwrap()).unwrap();
+        assert_eq!(all["bounding"], "strict");
+        assert!(all.get("timeout").is_some());
+    }
 }

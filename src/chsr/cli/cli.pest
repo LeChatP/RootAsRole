@@ -175,7 +175,8 @@ options_operations  = { ("options" | "o") ~ opt_args }
 opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_password | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
-opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout" | "password" }
+// a longer name before its prefix: "authentication" before "auth"
+opt_show_arg = { "all" | "path" | "env" | "root" | "bounding" | "timeout" | "password" | "authentication" | "auth" | "execinfo" | "info" | "umask" | "mask" | "workdir" }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }

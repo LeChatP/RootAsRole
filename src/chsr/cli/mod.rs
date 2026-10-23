@@ -83,7 +83,7 @@ where
             return start_editing(&path, &mut *file.data.data.as_ref().borrow_mut());
         }
         return start_editing(
-            folder.expect("implementation error"),
+            folder.ok_or("the editor needs a temporary folder")?,
             &mut *storage.get_root_mut(),
         );
     }
@@ -1141,6 +1141,59 @@ mod tests {
         );
         assert_eq!(saved["options"]["env"]["set"]["Z"], "1");
         assert!(saved["options"]["env"]["set"].get("BAD*").is_none());
+    }
+
+    #[test]
+    fn test_options_show_every_option_at_every_level() {
+        let (mut ctx, _defer) = TestContext::new("options_show_every_option_at_every_level");
+        for level in ["", "r complete ", "r complete t t_complete "] {
+            for option in [
+                "",
+                "all",
+                "path",
+                "env",
+                "root",
+                "bounding",
+                "timeout",
+                "password",
+                "authentication",
+                "auth",
+                "execinfo",
+                "info",
+                "umask",
+                "mask",
+                "workdir",
+            ] {
+                ctx.assert_command_no_change(format!("{level}o show {option}").trim_end());
+            }
+            // not options: refused, never a panic
+            for option in ["cmd", "cred"] {
+                assert!(ctx.run_command(&format!("{level}o show {option}")).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_targets_are_errors() {
+        let (mut ctx, _defer) = TestContext::new("missing_targets_are_errors");
+        for command in [
+            "r complete t nope purge",
+            "r complete t nope show",
+            "r nope t t1 purge",
+            "r nope o root user",
+            "r complete t nope o root user",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        // purges that the grammar accepts, whatever they do, never panic
+        for command in [
+            "r complete t t_complete cmd whitelist purge",
+            "r complete t t_complete cred caps whitelist purge",
+            "o workdir blacklist purge",
+            "o env setlist purge",
+        ] {
+            let _ = ctx.run_command(command);
+        }
     }
 
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).

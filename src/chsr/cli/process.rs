@@ -37,9 +37,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         debug!("chsr convert");
         return convert::convert(
             storage,
-            inputs
-                .convertion
-                .expect("Convertion data should be present"),
+            inputs.convertion.ok_or("convert needs a destination")?,
             inputs.convert_reconfigure,
         );
     }
