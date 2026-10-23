@@ -1,4 +1,11 @@
-use std::{borrow::Cow, ffi::CStr};
+use std::{
+    borrow::Cow,
+    ffi::CStr,
+    fs::{File, OpenOptions},
+    io,
+    os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
+    path::Path,
+};
 
 use bon::Builder;
 use log::{debug, error, info, warn};
@@ -136,12 +143,48 @@ fn set_pam_items(txn: &mut impl PamShared, user: &Cred) -> PamResult<()> {
     Ok(())
 }
 
+/// An exclusive lock on the user's terminal, released when dropped (when its file is closed).
+struct TerminalLock {
+    _terminal: File,
+}
+
+/// Lock the terminal at `path`, waiting while another dosr of the same pipeline authenticates on
+/// it. `None` when there is no terminal or it cannot be locked: dosr then goes on without it.
+fn lock_terminal(path: &Path) -> Option<TerminalLock> {
+    let terminal = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOCTTY)
+        .open(path)
+        .ok()?;
+    loop {
+        // SAFETY: flock does not access memory, and the descriptor stays open during the call
+        if unsafe { libc::flock(terminal.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Some(TerminalLock {
+                _terminal: terminal,
+            });
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            debug!("cannot lock the terminal: {error}");
+            return None;
+        }
+    }
+}
+
 pub fn start_session<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     user: &Cred,
     cli: &Cli,
 ) -> SrResult<LibPamTransaction<Demux<SrConversationHandler<'a>>, SessionActive>> {
+    // `dosr a | dosr b` would read both passwords from the terminal at the same time, each one
+    // getting part of the keystrokes: the terminal is locked until this authentication is done,
+    // and the other dosr checks its timestamp once it gets the lock (sudo-rs #1650).
+    let _terminal_lock = if authentication.is_skip() || cli.stdin {
+        None
+    } else {
+        lock_terminal(Path::new("/dev/tty"))
+    };
     let need_password_auth = if authentication.is_skip() {
         warn!("Skipping password authentication (PAM session-only mode).");
         false
@@ -226,7 +269,7 @@ mod tests {
     };
     use rootasrole_exec::terminal::TerminalExt;
     use serde_json::Map;
-    use std::{ffi::OsStr, sync::Mutex};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, sync::Mutex};
     use test_log::test;
 
     static PAM_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -485,5 +528,26 @@ mod tests {
         // Test different timeout types don't cause errors
         assert!(start_session(auth, &timeout_ppid, &user, &cli).is_ok());
         assert!(start_session(auth, &timeout_tty, &user, &cli).is_ok());
+    }
+
+    // Another dosr of the same pipeline opens the terminal on its own: while one holds the lock,
+    // the other cannot take it, and it can once the lock is dropped.
+    #[test]
+    fn test_terminal_lock_is_exclusive_and_released_on_drop() {
+        let pty = rootasrole_exec::pty::Pty::open().expect("open a pty");
+        let path = Path::new(OsStr::from_bytes(pty.path.as_bytes()));
+        let other = File::open(path).expect("open the terminal again");
+        // SAFETY: flock does not access memory, and `other` stays open while the closure lives
+        let try_lock = || unsafe { libc::flock(other.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+
+        let lock = lock_terminal(path).expect("lock the terminal");
+        assert_eq!(try_lock(), -1, "the terminal is locked");
+        drop(lock);
+        assert_eq!(try_lock(), 0, "the lock is released");
+    }
+
+    #[test]
+    fn test_no_terminal_lock_without_a_terminal() {
+        assert!(lock_terminal(Path::new("/nonexistent/tty")).is_none());
     }
 }
