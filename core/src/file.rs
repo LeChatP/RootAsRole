@@ -5,6 +5,7 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io::{self, BufReader, Seek},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -57,6 +58,16 @@ pub struct LockedSettingsFile<T: Serialize + DeserializeOwned + Debug + Default>
 }
 
 /// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
+/// How a policy file is opened to be written. A new file is only readable and writable by its
+/// owner (the umask can only remove more), like the files of the installers: the policy must not
+/// be readable, nor writable, by other users (see `check_others_permissions`). An existing file
+/// keeps its owner and mode, since saving rewrites it in place.
+fn write_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).mode(0o600);
+    options
+}
+
 /// it allows to save the settings file later
 impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     /// # Errors
@@ -79,12 +90,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     where
         S: AsRef<Path>,
     {
-        Self::open(
-            path,
-            OpenOptions::new().read(true).write(true).create(true),
-            true,
-            data_loader,
-        )
+        Self::open(path, &write_options(), true, data_loader)
     }
 
     /// # Errors
@@ -228,7 +234,7 @@ impl FileSettings {
             rar_cfg_path,
             rar_cfg_data_path,
             rar_cfg_type,
-            OpenOptions::new().read(true).write(true).create(true),
+            &write_options(),
             true,
         )
     }
@@ -247,12 +253,7 @@ impl FileSettings {
     where
         P: AsRef<Path>,
     {
-        Self::load_policy_file(
-            cfg_type,
-            OpenOptions::new().read(true).write(true).create(true),
-            true,
-            cfg_path,
-        )
+        Self::load_policy_file(cfg_type, &write_options(), true, cfg_path)
     }
     /// # Errors
     /// Returns an error if any of the files cannot be opened, deserialized or locked
@@ -1339,6 +1340,56 @@ mod tests {
         assert!(!content.contains("another_old_role"));
         assert!(!content.contains("yet_another_old_role"));
         assert!(!content.contains("oldest_role"));
+    }
+
+    /// A path in the temporary directory that does not exist yet, removed when dropped.
+    fn new_temp_path(name: &str) -> (PathBuf, impl Drop) {
+        let path = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let cleanup = path.clone();
+        (
+            path,
+            defer(move || {
+                let _ = std::fs::remove_file(&cleanup);
+            }),
+        )
+    }
+
+    #[test]
+    fn test_new_policy_files_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root_file, _cleanup_root) = new_temp_path("rar_new_root_file");
+        let mut locked =
+            LockedSettingsFile::open_write(&root_file, |_, _| Ok(RootSettings::default())).unwrap();
+        locked.save(StorageMethod::JSON, false).unwrap();
+        drop(locked);
+        let (policy_file, _cleanup_policy) = new_temp_path("rar_new_policy_file");
+        // the new file is empty, so reading it fails, but the file is created
+        assert!(FileSettings::write_policy(&policy_file, StorageMethod::JSON).is_err());
+        for path in [&root_file, &policy_file] {
+            let mode = std::fs::metadata(path).unwrap().permissions().mode();
+            // never more than 0600, whatever the umask
+            assert_eq!(mode & 0o077, 0, "{}: {mode:o}", path.display());
+        }
+    }
+
+    #[test]
+    fn test_saving_keeps_the_owner_and_mode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let (path, _cleanup) = new_temp_path("rar_saved_root_file");
+        std::fs::write(&path, b"{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let before = std::fs::metadata(&path).unwrap();
+        let mut locked =
+            LockedSettingsFile::open_write(&path, |_, _| Ok(RootSettings::default())).unwrap();
+        locked.save(StorageMethod::JSON, false).unwrap();
+        drop(locked);
+        let after = std::fs::metadata(&path).unwrap();
+        // rewritten in place: the same file, with its owner and mode
+        assert_eq!(after.ino(), before.ino());
+        assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+        assert_eq!(after.permissions().mode() & 0o7777, 0o640);
+        assert!(after.len() > 2);
     }
 
     #[test]
