@@ -11,7 +11,7 @@ use rootasrole_core::{
 };
 use serde::{
     Deserialize,
-    de::{DeserializeSeed, IgnoredAny, Visitor},
+    de::{DeserializeSeed, Visitor},
 };
 use serde_json::Value;
 
@@ -127,18 +127,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
                         }
                         Field::Name => {
                             debug!("RoleFinderVisitor: name");
-                            let role_name = map.next_value()?;
-                            if self
-                                .cli
-                                .opt_filter
-                                .as_ref()
-                                .and_then(|x| x.role.as_ref())
-                                .is_some_and(|r| r != &role_name)
-                            {
-                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                return Ok(None);
-                            }
-                            role = Some(role_name);
+                            // every role is read, -r included: the plugins need the others,
+                            // the SSD plugin to know which roles the user holds, the hierarchy
+                            // plugin for the tasks of the parents; -r applies when choosing
+                            role = Some(map.next_value()?);
                         }
                         Field::Actors => {
                             debug!("RoleFinderVisitor: actors");

@@ -278,7 +278,15 @@ impl BestExecSettings {
         let mut result = Self::default();
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.as_ref());
+        let role_filter = cli
+            .opt_filter
+            .as_ref()
+            .and_then(|filter| filter.role.as_deref());
         for role in data.roles() {
+            // the role asked with -r, the others were read for the plugins
+            if role_filter.is_some_and(|name| name != role.role().role.as_ref()) {
+                continue;
+            }
             // only the roles that the user holds: their actors match and no plugin excludes
             // them (separation of duties), the hierarchy plugin relies on it
             if !result.actors_settings(&role)? {
@@ -1500,6 +1508,87 @@ mod tests {
             choose_after_failed_lookups(&roles, "/usr/bin/ls", &["auditor"]),
             Err(SrError::PermissionDenied)
         ));
+    }
+
+    /// The role and task chosen for `cmd` with `dosr -r role`.
+    fn choose_role(roles: &Value, cmd: &str, role: &str) -> SrResult<(String, Option<String>)> {
+        api::register_plugins();
+        let policy = serde_json::json!({ "roles": roles }).to_string();
+        let cli = Cli::builder()
+            .cmd_path(cmd.to_string())
+            .opt_filter(FilterMatcher::builder().role(role.to_string()).build())
+            .build();
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &["/usr/bin"])
+            .map(|settings| (settings.role, settings.task))
+    }
+
+    #[test]
+    fn test_role_filter_chooses_among_the_roles() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json("first", true, Some("/usr/bin/ls"), &none),
+            role_json("second", true, Some("/usr/bin/ls"), &none),
+            role_json("other", false, Some("/usr/bin/ls"), &none),
+        ]);
+        assert_eq!(
+            choose_role(&roles, "/usr/bin/ls", "second").unwrap().0,
+            "second"
+        );
+        assert_eq!(
+            choose_role(&roles, "/usr/bin/ls", "first").unwrap().0,
+            "first"
+        );
+        // a role that the user does not hold, or that does not exist
+        for role in ["other", "nope"] {
+            assert!(matches!(
+                choose_role(&roles, "/usr/bin/ls", role),
+                Err(SrError::PermissionDenied)
+            ));
+        }
+    }
+
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_role_filter_does_not_lift_the_separation_of_duties() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", true, None, &none),
+        ]);
+        // dosr -r dev read only the role dev: auditor, which the user holds, was not seen
+        assert!(matches!(
+            choose_role(&roles, "/usr/bin/ls", "dev"),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
+    #[cfg(feature = "hierarchy")]
+    #[test]
+    fn test_role_filter_keeps_the_tasks_of_the_parents() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+        ]);
+        let (role, task) = choose_role(&roles, "/usr/bin/ls", "senior").unwrap();
+        assert_eq!(task.as_deref(), Some("junior_task"), "{role}");
     }
 
     #[test]
