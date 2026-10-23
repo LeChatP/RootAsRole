@@ -8,8 +8,8 @@ use json::{
     cmd_setpolicy, cmd_whitelist_action, cred_caps, cred_set, cred_setpolicy, cred_unset,
     env_set_policylist, env_setlist_add, env_setpolicy, env_whitelist_set, grant_revoke,
     path_purge, path_set, path_setlist2, path_setpolicy, role_add_del, set_authentication,
-    set_bounding, set_execinfo, set_privileged, set_timeout, set_umask, task_add_del,
-    unset_timeout,
+    set_bounding, set_execinfo, set_password, set_privileged, set_timeout, set_umask, task_add_del,
+    unset_password, unset_timeout,
 };
 
 use log::debug;
@@ -363,6 +363,36 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             setlist_type.as_ref(),
             &options_env,
         ),
+        Inputs {
+            // chsr o password unset --tries --delay
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options: true,
+            password_arg: Some(password_arg),
+            setlist_type: None,
+            ..
+        } => unset_password(rconfig, role_id.as_ref(), task_id, password_arg),
+
+        Inputs {
+            // chsr o password set --tries 3 --delay 00:00:05
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options: true,
+            password_arg: Some(password_arg),
+            password_tries,
+            password_delay,
+            ..
+        } => set_password(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            password_arg,
+            password_tries,
+            password_delay,
+        ),
+
         Inputs {
             // chsr o timeout unset --type  --duration  --max-usage
             action: InputAction::Del,

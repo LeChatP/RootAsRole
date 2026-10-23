@@ -1,16 +1,16 @@
 use rootasrole_core::println_ignore_io_error;
-use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, error::Error, num::NonZeroU8, rc::Rc};
 
 use indexmap::IndexSet;
 use jiff::SignedDuration;
 use log::{debug, warn};
 
-use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
+use crate::cli::data::{InputAction, PasswordOpt, RoleType, SetListType, TaskType, TimeoutOpt};
 
 use rootasrole_core::database::{
     options::{
-        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPassword,
+        SPathOptions, STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
     },
     structs::{
         IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
@@ -90,6 +90,12 @@ fn list_task(
                             println_ignore_io_error!(
                                 "{}",
                                 serde_json::to_string_pretty(&opt.timeout)?
+                            );
+                        }
+                        OptType::Password => {
+                            println_ignore_io_error!(
+                                "{}",
+                                serde_json::to_string_pretty(&opt.password)?
                             );
                         }
                         OptType::Authentication => {
@@ -809,6 +815,67 @@ pub fn env_whitelist_set(
                 env.keep = Some(options_env.clone());
             }
             _ => unreachable!("Unknown setlist type"),
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// `chsr o password set`: the fields given are changed, the others and the unknown fields of the
+/// option are kept.
+pub fn set_password(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    password_arg: [bool; 2],
+    tries: Option<NonZeroU8>,
+    delay: Option<SignedDuration>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o password set");
+    if password_arg[PasswordOpt::Tries as usize] && tries.is_none() {
+        return Err("--tries needs a number of tries".into());
+    }
+    if password_arg[PasswordOpt::Delay as usize] && delay.is_none() {
+        return Err("--delay needs a duration".into());
+    }
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        let password = opt.password.get_or_insert_with(SPassword::default);
+        if let Some(tries) = tries {
+            password.tries = Some(tries);
+        }
+        if let Some(delay) = delay {
+            password.delay = Some(delay);
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// `chsr o password unset`: the fields named are removed, then the option once nothing is left
+/// in it.
+pub fn unset_password(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    password_arg: [bool; 2],
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o password unset");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(password) = opt.password.as_mut() {
+            if password_arg[PasswordOpt::Tries as usize] {
+                password.tries = None;
+            }
+            if password_arg[PasswordOpt::Delay as usize] {
+                password.delay = None;
+            }
+            if password.tries.is_none()
+                && password.delay.is_none()
+                && password.extra_fields.is_empty()
+            {
+                opt.password = None;
+            }
         }
         Ok(())
     })?;

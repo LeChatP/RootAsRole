@@ -43,6 +43,7 @@ enum UsageSectionId {
     OptionsWorkdir,
     OptionsEnv,
     OptionsTimeout,
+    OptionsPassword,
     OptionsAuth,
     OptionsExecinfo,
     OptionsUmask,
@@ -273,6 +274,11 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "password",
+            description: "Manage the password tries and the delay after a wrong one (set, unset).",
+            indent: 1,
+        },
+        UsageItem {
             name: "authentication [policy]",
             description: "Defines if user needs to authenticate (unset, skip, perform, inherit).",
             indent: 1,
@@ -432,6 +438,32 @@ const USAGE_OPTIONS_TIMEOUT: UsageSection = UsageSection {
     examples: &["chsr options timeout set --type tty --duration 00:05:00 --max-usage 3"],
 };
 
+const USAGE_OPTIONS_PASSWORD: UsageSection = UsageSection {
+    title: "Password options",
+    synopsis: &["chsr options password [operation]"],
+    items: &[
+        UsageItem {
+            name: "set, unset",
+            description: "Set or unset the password settings.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "--tries [1-255]",
+            description: "How many times the password is asked.",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--delay [HH:MM:SS]",
+            description: "How long to wait after a wrong password.",
+            indent: 2,
+        },
+    ],
+    examples: &[
+        "chsr options password set --tries 3 --delay 00:00:05",
+        "chsr role admin options password unset --delay",
+    ],
+};
+
 const USAGE_OPTIONS_AUTH: UsageSection = UsageSection {
     title: "Authentication options",
     synopsis: &["chsr options authentication [policy]"],
@@ -574,6 +606,7 @@ const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
         UsageSectionId::OptionsWorkdir => &USAGE_OPTIONS_WORKDIR,
         UsageSectionId::OptionsEnv => &USAGE_OPTIONS_ENV,
         UsageSectionId::OptionsTimeout => &USAGE_OPTIONS_TIMEOUT,
+        UsageSectionId::OptionsPassword => &USAGE_OPTIONS_PASSWORD,
         UsageSectionId::OptionsAuth => &USAGE_OPTIONS_AUTH,
         UsageSectionId::OptionsExecinfo => &USAGE_OPTIONS_EXECINFO,
         UsageSectionId::OptionsUmask => &USAGE_OPTIONS_UMASK,
@@ -654,6 +687,9 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::opt_timeout_d_arg => "--duration (hh:mm:ss)",
         Rule::opt_timeout_t_arg => "--type (tty, ppid, uid)",
         Rule::opt_timeout_m_arg => "--max-usage (\\d+)",
+        Rule::opt_password_operations => "password set/unset operations",
+        Rule::opt_password_t_arg => "--tries (1-255)",
+        Rule::opt_password_d_arg => "--delay (hh:mm:ss)",
         Rule::roles_operations => "roles list/purge/add/del operations or existing role name",
         Rule::role_type_arg => "all, actors or tasks",
         Rule::role_grant_revoke => "grant, revoke",
@@ -673,6 +709,7 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::cred_caps_operations => "caps",
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
+        Rule::opt_password => "password",
         Rule::opt_path | Rule::path => "path",
         Rule::opt_env => "env",
         Rule::opt_workdir => "workdir",
@@ -725,6 +762,7 @@ const OPTIONS_AUTH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsAuth];
 const OPTIONS_EXECINFO_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsExecinfo];
 const OPTIONS_UMASK_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsUmask];
 const OPTIONS_TIMEOUT_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsTimeout];
+const OPTIONS_PASSWORD_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPassword];
 const OPTIONS_PATH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPath];
 const OPTIONS_WORKDIR_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsWorkdir];
 const OPTIONS_ENV_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsEnv];
@@ -757,6 +795,10 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         | Rule::opt_timeout_d_arg
         | Rule::opt_timeout_t_arg
         | Rule::opt_timeout_m_arg => Some(OPTIONS_TIMEOUT_SECTIONS),
+        Rule::opt_password
+        | Rule::opt_password_operations
+        | Rule::opt_password_t_arg
+        | Rule::opt_password_d_arg => Some(OPTIONS_PASSWORD_SECTIONS),
         Rule::opt_path
         | Rule::opt_path_args
         | Rule::opt_path_set
@@ -832,6 +874,21 @@ mod tests {
             usage_sections_for_rule(Rule::opt_timeout_m_arg),
             Some(OPTIONS_TIMEOUT_SECTIONS)
         );
+    }
+
+    #[test]
+    fn maps_password_rules_to_password_section() {
+        for rule in [
+            Rule::opt_password,
+            Rule::opt_password_operations,
+            Rule::opt_password_t_arg,
+            Rule::opt_password_d_arg,
+        ] {
+            assert_eq!(
+                usage_sections_for_rule(rule),
+                Some(OPTIONS_PASSWORD_SECTIONS)
+            );
+        }
     }
 
     #[test]

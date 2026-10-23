@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, num::NonZeroU8, path::PathBuf};
 
 use bon::Builder;
 use capctl::CapSet;
@@ -60,6 +60,13 @@ pub enum SetListType {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
+pub enum PasswordOpt {
+    Tries = 0,
+    Delay,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(usize)]
 pub enum TimeoutOpt {
     Duration = 0,
     Type,
@@ -78,6 +85,9 @@ pub struct Inputs {
     pub timeout_type: Option<TimestampType>,
     pub timeout_duration: Option<SignedDuration>,
     pub timeout_max_usage: Option<u64>,
+    pub password_arg: Option<[bool; 2]>,
+    pub password_tries: Option<NonZeroU8>,
+    pub password_delay: Option<SignedDuration>,
     pub policy: bool,
     pub policy_path: Option<String>,
     pub role_id: Option<String>,

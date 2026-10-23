@@ -168,11 +168,14 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o timeout set --type tty --duration 5:00 --max_usage 1
 // chsr o t unset --type --duration --max_usage
 
+// chsr o password set --tries 3 --delay 00:00:05
+// chsr o password unset --tries --delay
+
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
+opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_password | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
-opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout"  }
+opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout" | "password" }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }
@@ -243,6 +246,13 @@ seconds     =  _{ ASCII_DIGIT+ }
 opt_timeout_m_arg    =  { ("--max-usage" ~ assignment | "-m" ) ~ opt_timeout_max_usage? }
 opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 
+opt_password = { "password" ~ (opt_password_operations | help) }
+opt_password_operations = { (set | del) ~ opt_password_args }
+opt_password_args = _{ opt_password_t_arg ~ opt_password_d_arg? | opt_password_d_arg ~ opt_password_t_arg? }
+opt_password_t_arg = { ("--tries" ~ assignment | "-t") ~ opt_password_tries? }
+opt_password_tries = @{ ASCII_DIGIT+ }
+opt_password_d_arg = { ("--delay" ~ assignment | "-d") ~ opt_password_delay? }
+opt_password_delay = @{ ASCII_DIGIT+ ~ (":" ~ ASCII_DIGIT+){0,2} }
 
 assignment   =  _{ "=" | WHITESPACE*}
 help = { "-h" | "--help" }

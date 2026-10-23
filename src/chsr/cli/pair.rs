@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, str::FromStr};
+use std::{collections::HashMap, error::Error, num::NonZeroU8, str::FromStr};
 
 use capctl::Cap;
 use indexmap::IndexSet;
@@ -16,7 +16,7 @@ use rootasrole_core::{
     util::StorageMethod,
 };
 
-use super::data::{InputAction, Inputs, Rule, SetListType, TimeoutOpt};
+use super::data::{InputAction, Inputs, PasswordOpt, Rule, SetListType, TimeoutOpt};
 
 type MatchingFunction = dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>;
 
@@ -221,6 +221,28 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::opt_timeout_max_usage => {
             inputs.timeout_max_usage = Some(pair.as_str().parse::<u64>()?);
         }
+        Rule::opt_password_t_arg => {
+            let mut password_arg = inputs.password_arg.unwrap_or_default();
+            password_arg[PasswordOpt::Tries as usize] = true;
+            inputs.password_arg.replace(password_arg);
+        }
+        Rule::opt_password_d_arg => {
+            let mut password_arg = inputs.password_arg.unwrap_or_default();
+            password_arg[PasswordOpt::Delay as usize] = true;
+            inputs.password_arg.replace(password_arg);
+        }
+        Rule::opt_password_tries => {
+            let tries = pair
+                .as_str()
+                .parse::<u8>()
+                .ok()
+                .and_then(NonZeroU8::new)
+                .ok_or_else(|| format!("The tries must be 1 to 255: {}", pair.as_str()))?;
+            inputs.password_tries = Some(tries);
+        }
+        Rule::opt_password_delay => {
+            inputs.password_delay = Some(parse_time(pair.as_str())?);
+        }
         // === file ===
         Rule::file => {
             inputs.policy = true;
@@ -385,6 +407,8 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 inputs.options_type = Some(OptType::Bounding);
             } else if pair.as_str() == "timeout" {
                 inputs.options_type = Some(OptType::Timeout);
+            } else if pair.as_str() == "password" {
+                inputs.options_type = Some(OptType::Password);
             } else if pair.as_str() == "authentication" {
                 inputs.options_type = Some(OptType::Authentication);
             } else if pair.as_str() == "execinfo" {

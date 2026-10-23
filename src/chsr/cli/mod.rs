@@ -993,6 +993,93 @@ mod tests {
         assert!(usage_without_policy(["upgrade"]).is_none());
     }
 
+    /// The password option of `level`, as (tries, delay in seconds, unknown fields).
+    fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
+        ctx.opt(level)
+            .as_ref()
+            .borrow()
+            .password
+            .as_ref()
+            .map(|password| {
+                (
+                    password.tries.map(std::num::NonZeroU8::get),
+                    password.delay.map(|delay| delay.as_secs()),
+                    password.extra_fields.len(),
+                )
+            })
+    }
+
+    #[test]
+    fn test_options_password() {
+        let name = "options_password";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // at each level; set changes the fields given and keeps the others
+        ctx.assert_command_success("o password set --tries 5 --delay 00:00:10");
+        ctx.assert_command_success("r complete o password set --tries=4");
+        ctx.assert_command_success("r complete t t_complete o password set -d 2");
+        assert_eq!(password(&ctx, Level::Global), Some((Some(5), Some(10), 0)));
+        assert_eq!(password(&ctx, Level::Role), Some((Some(4), None, 0)));
+        assert_eq!(password(&ctx, Level::Task), Some((None, Some(2), 0)));
+        ctx.assert_command_success("o password set --delay 1:00");
+        assert_eq!(password(&ctx, Level::Global), Some((Some(5), Some(60), 0)));
+        // unset removes the fields named, then the option once nothing is left
+        ctx.assert_command_success("o password unset --tries");
+        assert_eq!(password(&ctx, Level::Global), Some((None, Some(60), 0)));
+        ctx.assert_command_success("o password unset -d");
+        assert_eq!(password(&ctx, Level::Global), None);
+        // a field that this version does not know is kept
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .password
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o password unset --tries");
+        assert_eq!(password(&ctx, Level::Role), Some((None, None, 1)));
+        ctx.assert_command_success("r complete o password set --tries 4");
+        assert_eq!(password(&ctx, Level::Role), Some((Some(4), None, 1)));
+        // refused, without a change
+        for command in [
+            "o password set --tries 0",
+            "o password set --tries 256",
+            "o password set --tries",
+            "o password set --delay",
+            "o password set --delay 153722867280912930:59:59",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert_eq!(password(&ctx, Level::Global), None);
+        ctx.assert_command_no_change("r complete t t_complete o show password");
+        // what is saved is what dosr reads
+        ctx.settings.save_all().unwrap();
+        let saved: Value =
+            serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
+                .unwrap();
+        let role = saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|role| role["name"] == "complete")
+            .unwrap();
+        assert_eq!(
+            role["options"]["password"],
+            serde_json::json!({"tries": 4, "future": 1})
+        );
+        let task = role["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["name"] == "t_complete")
+            .unwrap();
+        assert_eq!(
+            task["options"]["password"],
+            serde_json::json!({"delay": "00:00:02"})
+        );
+        assert!(saved["options"].get("password").is_none());
+    }
+
     #[test]
     fn test_all_main() {
         let (mut ctx, _defer) = TestContext::new("all_main");
