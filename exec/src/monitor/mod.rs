@@ -116,7 +116,8 @@ impl Process for MonitorClosure {
                             registry.set_break(io::Error::from_raw_os_error(0));
                         }
                     }
-                    //Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => { },
+                    // A frame arrived in parts: the rest comes with the next readable event.
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => {
                         registry.set_break(e);
                     }
