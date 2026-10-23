@@ -120,7 +120,7 @@ setup() {
     "name": "e2e-guarded",
     "actors": [{ "user": "$TEST_USER" }],
     "ssd": ["e2e-other"],
-    "tasks": [{ "name": "uid", "commands": ["/usr/bin/id ^-u$"] }]
+    "tasks": [{ "name": "gid", "commands": ["/usr/bin/id ^-g$"] }]
   }, {
     "name": "e2e-other",
     "actors": [{ "group": "$BIG_GROUP" }],
@@ -291,14 +291,15 @@ password_is_asked_again() {
 # a failed lookup of an actor disables the roles with a separation of duties: the members of
 # a group take more than the 1 MiB that the lookups of dosr allow, getgrnam_r fails with ERANGE
 ssd_role_disabled_by_a_failed_lookup() {
-    local uid before after members since
-    uid=$(id -u "$TEST_USER")
+    local gid before after members since
+    # not id -u, which planted_policy_is_refused checks: this role would be chosen for it
+    gid=$(id -g "$TEST_USER")
     cp -p /etc/group "$GROUP_BACKUP" && cp -p /etc/gshadow "$GSHADOW_BACKUP" || return 1
     groupadd "$BIG_GROUP" || {
         restore_groups
         return 1
     }
-    before=$(as_user dosr -r e2e-guarded -t uid /usr/bin/id -u 2>/dev/null)
+    before=$(as_user dosr -r e2e-guarded -t gid /usr/bin/id -g 2>/dev/null)
     # one argument is limited to 128 KiB: the member list goes through a file
     members=$(mktemp)
     seq -f 'rar%07g' 1 120000 | paste -sd, >"$members"
@@ -307,10 +308,10 @@ ssd_role_disabled_by_a_failed_lookup() {
         /etc/group >"$members.group"
     cat "$members.group" >/etc/group
     since=$(date +%s)
-    after=$(as_user dosr -r e2e-guarded -t uid /usr/bin/id -u 2>/dev/null)
+    after=$(as_user dosr -r e2e-guarded -t gid /usr/bin/id -g 2>/dev/null)
     rm -f "$members" "$members.group"
     restore_groups
-    [ "$before" = "$uid" ] && [ "$after" != "$uid" ] || return 1
+    [ "$before" = "$gid" ] && [ "$after" != "$gid" ] || return 1
     # the refusal comes from the lookup, when the journal tells
     if command -v journalctl >/dev/null; then
         journalctl -q --since "@$since" | grep -q "Cannot look up the group $BIG_GROUP"
