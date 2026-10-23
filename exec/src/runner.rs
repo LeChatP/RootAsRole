@@ -188,6 +188,19 @@ impl ExecRunner {
                     debug!("runner: command pid set to {pid}");
                     self.command_pid = pid;
                 }
+                Ok(ParentMessage::CommandStopped(signal)) => {
+                    debug!("runner: command stopped by signal {signal}, suspending");
+                    if let Some(foreground) = self.suspend(signal, registry)
+                        && self
+                            .backchannel
+                            .send_monitor_message(&MonitorMessage::Resume { foreground })
+                            .is_err()
+                    {
+                        warn!("runner: failed to resume the command, checking monitor exit");
+                        self.check_monitor_exit(registry);
+                    }
+                    self.pipe.resume_events(registry);
+                }
                 Ok(ParentMessage::ExitStatus(status)) => {
                     debug!("runner: exit status received: {status}");
                     registry.set_exit(std::process::ExitStatus::from_raw(status));
@@ -229,6 +242,103 @@ impl ExecRunner {
                 unsafe { libc::killpg(self.command_pid, libc::SIGWINCH) };
             }
         }
+        Ok(())
+    }
+
+    /// Suspend dosr with the stopped command, like a shell job, and tell how to resume the
+    /// command once dosr is continued: `Some(true)` with the pty in its foreground, `Some(false)`
+    /// in the background, `None` to leave it stopped.
+    fn suspend(&mut self, signal: libc::c_int, registry: &mut EventRegistry<Self>) -> Option<bool> {
+        // A SIGCONT received while suspending would resume the terminal a second time.
+        let _ignore_sigcont = SignalDisposition::set(libc::SIGCONT, libc::SIG_IGN)
+            .inspect_err(|e| warn!("runner: cannot ignore SIGCONT: {e}"))
+            .ok();
+
+        if matches!(signal, libc::SIGTTOU | libc::SIGTTIN) {
+            // The command wants the terminal: when dosr is in the foreground, the command is
+            // resumed at once, whether the terminal was already raw or not (sudo-rs #1598).
+            if !self.foreground && self.check_foreground().is_err() {
+                // the user's terminal was revoked
+                return None;
+            }
+            if self.foreground {
+                if !self.term_raw
+                    && self
+                        .pipe
+                        .left_mut()
+                        .set_raw_mode(true, self.preserve_oflag)
+                        .is_ok()
+                {
+                    self.term_raw = true;
+                }
+                self.pipe.enable_input(registry);
+                return Some(true);
+            }
+        }
+
+        self.pipe.ignore_events(registry);
+        if self.term_raw {
+            match self.pipe.left_mut().restore(false) {
+                Ok(()) => self.term_raw = false,
+                Err(e) => warn!("runner: cannot restore the terminal settings: {e}"),
+            }
+        }
+
+        // Stop the job of dosr with the same signal, with its default action.
+        let default_action = if signal == libc::SIGSTOP {
+            None
+        } else {
+            SignalDisposition::set(signal, libc::SIG_DFL)
+                .inspect_err(|e| warn!("runner: cannot set the default action of {signal}: {e}"))
+                .ok()
+        };
+        let pgrp = self.parent_pgrp.inner();
+        // SAFETY: getpid, kill and killpg do not access memory
+        let suspended = unsafe {
+            (pgrp == libc::getpid() || libc::kill(pgrp, 0) == 0) && libc::killpg(pgrp, signal) == 0
+        };
+        drop(default_action);
+
+        if !suspended {
+            error!("runner: no process group to suspend, terminating the command");
+            if self.command_pid > 0 {
+                // SAFETY: killpg does not access memory, it only sends a signal to the command's group
+                unsafe { libc::killpg(self.command_pid, libc::SIGKILL) };
+            }
+            return None;
+        }
+        // dosr was continued
+        if self.command_pid <= 0 || self.resume_after_suspend().is_err() {
+            return None;
+        }
+        Some(self.term_raw)
+    }
+
+    /// Set the terminals up again when dosr is continued after a suspension.
+    fn resume_after_suspend(&mut self) -> io::Result<()> {
+        self.check_foreground()?;
+        // the user may have changed the terminal settings while dosr was stopped
+        self.pipe.left().copy_to(self.pipe.right())?;
+        if self.foreground {
+            if self
+                .pipe
+                .left_mut()
+                .set_raw_mode(true, self.preserve_oflag)
+                .is_ok()
+            {
+                self.term_raw = true;
+            }
+        } else {
+            // in the background, dosr cannot use the terminal
+            self.term_raw = false;
+        }
+        Ok(())
+    }
+
+    /// Check whether dosr is in the foreground of the user's terminal.
+    fn check_foreground(&mut self) -> io::Result<()> {
+        let pgrp = self.pipe.left().as_tty()?.tcgetpgrp()?;
+        self.foreground = pgrp == self.parent_pgrp;
         Ok(())
     }
 
@@ -645,6 +755,42 @@ pub fn run_with_pty(
     }
 }
 
+/// Changes the action of a signal until it is dropped, then puts the previous action back.
+struct SignalDisposition {
+    signal: libc::c_int,
+    previous: libc::sigaction,
+}
+
+impl SignalDisposition {
+    fn set(signal: libc::c_int, action: libc::sighandler_t) -> io::Result<Self> {
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut new: libc::sigaction = unsafe { std::mem::zeroed() };
+        new.sa_sigaction = action;
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: both pointers reference valid sigaction structs that outlive the call
+        if unsafe { libc::sigaction(signal, &raw const new, &raw mut previous) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { signal, previous })
+    }
+}
+
+impl Drop for SignalDisposition {
+    fn drop(&mut self) {
+        // SAFETY: `previous` was filled by sigaction for this signal, and outlives the call
+        if unsafe { libc::sigaction(self.signal, &raw const self.previous, std::ptr::null_mut()) }
+            == -1
+        {
+            warn!(
+                "runner: cannot restore the action of signal {}: {}",
+                self.signal,
+                io::Error::last_os_error()
+            );
+        }
+    }
+}
+
 fn block_all_signals() -> Option<libc::sigset_t> {
     // SAFETY: sigset_t is a plain bitmask, for which all zeroes is a valid value
     let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
@@ -789,6 +935,29 @@ mod tests {
         assert!(content.contains("OUT 0: \n"));
 
         let _ = fs::remove_file(path);
+    }
+
+    // suspending dosr sets SIGCONT to ignored and the stop signal to its default action, and must
+    // put the previous actions back once dosr is continued
+    #[test]
+    fn signal_disposition_restores_the_previous_action() {
+        fn action(signal: libc::c_int) -> libc::sighandler_t {
+            let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut current) },
+                0
+            );
+            current.sa_sigaction
+        }
+
+        let _guard = MUTEX.lock().unwrap();
+        let before = action(libc::SIGUSR2);
+        {
+            let _ignored = super::SignalDisposition::set(libc::SIGUSR2, libc::SIG_IGN)
+                .expect("ignore SIGUSR2");
+            assert_eq!(action(libc::SIGUSR2), libc::SIG_IGN);
+        }
+        assert_eq!(action(libc::SIGUSR2), before);
     }
 
     #[test]

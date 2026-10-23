@@ -7,7 +7,7 @@ use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
 use crate::signal::{SignalInfo, SignalStream, register_signal_handler};
-use crate::terminal::TerminalExt;
+use crate::terminal::{ProcessId, TerminalExt};
 use libc::{SIGCHLD, SIGKILL};
 use log::{debug, error, trace, warn};
 
@@ -116,6 +116,7 @@ impl Process for MonitorClosure {
                             registry.set_break(io::Error::from_raw_os_error(0));
                         }
                     }
+                    Ok(MonitorMessage::Resume { foreground }) => self.resume_command(foreground),
                     // A frame arrived in parts: the rest comes with the next readable event.
                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                     Err(e) => {
@@ -128,6 +129,29 @@ impl Process for MonitorClosure {
 }
 
 impl MonitorClosure {
+    /// Resume the stopped command once dosr is continued: in the foreground, the pty goes back to
+    /// the process group of the command; in the background, the monitor keeps it.
+    fn resume_command(&self, foreground: bool) {
+        let Some(pid) = self.command_pid else {
+            return;
+        };
+        let pgrp = if foreground {
+            self.command_pgrp
+        } else {
+            self.monitor_pgrp
+        };
+        debug!("monitor: resuming the command (foreground={foreground})");
+        if let Err(e) = self
+            .pty_follower
+            .as_tty()
+            .and_then(|tty| tty.tcsetpgrp(ProcessId::new(pgrp)))
+        {
+            warn!("monitor: cannot give the pty to process group {pgrp}: {e}");
+        }
+        // SAFETY: killpg does not access memory, it only sends a signal to the command's group
+        unsafe { libc::killpg(pid, libc::SIGCONT) };
+    }
+
     fn handle_signal(&mut self, info: SignalInfo, registry: &mut EventRegistry<Self>) {
         debug!("monitor: got signal {} from pid {}", info.signal, info.pid);
         if info.signal == SIGCHLD {
@@ -138,13 +162,18 @@ impl MonitorClosure {
                     unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG | libc::WUNTRACED) };
                 if res > 0 {
                     if libc::WIFSTOPPED(status) {
-                        warn!("monitor: command stopped with {}", libc::WSTOPSIG(status));
-                        let _ =
-                            self.backchannel
-                                .send_parent_message(&ParentMessage::Error(format!(
-                                    "Command stopped with signal {}",
-                                    libc::WSTOPSIG(status)
-                                )));
+                        let signal = libc::WSTOPSIG(status);
+                        debug!("monitor: command stopped with {signal}");
+                        // The command may have given the pty to another of its process groups:
+                        // that group gets the pty back when the command is resumed.
+                        if let Ok(pgrp) = self.pty_follower.as_tty().and_then(|tty| tty.tcgetpgrp())
+                            && pgrp.inner() != self.monitor_pgrp
+                        {
+                            self.command_pgrp = pgrp.inner();
+                        }
+                        let _ = self
+                            .backchannel
+                            .send_parent_message(&ParentMessage::CommandStopped(signal));
                         return;
                     }
 

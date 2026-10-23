@@ -69,12 +69,16 @@ pub enum MonitorMessage {
     Signal(i32),
     /// Ready to start
     Edge,
+    /// Resume the stopped command, with the pty in its foreground or not
+    Resume { foreground: bool },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ParentMessage {
     /// Command PID
     CommandPid(i32),
+    /// The command was stopped by this signal: suspend dosr, like a shell job
+    CommandStopped(i32),
     /// Exit status from the command
     ExitStatus(i32),
     /// Error during execution
@@ -285,7 +289,9 @@ mod tests {
             .expect("receive monitor message")
         {
             MonitorMessage::Signal(signal) => assert_eq!(signal, libc::SIGUSR1),
-            MonitorMessage::Edge => panic!("unexpected monitor message"),
+            MonitorMessage::Edge | MonitorMessage::Resume { .. } => {
+                panic!("unexpected monitor message")
+            }
         }
 
         monitor
@@ -296,7 +302,9 @@ mod tests {
             .expect("receive parent message")
         {
             ParentMessage::CommandPid(pid) => assert_eq!(pid, 4242),
-            ParentMessage::ExitStatus(_) | ParentMessage::Error(_) => {
+            ParentMessage::ExitStatus(_)
+            | ParentMessage::Error(_)
+            | ParentMessage::CommandStopped(_) => {
                 panic!("unexpected parent message")
             }
         }
@@ -304,6 +312,33 @@ mod tests {
         parent
             .set_nonblocking(true)
             .expect("keep nonblocking mode configurable");
+    }
+
+    #[test]
+    fn backchannel_roundtrips_the_suspend_messages() {
+        let (mut parent, mut monitor) = Backchannel::pair().expect("create backchannel pair");
+
+        monitor
+            .send_parent_message(&ParentMessage::CommandStopped(libc::SIGTSTP))
+            .expect("send the stop");
+        assert!(matches!(
+            parent.recv_parent_message(),
+            Ok(ParentMessage::CommandStopped(libc::SIGTSTP))
+        ));
+
+        for foreground in [true, false] {
+            parent
+                .send_monitor_message(&MonitorMessage::Resume { foreground })
+                .expect("send the resume");
+            match monitor.recv_monitor_message() {
+                Ok(MonitorMessage::Resume {
+                    foreground: received,
+                }) => {
+                    assert_eq!(received, foreground);
+                }
+                other => panic!("unexpected result {other:?}"),
+            }
+        }
     }
 
     #[test]
