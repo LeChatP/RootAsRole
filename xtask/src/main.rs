@@ -1,10 +1,9 @@
 mod configure;
-mod deploy;
 mod doctor;
 mod installer;
 pub mod util;
 
-use Command::{Build, Configure, Dependencies, Deploy, Doctor, Install, Uninstall};
+use Command::{Build, Configure, Dependencies, Doctor, Install, Uninstall};
 
 use std::process::exit;
 
@@ -37,8 +36,6 @@ enum Command {
         os: Option<OsTarget>,
     },
     Uninstall(installer::UninstallOptions),
-    #[cfg(feature = "deploy")]
-    Deploy(deploy::MakeOptions),
     Doctor(doctor::DoctorOptions),
 }
 
@@ -64,7 +61,6 @@ fn main() {
         Install(opts) => installer::install(&opts),
         Configure { os } => installer::configure(os),
         Uninstall(opts) => installer::uninstall(&opts),
-        Deploy(opts) => deploy::deploy(&opts),
         Doctor(opts) => doctor::doctor(&opts),
     };
 
