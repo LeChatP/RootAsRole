@@ -9,7 +9,11 @@ POLICY_DIR=/etc/security/rootasrole.d
 E2E_POLICY="$POLICY_DIR/e2e.json"
 PLANTED_POLICY="$POLICY_DIR/planted.json"
 TEST_USER=rar-e2e
+TEST_PASSWORD=rar-e2e-password
 UNIT=rar-e2e
+PAM_SERVICE=/etc/pam.d/dosr
+PAM_SERVICE_BACKUP=/etc/pam.d/.dosr.rar-e2e
+PAM_ENV_FILE=/etc/rar-e2e.env
 FAILED=0
 
 # 0: pass, 77: skip, anything else: fail
@@ -92,6 +96,21 @@ setup() {
         "name": "net-raw",
         "cred": { "capabilities": ["CAP_NET_RAW"] },
         "commands": ["/usr/bin/true"]
+      },
+      {
+        "name": "env",
+        "options": {
+          "env": { "default": "delete", "keep": ["RAR_E2E_KEPT"], "check": ["RAR_E2E_CHECKED"] }
+        },
+        "commands": ["/usr/bin/env"]
+      },
+      {
+        "name": "password",
+        "options": {
+          "authentication": "perform",
+          "password": { "tries": 3, "delay": "00:00:01" }
+        },
+        "commands": ["/usr/bin/true"]
       }
     ]
   }]
@@ -100,7 +119,16 @@ EOF
     )"
 }
 
+# the PAM service of dosr as installed, without the line added by pam_env_is_filtered
+restore_pam_service() {
+    if [ -e "$PAM_SERVICE_BACKUP" ]; then
+        mv -f "$PAM_SERVICE_BACKUP" "$PAM_SERVICE"
+    fi
+    rm -f "$PAM_ENV_FILE"
+}
+
 cleanup() {
+    restore_pam_service
     systemctl stop "$UNIT" 2>/dev/null
     rm -f "/etc/systemd/system/$UNIT.service"
     systemctl daemon-reload
@@ -184,6 +212,51 @@ bounding_set_is_checked_first() {
     [ $? -ne 0 ] && grep -q 'cannot obtain' <<<"$out"
 }
 
+# the variables that PAM modules set reach the command through the env filter of the task, and
+# never replace the variables of dosr nor the ones of the user that the task keeps; pam_env is
+# added for this check, since the PAM service of Debian does not run it
+pam_env_is_filtered() {
+    local out user_out
+    cp -p "$PAM_SERVICE" "$PAM_SERVICE_BACKUP" || return 1
+    printf '%s\n' RAR_E2E_KEPT=pam RAR_E2E_DROPPED=pam RAR_E2E_CHECKED=/unsafe PATH=/tmp/rar-e2e \
+        >"$PAM_ENV_FILE"
+    echo "session optional pam_env.so readenv=1 envfile=$PAM_ENV_FILE user_readenv=0" \
+        >>"$PAM_SERVICE"
+    out=$(as_user dosr -r e2e -t env /usr/bin/env)
+    user_out=$(as_user env RAR_E2E_KEPT=user dosr -r e2e -t env /usr/bin/env)
+    restore_pam_service
+    grep -qx RAR_E2E_KEPT=pam <<<"$out" &&
+        ! grep -q '^RAR_E2E_DROPPED=' <<<"$out" &&
+        ! grep -q '^RAR_E2E_CHECKED=' <<<"$out" &&
+        ! grep -qx PATH=/tmp/rar-e2e <<<"$out" &&
+        grep -qx RAR_E2E_KEPT=user <<<"$user_out"
+}
+
+# a fresh authentication: no timestamp cookie, no failure counted by pam_faillock (Arch)
+forget_authentications() {
+    as_user dosr -K >/dev/null 2>&1
+    if command -v faillock >/dev/null; then
+        faillock --user "$TEST_USER" --reset
+    fi
+}
+
+# a wrong password is asked again, up to the tries of the policy; the cookie of a successful
+# authentication would skip the password, so the refusal is checked first
+password_is_asked_again() {
+    local out
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    if printf '%s\n' wrong wrong wrong "$TEST_PASSWORD" |
+        as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1; then
+        return 1
+    fi
+    forget_authentications
+    out=$(printf '%s\n' wrong wrong "$TEST_PASSWORD" |
+        as_user dosr -S -r e2e -t password /usr/bin/true 2>&1) || return 1
+    forget_authentications
+    [ "$(grep -c 'Sorry, try again.' <<<"$out")" -eq 2 ]
+}
+
 trap cleanup EXIT
 setup
 check "the policy, its directory included, is immutable" policy_is_immutable
@@ -194,4 +267,6 @@ check "a command written without arguments allows none" command_without_argument
 check "uid 0 without capabilities manages a unit" root_without_capabilities_manages_a_unit
 check "CAP_NET_BIND_SERVICE is granted" capability_is_granted
 check "the bounding set is checked before running the command" bounding_set_is_checked_first
+check "the variables of pam_env go through the env filter of the task" pam_env_is_filtered
+check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
 exit "$FAILED"
