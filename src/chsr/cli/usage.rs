@@ -712,6 +712,8 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::opt_password => "password",
         Rule::opt_path | Rule::path => "path",
         Rule::opt_env => "env",
+        Rule::env_key | Rule::env_key_list => "a variable name, where * matches any characters",
+        Rule::env_key_value | Rule::env_value_list => "NAME=value",
         Rule::opt_workdir => "workdir",
         Rule::opt_root => "root",
         Rule::opt_bounding => "bounding",

@@ -10,10 +10,10 @@ use crate::cli::data::{Convertion, RoleType, TaskType};
 use rootasrole_core::{
     database::{
         actor::{SActor, SGroupType},
-        options::{EnvBehavior, OptType, PathBehavior, TimestampType, WorkdirBehavior},
+        options::{EnvBehavior, EnvKey, OptType, PathBehavior, TimestampType, WorkdirBehavior},
         structs::{IdTask, SetBehavior},
     },
-    util::StorageMethod,
+    util::{StorageMethod, is_valid_env_name},
 };
 
 use super::data::{InputAction, Inputs, PasswordOpt, Rule, SetListType, TimeoutOpt};
@@ -439,12 +439,18 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                     .as_str()
                     .to_string();
                 debug!("env_key_value: {key}={value}");
+                // the set list gives a value to a variable: a name, never a pattern
+                if !is_valid_env_name(&key) {
+                    return Err(
+                        format!("{key} is not a variable name, `*` is not allowed here").into(),
+                    );
+                }
                 options_env_values.insert(key, value);
             }
         }
         Rule::env_key => {
             if let Some(options_env) = inputs.options_key_env.as_mut() {
-                options_env.insert(pair.as_str().into());
+                options_env.insert(EnvKey::new(pair.as_str().to_string())?);
             }
         }
         Rule::opt_root_args => {

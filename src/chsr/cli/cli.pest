@@ -210,7 +210,8 @@ env_unquoted_value = { (!"," ~ !"\"" ~ ANY)* }
 env_char        = _{ (!"\\" ~ !"\"") ~ ANY }
 env_escape      = _{ "\\" ~ ("\"" | ",") }
 
-env_key   = @{ (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
+// a variable name, where `*` matches any characters (core::util::is_valid_env_pattern)
+env_key   = @{ (ASCII_ALPHA | "_" | "*") ~ (ASCII_ALPHANUMERIC | "_" | "*")* }
 
 opt_root      = { "root" ~ (opt_root_args | help) }
 opt_root_args = { del | "privileged" | "user" }

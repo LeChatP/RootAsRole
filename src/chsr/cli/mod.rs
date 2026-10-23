@@ -1118,6 +1118,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_options_env_names() {
+        let name = "options_env_names";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // one letter and patterns, like the policy accepts
+        ctx.assert_command_success("o env whitelist add A");
+        ctx.assert_command_success("o env whitelist add LC_*,*_PROXY");
+        ctx.assert_command_success("o env setlist add Z=1");
+        // a name that the policy refuses is an error, not a panic
+        for command in [
+            "o env whitelist add MY-VAR",
+            "o env whitelist add 1VAR",
+            "o env setlist add BAD*=1",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        let saved = saved(&mut ctx, name);
+        assert_eq!(
+            saved["options"]["env"]["keep"],
+            serde_json::json!(["env1", "env2", "A", "LC_*", "*_PROXY"])
+        );
+        assert_eq!(saved["options"]["env"]["set"]["Z"], "1");
+        assert!(saved["options"]["env"]["set"].get("BAD*").is_none());
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)
