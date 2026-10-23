@@ -1422,6 +1422,86 @@ mod tests {
         ));
     }
 
+    /// The role chosen for `cmd`, after a failed lookup of the actors of the roles `failed`.
+    #[cfg(feature = "ssd")]
+    fn choose_after_failed_lookups(roles: &Value, cmd: &str, failed: &[&str]) -> SrResult<String> {
+        api::register_plugins();
+        let policy = serde_json::json!({ "roles": roles }).to_string();
+        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+        let cred = dummy_cred();
+        let mut data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        for role in &mut data.roles {
+            role.lookup_failed = failed.contains(&role.role.as_ref());
+        }
+        BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &["/usr/bin"])
+            .map(|settings| settings.role)
+    }
+
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_a_failed_lookup_disables_the_roles_with_ssd() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", false, None, &none),
+            role_json("ops", true, Some("/usr/bin/cat"), &none),
+            role_json("other", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "dev"
+        );
+        // whatever role the failed lookup belongs to, the roles with an ssd are disabled
+        for failed in ["auditor", "other", "dev"] {
+            assert!(
+                matches!(
+                    choose_after_failed_lookups(&roles, "/usr/bin/ls", &[failed]),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{failed}"
+            );
+        }
+        // the roles without one are not
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
+            "ops"
+        );
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_a_failed_lookup_disables_the_parents_of_a_role_with_ssd() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"], "ssd": ["auditor"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json("auditor", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "junior"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["auditor"]),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
     #[test]
     fn test_default_policy_runs_as_the_requested_user() {
         api::register_plugins();

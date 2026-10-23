@@ -43,6 +43,10 @@ pub struct DConfigFinder<'a> {
 pub struct DRoleFinder<'a> {
     #[cfg_attr(test, builder(default))]
     pub user_min: ActorMatchMin,
+    /// Looking up an actor of the role written by name failed: whether the user holds the
+    /// role is unknown, and it is not matched
+    #[cfg_attr(test, builder(default))]
+    pub lookup_failed: bool,
     #[cfg_attr(test, builder(into))]
     pub role: Cow<'a, str>,
     #[cfg_attr(test, builder(default))]

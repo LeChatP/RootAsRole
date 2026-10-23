@@ -78,15 +78,23 @@ impl SUserType {
 }
 
 impl DUserType<'_> {
+    /// The uid of the actor, a name being looked up: `Ok(None)` when no user has that name, an
+    /// error when the lookup itself fails (a directory service that does not answer...).
+    ///
+    /// # Errors
+    /// The error of `getpwnam_r(3)`.
+    pub fn try_fetch_id(&self) -> nix::Result<Option<u32>> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Ok(Some(*id)),
+            DGenericActorType::Name(name) => {
+                Ok(User::from_name(name)?.map(|user| user.uid.as_raw()))
+            }
+        }
+    }
+    /// [`Self::try_fetch_id`], a failed lookup being no user.
     #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
-        match &self.0 {
-            DGenericActorType::Id(id) => Some(*id),
-            DGenericActorType::Name(name) => match User::from_name(name) {
-                Ok(Some(user)) => Some(user.uid.as_raw()),
-                _ => None,
-            },
-        }
+        self.try_fetch_id().ok().flatten()
     }
     #[must_use]
     pub fn fetch_user(&self) -> Option<User> {
@@ -154,15 +162,24 @@ impl SGroupType {
 }
 
 impl DGroupType<'_> {
+    /// The gid of the actor, a name being looked up: `Ok(None)` when no group has that name, an
+    /// error when the lookup itself fails (a directory service that does not answer, a group
+    /// whose members take more than the 1 MiB that nix allows for `getgrnam_r(3)`...).
+    ///
+    /// # Errors
+    /// The error of `getgrnam_r(3)`.
+    pub fn try_fetch_id(&self) -> nix::Result<Option<u32>> {
+        match &self.0 {
+            DGenericActorType::Id(id) => Ok(Some(*id)),
+            DGenericActorType::Name(name) => {
+                Ok(Group::from_name(name)?.map(|group| group.gid.as_raw()))
+            }
+        }
+    }
+    /// [`Self::try_fetch_id`], a failed lookup being no group.
     #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
-        match &self.0 {
-            DGenericActorType::Id(id) => Some(*id),
-            DGenericActorType::Name(name) => match Group::from_name(name) {
-                Ok(Some(group)) => Some(group.gid.as_raw()),
-                _ => None,
-            },
-        }
+        self.try_fetch_id().ok().flatten()
     }
     #[must_use]
     pub fn fetch_group(&self) -> Option<Group> {
