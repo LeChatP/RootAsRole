@@ -10,7 +10,9 @@ use crate::cli::data::{Convertion, RoleType, TaskType};
 use rootasrole_core::{
     database::{
         actor::{SActor, SGroupType},
-        options::{EnvBehavior, EnvKey, OptType, PathBehavior, TimestampType, WorkdirBehavior},
+        options::{
+            EnvBehavior, EnvKey, OptType, PathBehavior, SUMask, TimestampType, WorkdirBehavior,
+        },
         structs::{IdTask, SetBehavior},
     },
     util::{StorageMethod, is_valid_env_name},
@@ -34,6 +36,20 @@ fn recurse_pair_with_action(
 
 pub fn recurse_pair(pair: Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Error>> {
     recurse_pair_with_action(pair, inputs, &match_pair)
+}
+
+/// The actor names under `pair`, at any depth: a combination of groups nests them.
+fn actor_names(pair: &Pair<Rule>) -> Vec<String> {
+    pair.clone()
+        .into_inner()
+        .flat_map(|inner| {
+            if inner.as_rule() == Rule::actor_name {
+                vec![inner.as_str().to_string()]
+            } else {
+                actor_names(&inner)
+            }
+        })
+        .collect()
 }
 
 /// A duration written `ss`, `mm:ss` or `hh:mm:ss`: a field that does not fit, or a duration
@@ -336,26 +352,21 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
             }
         }
         Rule::cred_u => {
-            inputs.cred_setuid = Some(
-                pair.as_str()
-                    .chars()
-                    .skip(9)
-                    .collect::<String>()
-                    .as_str()
-                    .into(),
-            );
+            let user = actor_names(pair)
+                .into_iter()
+                .next()
+                .ok_or("--setuid needs a user")?;
+            inputs.cred_setuid = Some(user.as_str().into());
         }
         Rule::cred_g => {
-            let mut vec: Vec<SGroupType> = Vec::new();
-            for pair in pair.clone().into_inner() {
-                if pair.as_rule() == Rule::actor_name {
-                    vec.push(pair.as_str().into());
-                }
+            let groups: Vec<SGroupType> = actor_names(pair)
+                .iter()
+                .map(|name| name.as_str().into())
+                .collect();
+            if groups.is_empty() {
+                return Err("--setgid needs a group".into());
             }
-            if vec.is_empty() {
-                warn!("No group specified");
-            }
-            inputs.cred_setgid = Some(vec.into());
+            inputs.cred_setgid = Some(groups.into());
         }
         // === options ===
         Rule::options_operations => {
@@ -462,7 +473,17 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         Rule::opt_mask_args => {
             inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
-            inputs.options_umask = Some(pair.as_str().parse().unwrap_or_default());
+            let value = pair.as_str();
+            inputs.options_umask = Some(if value.bytes().all(|b| b.is_ascii_digit()) {
+                u16::from_str_radix(value, 8)
+                    .ok()
+                    .filter(|umask| *umask <= 0o777)
+                    .map(SUMask)
+                    .ok_or_else(|| format!("The umask is octal, 000 to 777: {value}"))?
+            } else {
+                // del: the value is not used
+                SUMask::default()
+            });
         }
         Rule::all => {
             if inputs.role_id.is_some() && inputs.task_id.is_none() {

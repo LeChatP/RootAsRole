@@ -995,7 +995,7 @@ mod tests {
 
     /// The policy as saved in the file of the test `name`, which must load again (parsed, not
     /// opened: the test still holds the lock of the file).
-    fn saved(ctx: &mut TestContext, name: &str) -> Value {
+    fn saved_policy(ctx: &mut TestContext, name: &str) -> Value {
         ctx.settings.save_all().unwrap();
         let content = fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap();
         serde_json::from_str::<RootSettings>(&content).expect("the saved policy loads again");
@@ -1030,7 +1030,7 @@ mod tests {
         ctx.assert_command_success("r fresh o root user");
         ctx.assert_command_success("r fresh t t1 add");
         ctx.assert_command_success("r fresh t t1 o path whitelist add /opt/bin");
-        let saved = saved(&mut ctx, name);
+        let saved = saved_policy(&mut ctx, name);
         // the other options stay inherited, not written with the built-in defaults
         assert_eq!(saved["options"], serde_json::json!({"bounding": "strict"}));
         assert_eq!(
@@ -1055,7 +1055,7 @@ mod tests {
         // removing from a list that the level does not define changes nothing
         ctx.assert_command_success("r fresh o env blacklist del LD_PRELOAD");
         ctx.assert_command_success("r fresh t t1 o path whitelist del /usr/bin");
-        let saved = saved(&mut ctx, name);
+        let saved = saved_policy(&mut ctx, name);
         assert_eq!(
             saved_task(&saved, "fresh", "t1")["options"],
             serde_json::json!({"env": {"keep": ["MYVAR"], "check": ["TZ"]}})
@@ -1074,17 +1074,21 @@ mod tests {
         ctx.assert_command_success("o timeout set --type tty");
         ctx.assert_command_success("o timeout set -d 5:00");
         assert_eq!(
-            saved(&mut ctx, name)["options"]["timeout"],
+            saved_policy(&mut ctx, name)["options"]["timeout"],
             serde_json::json!({"type": "tty", "duration": "00:05:00", "max_usage": 1})
         );
         // unset removes the fields named, then the option once nothing is left
         ctx.assert_command_success("o timeout unset --max-usage");
         assert_eq!(
-            saved(&mut ctx, name)["options"]["timeout"],
+            saved_policy(&mut ctx, name)["options"]["timeout"],
             serde_json::json!({"type": "tty", "duration": "00:05:00"})
         );
         ctx.assert_command_success("o timeout unset --type --duration");
-        assert!(saved(&mut ctx, name)["options"].get("timeout").is_none());
+        assert!(
+            saved_policy(&mut ctx, name)["options"]
+                .get("timeout")
+                .is_none()
+        );
         // a field that this version does not know is kept
         ctx.opt(Level::Role)
             .as_ref()
@@ -1108,7 +1112,7 @@ mod tests {
             assert!(ctx.run_command(command).is_err(), "{command}");
         }
         ctx.assert_command_no_change("r complete t t_complete o show timeout");
-        let saved = saved(&mut ctx, name);
+        let saved = saved_policy(&mut ctx, name);
         assert!(saved["options"].get("timeout").is_none());
         assert_eq!(
             saved_role(&saved, "complete")["options"]["timeout"],
@@ -1136,7 +1140,7 @@ mod tests {
         ] {
             assert!(ctx.run_command(command).is_err(), "{command}");
         }
-        let saved = saved(&mut ctx, name);
+        let saved = saved_policy(&mut ctx, name);
         assert_eq!(
             saved["options"]["env"]["keep"],
             serde_json::json!(["env1", "env2", "A", "LC_*", "*_PROXY"])
@@ -1286,7 +1290,7 @@ mod tests {
         ] {
             ctx.assert_command_success(command);
         }
-        let policy = saved(&mut ctx, name);
+        let policy = saved_policy(&mut ctx, name);
         let options = &policy["options"];
         assert!(options["path"].get("add").is_none(), "{options}");
         assert!(options["path"].get("sub").is_none(), "{options}");
@@ -1298,7 +1302,7 @@ mod tests {
         ctx.assert_command_success("r fresh create");
         ctx.assert_command_success("r fresh o path blacklist purge");
         ctx.assert_command_success("r fresh o workdir whitelist purge");
-        let policy = saved(&mut ctx, name);
+        let policy = saved_policy(&mut ctx, name);
         assert!(saved_role(&policy, "fresh").get("options").is_none());
     }
 
@@ -1307,7 +1311,7 @@ mod tests {
         let name = "env_keep_only_keeps_the_other_fields";
         let (mut ctx, _defer) = TestContext::new(name);
         ctx.assert_command_success("o env keep-only A,B");
-        let env = saved(&mut ctx, name)["options"]["env"].clone();
+        let env = saved_policy(&mut ctx, name)["options"]["env"].clone();
         assert_eq!(
             env,
             serde_json::json!({
@@ -1319,11 +1323,122 @@ mod tests {
             })
         );
         ctx.assert_command_success("o env delete-only C");
-        let env = saved(&mut ctx, name)["options"]["env"].clone();
+        let env = saved_policy(&mut ctx, name)["options"]["env"].clone();
         assert_eq!(env["default"], "keep");
         assert_eq!(env["delete"], serde_json::json!(["C"]));
         assert_eq!(env["keep"], serde_json::json!(["A", "B"]));
         assert_eq!(env["check"], serde_json::json!(["env3", "env4"]));
+    }
+
+    #[test]
+    fn test_simple_edits_are_saved() {
+        let name = "simple_edits_are_saved";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for command in [
+            "o root user",
+            "o bounding strict",
+            "o auth skip",
+            "o info hide",
+            "o umask 077",
+            "r complete o root user",
+            "r complete o umask 027",
+            "r complete t t_complete o workdir set /srv",
+            "r complete t t_complete o auth perform",
+            "r complete grant -u alice -g staff&wheel",
+            "r complete t t_complete cred set --setuid root --setgid root,adm",
+            "r complete t t_complete cred caps whitelist add cap_net_raw",
+            "r complete t t_complete cmd whitelist add /usr/bin/id -u",
+            "r complete t t_complete cmd setpolicy deny-all",
+            "r complete t t2 add",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        let global = &saved["options"];
+        assert_eq!(global["root"], "user");
+        assert_eq!(global["bounding"], "strict");
+        assert_eq!(global["authentication"], "skip");
+        assert_eq!(global["execinfo"], "hide");
+        assert_eq!(global["umask"], "077");
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["options"]["root"], "user");
+        assert_eq!(role["options"]["umask"], "027");
+        let actors = role["actors"].as_array().unwrap();
+        assert!(actors.contains(&serde_json::json!({"type": "user", "id": "alice"})));
+        assert!(
+            actors.contains(&serde_json::json!({"type": "group", "groups": ["staff", "wheel"]}))
+        );
+        let task = saved_task(&saved, "complete", "t_complete");
+        assert_eq!(task["options"]["workdir"], "/srv");
+        assert_eq!(task["options"]["authentication"], "perform");
+        assert_eq!(task["cred"]["setuid"], "root");
+        assert_eq!(task["cred"]["setgid"], serde_json::json!(["root", "adm"]));
+        assert!(
+            task["cred"]["capabilities"]["add"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::from("NET_RAW"))
+        );
+        assert_eq!(task["commands"]["default"], "none");
+        assert!(
+            task["commands"]["add"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::from("/usr/bin/id -u"))
+        );
+        assert_eq!(saved_task(&saved, "complete", "t2")["name"], "t2");
+        // deletions
+        for command in ["o root del", "o umask del", "r complete t t2 del"] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        assert!(saved["options"].get("root").is_none());
+        assert!(saved["options"].get("umask").is_none());
+        assert!(
+            saved_role(&saved, "complete")["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|task| task["name"] != "t2")
+        );
+    }
+
+    #[test]
+    fn test_cred_setuid_and_setgid_forms() {
+        let name = "cred_setuid_and_setgid_forms";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for (command, setuid, setgid) in [
+            (
+                "r complete t t_complete cred set -u root -g adm",
+                "root",
+                serde_json::json!("adm"),
+            ),
+            (
+                "r complete t t_complete cred set --setuid=nobody --setgid=root&adm",
+                "nobody",
+                serde_json::json!(["root", "adm"]),
+            ),
+            (
+                "r complete t t_complete cred set --setuid daemon --setgid root,adm,staff",
+                "daemon",
+                serde_json::json!(["root", "adm", "staff"]),
+            ),
+        ] {
+            ctx.assert_command_success(command);
+            let saved = saved_policy(&mut ctx, name);
+            let cred = &saved_task(&saved, "complete", "t_complete")["cred"];
+            assert_eq!(cred["setuid"], setuid, "{command}");
+            assert_eq!(cred["setgid"], setgid, "{command}");
+        }
+    }
+
+    #[test]
+    fn test_umask_is_octal() {
+        let (mut ctx, _defer) = TestContext::new("umask_is_octal");
+        for command in ["o umask 999", "o umask 1000", "o umask 7777"] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert!(ctx.opt(Level::Global).as_ref().borrow().umask.is_none());
     }
 
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
