@@ -13,7 +13,7 @@ use crate::orchestrator::{Orchestrator, PreExecContext};
 use super::event::{EventRegistry, PollEvent, Process, StopReason};
 use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
-use super::signal::{SignalStream, register_signal_handler};
+use super::signal::{SignalStream, register_signal_handler, terminate_process};
 use super::terminal::{ProcessId, TermSize, TerminalExt, UserTerm};
 
 pub struct SimpleFileLogger {
@@ -301,10 +301,7 @@ impl ExecRunner {
 
         if !suspended {
             error!("runner: no process group to suspend, terminating the command");
-            if self.command_pid > 0 {
-                // SAFETY: killpg does not access memory, it only sends a signal to the command's group
-                unsafe { libc::killpg(self.command_pid, libc::SIGKILL) };
-            }
+            terminate_process(self.command_pid, true);
             return None;
         }
         // dosr was continued
@@ -459,10 +456,7 @@ pub fn run_no_pty(
                             return Ok(status);
                         }
                     }
-                    libc::SIGALRM => {
-                        // SAFETY: kill does not access memory, it only sends a signal to the command
-                        unsafe { libc::kill(child_pid, libc::SIGKILL) };
-                    }
+                    libc::SIGALRM => terminate_process(child_pid, false),
                     libc::SIGWINCH => {
                         // SAFETY: kill does not access memory, it only sends a signal to the command
                         unsafe { libc::kill(child_pid, libc::SIGWINCH) };

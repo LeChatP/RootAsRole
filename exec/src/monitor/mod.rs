@@ -6,9 +6,9 @@ use std::process::Command;
 use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
-use crate::signal::{SignalInfo, SignalStream, register_signal_handler};
+use crate::signal::{SignalInfo, SignalStream, register_signal_handler, terminate_process};
 use crate::terminal::{ProcessId, TerminalExt};
-use libc::{SIGCHLD, SIGKILL};
+use libc::SIGCHLD;
 use log::{debug, error, trace, warn};
 
 pub mod backchannel;
@@ -97,8 +97,7 @@ impl Process for MonitorClosure {
                         if is_forward_signal_allowed(sig) {
                             if let Some(pid) = self.command_pid {
                                 if sig == libc::SIGALRM {
-                                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                                    terminate_process(pid, false);
                                 } else {
                                     // SAFETY: kill does not access memory, it only sends a signal to the command
                                     unsafe { libc::kill(pid, sig) };
@@ -197,8 +196,7 @@ impl MonitorClosure {
             if is_forward_signal_allowed(info.signal) {
                 debug!("monitor: forwarding signal {}", info.signal);
                 if info.signal == libc::SIGALRM {
-                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                    terminate_process(pid, false);
                 } else {
                     // SAFETY: kill does not access memory, it only sends a signal to the command
                     unsafe { libc::kill(pid, info.signal) };
@@ -431,10 +429,9 @@ pub fn exec_monitor_process(
         monitor.monitor_pgrp
     );
 
-    // Cleanup
+    // Cleanup: the command still runs although the monitor is done (the runner is gone)
     if let Some(pid) = monitor.command_pid {
-        // SAFETY: kill does not access memory, it only sends a signal to the command
-        unsafe { libc::kill(pid, SIGKILL) };
+        terminate_process(pid, true);
         let mut status = 0;
         // SAFETY: waitpid only writes the exit status through a pointer to a local integer
         unsafe { libc::waitpid(pid, &raw mut status, 0) };

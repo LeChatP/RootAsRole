@@ -229,6 +229,35 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     Ok(())
 }
 
+/// How long a command is given to end after `SIGHUP` and `SIGTERM`, before `SIGKILL`, like sudo.
+pub const TERMINATION_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Stop a command with increasing urgency, like sudo's `terminate_command`.
+///
+/// `SIGHUP`, `SIGTERM`, then `SIGKILL` once [`TERMINATION_DELAY`] has passed, so that the command
+/// can clean up first. With `process_group`, the signals go to the process group `pid` instead of
+/// the process.
+pub fn terminate_process(pid: libc::pid_t, process_group: bool) {
+    // kill(0) and killpg(0) would signal dosr's own group, kill(-1) every process it may signal
+    if pid <= 0 {
+        return;
+    }
+    let send = |signal| {
+        // SAFETY: kill and killpg do not access memory, they only send a signal
+        unsafe {
+            if process_group {
+                libc::killpg(pid, signal)
+            } else {
+                libc::kill(pid, signal)
+            }
+        };
+    };
+    send(libc::SIGHUP);
+    send(libc::SIGTERM);
+    std::thread::sleep(TERMINATION_DELAY);
+    send(libc::SIGKILL);
+}
+
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
@@ -236,6 +265,59 @@ mod tests {
         MUTEX,
         signal::{self, SignalStream},
     };
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    /// A shell in its own process group, given time to set its traps up.
+    fn spawn_shell(script: &str) -> (std::process::Child, libc::pid_t) {
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .process_group(0)
+            .spawn()
+            .expect("spawn the shell");
+        std::thread::sleep(Duration::from_millis(300));
+        let pid = libc::pid_t::try_from(child.id()).expect("pid in range");
+        (child, pid)
+    }
+
+    // A command that handles SIGHUP or SIGTERM cleans up and ends before SIGKILL.
+    #[test]
+    fn terminate_process_lets_the_command_clean_up() {
+        let _guard = MUTEX.lock().unwrap();
+        let marker =
+            std::env::temp_dir().join(format!("rar-terminate-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let (mut child, pid) = spawn_shell(&format!(
+            "trap 'echo done > {}; exit 3' HUP TERM; while :; do sleep 0.1; done",
+            marker.display()
+        ));
+
+        signal::terminate_process(pid, true);
+        let status = child.wait().expect("wait for the shell");
+        let cleaned = marker.exists();
+        let _ = std::fs::remove_file(&marker);
+        assert_eq!(
+            status.code(),
+            Some(3),
+            "the shell ended on its own: {status:?}"
+        );
+        assert!(cleaned, "the shell cleaned up");
+    }
+
+    // A command that ignores SIGHUP and SIGTERM is killed once the delay has passed.
+    #[test]
+    fn terminate_process_kills_a_command_that_ignores_the_signals() {
+        let _guard = MUTEX.lock().unwrap();
+        let (mut child, pid) = spawn_shell("trap '' HUP TERM; while :; do sleep 0.1; done");
+
+        let start = Instant::now();
+        signal::terminate_process(pid, true);
+        let status = child.wait().expect("wait for the shell");
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+        assert!(start.elapsed() >= signal::TERMINATION_DELAY);
+    }
 
     #[test]
     fn test_signals_combined() {
