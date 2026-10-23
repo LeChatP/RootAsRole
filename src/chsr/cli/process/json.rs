@@ -947,9 +947,13 @@ pub fn path_setlist2(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path set whitelist|blacklist add|del|set path1:path2:path3 22222222222");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        // removing from a list that the level does not define changes nothing
+        if binding.path.is_none() && !matches!(action, InputAction::Add | InputAction::Set) {
+            warn!("No path option at this level, nothing to remove");
+            return Ok(());
+        }
+        let path = binding.path.get_or_insert_default();
         match setlist_type {
             Some(SetListType::White) => match action {
                 InputAction::Add => {
@@ -1202,9 +1206,13 @@ pub fn env_setlist_add(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path {setlist_type:?} {action:?} path1 path2 path3");
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
-        let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        // removing from a list that the level does not define changes nothing
+        if binding.env.is_none() && !matches!(action, InputAction::Add | InputAction::Set) {
+            warn!("No env option at this level, nothing to remove");
+            return Ok(());
+        }
+        let env = binding.env.get_or_insert_default();
 
         match setlist_type {
             Some(SetListType::White) => match action {

@@ -16,7 +16,7 @@ use log::debug;
 
 use rootasrole_core::{
     database::{
-        options::{Opt, OptType},
+        options::{Level, Opt, OptType},
         structs::{IdTask, RoleGetter},
     },
     file::FileSettings,
@@ -529,15 +529,18 @@ pub fn perform_on_target_opt(
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    // Helper function to execute on option or create a new one
+    /// Execute on the options of the level, created empty when the level has none: only what
+    /// the command sets is written, the other options stay inherited. `Opt::default()` would
+    /// write every built-in default at that level, which replaces the lists of the upper levels.
     fn execute_or_create_option(
         exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
         options: &mut Option<Rc<RefCell<Opt>>>,
+        level: Level,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(opt) = options {
             exec_on_opt(opt.clone())
         } else {
-            let new_opt = Rc::new(RefCell::new(Opt::default()));
+            let new_opt = Rc::new(RefCell::new(Opt::builder(level).build()));
             let result = exec_on_opt(new_opt.clone());
             *options = Some(new_opt);
             result
@@ -552,12 +555,20 @@ pub fn perform_on_target_opt(
         // If task_id is provided, find the task
         if let Some(task_id) = task_id {
             let task = role_borrowed.task(&task_id).ok_or("Task not found")?;
-            return execute_or_create_option(exec_on_opt, &mut task.as_ref().borrow_mut().options);
+            return execute_or_create_option(
+                exec_on_opt,
+                &mut task.as_ref().borrow_mut().options,
+                Level::Task,
+            );
         }
         // No task_id, use role options
-        return execute_or_create_option(exec_on_opt, &mut role_borrowed.options);
+        return execute_or_create_option(exec_on_opt, &mut role_borrowed.options, Level::Role);
     }
 
     // No role_id, use global config options
-    execute_or_create_option(exec_on_opt, &mut rconfig.as_ref().borrow_mut().options)
+    execute_or_create_option(
+        exec_on_opt,
+        &mut rconfig.as_ref().borrow_mut().options,
+        Level::Global,
+    )
 }

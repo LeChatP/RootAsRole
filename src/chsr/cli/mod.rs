@@ -993,6 +993,77 @@ mod tests {
         assert!(usage_without_policy(["upgrade"]).is_none());
     }
 
+    /// The policy as saved in the file of the test `name`.
+    fn saved(ctx: &mut TestContext, name: &str) -> Value {
+        ctx.settings.save_all().unwrap();
+        serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
+            .unwrap()
+    }
+
+    fn saved_role<'v>(saved: &'v Value, role: &str) -> &'v Value {
+        saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == role)
+            .unwrap()
+    }
+
+    fn saved_task<'v>(saved: &'v Value, role: &str, task: &str) -> &'v Value {
+        saved_role(saved, role)["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == task)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_new_options_hold_only_what_is_set() {
+        let name = "new_options_hold_only_what_is_set";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.settings.get_root().config.as_ref().borrow_mut().options = None;
+        ctx.assert_command_success("o bounding strict");
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o root user");
+        ctx.assert_command_success("r fresh t t1 add");
+        ctx.assert_command_success("r fresh t t1 o path whitelist add /opt/bin");
+        let saved = saved(&mut ctx, name);
+        // the other options stay inherited, not written with the built-in defaults
+        assert_eq!(saved["options"], serde_json::json!({"bounding": "strict"}));
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"root": "user"})
+        );
+        assert_eq!(
+            saved_task(&saved, "fresh", "t1")["options"],
+            serde_json::json!({"path": {"add": ["/opt/bin"]}})
+        );
+    }
+
+    #[test]
+    fn test_list_edits_on_a_level_without_the_option() {
+        let name = "list_edits_on_a_level_without_the_option";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh t t1 add");
+        ctx.assert_command_success("r fresh t t1 o env whitelist add MYVAR");
+        ctx.assert_command_success("r fresh t t1 o env checklist add TZ");
+        ctx.assert_command_success("r fresh o path blacklist add /tmp");
+        // removing from a list that the level does not define changes nothing
+        ctx.assert_command_success("r fresh o env blacklist del LD_PRELOAD");
+        ctx.assert_command_success("r fresh t t1 o path whitelist del /usr/bin");
+        let saved = saved(&mut ctx, name);
+        assert_eq!(
+            saved_task(&saved, "fresh", "t1")["options"],
+            serde_json::json!({"env": {"keep": ["MYVAR"], "check": ["TZ"]}})
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"path": {"sub": ["/tmp"]}})
+        );
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)
