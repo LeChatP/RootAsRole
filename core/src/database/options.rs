@@ -134,7 +134,9 @@ pub struct SPassword {
 pub struct STimeout {
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_field: Option<TimestampType>,
+    // `default`: with `deserialize_with`, serde requires the field, even an `Option`
     #[serde(
+        default,
         serialize_with = "serialize_duration",
         deserialize_with = "deserialize_duration",
         skip_serializing_if = "Option::is_none"
@@ -1924,6 +1926,18 @@ mod tests {
 
         // This should serialize as just a string, not as a struct
         assert_tokens(&umask, &[Token::Str("644")]);
+    }
+
+    #[test]
+    fn test_timeout_fields_are_optional() {
+        // every field may be left to the upper levels, the duration as the others
+        let timeout: STimeout = serde_json::from_str(r#"{"type": "tty"}"#).unwrap();
+        assert_eq!(timeout.type_field, Some(TimestampType::TTY));
+        assert_eq!(timeout.duration, None);
+        let timeout: STimeout = serde_json::from_str("{}").unwrap();
+        assert_eq!(timeout, STimeout::default());
+        let opt: Opt = serde_json::from_str(r#"{"timeout": {"max_usage": 2}}"#).unwrap();
+        assert_eq!(opt.timeout.unwrap().max_usage, Some(2));
     }
 
     #[test]

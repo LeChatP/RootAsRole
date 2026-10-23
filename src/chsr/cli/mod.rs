@@ -993,11 +993,13 @@ mod tests {
         assert!(usage_without_policy(["upgrade"]).is_none());
     }
 
-    /// The policy as saved in the file of the test `name`.
+    /// The policy as saved in the file of the test `name`, which must load again (parsed, not
+    /// opened: the test still holds the lock of the file).
     fn saved(ctx: &mut TestContext, name: &str) -> Value {
         ctx.settings.save_all().unwrap();
-        serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
-            .unwrap()
+        let content = fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap();
+        serde_json::from_str::<RootSettings>(&content).expect("the saved policy loads again");
+        serde_json::from_str(&content).unwrap()
     }
 
     fn saved_role<'v>(saved: &'v Value, role: &str) -> &'v Value {
