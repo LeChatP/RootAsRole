@@ -1,7 +1,7 @@
 # Maintainer: Eddie Billoir <lechatp@outlook.fr>
 
 pkgname=rootasrole
-pkgver=4.1.0
+pkgver=4.2.0
 pkgrel=1
 pkgdesc='Alternative to sudo to run some administrative commands that uses Linux capabilities and RBAC for scalability.'
 url='https://lechatp.github.io/RootAsRole/'

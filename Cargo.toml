@@ -5,7 +5,7 @@ exclude = ["fuzz", "book", "sudoers-reader"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.93.0"
-version = "4.1.0"
+version = "4.2.0"
 license = "LGPL-3.0-or-later"
 homepage = "https://lechatp.github.io/RootAsRole/"
 repository = "https://github.com/LeChatP/RootAsRole"
@@ -97,8 +97,8 @@ undocumented_unsafe_blocks = { level = "warn", priority = 2 }
 allow-unwrap-in-tests = true
 
 [workspace.dependencies]
-rootasrole-core = { version = "4.1.0", path = "core" }
-rootasrole-exec = { version = "4.1.0", path = "exec" }
+rootasrole-core = { version = "4.2.0", path = "core" }
+rootasrole-exec = { version = "4.2.0", path = "exec" }
 
 [dependencies]
 rootasrole-core = { workspace = true }
