@@ -126,25 +126,26 @@ where
 }
 
 fn convert_string_to_duration(s: &str) -> Result<Option<jiff::SignedDuration>, Box<dyn Error>> {
-    let mut parts = s.split(':');
-    //unwrap or error
-    if let (Some(hours), Some(minutes), Some(seconds)) = (parts.next(), parts.next(), parts.next())
-    {
-        let hours: i64 = hours.parse()?;
-        let minutes: i64 = minutes.parse()?;
-        let seconds: i64 = seconds.parse()?;
-        if hours < 0 || minutes < 0 || seconds < 0 {
-            return Err("A duration cannot be negative".into());
+    // hh:mm:ss, exactly three fields of digits: a sign is never valid, and would be lost on a
+    // zero field ("-00" reads as 0), and nothing may follow the seconds
+    let fields: Vec<&str> = s.split(':').collect();
+    let [hours, minutes, seconds] = fields.as_slice() else {
+        return Err("Invalid duration format, expected hh:mm:ss".into());
+    };
+    let field = |field: &str| -> Result<i64, Box<dyn Error>> {
+        if field.is_empty() || !field.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(format!("Invalid duration field `{field}`, expected digits").into());
         }
-        // checked: a value of the policy must be an error, never a panic of the parser
-        let total = hours
-            .checked_mul(3600)
-            .and_then(|total| total.checked_add(minutes.checked_mul(60)?))
-            .and_then(|total| total.checked_add(seconds))
-            .ok_or("The duration is too long")?;
-        return Ok(Some(jiff::SignedDuration::from_secs(total)));
-    }
-    Err("Invalid duration format".into())
+        Ok(field.parse()?)
+    };
+    let (hours, minutes, seconds) = (field(hours)?, field(minutes)?, field(seconds)?);
+    // checked: a value of the policy must be an error, never a panic of the parser
+    let total = hours
+        .checked_mul(3600)
+        .and_then(|total| total.checked_add(minutes.checked_mul(60)?))
+        .and_then(|total| total.checked_add(seconds))
+        .ok_or("The duration is too long")?;
+    Ok(Some(jiff::SignedDuration::from_secs(total)))
 }
 
 #[cfg(test)]
@@ -164,6 +165,20 @@ mod tests {
             "00:9223372036854775807:00",
             "00:00:-1",
             "-01:00:00",
+        ] {
+            assert!(convert_string_to_duration(duration).is_err(), "{duration}");
+        }
+        // a sign is never valid, not even on a zero field where it would be lost, nor anything
+        // after the seconds
+        for duration in [
+            "-00:00:01",
+            "+00:00:01",
+            "00:-0:01",
+            "00:05:00:00",
+            "00:05:00:junk",
+            "00::05",
+            "00:05",
+            "",
         ] {
             assert!(convert_string_to_duration(duration).is_err(), "{duration}");
         }
