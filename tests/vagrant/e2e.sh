@@ -309,6 +309,23 @@ ssd_role_disabled_by_a_failed_lookup() {
     fi
 }
 
+# with the policy directory of the installation, chsr edits default.json, and leaves the root
+# file and the other policy files as they are
+chsr_edits_the_default_file() {
+    local root_before e2e_before found
+    [ -f "$POLICY_DIR/default.json" ] || return 77
+    root_before=$(sha256sum <"$ROOT_FILE")
+    e2e_before=$(sha256sum <"$E2E_POLICY")
+    chsr role rar-e2e-chsr create || return 1
+    found=$(grep -c '"rar-e2e-chsr"' "$POLICY_DIR/default.json")
+    chsr role rar-e2e-chsr delete || return 1
+    [ "$found" -ge 1 ] &&
+        ! grep -q '"rar-e2e-chsr"' "$POLICY_DIR/default.json" &&
+        [ "$(sha256sum <"$ROOT_FILE")" = "$root_before" ] &&
+        [ "$(sha256sum <"$E2E_POLICY")" = "$e2e_before" ] &&
+        chsr list | grep -q "$POLICY_DIR/default.json"
+}
+
 trap cleanup EXIT
 setup
 check "the policy, its directory included, is immutable" policy_is_immutable
@@ -322,4 +339,5 @@ check "the bounding set is checked before running the command" bounding_set_is_c
 check "the variables of pam_env go through the env filter of the task" pam_env_is_filtered
 check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
+check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 exit "$FAILED"
