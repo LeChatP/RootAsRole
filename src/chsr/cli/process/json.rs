@@ -882,6 +882,8 @@ pub fn unset_password(
     Ok(true)
 }
 
+/// `chsr o timeout unset`: the fields named are removed, then the option once nothing is left
+/// in it.
 pub fn unset_timeout(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -890,38 +892,54 @@ pub fn unset_timeout(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o timeout unset");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut timeout = STimeout::default();
-        if timeout_arg[TimeoutOpt::Type as usize] {
-            timeout.type_field = None;
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(timeout) = opt.timeout.as_mut() {
+            if timeout_arg[TimeoutOpt::Type as usize] {
+                timeout.type_field = None;
+            }
+            if timeout_arg[TimeoutOpt::Duration as usize] {
+                timeout.duration = None;
+            }
+            if timeout_arg[TimeoutOpt::MaxUsage as usize] {
+                timeout.max_usage = None;
+            }
+            if timeout.type_field.is_none()
+                && timeout.duration.is_none()
+                && timeout.max_usage.is_none()
+                && timeout.extra_fields.is_empty()
+            {
+                opt.timeout = None;
+            }
         }
-        if timeout_arg[TimeoutOpt::Duration as usize] {
-            timeout.duration = None;
-        }
-        if timeout_arg[TimeoutOpt::MaxUsage as usize] {
-            timeout.max_usage = None;
-        }
-        if timeout_arg.iter().all(|b| *b) {
-            opt.as_ref().borrow_mut().timeout = None;
-        } else {
-            opt.as_ref().borrow_mut().timeout = Some(timeout);
-        }
-
         Ok(())
     })?;
     Ok(true)
 }
 
+/// `chsr o timeout set`: the fields given are changed, the others and the unknown fields of the
+/// option are kept.
 pub fn set_timeout(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
+    timeout_arg: [bool; 3],
     timeout_type: Option<rootasrole_core::database::options::TimestampType>,
     timeout_duration: Option<SignedDuration>,
     timeout_max_usage: Option<u64>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o timeout set");
+    if timeout_arg[TimeoutOpt::Type as usize] && timeout_type.is_none() {
+        return Err("--type needs tty, ppid or uid".into());
+    }
+    if timeout_arg[TimeoutOpt::Duration as usize] && timeout_duration.is_none() {
+        return Err("--duration needs a duration".into());
+    }
+    if timeout_arg[TimeoutOpt::MaxUsage as usize] && timeout_max_usage.is_none() {
+        return Err("--max-usage needs a number".into());
+    }
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut timeout = STimeout::default();
+        let mut opt = opt.as_ref().borrow_mut();
+        let timeout = opt.timeout.get_or_insert_with(STimeout::default);
         if let Some(timeout_type) = timeout_type {
             timeout.type_field = Some(timeout_type);
         }
@@ -931,7 +949,6 @@ pub fn set_timeout(
         if let Some(max_usage) = timeout_max_usage {
             timeout.max_usage = Some(max_usage);
         }
-        opt.as_ref().borrow_mut().timeout = Some(timeout);
         Ok(())
     })?;
     Ok(true)

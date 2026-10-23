@@ -1064,6 +1064,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_options_timeout() {
+        let name = "options_timeout";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // set changes the fields given and keeps the others
+        ctx.assert_command_success("o timeout set --type tty");
+        ctx.assert_command_success("o timeout set -d 5:00");
+        assert_eq!(
+            saved(&mut ctx, name)["options"]["timeout"],
+            serde_json::json!({"type": "tty", "duration": "00:05:00", "max_usage": 1})
+        );
+        // unset removes the fields named, then the option once nothing is left
+        ctx.assert_command_success("o timeout unset --max-usage");
+        assert_eq!(
+            saved(&mut ctx, name)["options"]["timeout"],
+            serde_json::json!({"type": "tty", "duration": "00:05:00"})
+        );
+        ctx.assert_command_success("o timeout unset --type --duration");
+        assert!(saved(&mut ctx, name)["options"].get("timeout").is_none());
+        // a field that this version does not know is kept
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .timeout
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o timeout unset --type --duration --max-usage");
+        ctx.assert_command_success("r complete o timeout set --max-usage 3");
+        // a level without the option
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o timeout set --type uid");
+        // refused, without a change
+        for command in [
+            "o timeout set --type",
+            "o timeout set --duration",
+            "o timeout set --max-usage",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        ctx.assert_command_no_change("r complete t t_complete o show timeout");
+        let saved = saved(&mut ctx, name);
+        assert!(saved["options"].get("timeout").is_none());
+        assert_eq!(
+            saved_role(&saved, "complete")["options"]["timeout"],
+            serde_json::json!({"max_usage": 3, "future": 1})
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"timeout": {"type": "uid"}})
+        );
+    }
+
     /// The password option of `level`, as (tries, delay in seconds, unknown fields).
     fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
         ctx.opt(level)
