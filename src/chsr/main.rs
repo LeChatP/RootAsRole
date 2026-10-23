@@ -36,6 +36,14 @@ mod cli;
 mod security;
 mod util;
 
+/// Report an error that stops chsr, on stderr and in the log.
+#[cfg(not(tarpaulin_include))]
+fn failure(message: &str) -> std::process::ExitCode {
+    log::error!("{message}");
+    rootasrole_core::eprintln_ignore_io_error!("chsr: {message}");
+    std::process::ExitCode::FAILURE
+}
+
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     use std::{env::temp_dir, process::ExitCode};
@@ -65,14 +73,36 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         Cap::LINUX_IMMUTABLE,
     ])?;
 
-    let folder = nix::unistd::mkdtemp(&temp_dir().join("chsr_XXXXXX"))
-        .expect("Failed to create temporary folder");
+    // argv is untrusted: a non-UTF-8 argument is refused, std::env::args() would panic
+    let Ok(args) = std::env::args_os()
+        .skip(1)
+        .map(std::ffi::OsString::into_string)
+        .collect::<Result<Vec<String>, _>>()
+    else {
+        return Ok(failure("an argument is not valid UTF-8"));
+    };
+    // --help and a usage error need neither the policy nor the temporary folder
+    if let Some(result) = cli::usage_without_policy(&args) {
+        return Ok(if result.is_ok() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        });
+    }
+
+    let folder = match nix::unistd::mkdtemp(&temp_dir().join("chsr_XXXXXX")) {
+        Ok(folder) => folder,
+        Err(e) => return Ok(failure(&format!("cannot create a temporary folder: {e}"))),
+    };
     let _cleanup = defer(|| {
         let _ = std::fs::remove_dir_all(&folder);
     });
 
-    let mut settings = FileSettings::write_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE)
-        .expect("Error on config read");
+    let mut settings = match FileSettings::write_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE)
+    {
+        Ok(settings) => settings,
+        Err(e) => return Ok(failure(&format!("cannot read the policy: {e}"))),
+    };
 
     // Apply Landlock restrictions
     let ruleset_status = match full_program_lock(
@@ -93,7 +123,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         }
     };
 
-    match cli::main(&mut settings, std::env::args().skip(1))
+    match cli::main(&mut settings, &args)
         .ruleset(&ruleset_status)
         .folder(&folder)
         .call()

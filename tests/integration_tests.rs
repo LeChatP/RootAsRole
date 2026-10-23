@@ -62,6 +62,23 @@ mod tests {
         }
     }
 
+    /// chsr prints its usage without reading the policy, so without any privilege.
+    #[test]
+    fn test_chsr_help_without_the_policy() {
+        let Some(chsr) = option_env!("CARGO_BIN_EXE_chsr") else {
+            eprintln!("Skipping: chsr is not built (feature editor)");
+            return;
+        };
+        let output = std::process::Command::new(chsr)
+            .arg("--help")
+            .output()
+            .expect("Failed to run chsr");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{stderr}");
+        assert!(!stderr.contains("panicked"), "{stderr}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("chsr"));
+    }
+
     #[test]
     fn test_all_dosr() {
         if let Ok(r) = try_run_dosr(

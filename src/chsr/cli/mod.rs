@@ -11,7 +11,7 @@ pub mod usage;
 use std::{error::Error, path::PathBuf};
 
 use bon::builder;
-use data::{Cli, Inputs, Rule};
+use data::{Cli, InputAction, Inputs, Rule};
 
 use landlock::RulesetStatus;
 use log::debug;
@@ -22,6 +22,30 @@ use rootasrole_core::file::FileSettings;
 use usage::print_usage;
 
 use crate::{cli::editor::start_editing, util::escape_parser_string_vec};
+
+/// What chsr does without the policy: print the usage for `--help`, or when the arguments
+/// cannot be parsed. `None` when the arguments need the policy, which chsr then reads.
+pub fn usage_without_policy<I, S>(args: I) -> Option<Result<bool, Box<dyn Error>>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args = escape_parser_string_vec(args);
+    let pairs = match Cli::parse(Rule::cli, &args) {
+        Ok(pairs) => pairs,
+        Err(e) => return Some(print_usage(e)),
+    };
+    let mut inputs = Inputs::default();
+    for pair in pairs {
+        if let Err(e) = recurse_pair(pair, &mut inputs) {
+            return Some(Err(e));
+        }
+    }
+    (inputs.action == InputAction::Help).then(|| {
+        usage::help();
+        Ok(false)
+    })
+}
 
 #[builder]
 pub fn main<I, S>(
@@ -953,6 +977,21 @@ mod tests {
     // chsr o workdir set /home/user
     // chsr o workdir setpolicy (all|none|inherit)
     // chsr o workdir (whitelist|blacklist) (add|del|set|purge) /home/user/**
+
+    #[test]
+    fn test_usage_without_policy() {
+        // printed without the policy
+        assert!(matches!(usage_without_policy(["--help"]), Some(Ok(false))));
+        assert!(matches!(usage_without_policy(["-h"]), Some(Ok(false))));
+        assert!(matches!(
+            usage_without_policy(["not-a-command"]),
+            Some(Err(_))
+        ));
+        // these need the policy
+        assert!(usage_without_policy(["list"]).is_none());
+        assert!(usage_without_policy(["role", "r", "add"]).is_none());
+        assert!(usage_without_policy(["upgrade"]).is_none());
+    }
 
     #[test]
     fn test_all_main() {
