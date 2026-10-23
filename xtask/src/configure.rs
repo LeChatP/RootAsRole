@@ -17,8 +17,8 @@ use crate::util::{
     ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, INFO,
     ImmutableLock, Opt, OsTarget, PACKAGE_VERSION, PAM_CONFIG_SERVICE, Policy, RAR_AUTHENTICATION,
     RAR_BOUNDING, RAR_CFG_DATA_PATH, RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE,
-    RAR_USER_CONSIDERED, RootSettings, SEnvOptions, SPathOptions, STimeout, SWorkdirSet,
-    TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST_SLICE,
+    RAR_USER_CONSIDERED, RemoteStorageSettings, RootSettings, SEnvOptions, SPathOptions, STimeout,
+    SWorkdirSet, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST_SLICE,
     WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST_SLICE, cap_effective,
     toggle_lock_config,
 };
@@ -65,11 +65,17 @@ pub fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
 }
 
 fn set_immutable(config: &mut RootSettings, value: bool) {
-    if let Some(settings) = config.storage.settings.as_mut()
-        && let Some(mut _immutable) = settings.immutable
-    {
-        _immutable = value;
-    }
+    // written in the root file: without it, dosr and chsr take the build default (true), even
+    // on a file system without immutable flags; the value was set on a copy before
+    config
+        .storage
+        .settings
+        .get_or_insert_with(|| RemoteStorageSettings {
+            immutable: None,
+            path: None,
+            extra_fields: Value::Object(serde_json::Map::new()),
+        })
+        .immutable = Some(value);
 
     if !value {
         let roles = config
@@ -463,5 +469,17 @@ mod tests {
             resolve_policy_path(Path::new("/etc/security/rootasrole.json")),
             PathBuf::from("/etc/security/rootasrole.json")
         );
+    }
+
+    #[test]
+    fn test_set_immutable_writes_the_value() {
+        let template = include_str!("../../resources/rootasrole.json")
+            .replace("PACKAGE_VERSION", &PACKAGE_VERSION.to_string());
+        for value in [true, false] {
+            let mut settings: RootSettings = serde_json::from_str(&template).unwrap();
+            set_immutable(&mut settings, value);
+            let written = serde_json::to_value(&settings).unwrap();
+            assert_eq!(written["storage"]["settings"]["immutable"], value);
+        }
     }
 }
