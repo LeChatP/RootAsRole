@@ -239,8 +239,10 @@ impl From<u32> for SUserEither {
     }
 }
 
+/// Like the other credentials, a set of users refuses the fields it does not know, as dosr
+/// does: a typo there must not leave a privilege granted.
 #[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
-
+#[serde(deny_unknown_fields)]
 pub struct SSetuidSet {
     #[serde(
         alias = "d",
@@ -264,10 +266,6 @@ pub struct SSetuidSet {
     )]
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SUserType>,
-    /// The fields that this version does not know, kept when the policy is saved again
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
-    #[builder(default)]
-    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
@@ -973,16 +971,36 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_fields_of_sets_survive_a_round_trip() {
-        use crate::{RemoteStorageSettings, SettingsContent, database::options::SWorkdirSet};
+    fn test_credentials_refuse_unknown_fields() {
+        // a typo in what grants privileges is an error, as in dosr
+        assert!(
+            serde_json::from_str::<SSetuidSet>(
+                r#"{"default": "all", "fallback": "root", "fallbak": "x"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<SSetgidSet>(
+                r#"{"default": "all", "fallback": ["root"], "sbu": ["adm"]}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<SCapabilities>(r#"{"default": "all", "sbu": ["SYS_ADMIN"]}"#)
+                .is_err()
+        );
         let setuid: SSetuidSet =
-            serde_json::from_str(r#"{"default": "all", "fallback": "root", "future": 1}"#).unwrap();
-        assert_eq!(setuid.extra_fields.get("future"), Some(&Value::from(1)));
-        assert_eq!(serde_json::to_value(&setuid).unwrap()["future"], 1);
+            serde_json::from_str(r#"{"default": "all", "fallback": "root", "add": ["daemon"]}"#)
+                .unwrap();
         let mut cbor = Vec::new();
         cbor4ii::serde::to_writer(&mut cbor, &setuid).unwrap();
         let back: SSetuidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
         assert_eq!(back, setuid);
+    }
+
+    #[test]
+    fn test_unknown_fields_of_sets_survive_a_round_trip() {
+        use crate::{RemoteStorageSettings, SettingsContent, database::options::SWorkdirSet};
         let workdir: SWorkdirSet =
             serde_json::from_str(r#"{"default": "all", "future": 1}"#).unwrap();
         assert_eq!(serde_json::to_value(&workdir).unwrap()["future"], 1);

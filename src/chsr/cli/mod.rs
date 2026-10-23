@@ -1229,7 +1229,7 @@ mod tests {
         let _cleanup = defer(|| {
             let _ = fs::remove_file(format!("{RAR_CFG_PATH}.unknown_fields_survive_a_save"));
         });
-        // cred.capabilities and cred.setgid refuse unknown fields, a typo there is an error
+        // the credential sets (setuid, setgid, capabilities) refuse unknown fields, as dosr does
         let policy = serde_json::json!({
             "version": rootasrole_core::PACKAGE_VERSION.to_string(),
             "future": 1,
@@ -1246,7 +1246,7 @@ mod tests {
                 "options": {"future": 1, "path": {"default": "keep-safe", "future": 1}},
                 "tasks": [{"name": "t", "future": 1,
                     "cred": {"future": 1,
-                        "setuid": {"default": "all", "fallback": "root", "future": 1},
+                        "setuid": {"default": "all", "fallback": "root"},
                         "setgid": {"default": "all", "fallback": ["root"]},
                         "capabilities": {"default": "none", "add": ["CAP_NET_RAW"]}},
                     "commands": {"default": "none", "add": ["/usr/bin/ls"], "future": 1},
@@ -1266,7 +1266,7 @@ mod tests {
         let (mut before, mut after) = (Vec::new(), Vec::new());
         future_fields(&policy, "", &mut before);
         future_fields(&saved, "", &mut after);
-        assert_eq!(before.len(), 19);
+        assert_eq!(before.len(), 18);
         let lost: Vec<_> = before
             .iter()
             .filter(|field| !after.contains(field))
