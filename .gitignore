@@ -61,9 +61,10 @@ obj/
 bin/
 
 # Hidden folders (for Linux IDE)
-/.idea/
 *target/
-*/src/xml_version.rs
+/.*/
+!/.cargo/
+!/.github/
 
 # Rust crates
 */Cargo.lock
