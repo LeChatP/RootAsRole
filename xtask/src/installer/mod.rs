@@ -15,7 +15,7 @@ use semver::Version;
 
 use anyhow::anyhow;
 use capctl::{Cap, CapState};
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use crate::util::path_exe_from_env;
 use crate::{
@@ -39,7 +39,7 @@ pub struct InstallOptions {
     #[clap(long, hide = true)]
     pub nested_install: bool,
 
-    /// The OS target for PAM configuration and dependencies installation (if -i is set)
+    /// The OS target for PAM configuration and the packages to check
     /// By default, it tries to autodetect it
     #[clap(long, short)]
     pub os: Option<OsTarget>,
@@ -48,33 +48,13 @@ pub struct InstallOptions {
     #[clap(long, short = 'b')]
     pub build: bool,
 
-    /// Install dependencies before building
-    #[clap(long, short = 'i')]
+    /// Deprecated, does nothing: the packages are checked, and are installed by the administrator
+    #[clap(long, short = 'i', hide = true)]
     pub install_dependencies: bool,
 
     /// Clean the target directory after installing
     #[clap(long, short = 'a')]
     pub clean_after: bool,
-}
-
-#[derive(Debug, Parser)]
-pub struct InstallDependenciesOptions {
-    /// The OS target for PAM configuration and dependencies installation (if -i is set)
-    /// By default, it tries to autodetect it
-    #[clap(long, short)]
-    pub os: Option<OsTarget>,
-
-    /// Install dependencies before installing
-    #[clap(long, short = 'i')]
-    pub install_dependencies: bool,
-
-    /// Install development dependencies for compiling
-    #[clap(long, short = 'd')]
-    pub dev: bool,
-
-    /// The binary to elevate privileges
-    #[clap(long, short = 'p', visible_alias = "privbin")]
-    pub priv_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Parser)]
@@ -306,11 +286,6 @@ pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     configure::configure(os)
 }
 
-/// In a dry run, the commands of the package manager are printed, not run (`run_checked`).
-pub fn dependencies(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
-    dependencies::install(opts)
-}
-
 /// What the privileged part of `install` would change, for a dry run: these steps change the
 /// system without a command that a dry run could print.
 fn install_plan(opts: &InstallOptions, priv_bin: Option<&Path>) -> Vec<String> {
@@ -370,17 +345,16 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
             )
         });
     if opts.install_dependencies {
-        debug!("Installing dependencies");
-        dependencies(&InstallDependenciesOptions {
-            os: Some(os.clone()),
-            install_dependencies: true,
-            dev: opts.build,
-            priv_bin: priv_bin.clone(),
-        })?;
+        warn!(
+            "-i is deprecated and does nothing: xtask checks the packages, install the missing ones yourself"
+        );
     }
     if opts.build {
         debug!("Building sr and chsr");
-        build(&opts.build_opts)?;
+        dependencies::check(&os, true)?;
+        build::build(&opts.build_opts)?;
+    } else {
+        dependencies::check(&os, false)?;
     }
     if is_dry_run() {
         print_plan("install", &install_plan(opts, priv_bin.as_deref()));
@@ -405,7 +379,13 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
     }
 }
 
+/// Build, once the packages to build are checked. An OS that is not detected is only warned
+/// about: the build tells then.
 pub fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
+    match get_os(None) {
+        Ok(os) => dependencies::check(&os, true)?,
+        Err(e) => warn!("The packages to build cannot be checked: {e:#}"),
+    }
     build::build(opts)
 }
 

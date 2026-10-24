@@ -6,7 +6,10 @@ use std::{
 use clap::Parser;
 use log::{info, warn};
 
-use crate::util::{RAR_CFG_PATH, detect_priv_bin, get_os};
+use crate::{
+    installer::dependencies,
+    util::{RAR_CFG_PATH, detect_priv_bin, get_os},
+};
 
 #[derive(Debug, Parser)]
 pub struct DoctorOptions {
@@ -66,8 +69,16 @@ pub fn doctor(opts: &DoctorOptions) -> Result<(), anyhow::Error> {
         }
     }
 
+    for (build, what) in [(false, "run"), (true, "build")] {
+        match dependencies::missing_packages(&os, build) {
+            Ok(missing) if missing.is_empty() => info!("Found the packages to {what} RootAsRole"),
+            Ok(missing) => warn!("{}", dependencies::missing_message(&os, build, &missing)?),
+            Err(e) => warn!("The packages to {what} RootAsRole cannot be checked: {e:#}"),
+        }
+    }
+
     if opts.full {
-        for command in ["pandoc", "gzip", "upx"] {
+        for command in ["gzip", "upx"] {
             if command_exists(command) {
                 info!("Found optional command: {command}");
             } else {

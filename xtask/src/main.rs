@@ -3,7 +3,7 @@ mod doctor;
 mod installer;
 pub mod util;
 
-use Command::{Build, Configure, Dependencies, Doctor, Install, Uninstall};
+use Command::{Build, Configure, Doctor, Install, Uninstall};
 
 use std::process::exit;
 
@@ -23,8 +23,6 @@ pub struct Options {
 
 #[derive(Debug, Parser)]
 enum Command {
-    #[cfg(feature = "cli")]
-    Dependencies(installer::InstallDependenciesOptions),
     #[cfg(feature = "cli")]
     Build(installer::BuildOptions),
     #[cfg(feature = "cli")]
@@ -65,7 +63,6 @@ fn main() {
 fn run(opts: Options) -> Result<(), anyhow::Error> {
     util::set_dry_run(opts.dry_run);
     match opts.command {
-        Dependencies(opts) => installer::dependencies(&opts),
         Build(opts) => installer::build(&opts),
         Install(opts) => installer::install(&opts),
         Configure { os } => installer::configure(os),
@@ -104,14 +101,6 @@ mod tests {
         for args in [
             vec!["xtask", "--dry-run", "install", "-p", program_arg],
             vec!["xtask", "install", "--dry-run", "-bi", "-p", program_arg],
-            vec![
-                "xtask",
-                "--dry-run",
-                "dependencies",
-                "-i",
-                "-p",
-                program_arg,
-            ],
             vec!["xtask", "--dry-run", "configure"],
         ] {
             run(Options::parse_from(&args)).unwrap();

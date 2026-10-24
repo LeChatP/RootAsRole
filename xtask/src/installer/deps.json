@@ -2,56 +2,31 @@
   "targets": {
     "debian": {
       "aliases": ["ubuntu"],
-      "package_manager": {
-        "refresh": ["apt-get", "update"],
-        "install": ["apt-get", "install", "-y"]
-      },
-      "runtime": ["libpam0g", "libseccomp-dev"],
-      "development": [
-        "libpam0g-dev",
-        "libclang-dev",
-        "pandoc",
-        "libseccomp-dev"
-      ]
+      "query": "dpkg",
+      "install": ["apt-get", "install"],
+      "runtime": ["libpam0g", "libseccomp2"],
+      "development": ["gcc", "pkg-config", "libpam0g-dev", "libseccomp-dev", "pandoc"]
     },
     "fedora": {
       "aliases": ["rockylinux", "rocky", "centos", "almalinux", "rhel", "redhat"],
-      "package_manager": {
-        "refresh": ["dnf", "update", "-y"],
-        "install": ["dnf", "install", "-y"]
-      },
+      "query": "rpm",
+      "install": ["dnf", "install"],
       "runtime": ["pam", "libseccomp"],
-      "development": [
-        "clang-devel",
-        "openssl-devel",
-        "pam-devel",
-        "pandoc",
-        "libseccomp-devel"
-      ]
+      "development": ["gcc", "pkgconfig", "pam-devel", "libseccomp-devel", "pandoc"]
     },
     "opensuse": {
       "aliases": ["suse"],
-      "package_manager": {
-        "refresh": ["zypper", "refresh"],
-        "install": ["zypper", "install", "-y"]
-      },
-      "runtime": ["pam", "libseccomp"],
-      "development": [
-        "clang-devel",
-        "libopenssl-devel",
-        "pam-devel",
-        "pandoc",
-        "libseccomp-devel"
-      ]
+      "query": "rpm",
+      "install": ["zypper", "install"],
+      "runtime": ["pam", "libseccomp2"],
+      "development": ["gcc", "pkg-config", "pam-devel", "libseccomp-devel", "pandoc"]
     },
     "archlinux": {
       "aliases": ["arch"],
-      "package_manager": {
-        "refresh": ["pacman", "-Syu"],
-        "install": ["pacman", "-Syu", "--noconfirm"]
-      },
+      "query": "pacman",
+      "install": ["pacman", "-S", "--needed"],
       "runtime": ["pam", "libseccomp"],
-      "development": ["clang", "pkg-config", "pandoc", "libseccomp"]
+      "development": ["gcc", "pkgconf", "pam", "libseccomp", "pandoc-cli"]
     }
   }
 }
