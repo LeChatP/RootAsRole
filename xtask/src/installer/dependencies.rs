@@ -257,6 +257,8 @@ pub fn install(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
     let deps: Vec<&str> = deps.iter().map(std::convert::AsRef::as_ref).collect();
     install_dependencies(&os, &deps, priv_bin.as_deref())?;
 
-    info!("Dependencies installed successfully");
+    if !util::is_dry_run() {
+        info!("Dependencies installed successfully");
+    }
     Ok(())
 }
