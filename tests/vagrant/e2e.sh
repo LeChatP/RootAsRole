@@ -122,6 +122,7 @@ setup() {
         "cred": { "setuid": "nobody", "setgid": { "from": "caller" } },
         "commands": ["/usr/bin/id ^-G$"]
       },
+      { "name": "alternation", "commands": ["/usr/bin/echo ^one|two$"] },
       {
         "name": "missing-group",
         "cred": { "setgid": "rar-e2e-missing" },
@@ -438,6 +439,14 @@ missing_group_leaves_the_task_out() {
     return 1
 }
 
+# a top-level alternation is anchored on both sides: ^one|two$ allows one or two alone, no longer
+# any arguments that start with one or end with two
+alternation_is_anchored() {
+    [ "$(as_user dosr -r e2e -t alternation /usr/bin/echo one)" = "one" ] &&
+        ! as_user dosr -r e2e -t alternation /usr/bin/echo one more >/dev/null 2>&1 &&
+        ! as_user dosr -r e2e -t alternation /usr/bin/echo say two >/dev/null 2>&1
+}
+
 # -- ends the options of dosr
 double_dash_ends_the_options() {
     as_user dosr -r e2e -t date -- /usr/bin/date >/dev/null
@@ -472,4 +481,5 @@ check "dosr -i shows None for a task without capabilities" info_shows_no_capabil
 check "a task that changes the user gives the groups of the target user" groups_of_the_target_user
 check "from: caller keeps the groups of the caller" groups_of_the_caller_with_from
 check "a task whose group does not exist is left out" missing_group_leaves_the_task_out
+check "a top-level alternation is anchored on both sides" alternation_is_anchored
 exit "$FAILED"
