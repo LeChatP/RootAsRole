@@ -75,6 +75,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         up: unchanged,
         down: |_, document| {
             remove_password_options(document);
+            remove_groups_from(document);
             Ok(())
         },
     },
@@ -188,6 +189,53 @@ fn remove_password_options(document: &mut Value) {
         }
         Value::Array(values) => values.iter_mut().for_each(remove_password_options),
         _ => {}
+    }
+}
+
+/// `from` of a `setgid` selector is unknown before 4.2.0, whatever its key (the CBOR format writes
+/// `o`). A selector with nothing else than `"default": "none"` is removed with it: 4.1.0 then
+/// keeps the groups of the caller, as `from: caller` did, instead of requiring `-g`. 4.1.0 cannot
+/// give the groups of the target user, which `from: target` and a task without `setgid` do.
+fn remove_groups_from(document: &mut Value) {
+    let Value::Object(document) = document else {
+        return;
+    };
+    for roles in ["roles", "r"] {
+        let Some(Value::Array(roles)) = document.get_mut(roles) else {
+            continue;
+        };
+        for role in roles {
+            for tasks in ["tasks", "t"] {
+                let Some(Value::Array(tasks)) = role.get_mut(tasks) else {
+                    continue;
+                };
+                for task in tasks {
+                    for cred in ["cred", "credentials", "i"] {
+                        if let Some(Value::Object(cred)) = task.get_mut(cred) {
+                            remove_cred_groups_from(cred);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn remove_cred_groups_from(cred: &mut serde_json::Map<String, Value>) {
+    for setgid in ["setgid", "g"] {
+        let Some(Value::Object(selector)) = cred.get_mut(setgid) else {
+            continue;
+        };
+        let Some(from) = selector.remove("from").or_else(|| selector.remove("o")) else {
+            continue;
+        };
+        info!("Removing from: {from} of a setgid selector, unknown before 4.2.0");
+        let nothing_else = selector.iter().all(|(key, value)| {
+            matches!(key.as_str(), "default" | "d") && (value == "none" || value == 0)
+        });
+        if nothing_else {
+            cred.remove(setgid);
+        }
     }
 }
 
@@ -642,6 +690,63 @@ mod tests {
         assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
         assert_eq!(document["roles"][0]["options"], json!({}));
         assert_eq!(document["roles"][0]["tasks"][0]["options"], json!({}));
+    }
+
+    #[test]
+    fn test_groups_from_is_removed_down() {
+        let task = |cred: Value| json!({"name": "t", "cred": cred});
+        let mut document = json!({
+            "roles": [{
+                "name": "r",
+                "tasks": [
+                    task(json!({"setuid": "nobody", "setgid": {"from": "caller"}})),
+                    task(json!({"setgid": {"default": "none", "add": [["adm"]], "from": "caller"}})),
+                    task(json!({"setgid": {"default": "all", "from": "target"}})),
+                    task(json!({"setgid": {"default": "none", "fallback": ["adm"], "from": "target"}})),
+                    task(json!({"setgid": "adm"}))
+                ]
+            }, {
+                // the short keys of the CBOR format
+                "name": "c",
+                "t": [{"name": "t", "i": {"g": {"d": 0, "o": "caller"}}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade writes no from");
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        let creds: Vec<&Value> = document["roles"][0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|task| &task["cred"])
+            .collect();
+        // nothing else than from: no setgid, 4.1.0 keeps the groups of the caller
+        assert_eq!(creds[0], &json!({"setuid": "nobody"}));
+        assert_eq!(
+            creds[1],
+            &json!({"setgid": {"default": "none", "add": [["adm"]]}})
+        );
+        assert_eq!(creds[2], &json!({"setgid": {"default": "all"}}));
+        assert_eq!(
+            creds[3],
+            &json!({"setgid": {"default": "none", "fallback": ["adm"]}})
+        );
+        assert_eq!(creds[4], &json!({"setgid": "adm"}));
+        assert_eq!(document["roles"][1]["t"][0]["i"], json!({}));
     }
 
     #[test]

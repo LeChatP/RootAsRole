@@ -348,18 +348,34 @@ impl From<u32> for SGroupsEither {
     }
 }
 
+/// Whose groups the command gets when the task does not force them and the user does not choose
+/// any with `-g`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupsFrom {
+    /// The groups of the user that the command runs as, as a login gives them: its primary group
+    /// and the groups that list it as a member
+    #[default]
+    Target,
+    /// The groups of the user who runs dosr
+    Caller,
+}
+
 #[derive(Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
     #[builder(start_fn)]
     pub default_behavior: SetBehavior,
-    /// The groups when the user does not choose any with `-g`. Without it, `-g` is required,
-    /// or with the `all` default, the groups of the caller are kept.
+    /// The groups when the user does not choose any with `-g`. Without it, the groups that
+    /// `from` names; without `from` either, `-g` is required with the `none` default, and the
+    /// groups of the target user are taken with the `all` default.
     #[builder(into)]
     pub fallback: Option<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
+    /// Whose groups the command gets without `-g` and without `fallback`
+    pub from: Option<GroupsFrom>,
 }
 
 #[derive(PartialEq, Eq, Debug, Builder, Default)]

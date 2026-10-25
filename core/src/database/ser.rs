@@ -141,7 +141,10 @@ impl Serialize for SSetgidSet {
         S: serde::Serializer,
     {
         if let Some(fallback) = self.fallback.as_ref().filter(|_| {
-            self.default_behavior.is_none() && self.sub.is_empty() && self.add.is_empty()
+            self.default_behavior.is_none()
+                && self.sub.is_empty()
+                && self.add.is_empty()
+                && self.from.is_none()
         }) {
             serializer.serialize_some(fallback)
         } else if serializer.is_human_readable() {
@@ -156,6 +159,9 @@ impl Serialize for SSetgidSet {
             if !self.sub.is_empty() {
                 map.serialize_entry("del", &self.sub)?;
             }
+            if let Some(from) = &self.from {
+                map.serialize_entry("from", from)?;
+            }
             map.end()
         } else {
             let mut map = serializer.serialize_map(None)?;
@@ -168,6 +174,9 @@ impl Serialize for SSetgidSet {
             }
             if !self.sub.is_empty() {
                 map.serialize_entry("s", &self.sub)?;
+            }
+            if let Some(from) = &self.from {
+                map.serialize_entry("o", from)?;
             }
             map.end()
         }

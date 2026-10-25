@@ -6,7 +6,7 @@ use serde::{Deserialize, de::DeserializeSeed};
 
 use crate::database::{
     actor::SGroups,
-    structs::{SCommand, SSetgidSet, SetBehavior},
+    structs::{GroupsFrom, SCommand, SSetgidSet, SetBehavior},
 };
 
 use super::{
@@ -294,6 +294,8 @@ impl<'de> Deserialize<'de> for SSetgidSet {
             Add,
             #[serde(alias = "del", alias = "s")]
             Sub,
+            #[serde(alias = "o")]
+            From,
         }
 
         impl<'de> Visitor<'de> for SSetgidSetVisitor {
@@ -311,11 +313,15 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                 let mut add = Vec::new();
                 let mut sub = Vec::new();
                 let mut fallback = None;
+                let mut from = None;
 
                 while let Some(key) = map.next_key::<Field>()? {
                     match key {
                         Field::Default => {
                             default_behavior = map.next_value()?;
+                        }
+                        Field::From => {
+                            from = Some(map.next_value::<GroupsFrom>()?);
                         }
                         Field::Fallback => {
                             fallback.replace(map.next_value::<SGroups>()?);
@@ -335,6 +341,7 @@ impl<'de> Deserialize<'de> for SSetgidSet {
                     fallback,
                     add,
                     sub,
+                    from,
                 })
             }
         }
@@ -637,6 +644,41 @@ mod tests {
             let again: SSetgidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
             assert_eq!(again, set, "{json_data}");
         }
+    }
+
+    #[test]
+    fn test_s_setgid_set_from() {
+        // alone, from says whose groups the command gets
+        let set: SSetgidSet = serde_json::from_value(json!({"from": "caller"})).unwrap();
+        assert_eq!(set.default_behavior, SetBehavior::None);
+        assert_eq!(set.from, Some(GroupsFrom::Caller));
+        assert_eq!(
+            serde_json::to_value(&set).unwrap(),
+            json!({"default": "none", "from": "caller"})
+        );
+        for json_data in [
+            json!({"from": "target"}),
+            json!({"default": "none", "add": [["adm"]], "from": "caller"}),
+            // a fallback with from is not written as a mandatory group
+            json!({"default": "none", "fallback": ["adm"], "from": "caller"}),
+        ] {
+            let set: SSetgidSet = serde_json::from_value(json_data.clone()).unwrap();
+            assert!(set.from.is_some(), "{json_data}");
+            let again: SSetgidSet =
+                serde_json::from_value(serde_json::to_value(&set).unwrap()).unwrap();
+            assert_eq!(again, set, "{json_data}");
+            let cbor = cbor4ii::serde::to_vec(Vec::new(), &set).unwrap();
+            let again: SSetgidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
+            assert_eq!(again, set, "{json_data}");
+        }
+        // without from, nothing is written
+        let set: SSetgidSet = serde_json::from_value(json!({"default": "all"})).unwrap();
+        assert_eq!(set.from, None);
+        assert_eq!(
+            serde_json::to_value(&set).unwrap(),
+            json!({"default": "all"})
+        );
+        assert!(serde_json::from_value::<SSetgidSet>(json!({"from": "someone"})).is_err());
     }
 
     #[test]

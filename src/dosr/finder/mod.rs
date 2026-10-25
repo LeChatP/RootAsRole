@@ -4,6 +4,7 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
+    ffi::CString,
     fs,
     io::BufReader,
     path::{Path, PathBuf},
@@ -13,6 +14,10 @@ use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::{debug, error, warn};
+use nix::{
+    errno::Errno,
+    unistd::{Group, User, getgrouplist},
+};
 use options::BorrowedOptStack;
 use rootasrole_core::{
     Cred,
@@ -21,6 +26,7 @@ use rootasrole_core::{
         env::EnvFilter,
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
+        structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
     util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
@@ -215,10 +221,36 @@ where
                     SrError::ConfigurationError
                 }
             })
-            .and_then(BestExecSettings::refuse_tie);
+            .and_then(BestExecSettings::refuse_tie)
+            .and_then(BestExecSettings::with_target_groups);
     }
 
-    parse_file(&file_path).and_then(BestExecSettings::refuse_tie)
+    parse_file(&file_path)
+        .and_then(BestExecSettings::refuse_tie)
+        .and_then(BestExecSettings::with_target_groups)
+}
+
+/// The groups of `user` as a login gives them (`initgroups(3)`): its primary group first, then
+/// the groups that list it as a member, like sudo-rs `User::from_libc` (sudo-rs/src/system/mod.rs).
+/// A gid without a name is named by its number.
+fn login_groups(user: &User) -> nix::Result<Vec<Group>> {
+    let name = CString::new(user.name.as_bytes()).map_err(|_| Errno::EINVAL)?;
+    let mut gids = vec![user.gid];
+    for gid in getgrouplist(&name, user.gid)? {
+        if !gids.contains(&gid) {
+            gids.push(gid);
+        }
+    }
+    gids.into_iter()
+        .map(|gid| {
+            Ok(Group::from_gid(gid)?.unwrap_or_else(|| Group {
+                name: gid.to_string(),
+                passwd: CString::default(),
+                gid,
+                mem: Vec::new(),
+            }))
+        })
+        .collect()
 }
 
 impl BestExecSettings {
@@ -231,7 +263,27 @@ impl BestExecSettings {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: &[&str],
     ) -> SrResult<Self> {
-        Self::evaluate(cli, cred, data, env_vars, env_path).and_then(Self::refuse_tie)
+        Self::evaluate(cli, cred, data, env_vars, env_path)
+            .and_then(Self::refuse_tie)
+            .and_then(Self::with_target_groups)
+    }
+
+    /// The task changes the user without giving the groups: the command gets the groups of the
+    /// target user, as a login gives them, unless `from` names the groups of the caller. A task
+    /// that keeps the user keeps the groups of the caller. A lookup that fails refuses the
+    /// command, it never falls back on the groups of the caller.
+    fn with_target_groups(mut self) -> SrResult<Self> {
+        if self.cred.setgroups.is_none()
+            && self.cred.groups_from != Some(GroupsFrom::Caller)
+            && let Some(user) = &self.cred.setuid
+        {
+            let groups = login_groups(user).map_err(|e| {
+                error!("Cannot read the groups of the user {}: {e}", user.name);
+                SrError::SystemError
+            })?;
+            self.cred.setgroups = Some(groups);
+        }
+        Ok(self)
     }
 
     /// Refuse the settings when another task is as good as the best one: none of them needs
@@ -524,6 +576,7 @@ impl BestExecSettings {
                 DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
                 DGroups::Multiple(g) => g.iter().filter_map(DGroupType::fetch_group).collect(),
             });
+            self.cred.groups_from = data.cred.groups_from;
             self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
@@ -707,6 +760,65 @@ mod tests {
         let env_path = &["/bin"];
         let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_a_task_that_changes_the_user_gets_its_groups() {
+        let root = User::from_uid(nix::unistd::Uid::from_raw(0))
+            .unwrap()
+            .unwrap();
+        let settings = |setuid: Option<User>, groups_from, setgroups| BestExecSettings {
+            cred: CredOwnedData::builder()
+                .maybe_setuid(setuid)
+                .maybe_groups_from(groups_from)
+                .maybe_setgroups(setgroups)
+                .build(),
+            ..Default::default()
+        };
+        // setuid without setgid: the groups of the target user, its primary group first
+        for groups_from in [None, Some(GroupsFrom::Target)] {
+            let groups = settings(Some(root.clone()), groups_from, None)
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .unwrap();
+            assert_eq!(groups[0].gid, root.gid, "{groups_from:?}");
+            assert_eq!(groups, login_groups(&root).unwrap());
+        }
+        // from: caller, a task that keeps the user, and forced groups are left as they are
+        let caller = settings(Some(root.clone()), Some(GroupsFrom::Caller), None);
+        assert!(
+            caller
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .is_none()
+        );
+        let same_user = settings(None, None, None);
+        assert!(
+            same_user
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .is_none()
+        );
+        let forced = Group::from_gid(root.gid).unwrap().unwrap();
+        let forced_settings = settings(Some(root.clone()), None, Some(vec![forced.clone()]));
+        assert_eq!(
+            forced_settings.with_target_groups().unwrap().cred.setgroups,
+            Some(vec![forced])
+        );
+        // a lookup that fails refuses the command instead of keeping the groups of the caller
+        let mut broken = root;
+        broken.name = "bro\0ken".into();
+        assert!(
+            settings(Some(broken), None, None)
+                .with_target_groups()
+                .is_err()
+        );
     }
 
     #[test]
