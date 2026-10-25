@@ -113,6 +113,16 @@ setup() {
         "commands": ["/usr/bin/env"]
       },
       {
+        "name": "target-groups",
+        "cred": { "setuid": "nobody" },
+        "commands": ["/usr/bin/id ^-G$"]
+      },
+      {
+        "name": "caller-groups",
+        "cred": { "setuid": "nobody", "setgid": { "from": "caller" } },
+        "commands": ["/usr/bin/id ^-G$"]
+      },
+      {
         "name": "password",
         "options": {
           "authentication": "perform",
@@ -386,6 +396,27 @@ chsr_is_confined_by_landlock() {
     fi
 }
 
+# the groups of id -G, sorted
+sorted_groups() {
+    tr ' ' '\n' | sort -n | tr '\n' ' '
+}
+
+# a task that changes the user without setgid gives the groups of the target user, as a login
+# does, not the ones of the caller
+groups_of_the_target_user() {
+    local got expected
+    got=$(as_user dosr -r e2e -t target-groups /usr/bin/id -G | sorted_groups)
+    expected=$(id -G nobody | sorted_groups)
+    [ "$got" = "$expected" ] && [ "$got" != "$(as_user id -G | sorted_groups)" ]
+}
+
+# "from": "caller" keeps the groups of the caller
+groups_of_the_caller_with_from() {
+    local got
+    got=$(as_user dosr -r e2e -t caller-groups /usr/bin/id -G | sorted_groups)
+    [ "$got" = "$(as_user id -G | sorted_groups)" ]
+}
+
 # -- ends the options of dosr
 double_dash_ends_the_options() {
     as_user dosr -r e2e -t date -- /usr/bin/date >/dev/null
@@ -417,4 +448,6 @@ check "the executions are logged under the name dosr" dosr_logs_under_its_name
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
+check "a task that changes the user gives the groups of the target user" groups_of_the_target_user
+check "from: caller keeps the groups of the caller" groups_of_the_caller_with_from
 exit "$FAILED"
