@@ -58,6 +58,7 @@ pub enum OptType {
     Bounding,
     Timeout,
     Password,
+    Tty,
     Authentication,
     ExecInfo,
     UMask,

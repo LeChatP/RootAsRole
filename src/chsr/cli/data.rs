@@ -11,7 +11,7 @@ use rootasrole_core::{
         actor::{SActor, SGroups, SUserType},
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
-            SPrivileged, SUMask, TimestampType, WorkdirBehavior,
+            SPrivileged, SUMask, TimestampType, TtyOwner, WorkdirBehavior,
         },
         structs::{GroupsFrom, IdTask, SetBehavior},
     },
@@ -157,6 +157,7 @@ pub struct Inputs {
     pub options_bounding: Option<SBounding>,
     pub options_auth: Option<SAuthentication>,
     pub options_execinfo: Option<SInfo>,
+    pub options_tty_owner: Option<TtyOwner>,
     pub options_umask: Option<SUMask>,
     pub options_workdir_policy: Option<WorkdirBehavior>,
     pub convertion: Option<Convertion>,

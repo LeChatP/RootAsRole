@@ -195,12 +195,14 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o password set --tries 3 --delay 00:00:05
 // chsr o password unset --tries --delay
 
+// chsr o tty owner (target|caller|unset)
+
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_password | opt_skip_auth | opt_execinfo | opt_mask }
+opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_password | opt_tty | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
 // a longer name before its prefix: "authentication" before "auth"
-opt_show_arg = { "all" | "path" | "env" | "root" | "bounding" | "timeout" | "password" | "authentication" | "auth" | "execinfo" | "info" | "umask" | "mask" | "workdir" }
+opt_show_arg = { "all" | "path" | "env" | "root" | "bounding" | "timeout" | "password" | "tty" | "authentication" | "auth" | "execinfo" | "info" | "umask" | "mask" | "workdir" }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }
@@ -252,6 +254,10 @@ opt_skip_auth_args = { del | "skip" | "perform" }
 
 opt_execinfo = { ( "execinfo" | "info") ~ (opt_execinfo_args | help) }
 opt_execinfo_args = { del | "show" | "hide" }
+
+opt_tty = { "tty" ~ (opt_tty_owner | help) }
+opt_tty_owner = { "owner" ~ opt_tty_owner_args }
+opt_tty_owner_args = { del | "target" | "caller" }
 
 opt_mask = { ( "umask" | "mask") ~ (opt_mask_args | help) }
 opt_mask_args = { ASCII_DIGIT{1,4} | del }

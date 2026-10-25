@@ -9,7 +9,8 @@ use json::{
     edit_role_links, edit_task_purpose, env_set_policylist, env_setlist_add, env_setpolicy,
     env_whitelist_set, grant_revoke, path_purge, path_set, path_setlist2, path_setpolicy,
     role_add_del, set_authentication, set_bounding, set_env_override, set_execinfo, set_password,
-    set_privileged, set_timeout, set_umask, task_add_del, unset_password, unset_timeout,
+    set_privileged, set_timeout, set_tty_owner, set_umask, task_add_del, unset_password,
+    unset_timeout,
 };
 
 use log::debug;
@@ -342,6 +343,24 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             options_auth: Some(_),
             ..
         } => set_authentication(rconfig, role_id.as_ref(), task_id, None),
+
+        Inputs {
+            // chsr o tty owner target|caller
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_tty_owner: Some(owner),
+            ..
+        } => set_tty_owner(rconfig, role_id.as_ref(), task_id, Some(owner)),
+
+        Inputs {
+            // chsr o tty owner unset
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_tty_owner: Some(_),
+            ..
+        } => set_tty_owner(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o execinfo hide|show

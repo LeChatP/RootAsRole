@@ -14,7 +14,7 @@ use serde_json::Value;
 use rootasrole_core::database::{
     options::{
         EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SPassword, SPathOptions,
-        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
+        STimeout, STty, SUMask, SWorkdirEither, SWorkdirSet, TtyOwner, WorkdirBehavior,
     },
     structs::{
         GroupsFrom, IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, SSetgidSet,
@@ -64,6 +64,7 @@ fn options_to_show(opt: &Opt, options_type: Option<OptType>) -> serde_json::Resu
         Some(OptType::Bounding) => serde_json::to_string_pretty(&opt.bounding),
         Some(OptType::Timeout) => serde_json::to_string_pretty(&opt.timeout),
         Some(OptType::Password) => serde_json::to_string_pretty(&opt.password),
+        Some(OptType::Tty) => serde_json::to_string_pretty(&opt.tty),
         Some(OptType::Authentication) => serde_json::to_string_pretty(&opt.authentication),
         Some(OptType::ExecInfo) => serde_json::to_string_pretty(&opt.execinfo),
         Some(OptType::UMask) => serde_json::to_string_pretty(&opt.umask),
@@ -774,6 +775,30 @@ pub fn set_execinfo(
     debug!("chsr o execinfo set {options_execinfo:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         opt.as_ref().borrow_mut().execinfo = options_execinfo;
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// `chsr o tty owner`: sets or unsets the owner, then removes the option once nothing is left in
+/// it; the fields that this version does not know are kept.
+pub fn set_tty_owner(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    owner: Option<TtyOwner>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o tty owner {owner:?}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(owner) = owner {
+            opt.tty.get_or_insert_with(STty::default).owner = Some(owner);
+        } else if let Some(tty) = opt.tty.as_mut() {
+            tty.owner = None;
+            if tty.extra_fields.is_empty() {
+                opt.tty = None;
+            }
+        }
         Ok(())
     })?;
     Ok(true)

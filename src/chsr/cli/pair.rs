@@ -512,6 +512,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 "bounding" => Some(OptType::Bounding),
                 "timeout" => Some(OptType::Timeout),
                 "password" => Some(OptType::Password),
+                "tty" => Some(OptType::Tty),
                 "authentication" | "auth" => Some(OptType::Authentication),
                 "execinfo" | "info" => Some(OptType::ExecInfo),
                 "umask" | "mask" => Some(OptType::UMask),
@@ -568,6 +569,10 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::opt_execinfo_args => {
             inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
             inputs.options_execinfo = Some(pair.as_str().parse().unwrap_or_default());
+        }
+        Rule::opt_tty_owner_args => {
+            inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop
+            inputs.options_tty_owner = Some(pair.as_str().parse().unwrap_or_default());
         }
         Rule::opt_mask_args => {
             inputs.action = InputAction::Set; // If del it will be overwritten by the parse loop

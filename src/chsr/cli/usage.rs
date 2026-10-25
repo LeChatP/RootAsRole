@@ -44,6 +44,7 @@ enum UsageSectionId {
     OptionsEnv,
     OptionsTimeout,
     OptionsPassword,
+    OptionsTty,
     OptionsAuth,
     OptionsExecinfo,
     OptionsUmask,
@@ -346,6 +347,11 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "tty owner [owner]",
+            description: "Defines who owns the terminal of the command (unset, caller, target).",
+            indent: 1,
+        },
+        UsageItem {
             name: "authentication [policy]",
             description: "Defines if user needs to authenticate (unset, skip, perform).",
             indent: 1,
@@ -536,6 +542,29 @@ const USAGE_OPTIONS_PASSWORD: UsageSection = UsageSection {
     ],
 };
 
+const USAGE_OPTIONS_TTY: UsageSection = UsageSection {
+    title: "Terminal options",
+    synopsis: &["chsr options tty owner [owner]"],
+    items: &[
+        UsageItem {
+            name: "caller",
+            description: "The user who runs dosr owns the terminal (default).",
+            indent: 1,
+        },
+        UsageItem {
+            name: "target",
+            description: "The user that the command runs as owns the terminal, like sudo.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "unset",
+            description: "Reset the owner of the terminal.",
+            indent: 1,
+        },
+    ],
+    examples: &["chsr role gpg task sign options tty owner target"],
+};
+
 const USAGE_OPTIONS_AUTH: UsageSection = UsageSection {
     title: "Authentication options",
     synopsis: &["chsr options authentication [policy]"],
@@ -679,6 +708,7 @@ const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
         UsageSectionId::OptionsEnv => &USAGE_OPTIONS_ENV,
         UsageSectionId::OptionsTimeout => &USAGE_OPTIONS_TIMEOUT,
         UsageSectionId::OptionsPassword => &USAGE_OPTIONS_PASSWORD,
+        UsageSectionId::OptionsTty => &USAGE_OPTIONS_TTY,
         UsageSectionId::OptionsAuth => &USAGE_OPTIONS_AUTH,
         UsageSectionId::OptionsExecinfo => &USAGE_OPTIONS_EXECINFO,
         UsageSectionId::OptionsUmask => &USAGE_OPTIONS_UMASK,
@@ -782,6 +812,9 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
         Rule::opt_password => "password",
+        Rule::opt_tty => "tty",
+        Rule::opt_tty_owner => "owner",
+        Rule::opt_tty_owner_args => "caller, target or unset",
         Rule::opt_path | Rule::path => "path",
         Rule::opt_env => "env",
         Rule::role_links | Rule::role_link_kind => "ssd, parents",
@@ -848,6 +881,7 @@ const OPTIONS_EXECINFO_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsEx
 const OPTIONS_UMASK_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsUmask];
 const OPTIONS_TIMEOUT_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsTimeout];
 const OPTIONS_PASSWORD_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPassword];
+const OPTIONS_TTY_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsTty];
 const OPTIONS_PATH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPath];
 const OPTIONS_WORKDIR_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsWorkdir];
 const OPTIONS_ENV_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsEnv];
@@ -884,6 +918,9 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         | Rule::opt_password_operations
         | Rule::opt_password_t_arg
         | Rule::opt_password_d_arg => Some(OPTIONS_PASSWORD_SECTIONS),
+        Rule::opt_tty | Rule::opt_tty_owner | Rule::opt_tty_owner_args => {
+            Some(OPTIONS_TTY_SECTIONS)
+        }
         Rule::opt_path
         | Rule::opt_path_args
         | Rule::opt_path_set
@@ -984,6 +1021,13 @@ mod tests {
                 usage_sections_for_rule(rule),
                 Some(OPTIONS_PASSWORD_SECTIONS)
             );
+        }
+    }
+
+    #[test]
+    fn maps_tty_rules_to_tty_section() {
+        for rule in [Rule::opt_tty, Rule::opt_tty_owner, Rule::opt_tty_owner_args] {
+            assert_eq!(usage_sections_for_rule(rule), Some(OPTIONS_TTY_SECTIONS));
         }
     }
 

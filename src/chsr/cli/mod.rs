@@ -1820,6 +1820,77 @@ mod tests {
         assert!(saved["options"].get("password").is_none());
     }
 
+    /// The tty option of `level`, as (owner, unknown fields).
+    fn tty(ctx: &TestContext, level: Level) -> Option<(Option<TtyOwner>, usize)> {
+        ctx.opt(level)
+            .as_ref()
+            .borrow()
+            .tty
+            .as_ref()
+            .map(|tty| (tty.owner, tty.extra_fields.len()))
+    }
+
+    #[test]
+    fn test_options_tty() {
+        let name = "options_tty";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o tty owner target");
+        ctx.assert_command_success("r complete o tty owner caller");
+        ctx.assert_command_success("r complete t t_complete o tty owner target");
+        assert_eq!(tty(&ctx, Level::Global), Some((Some(TtyOwner::Target), 0)));
+        assert_eq!(tty(&ctx, Level::Role), Some((Some(TtyOwner::Caller), 0)));
+        assert_eq!(tty(&ctx, Level::Task), Some((Some(TtyOwner::Target), 0)));
+        // unset removes the option, unless it has fields that this version does not know
+        ctx.assert_command_success("o tty owner unset");
+        assert_eq!(tty(&ctx, Level::Global), None);
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .tty
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o tty owner unset");
+        assert_eq!(tty(&ctx, Level::Role), Some((None, 1)));
+        ctx.assert_command_success("r complete o tty owner target");
+        assert_eq!(tty(&ctx, Level::Role), Some((Some(TtyOwner::Target), 1)));
+        // refused, without a change; "t" stays the alias of timeout
+        for command in ["o tty owner root", "o tty owner", "o tty target", "o tty"] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert_eq!(tty(&ctx, Level::Global), None);
+        ctx.assert_command_success("o t set --type tty");
+        ctx.assert_command_no_change("r complete t t_complete o show tty");
+        // what is saved is what dosr reads
+        ctx.settings.save_all().unwrap();
+        let saved: Value =
+            serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
+                .unwrap();
+        let role = saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|role| role["name"] == "complete")
+            .unwrap();
+        assert_eq!(
+            role["options"]["tty"],
+            serde_json::json!({"owner": "target", "future": 1})
+        );
+        let task = role["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["name"] == "t_complete")
+            .unwrap();
+        assert_eq!(
+            task["options"]["tty"],
+            serde_json::json!({"owner": "target"})
+        );
+        assert!(saved["options"].get("tty").is_none());
+        assert_eq!(saved["options"]["timeout"]["type"], "tty");
+    }
+
     #[test]
     fn test_all_main() {
         let (mut ctx, _defer) = TestContext::new("all_main");
