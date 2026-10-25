@@ -78,8 +78,33 @@ const USAGE_COMMANDS: UsageSection = UsageSection {
             description: "Manage roles and related operations.",
             indent: 1,
         },
+        UsageItem {
+            name: "options, o",
+            description: "Manage the options of the whole policy.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "file, f [path|list]",
+            description: "Edit one file of a policy directory, by its path or its name, or list them.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "convert, c",
+            description: "Convert the policy between JSON and CBOR.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "upgrade",
+            description: "Save the policy files written by an older version in the current format.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "editor, e [path]",
+            description: "Edit a policy file in a text editor, and save it once it is valid.",
+            indent: 1,
+        },
     ],
-    examples: &["chsr --help", "chsr list"],
+    examples: &["chsr --help", "chsr list", "chsr file list", "chsr editor"],
 };
 
 const USAGE_ROLE: UsageSection = UsageSection {
@@ -289,12 +314,12 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
         },
         UsageItem {
             name: "root [policy]",
-            description: "Defines when root gets privileges (unset, privileged, user, inherit).",
+            description: "Defines when root gets privileges (unset, privileged, user).",
             indent: 1,
         },
         UsageItem {
             name: "bounding [policy]",
-            description: "Defines how dropped capabilities are handled (unset, strict, ignore, inherit).",
+            description: "Defines how dropped capabilities are handled (unset, strict, ignore).",
             indent: 1,
         },
         UsageItem {
@@ -309,12 +334,12 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
         },
         UsageItem {
             name: "authentication [policy]",
-            description: "Defines if user needs to authenticate (unset, skip, perform, inherit).",
+            description: "Defines if user needs to authenticate (unset, skip, perform).",
             indent: 1,
         },
         UsageItem {
             name: "execinfo [policy]",
-            description: "Defines if user can see execution settings (unset, display, hide, inherit).",
+            description: "Defines if user can see execution settings (unset, show, hide).",
             indent: 1,
         },
         UsageItem {

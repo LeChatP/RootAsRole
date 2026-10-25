@@ -93,7 +93,7 @@ pub(crate) const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 //and each role has a set of rights to execute commands.";
 #[allow(clippy::needless_raw_string_hashes)]
 const USAGE: &str = formatcp!(
-    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [COMMAND]...
+    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [--] [COMMAND]...
 
 {UNDERLINE}{BOLD}Arguments:{RST}
   [COMMAND]...
@@ -115,6 +115,12 @@ const USAGE: &str = formatcp!(
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
+
+  {BOLD}-S, --stdin{RST}
+          Read the password from the standard input instead of the terminal
+
+  {BOLD}-K, --remove-timestamp{RST}
+          Remove your timestamp cookies before authentication; without a command, only remove them
 
   {BOLD}-u, --user <USER>{RST}
           Specify the user to execute the command as
