@@ -54,7 +54,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     };
     use ::landlock::{RestrictionStatus, RulesetStatus};
     use capctl::Cap;
-    use log::{debug, error, warn};
+    use log::{debug, warn};
     use rootasrole_core::{
         file::FileSettings,
         log::subscribe,
@@ -136,9 +136,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
             Ok(ExitCode::SUCCESS)
         }
         Ok(false) => Ok(ExitCode::SUCCESS),
-        Err(e) => {
-            error!("Unable to edit policy : {e}");
-            Ok(ExitCode::FAILURE)
-        }
+        // on the terminal too: in a release build, the log only goes to syslog
+        Err(e) => Ok(failure(&format!("cannot edit the policy: {e}"))),
     }
 }
