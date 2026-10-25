@@ -1364,18 +1364,33 @@ mod tests {
             .filter(|settings| settings.score.fully_matching())
             .and_then(|settings| settings.task)
         };
+        // the groups of read-logs come with systemd, which a container may not have: a task
+        // whose group does not exist is left out
+        let read_logs = policy["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|role| role["tasks"].as_array().into_iter().flatten())
+            .filter(|task| task["name"] == "read-logs")
+            .flat_map(|task| match &task["cred"]["setgid"] {
+                Value::Array(groups) => groups.clone(),
+                group => vec![group.clone()],
+            })
+            .all(|group| {
+                group
+                    .as_str()
+                    .is_some_and(|name| Group::from_name(name).ok().flatten().is_some())
+            })
+            .then_some("read-logs");
         let log = "/var/log/caddy/access.log";
         assert_eq!(
             decide("/usr/bin/tail", &["-n", "50", log]).as_deref(),
-            Some("read-logs")
+            read_logs
         );
-        assert_eq!(
-            decide("/usr/bin/tail", &["-f", log]).as_deref(),
-            Some("read-logs")
-        );
+        assert_eq!(decide("/usr/bin/tail", &["-f", log]).as_deref(), read_logs);
         assert_eq!(
             decide("/usr/bin/journalctl", &["--no-pager", "-u", "caddy"]).as_deref(),
-            Some("read-logs")
+            read_logs
         );
         // the path traversal of the chapter
         let traversal = "/var/log/caddy/../../../etc/shadow";
