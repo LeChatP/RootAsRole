@@ -100,6 +100,11 @@ fn copy_docs() -> Result<(), anyhow::Error> {
     fn enter_directory() -> io::Result<()> {
         set_current_dir("target/man/")
     }
+    // the manual pages are not built without pandoc
+    if !Path::new("target/man").is_dir() {
+        info!("No manual page was built, none is installed");
+        return Ok(());
+    }
     enter_directory()?;
 
     for file in glob::glob("**/*")

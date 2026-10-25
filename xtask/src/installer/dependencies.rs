@@ -2,7 +2,7 @@
 //! command that installs the missing ones, it does not install them: like Rust, they are left
 //! to the administrator.
 
-use std::{borrow::Cow, collections::HashMap, io, process::Command, sync::OnceLock};
+use std::{borrow::Cow, collections::HashMap, fmt, io, process::Command, sync::OnceLock};
 
 use anyhow::{Context, anyhow};
 use log::warn;
@@ -23,8 +23,78 @@ struct TargetDependencies<'a> {
     query: PackageQuery,
     /// The command that installs packages, printed for the administrator, never run
     install: Vec<Cow<'a, str>>,
-    runtime: Vec<Cow<'a, str>>,
-    development: Vec<Cow<'a, str>>,
+    runtime: Vec<Requirement<'a>>,
+    development: Vec<Requirement<'a>>,
+    /// Packages that only some steps of the build need: without them, these steps are left out
+    #[serde(default)]
+    optional: Vec<OptionalPackage<'a>>,
+}
+
+/// A package that is needed, or several packages of which one is enough, like a C compiler.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Requirement<'a> {
+    Package(Cow<'a, str>),
+    AnyOf(Vec<Cow<'a, str>>),
+}
+
+impl Requirement<'_> {
+    fn packages(&self) -> Vec<&str> {
+        match self {
+            Self::Package(package) => vec![package.as_ref()],
+            Self::AnyOf(packages) => packages.iter().map(AsRef::as_ref).collect(),
+        }
+    }
+}
+
+/// A package that a step of the build needs, which is left out without it.
+#[derive(Debug, Deserialize)]
+struct OptionalPackage<'a> {
+    package: Cow<'a, str>,
+    /// The command that the step runs: it is looked for in `PATH`, whatever installed it
+    command: Cow<'a, str>,
+    /// What is not built without it
+    #[serde(rename = "for")]
+    purpose: Cow<'a, str>,
+}
+
+/// A requirement that is not installed: the packages that would satisfy it, the first one being
+/// the one to install.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Missing(Vec<String>);
+
+impl Missing {
+    fn to_install(&self) -> &str {
+        self.0.first().map_or("", String::as_str)
+    }
+}
+
+impl fmt::Display for Missing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0.join(" or "))
+    }
+}
+
+/// The `requirements` that none of their packages satisfy, according to `installed`.
+fn missing_of(
+    requirements: &[Requirement<'_>],
+    installed: impl Fn(&str) -> io::Result<bool>,
+) -> io::Result<Vec<Missing>> {
+    let mut missing = Vec::new();
+    for requirement in requirements {
+        let packages = requirement.packages();
+        let mut satisfied = false;
+        for package in &packages {
+            if installed(package)? {
+                satisfied = true;
+                break;
+            }
+        }
+        if !satisfied {
+            missing.push(Missing(packages.iter().map(ToString::to_string).collect()));
+        }
+    }
+    Ok(missing)
 }
 
 /// How a distribution tells whether a package is installed. The queries change nothing.
@@ -151,24 +221,45 @@ fn resolve_target<'a>(
 ///
 /// # Errors
 /// When the OS is not in the manifest, or its package database cannot be queried.
-pub fn missing_packages(os: &OsTarget, build: bool) -> Result<Vec<String>, anyhow::Error> {
+pub fn missing_packages(os: &OsTarget, build: bool) -> Result<Vec<Missing>, anyhow::Error> {
     let target = resolve_target(dependencies_manifest()?, os)?;
-    let packages = if build {
+    let requirements = if build {
         &target.development
     } else {
         &target.runtime
     };
-    let mut missing = Vec::new();
-    for package in packages {
-        if !target
-            .query
-            .is_installed(package)
-            .with_context(|| format!("Cannot query the packages of {os}"))?
-        {
-            missing.push(package.to_string());
-        }
-    }
-    Ok(missing)
+    missing_of(requirements, |package| target.query.is_installed(package))
+        .with_context(|| format!("Cannot query the packages of {os}"))
+}
+
+/// The optional packages of the build on `os` whose command is not found, with what is not built
+/// without them.
+///
+/// # Errors
+/// When the OS is not in the manifest.
+pub fn missing_optional(os: &OsTarget) -> Result<Vec<(String, String)>, anyhow::Error> {
+    let target = resolve_target(dependencies_manifest()?, os)?;
+    Ok(target
+        .optional
+        .iter()
+        .filter(|optional| !util::command_exists(&optional.command))
+        .map(|optional| (optional.package.to_string(), optional.purpose.to_string()))
+        .collect())
+}
+
+/// What is not built without the optional `package`, and the command that installs it.
+///
+/// # Errors
+/// When the OS is not in the manifest.
+pub fn optional_message(
+    os: &OsTarget,
+    package: &str,
+    purpose: &str,
+) -> Result<String, anyhow::Error> {
+    Ok(format!(
+        "{package} is not installed: {purpose} are not built. To build them, install it, as root: {}",
+        install_command(os, &[package.to_string()])?
+    ))
 }
 
 /// The command that installs `packages` on `os`, to print for the administrator.
@@ -194,19 +285,27 @@ pub fn install_command(os: &OsTarget, packages: &[String]) -> Result<String, any
 pub fn missing_message(
     os: &OsTarget,
     build: bool,
-    missing: &[String],
+    missing: &[Missing],
 ) -> Result<String, anyhow::Error> {
+    let to_install: Vec<String> = missing
+        .iter()
+        .map(|missing| missing.to_install().to_string())
+        .collect();
     Ok(format!(
         "Missing packages to {} RootAsRole on {os}: {}. Install them, as root: {}",
         if build { "build" } else { "run" },
-        missing.join(" "),
-        install_command(os, missing)?
+        missing
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+        install_command(os, &to_install)?
     ))
 }
 
 /// What to do with the `missing` packages: stop with the command that installs them, or only
 /// warn in a dry run.
-fn report_missing(os: &OsTarget, build: bool, missing: &[String]) -> Result<(), anyhow::Error> {
+fn report_missing(os: &OsTarget, build: bool, missing: &[Missing]) -> Result<(), anyhow::Error> {
     if missing.is_empty() {
         return Ok(());
     }
@@ -220,18 +319,22 @@ fn report_missing(os: &OsTarget, build: bool, missing: &[String]) -> Result<(), 
 }
 
 /// Check the packages that `os` needs to build `RootAsRole` (`build`), or to run it. A system
-/// whose packages cannot be queried is only warned about: the build tells then.
+/// whose packages cannot be queried is only warned about: the build tells then. A missing optional
+/// package of the build is only warned about.
 ///
 /// # Errors
 /// When packages are missing, with the command that installs them.
 pub fn check(os: &OsTarget, build: bool) -> Result<(), anyhow::Error> {
     match missing_packages(os, build) {
-        Ok(missing) => report_missing(os, build, &missing),
-        Err(e) => {
-            warn!("The packages of {os} cannot be checked: {e:#}");
-            Ok(())
+        Ok(missing) => report_missing(os, build, &missing)?,
+        Err(e) => warn!("The packages of {os} cannot be checked: {e:#}"),
+    }
+    if build {
+        for (package, purpose) in missing_optional(os)? {
+            warn!("{}", optional_message(os, &package, &purpose)?);
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -254,6 +357,22 @@ mod tests {
             assert!(!target.install.is_empty(), "{os}");
             assert!(!target.runtime.is_empty(), "{os}");
             assert!(!target.development.is_empty(), "{os}");
+            // a C compiler, clang or gcc, links the binaries
+            assert!(
+                target
+                    .development
+                    .iter()
+                    .any(|requirement| requirement.packages() == ["clang", "gcc"]),
+                "{os}"
+            );
+            // pandoc only builds the manual pages
+            assert!(
+                target
+                    .optional
+                    .iter()
+                    .any(|optional| optional.command == "pandoc"),
+                "{os}"
+            );
         }
         assert_eq!(
             install_command(&OsTarget::Debian, &["clang".into(), "pandoc".into()]).unwrap(),
@@ -288,14 +407,65 @@ mod tests {
     }
 
     #[test]
+    fn test_one_package_of_a_group_is_enough() {
+        let requirements: Vec<Requirement> =
+            serde_json::from_str(r#"[["clang", "gcc"], "pkg-config"]"#).unwrap();
+        let only = |names: &'static [&'static str]| {
+            move |package: &str| Ok::<_, io::Error>(names.contains(&package))
+        };
+        assert!(
+            missing_of(&requirements, only(&["gcc", "pkg-config"]))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            missing_of(&requirements, only(&["clang", "pkg-config"]))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            missing_of(&requirements, only(&[])).unwrap(),
+            [
+                Missing(vec!["clang".into(), "gcc".into()]),
+                Missing(vec!["pkg-config".into()])
+            ]
+        );
+        // a query that fails is not taken as a missing package
+        assert!(missing_of(&requirements, |_| Err(io::Error::other("no database"))).is_err());
+    }
+
+    #[test]
+    fn test_an_optional_package_is_found_by_its_command() {
+        assert!(util::command_exists("sh"));
+        assert!(!util::command_exists("rar-no-such-command"));
+    }
+
+    #[test]
+    fn test_optional_package_message() {
+        let message = optional_message(&OsTarget::Debian, "pandoc", "the manual pages").unwrap();
+        assert_eq!(
+            message,
+            "pandoc is not installed: the manual pages are not built. To build them, install it, as root: apt-get install pandoc"
+        );
+    }
+
+    #[test]
     fn test_missing_packages_stop_unless_dry_run() {
         let _guard = DRY_RUN_TEST_LOCK.lock().unwrap();
-        let missing = ["pandoc".to_string()];
+        let missing = [
+            Missing(vec!["clang".into(), "gcc".into()]),
+            Missing(vec!["pkg-config".into()]),
+        ];
         set_dry_run(false);
         let error = report_missing(&OsTarget::Debian, true, &missing)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("apt-get install pandoc"), "{error}");
+        // the group is named whole, and its first package is the one to install
+        assert!(error.contains("clang or gcc, pkg-config"), "{error}");
+        assert!(
+            error.contains("apt-get install clang pkg-config"),
+            "{error}"
+        );
         assert!(report_missing(&OsTarget::Debian, true, &[]).is_ok());
         set_dry_run(true);
         assert!(report_missing(&OsTarget::Debian, true, &missing).is_ok());

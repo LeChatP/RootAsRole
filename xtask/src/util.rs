@@ -965,6 +965,41 @@ pub fn get_os(os: Option<&OsTarget>) -> Result<OsTarget, anyhow::Error> {
     })
 }
 
+/// Whether `command` is an executable file of a directory of `PATH`.
+#[must_use]
+pub fn command_exists(command: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(command);
+        if is_executable(&candidate) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_executable(path: &Path) -> bool {
+    if let Ok(metadata) = std::fs::metadata(path) {
+        if !metadata.is_file() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+        #[cfg(not(unix))]
+        {
+            return true;
+        }
+    }
+    false
+}
+
 #[must_use]
 pub fn detect_priv_bin() -> Option<PathBuf> {
     // is /usr/bin/dosr exist ?
