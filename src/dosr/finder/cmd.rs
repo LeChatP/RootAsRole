@@ -1,7 +1,7 @@
 use log::{debug, info, warn};
 use rootasrole_core::{
     database::{
-        command::{regex_arguments, split_command},
+        command::{anchored_regex, regex_arguments, split_command},
         score::{CmdMin, CmdOrder},
     },
     util::{all_paths_from_env, match_single_path},
@@ -94,7 +94,8 @@ fn match_regex_args(
             .order(CmdOrder::FullRegexArgs)
             .build());
     }
-    evaluate_regex_cmd(regex, &shell_words::join(input_args)).inspect_err(|e| {
+    // anchored at both ends whatever its alternations: ^start|stop$ allows start or stop alone
+    evaluate_regex_cmd(&anchored_regex(regex), &shell_words::join(input_args)).inspect_err(|e| {
         warn!("Invalid regular expression in the policy, it never matches: {regex}: {e}");
     })
 }
@@ -699,6 +700,31 @@ mod tests {
             CmdMin::empty(),
             &mut final_path,
         )
+    }
+
+    #[test]
+    fn test_a_top_level_alternation_is_anchored_on_both_sides() {
+        let systemctl =
+            |rule: &str, args: &[&str]| allows(rule, "/usr/bin/systemctl", args).matching();
+        let rule = "/usr/bin/systemctl ^start|stop$";
+        assert!(systemctl(rule, &["start"]));
+        assert!(systemctl(rule, &["stop"]));
+        // not ^start or stop$: the alternation is between the whole arguments
+        assert!(!systemctl(rule, &["start", "anything"]));
+        assert!(!systemctl(rule, &["please", "stop"]));
+        // a group, a character class and an escaped bar keep their meaning
+        assert!(systemctl(
+            "/usr/bin/systemctl ^(start|stop) caddy$",
+            &["stop", "caddy"]
+        ));
+        assert!(!systemctl(
+            "/usr/bin/systemctl ^(start|stop) caddy$",
+            &["stop", "sshd"]
+        ));
+        // a bar in a character class is no alternation; the arguments are joined with the
+        // quotes of a shell, so a bar typed by the user would be '|'
+        assert!(systemctl("/usr/bin/systemctl ^[x|y]z$", &["xz"]));
+        assert!(!systemctl("/usr/bin/systemctl ^[x|y]z$", &["x"]));
     }
 
     #[test]

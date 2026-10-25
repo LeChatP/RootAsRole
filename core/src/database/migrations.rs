@@ -11,7 +11,12 @@ use serde_json::Value;
 
 use crate::{
     PACKAGE_VERSION,
-    database::migration::{Migration, MigrationError},
+    database::{
+        command::{
+            anchored_regex, has_top_level_alternation, regex_arguments, regex_body, split_command,
+        },
+        migration::{Migration, MigrationError},
+    },
     util::{ENV_DELETE_LIST_SLICE, is_valid_env_pattern},
 };
 
@@ -76,6 +81,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         down: |_, document| {
             remove_password_options(document);
             remove_groups_from(document);
+            rewrite_commands(document, group_top_level_alternation);
             Ok(())
         },
     },
@@ -237,6 +243,18 @@ fn remove_cred_groups_from(cred: &mut serde_json::Map<String, Value>) {
             cred.remove(setgid);
         }
     }
+}
+
+/// A top-level alternation grouped for 4.1.0, which allows no more than 4.2.0.
+///
+/// Since 4.2.0, a regular expression on the arguments matches the whole arguments whatever its
+/// alternations, where 4.1.0 read `^start|stop$` as `^start` or `stop$`. The upgrade leaves it as
+/// written, since it now allows less; the downgrade writes `^(?:start|stop)$`.
+fn group_top_level_alternation(command: &str) -> Option<String> {
+    let (path, args) = split_command(command)?;
+    let regex = regex_arguments(args)?;
+    has_top_level_alternation(regex_body(regex))
+        .then(|| format!("{path} {}", anchored_regex(regex)))
 }
 
 fn path_only(command: &str) -> bool {
@@ -747,6 +765,70 @@ mod tests {
         );
         assert_eq!(creds[4], &json!({"setgid": "adm"}));
         assert_eq!(document["roles"][1]["t"][0]["i"], json!({}));
+    }
+
+    #[test]
+    fn test_top_level_alternation_is_grouped_down() {
+        let mut document = json!({
+            "roles": [{
+                "name": "r",
+                "tasks": [{
+                    "name": "t",
+                    "commands": [
+                        "/usr/bin/systemctl ^start|stop$",
+                        "/usr/bin/systemctl '^start|restart$'",
+                        "/usr/bin/systemctl ^(start|stop) caddy$",
+                        "/usr/bin/tail ^-n [0-9]+$",
+                        "/usr/bin/apt update"
+                    ]
+                }, {
+                    "name": "selector",
+                    "commands": {"default": "none", "del": ["/usr/bin/kill ^-9|-KILL$"]}
+                }]
+            }, {
+                // the short keys of the CBOR format
+                "name": "c",
+                "t": [{"name": "t", "c": ["/usr/bin/systemctl ^a|b$"]}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(
+            document, before,
+            "the upgrade leaves the commands as written"
+        );
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["commands"],
+            json!([
+                "/usr/bin/systemctl ^(?:start|stop)$",
+                "/usr/bin/systemctl ^(?:start|restart)$",
+                "/usr/bin/systemctl ^(start|stop) caddy$",
+                "/usr/bin/tail ^-n [0-9]+$",
+                "/usr/bin/apt update"
+            ])
+        );
+        assert_eq!(
+            document["roles"][0]["tasks"][1]["commands"]["del"],
+            json!(["/usr/bin/kill ^(?:-9|-KILL)$"])
+        );
+        assert_eq!(
+            document["roles"][1]["t"][0]["c"],
+            json!(["/usr/bin/systemctl ^(?:a|b)$"])
+        );
     }
 
     #[test]
