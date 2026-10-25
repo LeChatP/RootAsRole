@@ -79,7 +79,7 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         to: || Version::new(4, 2, 0),
         up: unchanged,
         down: |_, document| {
-            remove_password_options(document);
+            remove_options_of_4_2(document);
             remove_groups_from(document);
             rewrite_commands(document, group_top_level_alternation);
             Ok(())
@@ -181,19 +181,21 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
     }
 }
 
-/// Whether a command of the policy is only a path, without arguments.
-/// 4.1.0 has no `password` option: it is removed from the options of every level.
-fn remove_password_options(document: &mut Value) {
+/// 4.1.0 has neither the `password` nor the `tty` option: they are removed from the options of
+/// every level. Without `tty`, 4.1.0 leaves the terminal to the caller, as `"owner": "caller"`.
+fn remove_options_of_4_2(document: &mut Value) {
     match document {
         Value::Object(map) => {
-            if let Some(Value::Object(options)) = map.get_mut("options")
-                && options.remove("password").is_some()
-            {
-                info!("Removing the password option, unknown before 4.2.0");
+            if let Some(Value::Object(options)) = map.get_mut("options") {
+                for name in ["password", "tty"] {
+                    if options.remove(name).is_some() {
+                        info!("Removing the {name} option, unknown before 4.2.0");
+                    }
+                }
             }
-            map.values_mut().for_each(remove_password_options);
+            map.values_mut().for_each(remove_options_of_4_2);
         }
-        Value::Array(values) => values.iter_mut().for_each(remove_password_options),
+        Value::Array(values) => values.iter_mut().for_each(remove_options_of_4_2),
         _ => {}
     }
 }
@@ -257,6 +259,7 @@ fn group_top_level_alternation(command: &str) -> Option<String> {
         .then(|| format!("{path} {}", anchored_regex(regex)))
 }
 
+/// Whether a command of the policy is only a path, without arguments.
 fn path_only(command: &str) -> bool {
     let command = command.trim();
     !command.is_empty() && !command.contains(char::is_whitespace)
@@ -708,6 +711,42 @@ mod tests {
         assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
         assert_eq!(document["roles"][0]["options"], json!({}));
         assert_eq!(document["roles"][0]["tasks"][0]["options"], json!({}));
+    }
+
+    #[test]
+    fn test_tty_option_up_and_down() {
+        let mut document = json!({
+            "options": {"tty": {"owner": "target"}, "timeout": {"type": "tty"}},
+            "roles": [{
+                "name": "r",
+                "options": {"tty": {"owner": "caller"}},
+                "tasks": [{"name": "t", "options": {"tty": {"owner": "target"}, "umask": "022"}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade keeps the option");
+
+        // 4.1.0 always leaves the terminal to the caller
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
+        assert_eq!(document["roles"][0]["options"], json!({}));
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["options"],
+            json!({"umask": "022"})
+        );
     }
 
     #[test]

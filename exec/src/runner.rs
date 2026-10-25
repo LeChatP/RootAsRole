@@ -492,8 +492,22 @@ pub fn run(
     orchestrator: Orchestrator,
     logger: Option<Box<dyn IoLogger>>,
 ) -> io::Result<std::process::ExitStatus> {
+    run_with_pty_setup(command, orchestrator, logger, |_| Ok(()))
+}
+
+/// Like [`run`], and when the command gets a pty, `pty_setup` prepares it before the command
+/// starts, for example to give it to the user that the command runs as.
+///
+/// # Errors
+/// Returns the errors of [`run`], and the error of `pty_setup`, before the command starts.
+pub fn run_with_pty_setup(
+    command: Command,
+    orchestrator: Orchestrator,
+    logger: Option<Box<dyn IoLogger>>,
+    pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
+) -> io::Result<std::process::ExitStatus> {
     match UserTerm::open() {
-        Ok(term) => run_with_pty(command, orchestrator, logger, term),
+        Ok(term) => run_in_pty(command, orchestrator, logger, term, pty_setup),
         Err(_) => run_no_pty(command, orchestrator),
     }
 }
@@ -520,12 +534,22 @@ pub fn run(
 /// - Failure in the backchannel communication
 /// - Failure in the orchestrator's pre-exec function
 /// - Failure in spawning the command execution
-#[allow(clippy::too_many_lines)]
 pub fn run_with_pty(
     command: Command,
     orchestrator: Orchestrator,
     logger: Option<Box<dyn IoLogger>>,
+    user_term: UserTerm,
+) -> io::Result<std::process::ExitStatus> {
+    run_in_pty(command, orchestrator, logger, user_term, |_| Ok(()))
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_in_pty(
+    command: Command,
+    orchestrator: Orchestrator,
+    logger: Option<Box<dyn IoLogger>>,
     mut user_term: UserTerm,
+    pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
 ) -> io::Result<std::process::ExitStatus> {
     let original_set = block_all_signals();
 
@@ -548,6 +572,11 @@ pub fn run_with_pty(
 
     // Create Pty
     let pty = Pty::open()?;
+    if let Err(e) = pty_setup(&pty) {
+        // the caller goes on without the command: its signals are delivered again
+        restore_signals(original_set);
+        return Err(e);
+    }
     let tty_size = user_term.get_size().unwrap_or_else(|_| TermSize::new(0, 0));
     pty.leader.set_size(&tty_size)?; // set window size by default, resizing comes with features
     debug!("runner(pty): initial tty size {tty_size}");
@@ -812,7 +841,7 @@ fn restore_signals(original: Option<libc::sigset_t>) {
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
-    use super::{SimpleFileLogger, run_no_pty};
+    use super::{SimpleFileLogger, run_no_pty, run_with_pty_setup};
     use crate::MUTEX;
     use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
     use crate::pipe::io_logger_sealed::Sealed;
@@ -974,6 +1003,51 @@ mod tests {
 
         let status = run_no_pty(command, Orchestrator::new(SET_ENV_STEPS)).expect("run command");
         assert!(status.success());
+    }
+
+    /// Whether this thread blocks each of the standard signals.
+    fn signal_mask() -> Vec<bool> {
+        let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &raw mut set) },
+            0
+        );
+        (1..libc::SIGRTMIN())
+            .map(|signal| unsafe { libc::sigismember(&raw const set, signal) } == 1)
+            .collect()
+    }
+
+    // with a terminal, a failed setup of the pty stops before the command starts; without one,
+    // there is no pty to set up and the command runs
+    #[test]
+    fn run_with_pty_setup_stops_on_a_failed_setup() {
+        let _guard = MUTEX.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("rar-pty-setup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create the test directory");
+        let marker = dir.join("ran");
+        let mut command = Command::new("/usr/bin/touch");
+        command.arg(&marker);
+        let mask_before = signal_mask();
+        let mut called = false;
+        let result = run_with_pty_setup(command, Orchestrator::new(NOOP_STEPS), None, |pty| {
+            called = true;
+            assert!(!pty.path.as_bytes().is_empty());
+            Err(io::Error::other("setup refused"))
+        });
+        if called {
+            let error = result.expect_err("the setup error is returned");
+            assert_eq!(error.to_string(), "setup refused");
+            assert!(!marker.exists(), "the command did not start");
+            assert_eq!(
+                signal_mask(),
+                mask_before,
+                "the signals are delivered again"
+            );
+        } else {
+            assert!(result.expect("run without a pty").success());
+            assert!(marker.exists(), "the command ran without a pty");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

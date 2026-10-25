@@ -8,7 +8,7 @@ use rootasrole_core::database::FilterMatcher;
 use rootasrole_core::database::env::{EnvLevel, ResolvedEnv};
 use rootasrole_core::database::options::{
     EnvBehavior, Level, PathBehavior, SAuthentication, SBounding, SInfo, SPassword, SPathOptions,
-    SPrivileged, STimeout, SUMask, WorkdirBehavior,
+    SPrivileged, STimeout, STty, SUMask, TtyOwner, WorkdirBehavior,
 };
 use rootasrole_core::database::path::{PathLevel, ResolvedPath};
 use rootasrole_core::database::score::SecurityMin;
@@ -187,6 +187,8 @@ pub struct Opt<'a> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<SPassword>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<STty>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Value,
@@ -206,6 +208,7 @@ impl<'a> Opt<'a> {
         workdir: Option<DWorkdirEither<'a>>,
         timeout: Option<STimeout>,
         password: Option<SPassword>,
+        tty: Option<STty>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Value,
     ) -> Self {
@@ -220,6 +223,7 @@ impl<'a> Opt<'a> {
             workdir,
             timeout,
             password,
+            tty,
             umask,
             extra_fields,
         }
@@ -328,6 +332,7 @@ impl From<Opt<'_>> for rootasrole_core::database::options::Opt {
             .maybe_authentication(val.authentication)
             .maybe_timeout(val.timeout)
             .maybe_password(val.password)
+            .maybe_tty(val.tty)
             .build()
     }
 }
@@ -504,6 +509,13 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
                 .find_map(|o| o.password.as_ref()?.delay)
                 .unwrap_or(PASSWORD_DELAY),
         }
+    }
+    /// Who owns the pseudo-terminal of the command: the most specific level that says it, or
+    /// the caller.
+    pub fn calc_tty_owner(&self) -> TtyOwner {
+        self.get_opt_iter_rev()
+            .find_map(|o| o.tty.as_ref()?.owner)
+            .unwrap_or_default()
     }
     pub fn calc_info(&self) -> SInfo {
         self.get_opt_iter_rev()
@@ -949,5 +961,27 @@ mod tests {
         assert_eq!(password.tries, std::num::NonZeroU8::new(2));
         assert_eq!(password.delay, Some(jiff::SignedDuration::from_secs(1)));
         assert!(serde_json::from_str::<Opt>(r#"{"password": {"tries": 0}}"#).is_err());
+    }
+
+    // the most specific level that says who owns the terminal wins, else the caller
+    #[test]
+    fn test_calc_tty_owner() {
+        let stack = BorrowedOptStack::new(None);
+        assert_eq!(stack.calc_tty_owner(), TtyOwner::Caller);
+
+        let config: Opt = serde_json::from_str(r#"{"tty": {"owner": "target"}}"#).unwrap();
+        let mut stack = BorrowedOptStack::new(Some(&config));
+        assert_eq!(stack.calc_tty_owner(), TtyOwner::Target);
+        // a level with a tty option that does not name the owner inherits it
+        let role: Opt = serde_json::from_str(r#"{"tty": {"future": 1}}"#).unwrap();
+        stack.role = Some(&role);
+        assert_eq!(stack.calc_tty_owner(), TtyOwner::Target);
+        let task = Opt::builder(Level::Task)
+            .tty(STty::builder().owner(TtyOwner::Caller).build())
+            .build();
+        stack.task = Some(&task);
+        assert_eq!(stack.calc_tty_owner(), TtyOwner::Caller);
+
+        assert!(serde_json::from_str::<Opt>(r#"{"tty": {"owner": "root"}}"#).is_err());
     }
 }

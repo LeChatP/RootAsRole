@@ -24,7 +24,7 @@ use rootasrole_core::{
     database::{
         actor::{DGroupType, DGroups},
         env::EnvFilter,
-        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, TtyOwner},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         structs::GroupsFrom,
         workdir::ResolvedWorkdir,
@@ -94,6 +94,9 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// How many times the password is asked, and the delay after a wrong one
     pub password: PasswordSettings,
+    #[builder(default)]
+    /// Who owns the pseudo-terminal of the command
+    pub tty_owner: TtyOwner,
     #[builder(default)]
     /// Is root id has it's privileges or not? If not, root is going to be a simple user
     pub root: SPrivileged,
@@ -416,6 +419,7 @@ impl BestExecSettings {
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
         result.password = opt_stack.calc_password();
+        result.tty_owner = opt_stack.calc_tty_owner();
         result.root = opt_stack.calc_privileged();
         result.umask = opt_stack.calc_umask();
         result.workdir = opt_stack.calc_workdir();
@@ -1477,6 +1481,40 @@ mod tests {
                 find(&root, method, "/usr/bin/cat"),
                 Err(SrError::PermissionDenied)
             ));
+        }
+    }
+
+    // the tty option of the policy reaches the settings of the execution, the caller by default
+    #[test]
+    fn test_find_best_exec_settings_tty_owner() {
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let dir = PolicyDir::new(&format!("tty-{method}"));
+            let root = dir.0.join("rootasrole");
+            let mut roles = user_role("t", "/usr/bin/ls", &[]);
+            let tty_owner = |root: &Path| {
+                let cli = Cli::builder().cmd_path("/usr/bin/ls".to_string()).build();
+                find_best_exec_settings(
+                    &cli,
+                    &dummy_cred(),
+                    root,
+                    root,
+                    method,
+                    vec![("A", "B")],
+                    &["/usr/bin"],
+                )
+                .unwrap()
+                .tty_owner
+            };
+            write_file(
+                &root,
+                &root_settings(method, &root, roles.clone()),
+                method,
+                0o600,
+            );
+            assert_eq!(tty_owner(&root), TtyOwner::Caller, "{method}");
+            roles[0]["tasks"][0]["options"] = serde_json::json!({"tty": {"owner": "target"}});
+            write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+            assert_eq!(tty_owner(&root), TtyOwner::Target, "{method}");
         }
     }
 

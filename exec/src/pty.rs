@@ -139,6 +139,19 @@ impl PtyFollower {
     pub fn try_clone(&self) -> io::Result<Self> {
         self.file.try_clone().map(|file| Self { file })
     }
+
+    /// Give the terminal to `uid`, keeping its group (`tty` when devpts is mounted with
+    /// `gid=5`) and its mode. Unlike sudo-rs, which changes it by its path
+    /// (`src/exec/use_pty/parent.rs`, `get_pty`), it is changed through the open descriptor.
+    ///
+    /// # Errors
+    /// Returns an error if the caller may not change the owner: it needs `CAP_CHOWN`, unless
+    /// `uid` already owns the terminal.
+    pub fn set_owner(&self, uid: libc::uid_t) -> io::Result<()> {
+        // a gid of -1 keeps the group
+        // SAFETY: fchown does not access memory, the descriptor is owned by `self.file`
+        cerr(unsafe { libc::fchown(self.file.as_raw_fd(), uid, libc::gid_t::MAX) }).map(|_| ())
+    }
 }
 
 impl AsFd for PtyFollower {
@@ -163,6 +176,7 @@ mod tests {
     use std::fs::File;
     use std::io::{Read, Write};
     use std::os::fd::{AsFd, AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
 
     #[test]
     fn test_pty_open_basic() {
@@ -173,6 +187,33 @@ mod tests {
 
         assert!(terminal::safe_isatty(&pty.leader));
         assert!(terminal::safe_isatty(&pty.follower));
+    }
+
+    #[test]
+    fn test_pty_set_owner() {
+        use std::os::unix::fs::MetadataExt;
+
+        let pty = Pty::open().expect("Failed to open PTY");
+        let path = std::ffi::OsStr::from_bytes(pty.path.as_bytes());
+        let before = std::fs::metadata(path).expect("the pty has a path");
+        // the owner it already has needs no privilege
+        pty.follower
+            .set_owner(before.uid())
+            .expect("the owner of the pty may give it to itself");
+        let after = std::fs::metadata(path).expect("the pty has a path");
+        assert_eq!(
+            (after.uid(), after.gid(), after.mode()),
+            (before.uid(), before.gid(), before.mode()),
+            "the group and the mode are kept"
+        );
+        // SAFETY: geteuid does not access memory
+        if unsafe { libc::geteuid() } != 0 {
+            let err = pty
+                .follower
+                .set_owner(before.uid() + 1)
+                .expect_err("another owner needs CAP_CHOWN");
+            assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+        }
     }
 
     #[test]

@@ -48,7 +48,7 @@ use bon::Builder;
 use capctl::{Cap, CapState};
 use const_format::formatcp;
 use nix::unistd::{Uid, User};
-use rootasrole_core::database::options::SBounding;
+use rootasrole_core::database::options::{SBounding, TtyOwner};
 use rootasrole_core::util::{initialize_capabilities, with_privileges};
 use rootasrole_core::{
     Cred,
@@ -590,7 +590,13 @@ fn main_inner() -> SrResult<()> {
         cargs.join(" ")
     );
 
-    let status = match rootasrole_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, None) {
+    let tty_owner = tty_owner(execcfg.tty_owner, &user.user, execcfg.cred.setuid.as_ref());
+    let status = match rootasrole_exec::runner::run_with_pty_setup(
+        command_builder,
+        PRE_EXEC_ORCHESTRATOR,
+        None,
+        |pty| tty_owner.map_or(Ok(()), |owner| give_pty(pty, owner)),
+    ) {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
@@ -601,6 +607,30 @@ fn main_inner() -> SrResult<()> {
     // drop PAM session here for underlining to the compiler that the session ends here.
     drop(session);
     exit_like(status)
+}
+
+/// The user that gets the pseudo-terminal of the command, when it is not the caller: the user
+/// that the command runs as, if the `tty` option says `target`.
+fn tty_owner<'a>(owner: TtyOwner, caller: &User, target: Option<&'a User>) -> Option<&'a User> {
+    match owner {
+        TtyOwner::Target => target.filter(|target| target.uid != caller.uid),
+        TtyOwner::Caller => None,
+    }
+}
+
+/// Give the pseudo-terminal to `owner`, with `CAP_CHOWN` only for that, before the command starts.
+fn give_pty(pty: &rootasrole_exec::pty::Pty, owner: &User) -> io::Result<()> {
+    with_privileges(&[Cap::CHOWN], || pty.follower.set_owner(owner.uid.as_raw())).map_err(|e| {
+        error!(
+            "Cannot give the terminal {} to {}: {e}",
+            pty.path.to_string_lossy(),
+            owner.name
+        );
+        io::Error::new(
+            e.kind(),
+            format!("cannot give the terminal to {}: {e}", owner.name),
+        )
+    })
 }
 
 /// How the command ended: its exit code, or the signal that killed it.
@@ -1188,6 +1218,26 @@ mod tests {
             capabilities_display(Some(caps)),
             format!("{} {}", Cap::NET_RAW, Cap::SYS_BOOT)
         );
+    }
+
+    // the terminal changes hands only with `target`, and only for another user
+    #[test]
+    fn test_tty_owner() {
+        let caller = User::from_uid(getuid()).unwrap().unwrap();
+        let root = User::from_uid(Uid::from_raw(0)).unwrap().unwrap();
+        let target = if caller.uid.is_root() {
+            User::from_name("nobody").unwrap().unwrap()
+        } else {
+            root
+        };
+        assert_eq!(
+            tty_owner(TtyOwner::Target, &caller, Some(&target)).map(|u| u.uid),
+            Some(target.uid)
+        );
+        assert_eq!(tty_owner(TtyOwner::Caller, &caller, Some(&target)), None);
+        assert_eq!(tty_owner(TtyOwner::Target, &caller, Some(&caller)), None);
+        assert_eq!(tty_owner(TtyOwner::Target, &caller, None), None);
+        assert_eq!(tty_owner(TtyOwner::Caller, &caller, None), None);
     }
 
     #[test]

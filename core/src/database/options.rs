@@ -130,6 +130,46 @@ pub struct SPassword {
     pub extra_fields: Map<String, Value>,
 }
 
+/// Who owns the pseudo-terminal that dosr gives to the command.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy, Default)]
+#[serde(rename_all = "kebab-case")]
+#[repr(u32)]
+pub enum TtyOwner {
+    /// The user who runs dosr. The processes of the user that the command runs as cannot open
+    /// the terminal by its name: a program that does, such as pinentry through `GPG_TTY`, fails.
+    #[default]
+    Caller = HARDENED_ENUM_VALUE_0,
+    /// The user that the command runs as, like sudo. Its other processes can then open the
+    /// terminal while the command runs, and read what is typed into it.
+    Target = HARDENED_ENUM_VALUE_1,
+}
+
+impl FromStr for TtyOwner {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "caller" => Ok(Self::Caller),
+            "target" => Ok(Self::Target),
+            _ => Err(format!(
+                "The owner of the terminal is caller or target: {s}"
+            )),
+        }
+    }
+}
+
+/// The pseudo-terminal of the command, when dosr runs from a terminal.
+///
+/// A level that does not set `owner` inherits it from the upper levels, down to `caller`.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct STty {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<TtyOwner>,
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct STimeout {
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
@@ -615,6 +655,8 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<SPassword>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<STty>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Map<String, Value>,
@@ -634,6 +676,7 @@ impl Opt {
         workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
         password: Option<SPassword>,
+        tty: Option<STty>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Self {
@@ -648,6 +691,7 @@ impl Opt {
             workdir,
             timeout,
             password,
+            tty,
             umask,
             extra_fields,
         }
@@ -691,6 +735,7 @@ impl Opt {
                     .delay(PASSWORD_DELAY)
                     .build(),
             )
+            .tty(STty::builder().owner(TtyOwner::default()).build())
             .build()
     }
 }
@@ -1151,6 +1196,18 @@ impl OptStack {
                                 .and_then(|password| password.delay)
                                 .map(|delay| (opt.level, delay)))
                                 .map(|(_, delay)| delay)
+                        )
+                        .build(),
+                )
+                .tty(
+                    STty::builder()
+                        .maybe_owner(
+                            self.find_in_options(|opt| opt
+                                .tty
+                                .as_ref()
+                                .and_then(|tty| tty.owner)
+                                .map(|owner| (opt.level, owner)))
+                                .map(|(_, owner)| owner)
                         )
                         .build(),
                 )
@@ -1983,5 +2040,74 @@ mod tests {
         assert_eq!(defaults.delay, Some(crate::util::PASSWORD_DELAY));
         assert_eq!(crate::util::PASSWORD_TRIES.get(), 3);
         assert_eq!(crate::util::PASSWORD_DELAY, SignedDuration::from_secs(5));
+    }
+
+    #[test]
+    fn test_tty_option() {
+        let tty: STty = serde_json::from_str(r#"{"owner": "target"}"#).unwrap();
+        assert_eq!(tty.owner, Some(TtyOwner::Target));
+        assert_eq!(
+            serde_json::to_value(&tty).unwrap(),
+            serde_json::json!({"owner": "target"})
+        );
+        let tty: STty = serde_json::from_str(r#"{"owner": "caller", "future": 1}"#).unwrap();
+        assert_eq!(tty.owner, Some(TtyOwner::Caller));
+        assert_eq!(tty.extra_fields.len(), 1);
+        for invalid in [
+            r#"{"owner": "root"}"#,
+            r#"{"owner": "Target"}"#,
+            r#"{"owner": 1}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<STty>(invalid).is_err(),
+                "{invalid} is refused"
+            );
+        }
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &tty).unwrap();
+        let from_cbor: STty = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(from_cbor, tty);
+        assert_eq!("target".parse(), Ok(TtyOwner::Target));
+        assert_eq!("caller".parse(), Ok(TtyOwner::Caller));
+        assert!("unset".parse::<TtyOwner>().is_err());
+    }
+
+    // the terminal stays with the caller unless the policy says otherwise
+    #[test]
+    fn test_tty_owner_default_and_inheritance() {
+        assert_eq!(
+            Opt::level_default().tty.unwrap().owner,
+            Some(TtyOwner::Caller)
+        );
+        let config = SPolicy::builder()
+            .role(
+                SRole::builder("test")
+                    .task(STask::builder(1).build())
+                    .task(
+                        STask::builder(2)
+                            .options(|opt| {
+                                opt.tty(STty::builder().owner(TtyOwner::Caller).build())
+                                    .build()
+                            })
+                            .build(),
+                    )
+                    .build(),
+            )
+            .options(|opt| {
+                opt.tty(STty::builder().owner(TtyOwner::Target).build())
+                    .build()
+            })
+            .build();
+        let owner = |task| {
+            OptStack::from_task(&config.task("test", task).unwrap())
+                .to_opt()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .tty
+                .as_ref()
+                .and_then(|tty| tty.owner)
+        };
+        assert_eq!(owner(1), Some(TtyOwner::Target));
+        assert_eq!(owner(2), Some(TtyOwner::Caller));
     }
 }
