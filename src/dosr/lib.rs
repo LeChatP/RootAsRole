@@ -491,7 +491,6 @@ fn main_inner() -> SrResult<()> {
     }
 
     if args.info {
-        use capctl::CapSet;
         println_ignore_io_error!(
             "Role: {}",
             if execcfg.role.is_empty() {
@@ -522,17 +521,7 @@ fn main_inner() -> SrResult<()> {
         }
         println_ignore_io_error!(
             "With capabilities: {}",
-            execcfg.cred.caps.map_or_else(
-                || "None".to_string(),
-                |caps| if caps == !CapSet::empty() {
-                    "All capabilities".to_string()
-                } else {
-                    caps.into_iter()
-                        .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
-                        .trim_end()
-                        .to_string()
-                }
-            )
+            capabilities_display(execcfg.cred.caps)
         );
         println_ignore_io_error!(
             "Command: {} {:?}",
@@ -762,6 +751,20 @@ fn make_cred() -> std::io::Result<Cred> {
         .curdir()?
         .maybe_tty(procfs::controlling_tty())
         .build())
+}
+
+/// The capabilities of the command, as `dosr -i` shows them: a task without capabilities
+/// shows `None`, like a task that does not set them.
+fn capabilities_display(caps: Option<capctl::CapSet>) -> String {
+    match caps {
+        Some(caps) if caps == !capctl::CapSet::empty() => "All capabilities".to_string(),
+        Some(caps) if !caps.is_empty() => caps
+            .into_iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => "None".to_string(),
+    }
 }
 
 /// The capabilities of the task that the bounding set does not have anymore: no process of
@@ -1138,6 +1141,22 @@ mod tests {
         // in the bounding set but not permitted: the file of dosr
         let reason = missing_privileges_reason(false, CapSet::empty(), all).unwrap();
         assert!(reason.contains("setcap"), "{reason}");
+    }
+
+    #[test]
+    fn test_capabilities_display() {
+        assert_eq!(capabilities_display(None), "None");
+        // "capabilities": "none" or [] in the policy
+        assert_eq!(capabilities_display(Some(CapSet::empty())), "None");
+        assert_eq!(
+            capabilities_display(Some(!CapSet::empty())),
+            "All capabilities"
+        );
+        let caps: CapSet = [Cap::NET_RAW, Cap::SYS_BOOT].into_iter().collect();
+        assert_eq!(
+            capabilities_display(Some(caps)),
+            format!("{} {}", Cap::NET_RAW, Cap::SYS_BOOT)
+        );
     }
 
     #[test]
