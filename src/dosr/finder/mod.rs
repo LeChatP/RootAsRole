@@ -1302,6 +1302,116 @@ mod tests {
         .map(|settings| settings.task.unwrap_or_default())
     }
 
+    /// The final policy of the book, under its heading in `book/src/configuration.md`, or `None`
+    /// when the book is not in this source tree: the crate and the Debian sources leave it out.
+    fn book_policy() -> Option<Value> {
+        let page = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("book/src/configuration.md"),
+        )
+        .ok()?;
+        let section = &page[page.find("## The complete WebOps policy")?..];
+        let start = section.find("```json\n")? + "```json\n".len();
+        let end = section[start..].find("\n```")? + start;
+        Some(serde_json::from_str(&section[start..end]).expect("the policy of the book is JSON"))
+    }
+
+    #[test]
+    fn test_the_policy_of_the_book() {
+        let Some(mut policy) = book_policy() else {
+            eprintln!("skipped: the book is not in this source tree");
+            return;
+        };
+        rootasrole_core::database::migrations::migrate_document(&mut policy).unwrap();
+        serde_json::from_value::<rootasrole_core::database::structs::SPolicy>(policy.clone())
+            .expect("rootasrole-core reads the policy of the book");
+        // the current user takes the place of the team, but not of sys-admin, which excludes
+        // caddy-admin
+        let uid = nix::unistd::getuid().as_raw();
+        for role in policy["roles"].as_array_mut().unwrap() {
+            if role["name"] != "sys-admin" {
+                role["actors"] = serde_json::json!([{"type": "user", "id": uid}]);
+            }
+        }
+        let dir = PolicyDir::new("book");
+        let file = dir.0.join("default.json");
+        write_file(&file, &policy, StorageMethod::JSON, 0o600);
+        let root = dir.0.join("rootasrole.json");
+        write_file(
+            &root,
+            &root_settings(StorageMethod::JSON, &file, serde_json::json!([])),
+            StorageMethod::JSON,
+            0o600,
+        );
+        let decide = |cmd: &str, args: &[&str]| -> Option<String> {
+            let cli = Cli::builder()
+                .cmd_path(cmd)
+                .cmd_args(args.iter().map(ToString::to_string))
+                .build();
+            find_best_exec_settings(
+                &cli,
+                &dummy_cred(),
+                &root,
+                &root,
+                StorageMethod::JSON,
+                vec![("A", "B")],
+                &["/usr/bin"],
+            )
+            .ok()
+            .filter(|settings| settings.score.fully_matching())
+            .and_then(|settings| settings.task)
+        };
+        let log = "/var/log/caddy/access.log";
+        assert_eq!(
+            decide("/usr/bin/tail", &["-n", "50", log]).as_deref(),
+            Some("read-logs")
+        );
+        assert_eq!(
+            decide("/usr/bin/tail", &["-f", log]).as_deref(),
+            Some("read-logs")
+        );
+        assert_eq!(
+            decide("/usr/bin/journalctl", &["--no-pager", "-u", "caddy"]).as_deref(),
+            Some("read-logs")
+        );
+        // the path traversal of the chapter
+        let traversal = "/var/log/caddy/../../../etc/shadow";
+        assert_eq!(decide("/usr/bin/tail", &["-n", "50", traversal]), None);
+        assert_eq!(decide("/usr/bin/less", &[traversal]), None);
+        // the pager of systemctl, without --no-pager
+        assert_eq!(decide("/usr/bin/systemctl", &["status", "caddy"]), None);
+        assert_eq!(
+            decide("/usr/bin/systemctl", &["status", "--no-pager", "caddy"]).as_deref(),
+            Some("caddy-service")
+        );
+        assert_eq!(
+            decide("/usr/bin/systemctl", &["restart", "caddy"]).as_deref(),
+            Some("caddy-service")
+        );
+        assert_eq!(decide("/usr/bin/systemctl", &["restart", "sshd"]), None);
+        // alice's escape: more arguments than the regular expression allows
+        let escape = [
+            "-d",
+            "-m",
+            "777",
+            "-o",
+            "alice",
+            "-g",
+            "alice",
+            "/srv/www/x",
+            "/etc",
+        ];
+        assert_eq!(decide("/usr/bin/install", &escape), None);
+        // the user of web-push is www-data, which not every distribution has
+        if User::from_name("www-data").ok().flatten().is_some() {
+            assert_eq!(
+                decide("/usr/bin/install", &["-d", "-m", "755", "/srv/www/site"]).as_deref(),
+                Some("web-push")
+            );
+        }
+        // the root-equivalent tasks of sys-admin are not held
+        assert_eq!(decide("/usr/bin/systemctl", &["reboot"]), None);
+    }
+
     #[test]
     fn test_a_task_whose_credentials_do_not_resolve_is_left_out() {
         let task = |name: &str, cred: Value| serde_json::json!({"name": name, "cred": cred, "commands": ["/usr/bin/ls -l"]});
