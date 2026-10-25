@@ -9,11 +9,11 @@ case "$ID" in
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
         apt-get install -y build-essential curl git pkg-config e2fsprogs libcap2-bin python3 \
-            libpam0g-dev libseccomp-dev pandoc
+            clang libpam0g-dev libseccomp-dev pandoc
         ;;
     arch)
         pacman -Syu --noconfirm --needed base-devel curl git e2fsprogs libcap python \
-            pam libseccomp pandoc-cli
+            clang pam libseccomp pandoc-cli
         ;;
     *)
         echo "provision.sh: unsupported distribution $ID" >&2

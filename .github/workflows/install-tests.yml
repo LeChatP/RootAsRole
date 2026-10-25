@@ -20,7 +20,7 @@ jobs:
       - name: Install git and build dependencies
         run: |
           apt update -y
-          apt install -y git curl build-essential pkg-config libpam0g-dev libseccomp-dev pandoc
+          apt install -y git curl build-essential clang pkg-config libpam0g-dev libseccomp-dev pandoc
           apt install -y sudo ca-certificates
 
       - name: Checkout code
@@ -71,7 +71,7 @@ jobs:
           dnf config-manager --set-enabled crb || true
           dnf install -y epel-release || true
           dnf makecache -y
-          dnf install -y git gcc pkg-config pam-devel libseccomp-devel pandoc
+          dnf install -y git clang pkg-config pam-devel libseccomp-devel pandoc
           dnf install -y sudo ca-certificates
 
       - name: Checkout code
@@ -125,7 +125,7 @@ jobs:
       - name: Install git and build dependencies
         run: |
           zypper refresh
-          zypper install -y bash rustup git curl gcc pkg-config pam-devel libseccomp-devel pandoc
+          zypper install -y bash rustup git curl clang pkg-config pam-devel libseccomp-devel pandoc
           zypper install -y sudo
           rustup toolchain install stable
           rustup update

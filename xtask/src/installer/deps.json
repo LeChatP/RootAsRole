@@ -5,28 +5,28 @@
       "query": "dpkg",
       "install": ["apt-get", "install"],
       "runtime": ["libpam0g", "libseccomp2"],
-      "development": ["gcc", "pkg-config", "libpam0g-dev", "libseccomp-dev", "pandoc"]
+      "development": ["clang", "pkg-config", "libpam0g-dev", "libseccomp-dev", "pandoc"]
     },
     "fedora": {
       "aliases": ["rockylinux", "rocky", "centos", "almalinux", "rhel", "redhat"],
       "query": "rpm",
       "install": ["dnf", "install"],
       "runtime": ["pam", "libseccomp"],
-      "development": ["gcc", "pkgconfig", "pam-devel", "libseccomp-devel", "pandoc"]
+      "development": ["clang", "pkgconfig", "pam-devel", "libseccomp-devel", "pandoc"]
     },
     "opensuse": {
       "aliases": ["suse"],
       "query": "rpm",
       "install": ["zypper", "install"],
       "runtime": ["pam", "libseccomp2"],
-      "development": ["gcc", "pkg-config", "pam-devel", "libseccomp-devel", "pandoc"]
+      "development": ["clang", "pkg-config", "pam-devel", "libseccomp-devel", "pandoc"]
     },
     "archlinux": {
       "aliases": ["arch"],
       "query": "pacman",
       "install": ["pacman", "-S", "--needed"],
       "runtime": ["pam", "libseccomp"],
-      "development": ["gcc", "pkgconf", "pam", "libseccomp", "pandoc-cli"]
+      "development": ["clang", "pkgconf", "pam", "libseccomp", "pandoc-cli"]
     }
   }
 }

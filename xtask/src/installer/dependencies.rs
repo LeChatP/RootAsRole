@@ -256,8 +256,8 @@ mod tests {
             assert!(!target.development.is_empty(), "{os}");
         }
         assert_eq!(
-            install_command(&OsTarget::Debian, &["gcc".into(), "pandoc".into()]).unwrap(),
-            "apt-get install gcc pandoc"
+            install_command(&OsTarget::Debian, &["clang".into(), "pandoc".into()]).unwrap(),
+            "apt-get install clang pandoc"
         );
     }
 
