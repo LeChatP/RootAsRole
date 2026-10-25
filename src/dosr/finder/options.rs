@@ -16,7 +16,7 @@ use rootasrole_core::database::workdir::{ResolvedWorkdir, WorkdirLevel};
 use rootasrole_core::util::{
     AUTHENTICATION, BOUNDING, ENV_DEFAULT_BEHAVIOR, ENV_OVERRIDE_BEHAVIOR, ENV_PATH_BEHAVIOR, INFO,
     PASSWORD_DELAY, PASSWORD_TRIES, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK, is_valid_env_name, is_valid_env_pattern,
+    TTY_OWNER, UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
 use serde::{Deserialize, Serialize};
@@ -511,11 +511,11 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
         }
     }
     /// Who owns the pseudo-terminal of the command: the most specific level that says it, or
-    /// the caller.
+    /// the build-time default.
     pub fn calc_tty_owner(&self) -> TtyOwner {
         self.get_opt_iter_rev()
             .find_map(|o| o.tty.as_ref()?.owner)
-            .unwrap_or_default()
+            .unwrap_or(TTY_OWNER)
     }
     pub fn calc_info(&self) -> SInfo {
         self.get_opt_iter_rev()
@@ -963,11 +963,11 @@ mod tests {
         assert!(serde_json::from_str::<Opt>(r#"{"password": {"tries": 0}}"#).is_err());
     }
 
-    // the most specific level that says who owns the terminal wins, else the caller
+    // the most specific level that says who owns the terminal wins, else the build-time default
     #[test]
     fn test_calc_tty_owner() {
         let stack = BorrowedOptStack::new(None);
-        assert_eq!(stack.calc_tty_owner(), TtyOwner::Caller);
+        assert_eq!(stack.calc_tty_owner(), TTY_OWNER);
 
         let config: Opt = serde_json::from_str(r#"{"tty": {"owner": "target"}}"#).unwrap();
         let mut stack = BorrowedOptStack::new(Some(&config));

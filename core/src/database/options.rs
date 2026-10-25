@@ -23,7 +23,7 @@ use crate::util::{
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
     HARDENED_ENUM_VALUE_3, INFO, PASSWORD_DELAY, PASSWORD_TRIES, PRIVILEGED, TIMEOUT_DURATION,
-    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, is_valid_env_name, is_valid_env_pattern,
+    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, TTY_OWNER, UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
 use super::{
@@ -132,17 +132,37 @@ pub struct SPassword {
 }
 
 /// Who owns the pseudo-terminal that dosr gives to the command.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy, Default)]
+///
+/// Its default is the build-time one (`RAR_TTY_OWNER`).
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 #[repr(u32)]
 pub enum TtyOwner {
     /// The user who runs dosr. The processes of the user that the command runs as cannot open
     /// the terminal by its name: a program that does, such as pinentry through `GPG_TTY`, fails.
-    #[default]
     Caller = HARDENED_ENUM_VALUE_0,
     /// The user that the command runs as, like sudo. Its other processes can then open the
     /// terminal while the command runs, and read what is typed into it.
     Target = HARDENED_ENUM_VALUE_1,
+}
+
+impl Default for TtyOwner {
+    fn default() -> Self {
+        TTY_OWNER
+    }
+}
+
+impl TtyOwner {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``TtyOwner`` variants.
+    pub const fn const_parse(input: &str) -> Self {
+        match input {
+            _ if eq_str(input, "caller") => Self::Caller,
+            _ if eq_str(input, "target") => Self::Target,
+            _ => panic!("fail to parse TtyOwner"),
+        }
+    }
 }
 
 impl FromStr for TtyOwner {
@@ -161,7 +181,8 @@ impl FromStr for TtyOwner {
 
 /// The pseudo-terminal of the command, when dosr runs from a terminal.
 ///
-/// A level that does not set `owner` inherits it from the upper levels, down to `caller`.
+/// A level that does not set `owner` inherits it from the upper levels, down to the build-time
+/// default (`RAR_TTY_OWNER`).
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct STty {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -736,7 +757,7 @@ impl Opt {
                     .delay(PASSWORD_DELAY)
                     .build(),
             )
-            .tty(STty::builder().owner(TtyOwner::default()).build())
+            .tty(STty::builder().owner(TTY_OWNER).build())
             .build()
     }
 }
@@ -2072,13 +2093,17 @@ mod tests {
         assert!("unset".parse::<TtyOwner>().is_err());
     }
 
-    // the terminal stays with the caller unless the policy says otherwise
+    // the terminal stays with the caller unless the policy or the build says otherwise
     #[test]
     fn test_tty_owner_default_and_inheritance() {
+        assert_eq!(crate::util::TTY_OWNER, TtyOwner::Caller);
+        assert_eq!(TtyOwner::default(), crate::util::TTY_OWNER);
         assert_eq!(
             Opt::level_default().tty.unwrap().owner,
-            Some(TtyOwner::Caller)
+            Some(crate::util::TTY_OWNER)
         );
+        assert_eq!(TtyOwner::const_parse("caller"), TtyOwner::Caller);
+        assert_eq!(TtyOwner::const_parse("target"), TtyOwner::Target);
         let config = SPolicy::builder()
             .role(
                 SRole::builder("test")

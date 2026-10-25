@@ -24,7 +24,7 @@ use std::num::NonZeroU8;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
-    TimestampType, WorkdirBehavior,
+    TimestampType, TtyOwner, WorkdirBehavior,
 };
 
 #[cfg(feature = "finder")]
@@ -206,6 +206,10 @@ pub const UMASK: SUMask = SUMask(result::unwrap_or!(
 ));
 
 pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
+
+/// Who owns the terminal of a command run as another user, when the policy does not say it
+/// (`RAR_TTY_OWNER`): `caller`, or `target` like sudo. A value that is neither stops the build.
+pub const TTY_OWNER: TtyOwner = TtyOwner::const_parse(env!("RAR_TTY_OWNER"));
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
 #[serde(rename_all = "lowercase")]

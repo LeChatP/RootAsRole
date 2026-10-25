@@ -1484,7 +1484,8 @@ mod tests {
         }
     }
 
-    // the tty option of the policy reaches the settings of the execution, the caller by default
+    // the tty option of the policy reaches the settings of the execution, the build-time default
+    // without it
     #[test]
     fn test_find_best_exec_settings_tty_owner() {
         for method in [StorageMethod::JSON, StorageMethod::CBOR] {
@@ -1511,7 +1512,11 @@ mod tests {
                 method,
                 0o600,
             );
-            assert_eq!(tty_owner(&root), TtyOwner::Caller, "{method}");
+            assert_eq!(
+                tty_owner(&root),
+                rootasrole_core::util::TTY_OWNER,
+                "{method}"
+            );
             roles[0]["tasks"][0]["options"] = serde_json::json!({"tty": {"owner": "target"}});
             write_file(&root, &root_settings(method, &root, roles), method, 0o600);
             assert_eq!(tty_owner(&root), TtyOwner::Target, "{method}");

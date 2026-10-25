@@ -50,6 +50,8 @@ RAR_TIMEOUT_DURATION = "00:05:00"
 RAR_TIMEOUT_MAX_USAGE = ""
 RAR_PASSWORD_TRIES = "3"
 RAR_PASSWORD_DELAY = "00:00:05"
+# Who owns the terminal of a command run as another user: caller, or target like sudo.
+RAR_TTY_OWNER = "caller"
 RAR_PATH_DEFAULT = "delete"
 RAR_PATH_ADD_LIST = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
 RAR_PATH_REMOVE_LIST = ""
