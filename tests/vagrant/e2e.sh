@@ -71,9 +71,13 @@ setup() {
     printf '%s\n' "[Unit]" "Description=RootAsRole end-to-end test unit" \
         "[Service]" "ExecStart=/bin/sleep infinity" >"/etc/systemd/system/$UNIT.service"
     systemctl daemon-reload
+    # the version of the installed policy, without which chsr does not edit the file
+    local version
+    version=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$ROOT_FILE" | head -n 1)
     write_policy "$E2E_POLICY" "$(
         cat <<EOF
 {
+  "version": "$version",
   "options": {
     "authentication": "skip",
     "path": { "default": "delete", "add": ["/usr/sbin", "/usr/bin", "/sbin", "/bin"] }
@@ -87,6 +91,7 @@ setup() {
       { "name": "echo", "commands": ["/usr/bin/echo ^hello( world)?$"] },
       {
         "name": "service",
+        "options": { "execinfo": "show" },
         "cred": { "setuid": "root", "capabilities": [] },
         "commands": ["/usr/bin/systemctl ^(start|stop|restart) $UNIT$"]
       },
@@ -335,6 +340,63 @@ chsr_edits_the_default_file() {
         chsr list | grep -q "$POLICY_DIR/default.json"
 }
 
+# a regular expression of several words written with chsr is matched by dosr: chsr used to quote
+# each of its words, and dosr never matched it
+chsr_regex_is_matched_by_dosr() {
+    local typed='/usr/bin/echo ^chsr (one|two) [^ ]+$' result=1
+    chsr file e2e.json r e2e t chsr-regex add || return 1
+    if chsr file e2e.json r e2e t chsr-regex cmd wl add "$typed" &&
+        grep -qF "\"$typed\"" "$E2E_POLICY" &&
+        [ "$(as_user dosr -r e2e -t chsr-regex /usr/bin/echo chsr two words)" = "chsr two words" ] &&
+        ! as_user dosr -r e2e -t chsr-regex /usr/bin/echo chsr three words >/dev/null 2>&1; then
+        result=0
+    fi
+    chsr file e2e.json r e2e t chsr-regex del || return 1
+    return "$result"
+}
+
+# the executions are logged under the name dosr, no longer sr
+dosr_logs_under_its_name() {
+    local since
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    as_user dosr /usr/bin/date >/dev/null || return 1
+    for _ in 1 2 3 4 5; do
+        if journalctl -t dosr --since "$since" -o cat | grep -q 'TASK=date ;.*COMMAND=/usr/bin/date'; then
+            ! journalctl -t sr --since "$since" -o cat | grep -q 'COMMAND=/usr/bin/date'
+            return
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# chsr is confined by Landlock, even without vim: one missing optional path made the whole ruleset
+# fail; root itself cannot make chsr read a file outside the policy
+chsr_is_confined_by_landlock() {
+    local since out
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    out=$(chsr convert --from json /etc/hostname json "$POLICY_DIR/rar-e2e-convert.json" 2>&1)
+    remove_policy "$POLICY_DIR/rar-e2e-convert.json"
+    if journalctl -t chsr --since "$since" -o cat | grep -q 'Failed to apply landlock' ||
+        ! grep -qi 'permission denied' <<<"$out"; then
+        echo "$out" >&2
+        return 1
+    fi
+}
+
+# -- ends the options of dosr
+double_dash_ends_the_options() {
+    as_user dosr -r e2e -t date -- /usr/bin/date >/dev/null
+}
+
+# dosr -i shows None for a task whose capabilities are an empty set
+info_shows_no_capabilities_as_none() {
+    as_user dosr -i -r e2e -t service /usr/bin/systemctl start "$UNIT" |
+        grep -qx 'With capabilities: None'
+}
+
 trap cleanup EXIT
 setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
@@ -350,4 +412,9 @@ check "the variables of pam_env go through the env filter of the task" pam_env_i
 check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
+check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
+check "the executions are logged under the name dosr" dosr_logs_under_its_name
+check "chsr is confined by Landlock" chsr_is_confined_by_landlock
+check "-- ends the options of dosr" double_dash_ends_the_options
+check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
 exit "$FAILED"
