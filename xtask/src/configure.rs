@@ -460,6 +460,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_pam_services_end_with_a_newline() {
+        // a line appended to /etc/pam.d/dosr would otherwise be glued to the last one
+        for config in PAM_CONFIGS {
+            assert!(config.ends_with('\n'), "{config:?}");
+        }
+    }
+
+    #[test]
     fn test_default_policy_file_of_a_policy_directory() {
         assert_eq!(
             resolve_policy_path(Path::new("/etc/security/rootasrole.d/")),
