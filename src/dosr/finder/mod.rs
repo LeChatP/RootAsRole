@@ -36,7 +36,10 @@ use serde::de::DeserializeSeed;
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::de::{cred::CredOwnedData, settings::read_storage},
+    finder::de::{
+        cred::{CredData, CredOwnedData},
+        settings::read_storage,
+    },
 };
 
 pub mod api;
@@ -228,6 +231,34 @@ where
     parse_file(&file_path)
         .and_then(BestExecSettings::refuse_tie)
         .and_then(BestExecSettings::with_target_groups)
+}
+
+/// The user and the groups of the credentials of a task, or what does not resolve: a name that
+/// nobody has, an id without an entry, or a lookup that fails. Before, such a user was dropped,
+/// so the command ran as the caller, and such a group was dropped from the list, so the command
+/// kept the primary group of the caller when no group was left.
+fn resolve_cred(cred: &CredData<'_>) -> Result<(Option<User>, Option<Vec<Group>>), String> {
+    let setuid = cred
+        .setuid
+        .as_ref()
+        .map(|user| user.fetch_user().ok_or_else(|| format!("the user {user}")))
+        .transpose()?;
+    let group = |group: &DGroupType<'_>| {
+        group
+            .fetch_group()
+            .ok_or_else(|| format!("the group {group}"))
+    };
+    let setgroups = match &cred.setgroups {
+        None => None,
+        Some(DGroups::Single(single)) => Some(vec![group(single)?]),
+        Some(DGroups::Multiple(groups)) if groups.is_empty() => {
+            return Err("an empty list of groups".into());
+        }
+        Some(DGroups::Multiple(groups)) => {
+            Some(groups.iter().map(group).collect::<Result<_, _>>()?)
+        }
+    };
+    Ok((setuid, setgroups))
 }
 
 /// The groups of `user` as a login gives them (`initgroups(3)`): its primary group first, then
@@ -562,6 +593,19 @@ impl BestExecSettings {
             && let Some(final_path) = task_final_path
             && score.better_fully(&self.score)
         {
+            // a task whose user or groups do not exist cannot run as written: it is left out like
+            // a task that does not match, so that it tells nothing more before the authentication
+            let (setuid, setgroups) = match resolve_cred(&data.cred) {
+                Ok(cred) => cred,
+                Err(missing) => {
+                    error!(
+                        "The task {}/{} cannot run: {missing} does not exist or cannot be read",
+                        data.role().role().role,
+                        data.id
+                    );
+                    return Ok(found);
+                }
+            };
             debug!("found better task settings");
             self.best_task = Some(task_address);
             // a tie with the previous best task does not matter anymore
@@ -571,11 +615,8 @@ impl BestExecSettings {
             self.task = Some(data.id.to_string());
             self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
             self.score = score;
-            self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
-            self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
-                DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
-                DGroups::Multiple(g) => g.iter().filter_map(DGroupType::fetch_group).collect(),
-            });
+            self.cred.setuid = setuid;
+            self.cred.setgroups = setgroups;
             self.cred.groups_from = data.cred.groups_from;
             self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
@@ -1259,6 +1300,59 @@ mod tests {
             &["/usr/bin"],
         )
         .map(|settings| settings.task.unwrap_or_default())
+    }
+
+    #[test]
+    fn test_a_task_whose_credentials_do_not_resolve_is_left_out() {
+        let task = |name: &str, cred: Value| serde_json::json!({"name": name, "cred": cred, "commands": ["/usr/bin/ls -l"]});
+        let role = |tasks: Vec<Value>| {
+            serde_json::json!([{
+                "name": "r",
+                "actors": [{"type": "user", "id": nix::unistd::getuid().as_raw()}],
+                "tasks": tasks
+            }])
+        };
+        let decide = |roles: Value| {
+            let dir = PolicyDir::new("unresolved");
+            let root = dir.0.join("rootasrole");
+            write_file(
+                &root,
+                &root_settings(StorageMethod::JSON, &root, roles),
+                StorageMethod::JSON,
+                0o600,
+            );
+            let cli = Cli::builder()
+                .cmd_path("/usr/bin/ls")
+                .cmd_args(vec!["-l".to_string()])
+                .build();
+            find_best_exec_settings(
+                &cli,
+                &dummy_cred(),
+                &root,
+                &root,
+                StorageMethod::JSON,
+                vec![("A", "B")],
+                &["/usr/bin"],
+            )
+            .unwrap()
+        };
+        let broken = || {
+            vec![
+                task("no-user", serde_json::json!({"setuid": "rar-no-such-user"})),
+                task(
+                    "no-group",
+                    serde_json::json!({"setgid": ["root", "rar-no-such-group"]}),
+                ),
+            ]
+        };
+        // the broken tasks are more precise than any, which is chosen
+        let mut tasks = broken();
+        tasks.push(serde_json::json!({"name": "any", "commands": ["/usr/bin/ls ^.*$"]}));
+        assert_eq!(decide(role(tasks)).task.as_deref(), Some("any"));
+        // without another task, none is chosen, and the command is refused after authentication
+        let settings = decide(role(broken()));
+        assert_eq!(settings.task, None);
+        assert!(!settings.score.fully_matching());
     }
 
     #[test]
