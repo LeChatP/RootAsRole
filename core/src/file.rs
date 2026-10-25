@@ -589,6 +589,12 @@ impl FileSettings {
         self.map.iter().map(|config| &config.data.data).collect()
     }
 
+    /// The path of the root file.
+    #[must_use]
+    pub fn root_path(&self) -> &Path {
+        &self.root.path
+    }
+
     /// The policy files apart from the root file (those of a policy directory, or the one file
     /// that the root file names), with their path.
     pub fn policy_files(&self) -> impl Iterator<Item = (&Path, &Rc<RefCell<SPolicy>>)> {

@@ -14,10 +14,10 @@ use bon::builder;
 use data::{Cli, InputAction, Inputs, Rule};
 
 use landlock::RulesetStatus;
-use log::debug;
+use log::{debug, warn};
 use pair::recurse_pair;
 use pest::Parser;
-use process::process_input;
+use process::{EditorTarget, editor_target, process_input};
 use rootasrole_core::file::FileSettings;
 use usage::print_usage;
 
@@ -75,17 +75,15 @@ where
         if ruleset == &RulesetStatus::NotEnforced {
             return Err("Editor mode requires landlock to be enforced.".into());
         }
-        if let Some(path) = inputs.editor_path {
-            if let Some(storage) = storage.get(&path) {
-                return start_editing(&path, &mut *storage.as_ref().borrow_mut());
-            }
-            let file = FileSettings::read_policy(&path, inputs.editor_type.unwrap_or_default())?;
-            return start_editing(&path, &mut *file.data.data.as_ref().borrow_mut());
+        // the copy that the editor opens is always in the temporary folder, which Landlock allows
+        let folder = folder.ok_or("the editor needs a temporary folder")?;
+        if inputs.editor_type.is_some() {
+            warn!("--type is ignored: chsr editor edits a file of the policy, in its format");
         }
-        return start_editing(
-            folder.ok_or("the editor needs a temporary folder")?,
-            &mut *storage.get_root_mut(),
-        );
+        return match editor_target(storage, inputs.editor_path.as_deref())? {
+            EditorTarget::Root => start_editing(folder, &mut *storage.get_root_mut()),
+            EditorTarget::Policy(policy) => start_editing(folder, &mut *policy.borrow_mut()),
+        };
     }
     process_input(storage, inputs)
 }
@@ -1535,6 +1533,48 @@ mod tests {
         assert!(!chsr_on(&root, "file list").unwrap());
         assert!(!chsr_on(&root, "file extra.json list").unwrap());
         assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+    }
+
+    #[test]
+    fn test_editor_edits_the_file_of_the_other_commands() {
+        let (root, dir, _cleanup) = policy_directory(
+            "editor_edits_the_file_of_the_other_commands",
+            &[
+                ("default.json", serde_json::json!({"roles": []})),
+                ("extra.json", serde_json::json!({"roles": []})),
+            ],
+        );
+        let settings =
+            FileSettings::write_all(root.clone(), root.clone(), StorageMethod::JSON).unwrap();
+        let file = |name: &str| {
+            Rc::clone(
+                settings
+                    .get(std::path::Path::new(&format!("{dir}/{name}")))
+                    .unwrap(),
+            )
+        };
+        let edits = |path: Option<&str>, expected: &Rc<RefCell<SPolicy>>| match editor_target(
+            &settings,
+            path.map(std::path::Path::new),
+        )
+        .unwrap()
+        {
+            EditorTarget::Policy(policy) => assert!(Rc::ptr_eq(&policy, expected), "{path:?}"),
+            EditorTarget::Root => panic!("{path:?} opened the root file"),
+        };
+        // without a path, default.json of the directory, like chsr r newrole create
+        edits(None, &file("default.json"));
+        // another file, by its name or by its path
+        edits(Some("extra.json"), &file("extra.json"));
+        edits(Some(&format!("{dir}/extra.json")), &file("extra.json"));
+        // the root file, by its path
+        assert!(matches!(
+            editor_target(&settings, Some(std::path::Path::new(&root))).unwrap(),
+            EditorTarget::Root
+        ));
+        // a file that is not one of the policy is refused, instead of edited and never saved
+        assert!(editor_target(&settings, Some(std::path::Path::new("nope.json"))).is_err());
+        assert!(editor_target(&settings, Some(std::path::Path::new("/etc/passwd"))).is_err());
     }
 
     #[test]

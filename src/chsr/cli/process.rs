@@ -634,6 +634,32 @@ fn target_policy(
     }
 }
 
+/// What `chsr editor` edits.
+pub enum EditorTarget {
+    /// The root file, which tells where the policy is stored
+    Root,
+    /// A file of the policy
+    Policy(Rc<RefCell<SPolicy>>),
+}
+
+/// What `chsr editor` edits: the root file when its path is given, else the policy file that the
+/// other commands edit, see `target_policy`.
+///
+/// # Errors
+/// When the path is not a file of the policy.
+pub fn editor_target(
+    storage: &FileSettings,
+    path: Option<&Path>,
+) -> Result<EditorTarget, Box<dyn Error>> {
+    if path.is_some_and(|path| path == storage.root_path()) {
+        return Ok(EditorTarget::Root);
+    }
+    let path = path
+        .map(|path| path.to_str().ok_or("The path is not valid UTF-8"))
+        .transpose()?;
+    target_policy(storage, path).map(EditorTarget::Policy)
+}
+
 pub fn perform_on_target_opt(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
