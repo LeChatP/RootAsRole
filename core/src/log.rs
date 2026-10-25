@@ -2,7 +2,7 @@
 #[allow(clippy::unnecessary_wraps)] // Same signature as non debug.
 /// # Errors
 /// Returns an error if the logger fails to initialize
-pub fn subsribe(_: &str) -> std::io::Result<()> {
+pub fn subscribe(_: &str) -> std::io::Result<()> {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Trace)
         .format_module_path(true)
@@ -11,7 +11,7 @@ pub fn subsribe(_: &str) -> std::io::Result<()> {
 }
 
 #[cfg(not(debug_assertions))]
-pub fn subsribe(tool: &str) -> std::io::Result<()> {
+pub fn subscribe(tool: &str) -> std::io::Result<()> {
     use log::LevelFilter;
     use std::ffi::CString;
 
@@ -78,4 +78,13 @@ impl log::Log for CustomSysLogger {
     }
 
     fn flush(&self) {}
+}
+
+/// The former, misspelled name of [`subscribe`], kept for the users of rootasrole-core 4.1.
+///
+/// # Errors
+/// As [`subscribe`].
+#[deprecated(since = "4.2.0", note = "use subscribe")]
+pub fn subsribe(tool: &str) -> std::io::Result<()> {
+    subscribe(tool)
 }

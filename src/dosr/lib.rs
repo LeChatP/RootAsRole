@@ -57,7 +57,7 @@ use rootasrole_core::{
         actor::{SGroupType, SGroups, SUserType},
         options::EnvBehavior,
     },
-    log::subsribe,
+    log::subscribe,
 };
 
 use log::{debug, error, info};
@@ -173,8 +173,7 @@ impl Default for Cli {
     }
 }
 
-const CAPABILITIES_ERROR: &str =
-    "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
+const CAPABILITIES_ERROR: &str = "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run dosr";
 fn cap_effective_error(caplist: &str) -> String {
     format!("Unable to toggle {caplist} privilege. {CAPABILITIES_ERROR}")
 }
@@ -349,7 +348,7 @@ where
 
 #[cfg(not(tarpaulin_include))]
 pub fn dosr_main() {
-    if let Err(e) = subsribe("sr") {
+    if let Err(e) = subscribe("dosr") {
         eprintln_ignore_io_error!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }

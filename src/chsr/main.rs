@@ -57,13 +57,13 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     use log::{debug, error, warn};
     use rootasrole_core::{
         file::FileSettings,
-        log::subsribe,
+        log::subscribe,
         util::{RAR_CFG_TYPE, definitive_drop},
     };
 
     use crate::security::full_program_lock;
 
-    subsribe("chsr")?;
+    subscribe("chsr")?;
     // Drop privileges we don't need
     definitive_drop(&[
         Cap::DAC_OVERRIDE,
