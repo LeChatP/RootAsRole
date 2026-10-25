@@ -3,10 +3,11 @@ use std::path::PathBuf;
 /// Security module, provides Landlock and Seccomp locking
 /// This way, the administrator cannot edit files that should not be edited
 use landlock::{
-    ABI, Access, AccessFs, Compatible, PathBeneath, PathFd, RestrictionStatus, Ruleset,
+    ABI, Access, AccessFs, BitFlags, Compatible, PathBeneath, PathFd, RestrictionStatus, Ruleset,
     RulesetAttr, RulesetCreatedAttr,
 };
 use libseccomp::{ScmpAction, ScmpFilterContext, ScmpSyscall};
+use log::debug;
 
 use crate::{cli::editor::SYSTEM_EDITOR_LIST, util::RAR_CFG_PATH};
 
@@ -34,47 +35,44 @@ pub fn full_program_lock(
             AccessFs::from_all(ABI::V6),
         ))?;
 
-    //TODO: Add rule allowing the path of the policy
-    for &editor in SYSTEM_EDITOR_LIST {
-        if !editor.is_empty() {
-            ruleset = ruleset.add_rule(PathBeneath::new(
-                PathFd::new(editor)?,
-                AccessFs::from_read(ABI::V6),
-            ))?;
+    // what the editor needs to run, where it exists
+    let read = AccessFs::from_read(ABI::V6);
+    let data = read & !AccessFs::Execute;
+    let optional = SYSTEM_EDITOR_LIST
+        .iter()
+        .filter(|editor| !editor.is_empty())
+        .map(|&editor| (editor, read))
+        .chain([
+            ("/usr/share/locale", data),
+            ("/usr/share/terminfo", data),
+            ("/usr/share/vim", data),
+            ("/etc/vimrc", data),
+            ("/lib", read),
+            ("/usr/lib", read),
+        ]);
+    for (path, access) in optional {
+        if let Some(rule) = optional_rule(path, access) {
+            ruleset = ruleset.add_rule(rule)?;
         }
     }
 
     Ok(ruleset
-        // Allow locale + terminfo
-        .add_rule(PathBeneath::new(
-            PathFd::new("/usr/share/locale")?,
-            AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
-        ))?
-        .add_rule(PathBeneath::new(
-            PathFd::new("/usr/share/terminfo")?,
-            AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
-        ))?
-        // Allow vim runtime files
-        .add_rule(PathBeneath::new(
-            PathFd::new("/usr/share/vim")?,
-            AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
-        ))?
-        // Allow /etc/vimrc
-        .add_rule(PathBeneath::new(
-            PathFd::new("/etc/vimrc")?,
-            AccessFs::from_read(ABI::V6) & !AccessFs::Execute,
-        ))?
-        .add_rule(PathBeneath::new(
-            PathFd::new("/lib")?,
-            AccessFs::from_read(ABI::V6),
-        ))?
-        .add_rule(PathBeneath::new(
-            PathFd::new("/usr/lib")?,
-            AccessFs::from_read(ABI::V6),
-        ))?
         .set_compatibility(landlock::CompatLevel::BestEffort)
         .no_new_privs(true)
         .restrict_self()?)
+}
+
+/// The rule for a path that the editor may need, or `None` when it does not exist on this
+/// system: one missing path, like `/etc/vimrc` on Debian or an editor that is not installed, made
+/// the whole ruleset fail, and chsr then ran without Landlock. Leaving it out only allows less.
+fn optional_rule(path: &str, access: BitFlags<AccessFs>) -> Option<PathBeneath<PathFd>> {
+    match PathFd::new(path) {
+        Ok(fd) => Some(PathBeneath::new(fd, access)),
+        Err(e) => {
+            debug!("Landlock: {path} is left out: {e}");
+            None
+        }
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -145,4 +143,16 @@ pub fn seccomp_lock() -> std::io::Result<()> {
         .map_err(|e| std::io::Error::other(format!("Failed to load seccomp filter: {e}")))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_a_missing_path_is_left_out() {
+        let read = AccessFs::from_read(ABI::V6);
+        assert!(optional_rule("/nonexistent/rar-editor", read).is_none());
+        assert!(optional_rule("/", read).is_some());
+    }
 }
