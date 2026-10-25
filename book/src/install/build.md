@@ -18,13 +18,17 @@ RAR_CHSR_EDITOR_PATH = "/usr/bin/vim"
 RAR_TIMEOUT_TYPE = "ppid"
 RAR_TIMEOUT_DURATION = "00:05:00"
 RAR_TIMEOUT_MAX_USAGE = ""
+RAR_PASSWORD_TRIES = "3"
+RAR_PASSWORD_DELAY = "00:00:05"
+# Who owns the terminal of a command run as another user: caller, or target like sudo.
+RAR_TTY_OWNER = "caller"
 RAR_PATH_DEFAULT = "delete"
 RAR_PATH_ADD_LIST = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
 RAR_PATH_REMOVE_LIST = ""
 RAR_ENV_DEFAULT = "delete"
-RAR_ENV_KEEP_LIST = "HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORY,XAUTHORIZATION,XDG_CURRENT_DESKTOP"
-RAR_ENV_CHECK_LIST = "COLORTERM,LANG,LANGUAGE,LC_.*,LINGUAS,TERM,TZ"
-RAR_ENV_DELETE_LIST = "PS4,SHELLOPTS,PERLLIB,PERL5LIB,PERL5OPT,PYTHONINSPECT"
+RAR_ENV_KEEP_LIST = "HOME,USER,LOGNAME,COLORS,DISPLAY,HOSTNAME,KRB5CCNAME,LS_COLORS,PS1,PS2,XAUTHORITY,XAUTHORIZATION,XDG_CURRENT_DESKTOP"
+RAR_ENV_CHECK_LIST = "COLORTERM,LANG,LANGUAGE,LC_*,LINGUAS,TERM,TZ"
+RAR_ENV_DELETE_LIST = "IFS,CDPATH,LOCALDOMAIN,RES_OPTIONS,HOSTALIASES,NLSPATH,PATH_LOCALE,LD_*,_RLD*,TERMINFO,TERMINFO_DIRS,TERMPATH,TERMCAP,ENV,BASH_ENV,PS4,GLOBIGNORE,BASHOPTS,SHELLOPTS,JAVA_TOOL_OPTIONS,PERLIO_DEBUG,PERLLIB,PERL5LIB,PERL5OPT,PERL5DB,FPATH,NULLCMD,READNULLCMD,ZDOTDIR,TMPPREFIX,PYTHONHOME,PYTHONPATH,PYTHONINSPECT,PYTHONUSERBASE,RUBYLIB,RUBYOPT"
 RAR_ENV_SET_LIST = ""
 RAR_ENV_OVERRIDE_BEHAVIOR = "false"
 RAR_AUTHENTICATION = "perform"
@@ -83,6 +87,7 @@ Malformed values strings create compile-time errors.
 | `RAR_WORKDIR_ADD_LIST`| Comma-separated (`,`) | Allowed system directories where users are explicitly authorized to execute commands. |
 | `RAR_WORKDIR_REMOVE_LIST`| Comma-separated (`,`) | Denylist of forbidden working directories where execution requests are rejected. |
 | `RAR_WORKDIR_FALLBACK`| Optional File Path | Forces a static fallback working directory for the executed command if not defined. Warning! This will *always* set the working directory for *every* commands. |
+| `RAR_TTY_OWNER` | String (`"caller"` \| `"target"`) | Determines whether the controlling terminal of the executed command is owned by the calling user or the target user. Note that sudo uses the "target" option by default, but a safer approach is to use "caller", so RaR uses "caller" by default. |
 
 <blockquote class="caroot">
 Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly not reccommend it. <br/> <br/> Working directory management is somewhat useful for some cases, such as allowing restricted commands only in a specific restricted directory. Of course that means that allowed commands shouldn't change internally the working directory. For example, if you set "/bin/ls" command, and setting fallback workdir to the "/tmp", then all "dosr ls" command will only show "/tmp" content, no matter where the user is located. Otherwise, if you set "/bin/ls .*" for the command, then the user still be able to retrieve folder contents everywhere on the system.
@@ -101,6 +106,8 @@ Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly 
 | `RAR_TIMEOUT_MAX_USAGE`| Integer (`u64`) | Absolute limits on how many times a given token context can be reused. |
 | `RAR_TIMEOUT_STORAGE` | Folder Path | Filesystem path used by the timeout engine to persist execution timestamp tokens. |
 | `RAR_EXEC_INFO_DISPLAY`| String (`"hide"` \| `"show"`) | Give the ability to users to know their allowed commands and configuration applied. |
+| `RAR_PASSWORD_TRIES` | Integer (`u8`) | Maximum number of password attempts allowed before aborting the authentication sequence. |
+| `RAR_PASSWORD_DELAY` | Duration `"hh:mm:ss"` | The time to wait between password attempts. |
 
 <blockquote class="caroot-stare">
 Showing to a user their policy can help attackers in their enumeration phase. A good policy knows what command a user is allowed to do in a such way that the user don't know that there is a strict policy applied.

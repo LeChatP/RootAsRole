@@ -7,6 +7,7 @@ RootAsRole - An alternative to sudo/su commands that adheres to the principle of
 
 # SYNOPSIS
 - **dosr** [__OPTIONS__] [__COMMAND__]...
+- **dosr** [__OPTIONS__] -- [__COMMAND__]...
 - **chsr** [__ARGUMENTS__]
 
     **chsr**'s arguments follow a grammar available at <https://github.com/LeChatP/RootAsRole/tree/main/src/chsr/cli/cli.pest>
@@ -28,9 +29,11 @@ The **chsr** command is used to configure RootAsRole and its access control poli
 
 The storage mode of the access control policy can be configured. By default, RootAsRole uses a JSON file. It is possible to change the storage mode by manually modifying the **/etc/security/rootasrole.json** file.
 
-Regarding authentication, RootAsRole uses Pluggable Authentication Module (PAM). The **/etc/pam.d/dosr** file can be configured to change authentication behavior.
+Regarding authentication, RootAsRole uses Pluggable Authentication Module (PAM). The **/etc/pam.d/dosr** file can be configured to change authentication behavior. Also it is possible to configure the number of password attempts and the delay between them in the RootAsRole policy.
 
 The core of RootAsRole implements RBAC-0, a simplified version of RBAC. By default, it adds features in the form of plugins to implement certain RBAC-1 functionalities. RBAC-0 simply implements roles, tasks, and permissions. Plugins add role hierarchy and separation of duties. Plugins can only be implemented directly in the project. Another plugin allows testing the checksum of executed files.
+
+Finally, for observing the usage of RaR tool on your system, you can use the `journalctl -t dosr` command to view the logs of the `dosr` service. This will provide information about the execution of commands and any errors that may have occurred.
 
 # OPTIONS
 
@@ -84,7 +87,7 @@ You can find the history of RootAsRole on the website <https://lechatp.github.io
 
 # SECURITY RISKS
 
-RootAsRole is a security tool that can give a user full control of the system. An administrator can write an access control policy that gives too many privileges to a user. A Perl-compatible regular expression (pcre2) library is very complex and may accept unexpected special characters.
+RootAsRole is a security tool that can give a user full control of the system. An administrator can write an access control policy that gives too many privileges to a user. A regular expression (regex) is a very complex feature and may accept unexpected special characters.
 
 It can be challenging to determine the necessary privileges for a command. For this, you can use the "capable" tool available at <https://github.com/LeChatP/RootAsRole-capable/> to determine the required capabilities for a command. However, this tool might give too many capabilities. It is recommended to verify if the capabilities are truly necessary, as in most cases, they are not. It is discouraged to use "capable" in production, as it is only for testing purposes.
 
