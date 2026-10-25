@@ -482,27 +482,26 @@ pub fn cmd_whitelist_action(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
-    cmd_id: impl IntoIterator<Item = String>,
+    line: &str,
     setlist_type: SetListType,
     action: InputAction,
     checks: &CommandChecks,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command whitelist add c1");
     let task = rconfig.task(role_id, task_id)?;
-    let line = shell_words::join(cmd_id);
     let mut task = task.as_ref().borrow_mut();
     let list = match setlist_type {
         SetListType::White => &mut task.commands.add,
         SetListType::Black => &mut task.commands.sub,
         _ => return Err("Unknown list type".into()),
     };
-    let listed = |command: &SCommand| command_line(command) == Some(line.as_str());
+    let listed = |command: &SCommand| command_line(command) == Some(line);
     match action {
         InputAction::Add => {
             if list.iter().any(listed) {
                 return Err("Command already exists".into());
             }
-            list.push(command_entry(line.clone(), checks));
+            list.push(command_entry(line.to_string(), checks));
         }
         InputAction::Del => {
             if !list.iter().any(listed) {

@@ -1,6 +1,9 @@
 use log::{debug, info, warn};
 use rootasrole_core::{
-    database::score::{CmdMin, CmdOrder},
+    database::{
+        command::{regex_arguments, split_command},
+        score::{CmdMin, CmdOrder},
+    },
     util::{all_paths_from_env, match_single_path},
 };
 use std::path::{Path, PathBuf};
@@ -72,33 +75,12 @@ fn match_path(
     }
 }
 
-/// The regular expression of the arguments of a command of the policy, as written after its
-/// path: arguments starting with `^` and ending with `$`, single-quoted or not.
-fn regex_arguments(args: &str) -> Option<&str> {
-    let args = args.trim();
-    let args = args
-        .strip_prefix('\'')
-        .and_then(|quoted| quoted.strip_suffix('\''))
-        .filter(|quoted| quoted.starts_with('^') && quoted.ends_with('$'))
-        .unwrap_or(args);
-    (args.len() >= 2 && args.starts_with('^') && args.ends_with('$')).then_some(args)
-}
-
 /// The path of a command of the policy, unquoted, and its arguments as written: a regular
 /// expression must not go through shell splitting, which removes its backslashes.
 fn split_role_command(role_cmd: &str) -> Option<(String, &str)> {
-    let role_cmd = role_cmd.trim_start();
-    let first = role_cmd.chars().next()?;
-    let path_end = if first == '\'' || first == '"' {
-        role_cmd[1..].find(first)? + 2
-    } else {
-        role_cmd.find(char::is_whitespace).unwrap_or(role_cmd.len())
-    };
-    let path = shell_words::split(&role_cmd[..path_end])
-        .ok()?
-        .into_iter()
-        .next()?;
-    Some((path, &role_cmd[path_end..]))
+    let (path, args) = split_command(role_cmd)?;
+    let path = shell_words::split(path).ok()?.into_iter().next()?;
+    Some((path, args))
 }
 
 /// Whether the arguments of the user match the regular expression `regex` of the policy.

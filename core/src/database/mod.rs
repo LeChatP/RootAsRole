@@ -12,6 +12,7 @@ use self::options::EnvKey;
 pub mod score;
 
 pub mod actor;
+pub mod command;
 pub mod de;
 pub mod env;
 pub mod migration;

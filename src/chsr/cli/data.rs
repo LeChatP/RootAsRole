@@ -138,7 +138,8 @@ pub struct Inputs {
     pub task_id: Option<IdTask>,
     pub task_type: Option<TaskType>,
     pub cmd_policy: Option<SetBehavior>,
-    pub cmd_id: Option<Vec<String>>,
+    /// The command line to write in the policy, see `policy_command_line`
+    pub cmd_id: Option<String>,
     pub cred_caps: Option<CapSet>,
     pub cred_setuid: Option<SUserType>,
     pub cred_setgid: Option<SGroups>,

@@ -10,6 +10,7 @@ use crate::cli::data::{Convertion, RoleType, TaskType};
 use rootasrole_core::{
     database::{
         actor::{SActor, SGroupType},
+        command::{regex_arguments, split_command},
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SUMask, TimestampType, WorkdirBehavior,
         },
@@ -23,6 +24,23 @@ use super::data::{
 };
 
 type MatchingFunction = dyn Fn(&Pair<Rule>, &mut Inputs) -> Result<(), Box<dyn Error>>;
+
+/// The command line to write in the policy for the command that the user typed.
+///
+/// A regular expression on the arguments is kept as typed: dosr reads it as written, and shell
+/// splitting would quote each of its words, so that it never matches. Any other command is
+/// normalized as a shell splits it.
+///
+/// # Errors
+/// When the command has an unterminated quote.
+pub fn policy_command_line(typed: &str) -> Result<String, shell_words::ParseError> {
+    if let Some((path, args)) = split_command(typed)
+        && let Some(regex) = regex_arguments(args)
+    {
+        return Ok(format!("{path} {regex}"));
+    }
+    Ok(shell_words::join(shell_words::split(typed)?))
+}
 
 fn recurse_pair_with_action(
     pair: Pair<Rule>,
@@ -414,7 +432,7 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         }
         // === commands ===
         Rule::cmd => {
-            inputs.cmd_id = Some(shell_words::split(pair.as_str())?);
+            inputs.cmd_id = Some(policy_command_line(pair.as_str())?);
         }
         // === credentials ===
         Rule::capability => {

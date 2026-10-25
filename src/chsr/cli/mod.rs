@@ -1891,6 +1891,44 @@ mod tests {
         ctx.assert_command_not_contains(&command);
     }
     #[test]
+    fn test_cmd_whitelist_keeps_a_regular_expression_as_typed() {
+        let (mut ctx, _defer) =
+            TestContext::new("cmd_whitelist_keeps_a_regular_expression_as_typed");
+        let prefix = ["r", "complete", "t", "t_complete", "cmd", "whitelist"];
+        let typed = "/usr/bin/tail ^(-n [0-9]+|-f) /var/log/caddy/[^/ ]+$";
+        let command = SCommand::Simple(typed.to_string());
+
+        // quoted as one argument by the shell
+        ctx.assert_command_vec_success([&prefix[..], &["add", typed]].concat());
+        ctx.assert_command_contains(&command);
+        // dosr reads it as a regular expression, with the same rule of rootasrole-core
+        let (_, args) = rootasrole_core::database::command::split_command(typed).unwrap();
+        assert_eq!(
+            rootasrole_core::database::command::regex_arguments(args),
+            Some("^(-n [0-9]+|-f) /var/log/caddy/[^/ ]+$")
+        );
+
+        // del finds it, typed as several arguments
+        ctx.assert_command_vec_success(
+            [
+                &prefix[..],
+                &[
+                    "del",
+                    "/usr/bin/tail",
+                    "^(-n [0-9]+|-f)",
+                    "/var/log/caddy/[^/ ]+$",
+                ],
+            ]
+            .concat(),
+        );
+        ctx.assert_command_not_contains(&command);
+
+        // a backslash is kept, where shell splitting removes it
+        let escaped = r"/usr/bin/tail ^-f /var/log/caddy/access\.log$";
+        ctx.assert_command_vec_success([&prefix[..], &["add", escaped]].concat());
+        ctx.assert_command_contains(&SCommand::Simple(escaped.to_string()));
+    }
+    #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {
         let (mut ctx, _defer) =
             TestContext::new("r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces");
