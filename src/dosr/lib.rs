@@ -112,9 +112,6 @@ const USAGE: &str = formatcp!(
   {BOLD}-D, --chdir <WORKDIR>{RST}
           Workdir option allows you to specify the working directory for the command
 
-  {BOLD}-S, --stdin{RST}
-          Use stdin for password prompt
-
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
@@ -130,9 +127,6 @@ const USAGE: &str = formatcp!(
 
   {BOLD}-g --group <GROUP>(,<GROUP>...){RST}
           Specify the group to execute the command as
-  
-  {BOLD}-K, --remove-timestamp{RST}
-          Delete timestamp cookie after successful authentication
 
   {BOLD}-i, --info{RST}
           Display rights of executor
@@ -1224,6 +1218,27 @@ mod tests {
             capabilities_display(Some(caps)),
             format!("{} {}", Cap::NET_RAW, Cap::SYS_BOOT)
         );
+    }
+
+    // each option of dosr is listed once in its help
+    #[test]
+    fn test_usage_lists_each_option_once() {
+        for option in [
+            "-r, --role",
+            "-t, --task",
+            "-E, --preserve-env",
+            "-D, --chdir",
+            "-p, --prompt",
+            "-S, --stdin",
+            "-K, --remove-timestamp",
+            "-u, --user",
+            "-g --group",
+            "-i, --info",
+            "-v, --version",
+            "-h, --help",
+        ] {
+            assert_eq!(USAGE.matches(option).count(), 1, "{option}");
+        }
     }
 
     // the terminal changes hands only with `target`, and only for another user
