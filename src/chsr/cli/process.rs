@@ -609,13 +609,18 @@ fn target_policy(
         if let Some(policy) = storage.get(wanted) {
             return Ok(policy.clone());
         }
-        return files
-            .iter()
-            .find(|(path, _)| {
-                wanted.components().count() == 1 && path.file_name() == Some(wanted.as_os_str())
-            })
-            .map(|(_, policy)| Rc::clone(policy))
-            .ok_or_else(|| format!("{name} is not a file of the policy: {}", names()).into());
+        let named = |path: &Path| {
+            path == wanted
+                || wanted.components().count() == 1 && path.file_name() == Some(wanted.as_os_str())
+        };
+        if let Some(policy) = files.iter().find(|(path, _)| named(path)) {
+            return Ok(Rc::clone(policy.1));
+        }
+        // a file of the directory that could not be loaded: say why, it is not unknown
+        if let Some((path, error)) = storage.get_ignored().iter().find(|(path, _)| named(path)) {
+            return Err(format!("{} cannot be loaded: {error}", path.display()).into());
+        }
+        return Err(format!("{name} is not a file of the policy: {}", names()).into());
     }
     match files.as_slice() {
         [] => Ok(storage.get_root().config.clone()),

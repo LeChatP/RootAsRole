@@ -1536,6 +1536,29 @@ mod tests {
     }
 
     #[test]
+    fn test_a_file_that_cannot_be_loaded_says_why() {
+        let (root, dir, _cleanup) = policy_directory(
+            "a_file_that_cannot_be_loaded_says_why",
+            &[("default.json", serde_json::json!({"roles": []}))],
+        );
+        // written by hand without its version: dosr reads it, chsr does not edit it
+        fs::write(format!("{dir}/broken.json"), r#"{"roles": []}"#).unwrap();
+        for name in ["broken.json".to_string(), format!("{dir}/broken.json")] {
+            let error = chsr_on(&root, &format!("file {name} r y create"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("cannot be loaded") && error.contains("version"),
+                "{error}"
+            );
+        }
+        let error = chsr_on(&root, "file nope.json r y create")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is not a file of the policy"), "{error}");
+    }
+
+    #[test]
     fn test_editor_edits_the_file_of_the_other_commands() {
         let (root, dir, _cleanup) = policy_directory(
             "editor_edits_the_file_of_the_other_commands",
