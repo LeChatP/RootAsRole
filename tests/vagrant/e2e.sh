@@ -17,6 +17,7 @@ PAM_ENV_FILE=/etc/rar-e2e.env
 BIG_GROUP=rar-e2e-big
 GROUP_BACKUP=/etc/.group.rar-e2e
 GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
+TTY_SCRIPT=/tmp/rar-e2e-tty.sh
 FAILED=0
 
 # 0: pass, 77: skip, anything else: fail
@@ -129,6 +130,17 @@ setup() {
         "commands": ["/usr/bin/whoami"]
       },
       {
+        "name": "tty-caller",
+        "cred": { "setuid": "nobody" },
+        "commands": ["/usr/bin/sh $TTY_SCRIPT"]
+      },
+      {
+        "name": "tty-target",
+        "options": { "tty": { "owner": "target" } },
+        "cred": { "setuid": "nobody" },
+        "commands": ["/usr/bin/sh $TTY_SCRIPT"]
+      },
+      {
         "name": "password",
         "options": {
           "authentication": "perform",
@@ -178,6 +190,7 @@ cleanup() {
     systemctl daemon-reload
     remove_policy "$PLANTED_POLICY"
     remove_policy "$E2E_POLICY"
+    rm -f "$TTY_SCRIPT"
     userdel -r "$TEST_USER" 2>/dev/null
 }
 
@@ -458,6 +471,37 @@ info_shows_no_capabilities_as_none() {
         grep -qx 'With capabilities: None'
 }
 
+# the owner of the terminal of a task run as nobody through a terminal, and whether the command
+# can reopen it by its name, as pinentry does through GPG_TTY
+terminal_seen_by() {
+    printf '%s\n' 't=$(tty)' 'stat -c %U "$t"' \
+        'if { true <>"$t"; } 2>/dev/null; then echo reopened; else echo refused; fi' >"$TTY_SCRIPT"
+    chmod 644 "$TTY_SCRIPT"
+    # no input: script would copy into the terminal what is left on the input of the provisioner
+    as_user script -qec "dosr -r e2e -t $1 /usr/bin/sh $TTY_SCRIPT" /dev/null </dev/null |
+        tr -d '\r'
+}
+
+# by default, the terminal stays with the caller: nobody cannot reopen it
+terminal_stays_with_the_caller() {
+    local out
+    out=$(terminal_seen_by tty-caller)
+    [ "$out" = "$(printf '%s\n' "$TEST_USER" refused)" ] || {
+        echo "$out" >&2
+        return 1
+    }
+}
+
+# "tty": {"owner": "target"} gives the terminal to the user that the command runs as
+terminal_given_to_the_target() {
+    local out
+    out=$(terminal_seen_by tty-target)
+    [ "$out" = "$(printf '%s\n' nobody reopened)" ] || {
+        echo "$out" >&2
+        return 1
+    }
+}
+
 trap cleanup EXIT
 setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
@@ -482,4 +526,6 @@ check "a task that changes the user gives the groups of the target user" groups_
 check "from: caller keeps the groups of the caller" groups_of_the_caller_with_from
 check "a task whose group does not exist is left out" missing_group_leaves_the_task_out
 check "a top-level alternation is anchored on both sides" alternation_is_anchored
+check "the terminal of a command run as another user stays with the caller" terminal_stays_with_the_caller
+check "tty owner target gives the terminal to the user of the command" terminal_given_to_the_target
 exit "$FAILED"
