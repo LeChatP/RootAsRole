@@ -300,6 +300,14 @@ where
             "-h" | "--help" => {
                 args.help = true;
             }
+            // the end of the options, like sudo: the next word is the command, even when it
+            // starts with -
+            "--" => {
+                if let Some(command) = iter.next() {
+                    args.cmd_path = command.as_ref().into();
+                }
+                break;
+            }
             "-v" | "--version" => {
                 println_ignore_io_error!("dosr: version {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
@@ -918,6 +926,24 @@ mod tests {
         assert_eq!(filter.role.as_deref(), Some("\"role\""));
         assert_eq!(filter.workdir.as_deref(), Some("'/tmp'"));
         assert_eq!(args.cmd_args, ["\"a\"", "'b'", "'\"c\"'"]);
+    }
+
+    #[test]
+    fn test_getopt_double_dash_ends_the_options() {
+        let args = getopt(["dosr", "-r", "r1", "--", "-weird", "-l", "--"]).unwrap();
+        assert_eq!(args.cmd_path, PathBuf::from("-weird"));
+        assert_eq!(args.cmd_args, vec!["-l".to_string(), "--".to_string()]);
+        assert_eq!(
+            args.opt_filter.as_ref().and_then(|f| f.role.as_deref()),
+            Some("r1")
+        );
+        let args = getopt(["dosr", "--", "ls", "-l"]).unwrap();
+        assert_eq!(args.cmd_path, PathBuf::from("ls"));
+        assert_eq!(args.cmd_args, vec!["-l".to_string()]);
+        // nothing after it: no command, as without it
+        let args = getopt(["dosr", "-i", "--"]).unwrap();
+        assert!(args.cmd_path.as_os_str().is_empty());
+        assert!(args.info);
     }
 
     #[test]
