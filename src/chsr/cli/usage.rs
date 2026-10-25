@@ -258,12 +258,25 @@ const USAGE_CREDENTIALS: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "--setuid [user], --setgid [groups], --caps [capabilities]",
+            description: "The user, the groups (the first one is the primary group) and the capabilities of the command.",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--setgid-from [caller|target]",
+            description: "Whose groups the command gets when --setgid does not force them: the target user's by default.",
+            indent: 2,
+        },
+        UsageItem {
             name: "caps",
             description: "Manage capabilities for credentials.",
             indent: 1,
         },
     ],
-    examples: &["chsr role admin task backup credentials show"],
+    examples: &[
+        "chsr role admin task backup credentials show",
+        "chsr role admin task backup credentials set --setuid backup --setgid-from caller",
+    ],
 };
 
 const USAGE_CREDENTIALS_CAPS: UsageSection = UsageSection {

@@ -14,7 +14,7 @@ use rootasrole_core::{
         options::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SUMask, TimestampType, WorkdirBehavior,
         },
-        structs::{IdTask, SetBehavior},
+        structs::{GroupsFrom, IdTask, SetBehavior},
     },
     util::{StorageMethod, is_valid_env_name},
 };
@@ -448,6 +448,13 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
                 .next()
                 .ok_or("--setuid needs a user")?;
             inputs.cred_setuid = Some(user.as_str().into());
+        }
+        Rule::groups_from => {
+            inputs.cred_groups_from = Some(if pair.as_str() == "caller" {
+                GroupsFrom::Caller
+            } else {
+                GroupsFrom::Target
+            });
         }
         Rule::cred_g => {
             let groups: Vec<SGroupType> = actor_names(pair)

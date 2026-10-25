@@ -17,7 +17,8 @@ use rootasrole_core::database::{
         STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
     },
     structs::{
-        IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
+        GroupsFrom, IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, SSetgidSet,
+        STask, SUserEither, SetBehavior,
     },
 };
 
@@ -332,8 +333,12 @@ pub fn cred_set(
     cred_caps: Option<capctl::CapSet>,
     cred_setuid: Option<rootasrole_core::database::actor::SUserType>,
     cred_setgid: Option<rootasrole_core::database::actor::SGroups>,
+    groups_from: Option<GroupsFrom>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
+    if groups_from.is_some() && cred_setgid.is_some() {
+        return Err("--setgid-from only applies when --setgid does not force the groups".into());
+    }
     match rconfig.task(role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
@@ -345,6 +350,19 @@ pub fn cred_set(
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid =
                     Some(SGroupsEither::MandatoryGroups(setgid));
+            }
+            if let Some(from) = groups_from {
+                let mut task = task.as_ref().borrow_mut();
+                if let Some(SGroupsEither::GroupSelector(selector)) = task.cred.setgid.as_mut() {
+                    selector.from = Some(from);
+                } else {
+                    if task.cred.setgid.is_some() {
+                        warn!("The groups that the task forced are replaced by --setgid-from");
+                    }
+                    task.cred.setgid = Some(SGroupsEither::GroupSelector(
+                        SSetgidSet::builder(SetBehavior::None).from(from).build(),
+                    ));
+                }
             }
             Ok(true)
         }
@@ -359,6 +377,7 @@ pub fn cred_unset(
     cred_caps: Option<capctl::CapSet>,
     cred_setuid: Option<&rootasrole_core::database::actor::SUserType>,
     cred_setgid: Option<&rootasrole_core::database::actor::SGroups>,
+    groups_from: bool,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
     match rconfig.task(role_id, task_id) {
@@ -377,6 +396,21 @@ pub fn cred_unset(
             }
             if cred_setgid.is_some() {
                 task.as_ref().borrow_mut().cred.setgid = None;
+            }
+            if groups_from {
+                let mut task = task.as_ref().borrow_mut();
+                let Some(SGroupsEither::GroupSelector(selector)) = task.cred.setgid.as_mut() else {
+                    return Err("The task has no --setgid-from to unset".into());
+                };
+                selector.from = None;
+                // a selector with nothing else is no setgid
+                if selector.default_behavior.is_none()
+                    && selector.fallback.is_none()
+                    && selector.add.is_empty()
+                    && selector.sub.is_empty()
+                {
+                    task.cred.setgid = None;
+                }
             }
             Ok(true)
         }

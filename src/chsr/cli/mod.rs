@@ -1954,6 +1954,55 @@ mod tests {
         ctx.assert_command_not_contains(&command);
     }
     #[test]
+    fn test_cred_setgid_from() {
+        let (mut ctx, _defer) = TestContext::new("cred_setgid_from");
+        let setgid = |ctx: &TestContext| {
+            serde_json::to_value(&ctx.task().as_ref().borrow().cred.setgid).unwrap()
+        };
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid group1");
+        // a task without setgid gets a selector with from
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from caller");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "from": "caller"})
+        );
+        // forcing groups and taking them from someone cannot go together
+        assert!(
+            ctx.run_command(
+                "r complete t t_complete cred set --setgid group1 --setgid-from caller"
+            )
+            .is_err()
+        );
+        // a selector keeps its fields, only from changes
+        ctx.task().as_ref().borrow_mut().cred.setgid = Some(SGroupsEither::GroupSelector(
+            SSetgidSet::builder(SetBehavior::None)
+                .add([SGroups::from(vec![
+                    rootasrole_core::database::actor::SGroupType::from("adm"),
+                ])])
+                .build(),
+        ));
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from=target");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "add": ["adm"], "from": "target"})
+        );
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid-from target");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "add": ["adm"]})
+        );
+        // a selector with nothing else than from is removed with it
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid group1");
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from caller");
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid-from caller");
+        ctx.assert_setgid_is_none();
+        assert!(
+            ctx.run_command("r complete t t_complete cred unset --setgid-from caller")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn test_cmd_whitelist_keeps_a_regular_expression_as_typed() {
         let (mut ctx, _defer) =
             TestContext::new("cmd_whitelist_keeps_a_regular_expression_as_typed");

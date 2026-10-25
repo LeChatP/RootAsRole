@@ -13,7 +13,7 @@ use rootasrole_core::{
             EnvBehavior, EnvKey, OptType, PathBehavior, SAuthentication, SBounding, SInfo,
             SPrivileged, SUMask, TimestampType, WorkdirBehavior,
         },
-        structs::{IdTask, SetBehavior},
+        structs::{GroupsFrom, IdTask, SetBehavior},
     },
     util::StorageMethod,
 };
@@ -143,6 +143,8 @@ pub struct Inputs {
     pub cred_caps: Option<CapSet>,
     pub cred_setuid: Option<SUserType>,
     pub cred_setgid: Option<SGroups>,
+    /// Whose groups the command gets when the task does not force them
+    pub cred_groups_from: Option<GroupsFrom>,
     pub cred_policy: Option<SetBehavior>,
     pub options: bool,
     pub options_type: Option<OptType>,

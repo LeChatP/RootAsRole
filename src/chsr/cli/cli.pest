@@ -151,12 +151,15 @@ cred_keyword = { ("credentials" | "cred") }
 credentials_operations  = _{ cred_keyword ~ (cred_set_operations | cred_caps_operations | list) }
 cred_set_operations     = _{ (set | del) ~ cred_set_args }
 cred_set_args = _{
-    (cred_c | cred_u | cred_g)+
+    (cred_c | cred_u | cred_from | cred_g)+
   | help
 }
 cred_c       =  ${ ("--caps" ~ assignment | "-c" ~ WHITESPACE+) ~ capabilities? }
 cred_u       =  ${ ("--setuid" ~ assignment | "-u" ~ WHITESPACE+) ~ actor_name }
 cred_g       =  ${ ("--setgid" ~ assignment | "-g" ~ WHITESPACE+) ~ name_combination }
+// before cred_g, which --setgid-from starts like
+cred_from    =  ${ "--setgid-from" ~ ("=" | WHITESPACE+) ~ groups_from }
+groups_from  =  { "caller" | "target" }
 
 capabilities = _{ capability ~ (","?) ~ capabilities | capability }
 capability   =  @{ ^"CAP_"? ~ (LETTER | "_")+ }
