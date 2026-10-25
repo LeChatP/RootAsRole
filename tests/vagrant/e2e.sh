@@ -123,6 +123,11 @@ setup() {
         "commands": ["/usr/bin/id ^-G$"]
       },
       {
+        "name": "missing-group",
+        "cred": { "setgid": "rar-e2e-missing" },
+        "commands": ["/usr/bin/whoami"]
+      },
+      {
         "name": "password",
         "options": {
           "authentication": "perform",
@@ -417,6 +422,22 @@ groups_of_the_caller_with_from() {
     [ "$got" = "$(as_user id -G | sorted_groups)" ]
 }
 
+# a task whose group does not exist is left out, and the log says why: the group was dropped, so
+# the command ran with the primary group of the caller
+missing_group_leaves_the_task_out() {
+    local since
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    as_user dosr -r e2e -t missing-group /usr/bin/whoami >/dev/null 2>&1 && return 1
+    for _ in 1 2 3 4 5; do
+        journalctl -t dosr --since "$since" -o cat |
+            grep -q 'e2e/missing-group cannot run: the group rar-e2e-missing does not exist' &&
+            return 0
+        sleep 1
+    done
+    return 1
+}
+
 # -- ends the options of dosr
 double_dash_ends_the_options() {
     as_user dosr -r e2e -t date -- /usr/bin/date >/dev/null
@@ -450,4 +471,5 @@ check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
 check "a task that changes the user gives the groups of the target user" groups_of_the_target_user
 check "from: caller keeps the groups of the caller" groups_of_the_caller_with_from
+check "a task whose group does not exist is left out" missing_group_leaves_the_task_out
 exit "$FAILED"
