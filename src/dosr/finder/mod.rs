@@ -691,6 +691,8 @@ mod tests {
     use rootasrole_core::Cred;
     use test_log::test;
 
+    mod perf;
+
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
         Cli::builder()
