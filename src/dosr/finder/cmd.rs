@@ -6,7 +6,52 @@ use rootasrole_core::{
     },
     util::{all_paths_from_env, match_single_path},
 };
-use std::path::{Path, PathBuf};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+/// The paths found for a command name (the second key) in a PATH (the first key, joined by `:`).
+type PathSearches = HashMap<(String, PathBuf), Vec<PathBuf>>;
+
+thread_local! {
+    /// Where a command typed by its name is found in a PATH, during one decision: most tasks
+    /// share their PATH, and each search costs a `stat` per directory, for each command of each
+    /// task. It only exists while a decision runs ([`PathSearchCache::start`]), so that another
+    /// decision, or a direct call, sees the files as they are then.
+    static PATH_SEARCHES: RefCell<Option<PathSearches>> = const { RefCell::new(None) };
+}
+
+/// Keeps the searches in the PATH while it lives.
+pub(super) struct PathSearchCache;
+
+impl PathSearchCache {
+    pub(super) fn start() -> Self {
+        PATH_SEARCHES.with(|searches| *searches.borrow_mut() = Some(HashMap::new()));
+        Self
+    }
+}
+
+impl Drop for PathSearchCache {
+    fn drop(&mut self) {
+        PATH_SEARCHES.with(|searches| *searches.borrow_mut() = None);
+    }
+}
+
+/// [`all_paths_from_env`], kept for the rest of the decision when a [`PathSearchCache`] lives.
+fn paths_from_env(env_path: &[&str], exe_name: &Path) -> Vec<PathBuf> {
+    PATH_SEARCHES.with(|searches| {
+        let mut searches = searches.borrow_mut();
+        let Some(searches) = searches.as_mut() else {
+            return all_paths_from_env(env_path, exe_name);
+        };
+        searches
+            .entry((env_path.join(":"), exe_name.to_path_buf()))
+            .or_insert_with(|| all_paths_from_env(env_path, exe_name))
+            .clone()
+    })
+}
 
 /// Path of the command to run when a task allows every command, or for the `**` pattern.
 /// A name without `/` is only searched in PATH, never in the current directory (like a shell),
@@ -52,7 +97,7 @@ fn match_path(
     } else {
         debug!("match_path: user relative path");
         let mut curmin = CmdMin::empty();
-        all_paths_from_env(env_path, user_path)
+        paths_from_env(env_path, user_path)
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);

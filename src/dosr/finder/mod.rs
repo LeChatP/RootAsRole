@@ -130,6 +130,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
 where
     P: AsRef<Path>,
 {
+    let _path_searches = cmd::PathSearchCache::start();
     let env_vars: Vec<(String, String)> = env_vars
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
