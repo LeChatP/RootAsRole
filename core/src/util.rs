@@ -744,7 +744,10 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
     } else {
         // compiling a pattern costs about 10 µs, for each command of each task of the policy
         #[cfg(feature = "glob")]
-        if is_glob_pattern(role_path) && glob_matches(role_path, cmd_path) {
+        if is_glob_pattern(role_path)
+            && starts_like(role_path, cmd_path)
+            && glob_matches(role_path, cmd_path)
+        {
             use crate::database::score::CmdOrder;
             match_status.set_matching();
             match_status.union_order(CmdOrder::WildcardPath);
@@ -764,6 +767,17 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
 #[cfg(all(feature = "finder", feature = "glob"))]
 fn is_glob_pattern(pattern: &str) -> bool {
     pattern.contains(['*', '?', '[', '{', '\\'])
+}
+
+/// Whether `path` starts with the characters of `pattern` before its first special one, which
+/// globset matches as they are: otherwise the pattern cannot match, and is not compiled.
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn starts_like(pattern: &str, path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let literal = pattern
+        .find(['*', '?', '[', '{', '\\'])
+        .map_or(pattern, |special| &pattern[..special]);
+    path.as_os_str().as_bytes().starts_with(literal.as_bytes())
 }
 
 #[cfg(all(feature = "finder", feature = "glob"))]
@@ -1057,6 +1071,14 @@ mod test {
         assert!(is_glob_pattern("/usr/bin/a\\*"));
         assert!(matches("/usr/bin/a*", "/usr/bin/a\\*"));
         assert!(!matches("/usr/bin/ab", "/usr/bin/a\\*"));
+        // the characters before the first special one must start the path
+        assert!(starts_like(
+            "/usr/bin/python3.*",
+            Path::new("/usr/bin/python3.12")
+        ));
+        assert!(!starts_like("/usr/bin/true5*", Path::new("/usr/bin/true")));
+        assert!(!matches("/usr/bin/true", "/usr/bin/true5*"));
+        assert!(starts_like("/usr/bin/{ls,cat}", Path::new("/usr/bin/cat")));
         // without them, a path is not compiled and matches only itself
         assert!(!is_glob_pattern("/usr/bin/true1"));
         assert!(!matches("/usr/bin/true", "/usr/bin/true1"));
