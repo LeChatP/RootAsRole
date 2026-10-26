@@ -787,13 +787,21 @@ fn execution_log_line(user: &Cred, execcfg: &finder::BestExecSettings, args: &Cl
     )
 }
 
+/// The credentials of the caller. Its groups are kept as ids: the policy names groups, which
+/// are looked up once and compared with these ids, while the name of each group of the caller
+/// would cost an NSS lookup at each run (with systemd-userdb, about 0.5 ms each).
 fn make_cred() -> std::io::Result<Cred> {
-    Ok(Cred::builder()
-        .user()?
-        .groups()?
-        .curdir()?
-        .maybe_tty(procfs::controlling_tty())
-        .build())
+    Ok(Cred {
+        user: User::from_uid(Uid::current())?
+            .ok_or_else(|| std::io::Error::other("User not found"))?,
+        groups: nix::unistd::getgroups()?
+            .into_iter()
+            .map(rootasrole_core::util::Either::Right)
+            .collect(),
+        tty: procfs::controlling_tty(),
+        ppid: nix::unistd::getppid(),
+        curdir: std::env::current_dir()?,
+    })
 }
 
 /// The capabilities of the command, as `dosr -i` shows them: a task without capabilities
@@ -1084,18 +1092,14 @@ mod tests {
     fn test_make_cred() {
         let user = make_cred().unwrap();
         assert_eq!(user.user.uid, getuid());
-        let groups = getgroups()
-            .unwrap()
-            .iter()
-            .map(|g| Group::from_gid(*g).unwrap().unwrap())
-            .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
+        // the groups of the caller are its ids, never looked up
         assert_eq!(
             user.groups
                 .iter()
-                .map(|e| e.left().unwrap().clone())
+                .map(|e| *e.right().unwrap())
                 .collect::<Vec<_>>(),
-            groups
+            getgroups().unwrap()
         );
         assert_eq!(user.ppid, Pid::parent());
     }
