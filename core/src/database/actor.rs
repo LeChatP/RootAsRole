@@ -1,6 +1,9 @@
 use std::{
     borrow::Cow,
+    cell::RefCell,
+    collections::HashMap,
     fmt::{self, Display, Formatter, Write},
+    thread::LocalKey,
 };
 
 use bon::bon;
@@ -77,18 +80,42 @@ impl SUserType {
     }
 }
 
+thread_local! {
+    /// The ids of the names that this thread looked up. A policy names the same users and groups
+    /// in many of its tasks (root above all), and each lookup goes through NSS, which may query
+    /// systemd-userdb or a directory service: about 20 µs, for each task of a policy. A failed
+    /// lookup is not kept, so that it is seen each time.
+    static USER_IDS: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
+    static GROUP_IDS: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
+}
+
+/// The id of `name` in `cache`, else from `lookup`, kept when the lookup succeeds.
+fn cached_id(
+    cache: &'static LocalKey<RefCell<HashMap<String, Option<u32>>>>,
+    name: &str,
+    lookup: impl FnOnce() -> nix::Result<Option<u32>>,
+) -> nix::Result<Option<u32>> {
+    if let Some(id) = cache.with(|ids| ids.borrow().get(name).copied()) {
+        return Ok(id);
+    }
+    let id = lookup()?;
+    cache.with(|ids| ids.borrow_mut().insert(name.to_string(), id));
+    Ok(id)
+}
+
 impl DUserType<'_> {
-    /// The uid of the actor, a name being looked up: `Ok(None)` when no user has that name, an
-    /// error when the lookup itself fails (a directory service that does not answer...).
+    /// The uid of the actor, a name being looked up once per thread: `Ok(None)` when no user has
+    /// that name, an error when the lookup itself fails (a directory service that does not
+    /// answer...).
     ///
     /// # Errors
     /// The error of `getpwnam_r(3)`.
     pub fn try_fetch_id(&self) -> nix::Result<Option<u32>> {
         match &self.0 {
             DGenericActorType::Id(id) => Ok(Some(*id)),
-            DGenericActorType::Name(name) => {
+            DGenericActorType::Name(name) => cached_id(&USER_IDS, name, || {
                 Ok(User::from_name(name)?.map(|user| user.uid.as_raw()))
-            }
+            }),
         }
     }
     /// [`Self::try_fetch_id`], a failed lookup being no user.
@@ -162,18 +189,19 @@ impl SGroupType {
 }
 
 impl DGroupType<'_> {
-    /// The gid of the actor, a name being looked up: `Ok(None)` when no group has that name, an
-    /// error when the lookup itself fails (a directory service that does not answer, a group
-    /// whose members take more than the 1 MiB that nix allows for `getgrnam_r(3)`...).
+    /// The gid of the actor, a name being looked up once per thread: `Ok(None)` when no group has
+    /// that name, an error when the lookup itself fails (a directory service that does not
+    /// answer, a group whose members take more than the 1 MiB that nix allows for
+    /// `getgrnam_r(3)`...).
     ///
     /// # Errors
     /// The error of `getgrnam_r(3)`.
     pub fn try_fetch_id(&self) -> nix::Result<Option<u32>> {
         match &self.0 {
             DGenericActorType::Id(id) => Ok(Some(*id)),
-            DGenericActorType::Name(name) => {
+            DGenericActorType::Name(name) => cached_id(&GROUP_IDS, name, || {
                 Ok(Group::from_name(name)?.map(|group| group.gid.as_raw()))
-            }
+            }),
         }
     }
     /// [`Self::try_fetch_id`], a failed lookup being no group.
@@ -1341,5 +1369,29 @@ mod tests {
             actor(r#"{"user": "alice", "group": "adm"}"#),
             DActor::Unknown(_)
         ));
+    }
+
+    // a name is looked up once per thread, and a name that nobody has is kept too
+    #[test]
+    fn test_name_lookups_are_kept() {
+        let root = DUserType::from("root");
+        assert_eq!(root.try_fetch_id().unwrap(), Some(0));
+        assert_eq!(
+            USER_IDS.with(|ids| ids.borrow().get("root").copied()),
+            Some(Some(0))
+        );
+        assert_eq!(root.try_fetch_id().unwrap(), Some(0));
+        assert_eq!(DUserType::from("rar-no-such-user").fetch_id(), None);
+        assert_eq!(
+            USER_IDS.with(|ids| ids.borrow().get("rar-no-such-user").copied()),
+            Some(None)
+        );
+        assert_eq!(DGroupType::from("root").try_fetch_id().unwrap(), Some(0));
+        assert_eq!(
+            GROUP_IDS.with(|ids| ids.borrow().get("root").copied()),
+            Some(Some(0))
+        );
+        // an id is never looked up
+        assert_eq!(DUserType::from(42).try_fetch_id().unwrap(), Some(42));
     }
 }
