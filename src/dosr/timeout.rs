@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use rootasrole_core::{
     Cred,
-    database::options::{STimeout, TimestampType},
+    database::options::{SAuthentication, STimeout, TimestampType},
     util::with_privileges,
 };
 
@@ -382,6 +382,25 @@ pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
     res.is_some()
 }
 
+/// Keep the cookie of `user` once its session is open: an authentication, or the cookie that
+/// spared it, creates or extends it. A task that skips the authentication proves nothing about
+/// who is at the terminal: its cookie would spare the password to a later task that requires it.
+/// sudo-rs records an authentication only after it (`src/sudo/pipeline.rs`,
+/// `auth_and_update_record_file`).
+///
+/// # Errors
+/// The errors of [`update_cookie`].
+pub fn record_authentication(
+    authentication: SAuthentication,
+    user: &Cred,
+    constraint: &STimeout,
+) -> Result<(), Box<dyn Error>> {
+    if authentication.is_skip() {
+        return Ok(());
+    }
+    update_cookie(user, user, constraint)
+}
+
 /// Add a cookie to the user's cookie file
 pub fn update_cookie(
     from: &Cred,
@@ -489,6 +508,36 @@ mod test {
         assert!(is_valid(&cred, &cred, &constraint));
         assert!(update_cookie(&cred, &cred, &constraint).is_ok());
         assert!(!is_valid(&cred, &cred, &constraint));
+        clear_cookies(&cred).unwrap();
+    }
+
+    // a task that skips the authentication neither creates nor extends a cookie
+    #[test]
+    fn test_skipped_authentication_gives_no_cookie() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        clear_cookies(&cred).unwrap();
+        let constraint = STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(SignedDuration::from_secs(10)),
+            max_usage: Some(2),
+            extra_fields: Map::default(),
+        };
+        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
+        assert!(!is_valid(&cred, &cred, &constraint));
+        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
+        // a skipped authentication does not use the cookie either
+        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
+        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
         clear_cookies(&cred).unwrap();
     }
 

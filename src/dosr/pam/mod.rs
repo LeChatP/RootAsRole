@@ -323,9 +323,10 @@ pub fn start_session<'a>(
         })?;
     check_pam_user(&txn, user)?;
 
-    // Failing to save the cookie only means that the user will be asked to authenticate again
+    // Failing to save the cookie only means that the user will be asked to authenticate again;
+    // a task that skips the authentication keeps no cookie
     #[cfg(feature = "timeout")]
-    if let Err(e) = timeout::update_cookie(user, user, timeout) {
+    if let Err(e) = timeout::record_authentication(authentication, user, timeout) {
         error!("Failed to update timeout cookie: {e}");
     }
 

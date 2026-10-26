@@ -322,6 +322,19 @@ password_is_asked_again() {
     [ "$(grep -c 'Sorry, try again.' <<<"$out")" -eq 2 ]
 }
 
+# a task that skips the authentication (date) gives no cookie: the task password, run after it
+# from the same shell (same parent and session, the scope of the cookie), still asks the
+# password and refuses wrong ones
+skipped_authentication_gives_no_cookie() {
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    if as_user sh -c "dosr -r e2e -t date /usr/bin/date >/dev/null && printf '%s\\n' wrong wrong wrong | dosr -S -r e2e -t password /usr/bin/true" >/dev/null 2>&1; then
+        forget_authentications
+        return 1
+    fi
+    forget_authentications
+}
+
 # a failed lookup of an actor disables the roles with a separation of duties: the members of
 # a group take more than the 1 MiB that the lookups of dosr allow, getgrnam_r fails with ERANGE
 ssd_role_disabled_by_a_failed_lookup() {
@@ -515,6 +528,7 @@ check "CAP_NET_BIND_SERVICE is granted" capability_is_granted
 check "the bounding set is checked before running the command" bounding_set_is_checked_first
 check "the variables of pam_env go through the env filter of the task" pam_env_is_filtered
 check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
+check "a task that skips the authentication gives no cookie" skipped_authentication_gives_no_cookie
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
