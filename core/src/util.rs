@@ -742,8 +742,9 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
     } else {
+        // compiling a pattern costs about 10 µs, for each command of each task of the policy
         #[cfg(feature = "glob")]
-        if glob_matches(role_path, cmd_path) {
+        if is_glob_pattern(role_path) && glob_matches(role_path, cmd_path) {
             use crate::database::score::CmdOrder;
             match_status.set_matching();
             match_status.union_order(CmdOrder::WildcardPath);
@@ -756,6 +757,13 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
         );
     }
     match_status
+}
+
+/// Whether `pattern` has a character that globset reads specially. Without any, it only matches
+/// the path written the same way, which the comparison of paths already found.
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn is_glob_pattern(pattern: &str) -> bool {
+    pattern.contains(['*', '?', '[', '{', '\\'])
 }
 
 #[cfg(all(feature = "finder", feature = "glob"))]
@@ -1037,6 +1045,22 @@ mod test {
         assert!(!matches("/usr/bin/./ls", "/usr/bin/*"));
         // an invalid pattern matches nothing
         assert!(!matches("/usr/bin/ls", "/usr/bin/[ls"));
+        // the characters of globset make a pattern, `\` escapes the next one
+        for pattern in [
+            "/usr/bin/*",
+            "/usr/bin/l?",
+            "/usr/bin/[lc]s",
+            "/usr/bin/{ls,cat}",
+        ] {
+            assert!(is_glob_pattern(pattern), "{pattern}");
+        }
+        assert!(is_glob_pattern("/usr/bin/a\\*"));
+        assert!(matches("/usr/bin/a*", "/usr/bin/a\\*"));
+        assert!(!matches("/usr/bin/ab", "/usr/bin/a\\*"));
+        // without them, a path is not compiled and matches only itself
+        assert!(!is_glob_pattern("/usr/bin/true1"));
+        assert!(!matches("/usr/bin/true", "/usr/bin/true1"));
+        assert!(!matches("/usr/bin/true1", "/usr/bin/true"));
     }
 
     #[test]
