@@ -25,7 +25,7 @@ pub(super) fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<
 fn match_path(
     env_path: &[&str],
     user_path: &Path,
-    role_path: &String,
+    role_path: &str,
     previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
@@ -209,6 +209,18 @@ pub fn evaluate_command_match(
     previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
+    // a path alone, the most common command of a policy, needs no splitting: like a command
+    // line of one word, it allows the command without arguments
+    if !role_cmd.is_empty()
+        && !role_cmd.contains(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | '\\'))
+    {
+        let result = match_path(env_path, cmd_path, role_cmd, previous_min, final_path);
+        return if result.is_empty() || cmd_args.is_empty() {
+            result
+        } else {
+            CmdMin::empty()
+        };
+    }
     // a regular expression is taken as written: unquoted, it may contain spaces, quotes and
     // backslashes that shell splitting would change
     if let Some((role_path, args)) = split_role_command(role_cmd)
