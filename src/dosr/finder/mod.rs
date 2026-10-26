@@ -491,6 +491,65 @@ impl BestExecSettings {
     ) -> SrResult<bool> {
         debug!("task_settings: {:?}", data.id);
         let temp_opt_stack = BorrowedOptStack::from_task(data);
+        // The commands come first: most tasks do not allow the command, and their options need
+        // not be resolved. The task is evaluated on its own: the best settings found so far are
+        // only replaced if its full score is better, so a task cannot change how the next ones
+        // are compared.
+        let mut task_cmd_min = CmdMin::empty();
+        let mut task_final_path = None;
+        // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
+        let mut task_env_path = None;
+        if let Some(commands) = data.commands() {
+            // a command given by its path is compared without the PATH, unless a rule of the
+            // task resolves the command itself (`**`, the `all` default, a plugin)
+            let needs_path = !cli.cmd_path.is_absolute()
+                || commands.default_behavior.is_some_and(|b| b.is_all())
+                || commands
+                    .add()
+                    .chain(commands.del())
+                    .any(|command| Self::resolves_the_command(&command));
+            let t_env_path = if needs_path {
+                temp_opt_stack.calc_path(env_path)
+            } else {
+                Vec::new()
+            };
+            let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
+            for command in commands.del() {
+                if Self::match_command(&t_env_path_ref, cli, &command)?.is_some() {
+                    debug!("task_settings: deny task, the command is in its deny list");
+                    return Ok(false);
+                }
+            }
+            if commands.default_behavior.is_some_and(|b| b.is_all()) {
+                debug!("default behavior is all");
+                debug!("{}", &cli.cmd_path.display());
+                task_final_path = Some(
+                    resolve_any_command(&cli.cmd_path, &t_env_path_ref)
+                        .ok_or(SrError::ExecutionFailed)?,
+                );
+                // any command with any arguments, like a "**" rule
+                task_cmd_min = CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
+                    .build();
+            } else {
+                for command in commands.add() {
+                    if let Some((cmd_min, final_path)) =
+                        Self::match_command(&t_env_path_ref, cli, &command)?
+                        && cmd_min.better(task_cmd_min)
+                    {
+                        task_cmd_min = cmd_min;
+                        task_final_path = Some(final_path);
+                    }
+                }
+            }
+            if needs_path {
+                task_env_path = Some(t_env_path);
+            }
+        }
+        if !task_cmd_min.matching() {
+            return Ok(false);
+        }
         if let Some(entry) = temp_opt_stack.invalid_env_entry() {
             error!(
                 "task_settings: deny task {:?}: invalid environment entry `{entry}`, it must be a variable name where `*` matches any characters",
@@ -498,10 +557,6 @@ impl BestExecSettings {
             );
             return Ok(false);
         }
-        // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
-        let mut task_env_path = None;
-        // We must do this check for each task as long they could have different options
-        // These checks are a small optimization to avoid useless command checks
         if cli
             .opt_filter
             .as_ref()
@@ -536,53 +591,13 @@ impl BestExecSettings {
             debug!("task_settings: deny task due to inherited from role or config info hide");
             return Ok(false);
         }
-        // The task is evaluated on its own: the best settings found so far are only replaced
-        // if its full score is better, so a task cannot change how the next ones are compared.
-        let mut task_cmd_min = CmdMin::empty();
-        let mut task_final_path = None;
-        if let Some(commands) = data.commands() {
-            let t_env_path = temp_opt_stack.calc_path(env_path);
-            let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
-            for command in commands.del() {
-                if Self::match_command(&t_env_path_ref, cli, &command)?.is_some() {
-                    debug!("task_settings: deny task, the command is in its deny list");
-                    return Ok(false);
-                }
-            }
-            if commands.default_behavior.is_some_and(|b| b.is_all()) {
-                debug!("default behavior is all");
-                debug!("{}", &cli.cmd_path.display());
-                task_final_path = Some(
-                    resolve_any_command(&cli.cmd_path, &t_env_path_ref)
-                        .ok_or(SrError::ExecutionFailed)?,
-                );
-                // any command with any arguments, like a "**" rule
-                task_cmd_min = CmdMin::builder()
-                    .matching()
-                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
-                    .build();
-            } else {
-                for command in commands.add() {
-                    if let Some((cmd_min, final_path)) =
-                        Self::match_command(&t_env_path_ref, cli, &command)?
-                        && cmd_min.better(task_cmd_min)
-                    {
-                        task_cmd_min = cmd_min;
-                        task_final_path = Some(final_path);
-                    }
-                }
-            }
-            task_env_path = Some(t_env_path);
-        }
-        let found = task_cmd_min.matching();
         let mut score = data.score(task_cmd_min, temp_opt_stack.calc_security_min());
         score.set_role_score(&held_through);
         Api::notify(ApiEvent::BestTaskSettingsFound(
             cli, data, opt_stack, self, &mut score,
         ))?;
         let task_address = std::ptr::from_ref(data.task).addr();
-        if found
-            && task_final_path.is_some()
+        if task_final_path.is_some()
             && score.fully_matching()
             && !score.better_fully(&self.score)
             && score.cmp(&self.score) == Ordering::Equal
@@ -593,8 +608,7 @@ impl BestExecSettings {
             self.tie
                 .get_or_insert_with(|| format!("{}/{}", data.role().role().role, data.id));
         }
-        if found
-            && let Some(final_path) = task_final_path
+        if let Some(final_path) = task_final_path
             && score.better_fully(&self.score)
         {
             // a task whose user or groups do not exist cannot run as written: it is left out like
@@ -607,7 +621,7 @@ impl BestExecSettings {
                         data.role().role().role,
                         data.id
                     );
-                    return Ok(found);
+                    return Ok(true);
                 }
             };
             debug!("found better task settings");
@@ -628,7 +642,19 @@ impl BestExecSettings {
             debug!("resulting settings: {self:?}");
         }
 
-        Ok(found)
+        Ok(true)
+    }
+
+    /// Whether a command of the policy resolves the command of the user in the PATH: `**`, which
+    /// allows any command, or a complex command, which a plugin evaluates.
+    fn resolves_the_command(command: &DLinkedCommand<'_, '_, '_, '_, '_>) -> bool {
+        match &**command {
+            de::DCommand::Simple(role_cmd) => role_cmd
+                .trim_start()
+                .trim_start_matches(['\'', '"'])
+                .starts_with("**"),
+            de::DCommand::Complex(_) => true,
+        }
     }
 
     /// How a command of the policy matches the command line: its score and the path to run,
