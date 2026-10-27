@@ -89,6 +89,9 @@ where
 }
 
 #[cfg(test)]
+mod locality;
+
+#[cfg(test)]
 mod tests {
     use std::{cell::RefCell, fs, rc::Rc};
 
