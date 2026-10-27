@@ -380,3 +380,98 @@ fn test_task_of_an_unknown_user_is_never_chosen() {
         }
     }
 }
+
+/// Roles that hold one task each, allowing a command of their own, with random actors,
+/// `parents` and `ssd`: `held[i]` says whether the user is an actor of the role `r{i}`.
+fn hierarchy_policy(rng: &mut Rng) -> (Value, Vec<bool>) {
+    let uid = nix::unistd::getuid().as_raw();
+    let count = 2 + rng.below(3);
+    let held: Vec<bool> = (0..count).map(|_| rng.below(2) == 0).collect();
+    let others = |rng: &mut Rng, i: usize| -> Vec<String> {
+        (0..count)
+            .filter(|&j| j != i && rng.below(3) == 0)
+            .map(|j| format!("r{j}"))
+            .collect()
+    };
+    let roles: Vec<Value> = (0..count)
+        .map(|i| {
+            let actor = if held[i] { uid } else { uid.wrapping_add(1) };
+            let mut role = json!({
+                "name": format!("r{i}"),
+                "actors": [{"type": "user", "id": actor}],
+                "tasks": [{"name": format!("t{i}"), "commands": [format!("/usr/bin/rar-prop-{i}")]}],
+            });
+            let parents = others(rng, i);
+            if !parents.is_empty() {
+                role["parents"] = json!(parents);
+            }
+            let ssd = others(rng, i);
+            if !ssd.is_empty() {
+                role["ssd"] = json!(ssd);
+            }
+            role
+        })
+        .collect();
+    (json!({ "roles": roles }), held)
+}
+
+/// The names that `role` lists in `field`.
+fn listed<'p>(role: &'p Value, field: &str) -> Vec<&'p str> {
+    role[field]
+        .as_array()
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default()
+}
+
+/// Whether dosr should allow the command of the role `r{target}`, written as the rules decided
+/// on 2026-10-28: the user holds a role as its actor, or through a role it holds whose parents
+/// name it; a role is excluded when the user holds a role in conflict with it, whichever of the
+/// two names the other in `ssd`; the tasks of a parent come through a held role that is not
+/// excluded.
+fn reference_allows(policy: &Value, held: &[bool], target: usize) -> bool {
+    let roles = policy["roles"].as_array().unwrap();
+    let index = |name: &str| roles.iter().position(|role| role["name"] == name).unwrap();
+    let holds = |i: usize| {
+        held[i]
+            || (0..roles.len()).any(|s| {
+                held[s]
+                    && listed(&roles[s], "parents").contains(&roles[i]["name"].as_str().unwrap())
+            })
+    };
+    let in_conflict = |i: usize, j: usize| {
+        let name = |k: usize| roles[k]["name"].as_str().unwrap();
+        listed(&roles[i], "ssd").contains(&name(j)) || listed(&roles[j], "ssd").contains(&name(i))
+    };
+    let excluded = |i: usize| (0..roles.len()).any(|j| j != i && in_conflict(i, j) && holds(j));
+    let name = roles[target]["name"].as_str().unwrap();
+    !excluded(target)
+        && (held[target]
+            || roles.iter().any(|senior| {
+                let s = index(senior["name"].as_str().unwrap());
+                held[s] && !excluded(s) && listed(senior, "parents").contains(&name)
+            }))
+}
+
+// the separation of duties holds through the hierarchy: dosr allows the command of a role
+// exactly when the reference rules do, for random actors, parents and conflicts
+#[cfg(all(feature = "hierarchy", feature = "ssd"))]
+#[test]
+fn test_separation_of_duties_through_the_hierarchy() {
+    crate::finder::api::register_plugins();
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let (policy, held) = hierarchy_policy(&mut rng);
+        for target in 0..held.len() {
+            let cmd = format!("/usr/bin/rar-prop-{target}");
+            let allowed = matches!(
+                outcome(decide(&policy, &cmd, &[], None)),
+                Outcome::Allowed { ref role, .. } if *role == format!("r{target}")
+            );
+            assert_eq!(
+                allowed,
+                reference_allows(&policy, &held, target),
+                "seed {seed}, r{target}, held {held:?}\n{policy}"
+            );
+        }
+    }
+}

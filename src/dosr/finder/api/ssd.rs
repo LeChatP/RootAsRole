@@ -1,25 +1,12 @@
-use std::{
-    collections::HashSet,
-    hash::{DefaultHasher, Hash, Hasher},
-};
-
 use log::{debug, warn};
 use serde_json::Value;
 
-#[cfg(feature = "hierarchy")]
-use crate::finder::de::DRoleFinder;
 use crate::{
     error::{SrError, SrResult},
-    finder::de::DLinkedRole,
+    finder::de::{DLinkedRole, DRoleFinder},
 };
 
 use super::{Api, ApiEvent};
-
-fn calculate_hash<T: Hash>(value: &T) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
 
 /// Whether the user holds `role`: as one of its actors, or through a role that it holds as an
 /// actor and that names `role` in its parents, whose tasks the hierarchy plugin grants.
@@ -49,62 +36,58 @@ fn parents<'r>(role: &'r DRoleFinder<'_>) -> impl Iterator<Item = &'r str> {
     parents.iter().filter_map(Value::as_str)
 }
 
-/// Whether the separation of duty excludes `role` for the user: a role that it names in `ssd`
-/// is held by the user, even through the hierarchy.
-#[cfg(feature = "hierarchy")]
-pub(super) fn excludes(role: &DLinkedRole) -> SrResult<bool> {
-    check_ssd_recursive(role, &mut HashSet::new())
+/// The roles that `role` names in its `ssd`, one or a list; another value is a configuration
+/// error.
+fn named<'r>(role: &'r DRoleFinder<'_>) -> SrResult<Vec<&'r str>> {
+    match role.extra_values.get("ssd") {
+        None => Ok(Vec::new()),
+        Some(Value::String(name)) => Ok(vec![name.as_str()]),
+        Some(Value::Array(names)) => Ok(names.iter().filter_map(Value::as_str).collect()),
+        Some(value) => {
+            debug!("Invalid SSD value: {value:?}");
+            Err(SrError::ConfigurationError)
+        }
+    }
 }
 
-fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResult<bool> {
+/// Whether the separation of duty excludes `role` for the user: the user holds a role that is
+/// in conflict with it, even through the hierarchy. A conflict holds both ways, whichever of the
+/// two roles names the other in `ssd`, and only between the two roles that it names: a user who
+/// holds two conflicting roles can use neither of them.
+pub(super) fn excludes(role: &DLinkedRole) -> SrResult<bool> {
+    let name = role.role().role.as_ref();
+    let own = named(role.role())?;
+    // the roles that name this one; an invalid value of theirs is reported when they are used
+    let naming: Vec<DLinkedRole> = role
+        .config()
+        .roles()
+        .filter(|other| named(other.role()).is_ok_and(|names| names.contains(&name)))
+        .collect();
     // a failed lookup of an actor leaves unknown whether the user holds a role: the separation
-    // of duties cannot be checked, so every role of the policy file that has one is disabled
-    // (decided by the maintainer on 2026-10-23); SSD only names roles of the same file
-    if role.role().extra_values.contains_key("ssd")
+    // of duties cannot be checked, so every role of the policy file that takes part in one is
+    // disabled (decided by the maintainer on 2026-10-23); SSD only names roles of the same file
+    if (role.role().extra_values.contains_key("ssd") || !naming.is_empty())
         && role
             .config()
             .roles()
             .any(|other| other.role().lookup_failed)
     {
         warn!(
-            "The role {} is disabled: it has a separation of duties, and an actor of its policy could not be looked up",
-            role.role().role
+            "The role {name} is disabled: it takes part in a separation of duties, and an actor of its policy could not be looked up"
         );
         return Ok(true);
     }
-    if let Some(Value::Array(ssd)) = role.role().extra_values.get("ssd") {
-        for ssd in ssd {
-            if let Value::String(ssd) = ssd {
-                if visited.contains(&calculate_hash(ssd)) {
-                    continue; // Avoid infinite recursion
-                }
-                visited.insert(calculate_hash(ssd));
-                if let Some(r) = role.config().role(ssd) {
-                    if holds(&r) {
-                        return Ok(true);
-                    }
-                    if check_ssd_recursive(&r, visited)? {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-    } else if let Some(Value::String(ssd)) = role.role().extra_values.get("ssd") {
-        if visited.contains(&calculate_hash(ssd)) {
-            return Ok(false); // Avoid infinite recursion
-        }
-        visited.insert(calculate_hash(ssd));
-        if let Some(r) = role.config().role(ssd) {
-            if holds(&r) {
-                return Ok(true);
-            }
-            if check_ssd_recursive(&r, visited)? {
-                return Ok(true);
-            }
-        }
-    } else if let Some(e) = role.role().extra_values.get("ssd") {
-        debug!("Invalid SSD value: {e:?}");
-        return Err(SrError::ConfigurationError);
+    let conflict = own
+        .into_iter()
+        .filter_map(|other| role.config().role(other))
+        .chain(naming)
+        .find(holds);
+    if let Some(other) = conflict {
+        debug!(
+            "The role {name} is excluded: the user also holds {}, in conflict with it",
+            other.role().role
+        );
+        return Ok(true);
     }
     Ok(false)
 }
@@ -112,12 +95,9 @@ fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResu
 fn check_ssd(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::ActorMatching(role, _settings, matching) = event
         && role.role().user_min.matching()
+        && excludes(role)?
     {
-        let mut visited: HashSet<u64> = HashSet::new();
-        if check_ssd_recursive(role, &mut visited)? {
-            **matching = false;
-            return Ok(());
-        }
+        **matching = false;
     }
     Ok(())
 }

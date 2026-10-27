@@ -1914,6 +1914,19 @@ mod tests {
             choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
             "ops"
         );
+        // a role that another names in its ssd takes part in the conflict: disabled too
+        let roles = serde_json::json!([
+            role_json("dev", false, None, &serde_json::json!({"ssd": ["auditor"]})),
+            role_json("auditor", true, Some("/usr/bin/ls"), &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "auditor"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["dev"]),
+            Err(SrError::PermissionDenied)
+        ));
     }
 
     #[cfg(all(feature = "hierarchy", feature = "ssd"))]
@@ -2171,7 +2184,11 @@ mod tests {
             choose(&roles, "/usr/bin/cat"),
             Err(SrError::PermissionDenied)
         ));
-        assert!(choose(&roles, "/usr/bin/ls").is_ok());
+        // and junior, held through senior, is excluded by auditor: the conflict holds both ways
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
     }
 
     #[cfg(all(feature = "hierarchy", feature = "ssd"))]
@@ -2185,29 +2202,66 @@ mod tests {
             None,
             &serde_json::json!({"parents": ["a", "b"]}),
         );
-        // a declares the conflict: its tasks are not inherited, those of b are
+        // declared on one side or on both: no task of either is inherited
+        for b_ssd in [none, ssd("a")] {
+            let roles = serde_json::json!([
+                senior,
+                role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+                role_json("b", false, Some("/usr/bin/cat"), &b_ssd),
+            ]);
+            for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+                assert!(
+                    matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                    "{cmd} {b_ssd}"
+                );
+            }
+        }
+    }
+
+    // a conflict holds both ways: the user who holds dev and auditor, dev naming auditor, can
+    // use neither, as the book says (decided by the maintainer on 2026-10-28)
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_ssd_excludes_both_roles_of_a_conflict() {
+        let none = serde_json::json!({});
         let roles = serde_json::json!([
-            senior,
-            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
-            role_json("b", false, Some("/usr/bin/cat"), &none),
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", true, Some("/usr/bin/ls"), &none),
         ]);
-        assert!(matches!(
-            choose(&roles, "/usr/bin/ls"),
-            Err(SrError::PermissionDenied)
-        ));
-        assert!(choose(&roles, "/usr/bin/cat").is_ok());
-        // declared on both sides: no task of either
-        let roles = serde_json::json!([
-            senior,
-            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
-            role_json("b", false, Some("/usr/bin/cat"), &ssd("a")),
-        ]);
-        for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+        for cmd in ["/usr/bin/cat", "/usr/bin/ls"] {
             assert!(
                 matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
                 "{cmd}"
             );
+            assert!(
+                matches!(
+                    choose_role(&roles, cmd, "auditor"),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{cmd}"
+            );
         }
+    }
+
+    // a conflict is between the two roles that it names, not along a chain: a names b, b names
+    // c, and the user who holds a and c, not b, keeps a (decided by the maintainer on 2026-10-28)
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_ssd_is_not_transitive() {
+        let none = serde_json::json!({});
+        let ssd = |other: &str| serde_json::json!({ "ssd": [other] });
+        let roles = serde_json::json!([
+            role_json("a", true, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, None, &ssd("c")),
+            role_json("c", true, Some("/usr/bin/cat"), &none),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "a");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "c");
     }
 
     #[test]
