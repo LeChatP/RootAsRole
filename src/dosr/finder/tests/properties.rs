@@ -475,3 +475,162 @@ fn test_separation_of_duties_through_the_hierarchy() {
         }
     }
 }
+
+/// The fields of the options that hold one value each, with the values that a level may give
+/// them: `(option, field)`, `field` empty for an option that is the value itself.
+const SCALARS: [(&str, &str, [&str; 2]); 11] = [
+    ("authentication", "", ["\"perform\"", "\"skip\""]),
+    ("bounding", "", ["\"strict\"", "\"ignore\""]),
+    ("root", "", ["\"user\"", "\"privileged\""]),
+    ("umask", "", ["\"022\"", "\"077\""]),
+    ("tty", "owner", ["\"caller\"", "\"target\""]),
+    ("password", "tries", ["1", "5"]),
+    ("password", "delay", ["\"00:00:01\"", "\"00:00:03\""]),
+    ("timeout", "type", ["\"tty\"", "\"uid\""]),
+    ("timeout", "duration", ["\"00:01:00\"", "\"00:05:00\""]),
+    ("timeout", "max_usage", ["1", "3"]),
+    ("timeout", "type", ["\"ppid\"", "\"tty\""]),
+];
+
+/// Options that set a random subset of the scalar fields, each with one of its values.
+fn scalar_options(rng: &mut Rng) -> Value {
+    let mut options = json!({});
+    for (option, field, values) in SCALARS {
+        if rng.below(3) != 0 {
+            continue;
+        }
+        let text: &&str = rng.pick(&values);
+        let value: Value = serde_json::from_str(text).unwrap();
+        if field.is_empty() {
+            options[option] = value;
+        } else {
+            if options.get(option).is_none() {
+                options[option] = json!({});
+            }
+            options[option][field] = value;
+        }
+    }
+    options
+}
+
+/// `value` as JSON, to compare it with the JSON of the policy.
+fn to_json(value: &impl serde::Serialize) -> Value {
+    serde_json::to_value(value).unwrap()
+}
+
+/// The value of `option.field` at the most specific of `levels` (task, role, then policy) that
+/// sets it, as JSON; `None` when none sets it, for the build-time default.
+fn nearest<'v>(levels: &[&'v Value], option: &str, field: &str) -> Option<&'v Value> {
+    levels.iter().find_map(|level| {
+        let value = level.get(option)?;
+        if field.is_empty() {
+            Some(value)
+        } else {
+            value.get(field)
+        }
+    })
+}
+
+// a field that a level does not set is inherited from the levels above it, one field at a time:
+// the value of each scalar field is the one of the most specific level that sets it, else the
+// build-time default, so that a protection never disappears because a lower level does not
+// mention it (the timeout lost its max_usage and scope when a task changed its duration)
+#[test]
+fn test_absent_field_is_inherited() {
+    let uid = nix::unistd::getuid().as_raw();
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let (policy_opt, role_opt, task_opt) = (
+            scalar_options(&mut rng),
+            scalar_options(&mut rng),
+            scalar_options(&mut rng),
+        );
+        let policy = json!({
+            "options": policy_opt,
+            "roles": [{
+                "name": "r",
+                "actors": [{"type": "user", "id": uid}],
+                "options": role_opt,
+                "tasks": [{"name": "t", "commands": ["/usr/bin/ls"], "options": task_opt}]
+            }]
+        });
+        let settings = decide(&policy, "/usr/bin/ls", &[], None)
+            .unwrap_or_else(|e| panic!("seed {seed}: {e:?}\n{policy}"));
+        let levels = [&task_opt, &role_opt, &policy_opt];
+        let check = |option: &str, field: &str, actual: Value, default: Value| {
+            let expected = nearest(&levels, option, field).cloned().unwrap_or(default);
+            assert_eq!(actual, expected, "seed {seed}, {option}.{field}\n{policy}");
+        };
+        check(
+            "authentication",
+            "",
+            to_json(&settings.auth),
+            to_json(&rootasrole_core::util::AUTHENTICATION),
+        );
+        check(
+            "bounding",
+            "",
+            to_json(&settings.bounding),
+            to_json(&rootasrole_core::util::BOUNDING),
+        );
+        check(
+            "root",
+            "",
+            to_json(&settings.root),
+            to_json(&rootasrole_core::util::PRIVILEGED),
+        );
+        check(
+            "umask",
+            "",
+            to_json(&settings.umask),
+            to_json(&rootasrole_core::util::UMASK),
+        );
+        check(
+            "tty",
+            "owner",
+            to_json(&settings.tty_owner),
+            to_json(&rootasrole_core::util::TTY_OWNER),
+        );
+        let timeout = serde_json::to_value(&settings.timeout).unwrap();
+        for field in ["type", "duration", "max_usage"] {
+            let default = serde_json::to_value(
+                super::super::options::BorrowedOptStack::new(None).calc_timeout(),
+            )
+            .unwrap()
+            .get(field)
+            .cloned()
+            .unwrap_or(Value::Null);
+            check(
+                "timeout",
+                field,
+                timeout.get(field).cloned().unwrap_or(Value::Null),
+                default,
+            );
+        }
+        let password = &settings.password;
+        check(
+            "password",
+            "tries",
+            to_json(&password.tries.get()),
+            to_json(&rootasrole_core::util::PASSWORD_TRIES.get()),
+        );
+        check(
+            "password",
+            "delay",
+            serde_json::to_value(
+                rootasrole_core::database::options::SPassword::builder()
+                    .delay(password.delay)
+                    .build(),
+            )
+            .unwrap()["delay"]
+                .clone(),
+            serde_json::to_value(
+                rootasrole_core::database::options::SPassword::builder()
+                    .delay(rootasrole_core::util::PASSWORD_DELAY)
+                    .build(),
+            )
+            .unwrap()["delay"]
+                .clone(),
+        );
+    }
+}

@@ -486,15 +486,26 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
         [self.task, self.role, self.config].into_iter().flatten()
     }
 
+    /// How long, how many times and where an authentication stays valid: each field from the
+    /// most specific level that sets it, or the build-time default. A level that only changes the
+    /// duration keeps the scope and the number of uses of the levels above: a protection does not
+    /// disappear because a lower level does not mention it.
     pub fn calc_timeout(&self) -> STimeout {
-        self.get_opt_iter_rev()
-            .find_map(|o| o.timeout.clone())
-            .unwrap_or_else(|| STimeout {
-                type_field: Some(TIMEOUT_TYPE),
-                duration: TIMEOUT_DURATION,
-                max_usage: TIMEOUT_MAX_USAGE,
-                extra_fields: Map::new(),
-            })
+        let timeouts = || self.get_opt_iter_rev().filter_map(|o| o.timeout.as_ref());
+        STimeout {
+            type_field: Some(
+                timeouts()
+                    .find_map(|timeout| timeout.type_field)
+                    .unwrap_or(TIMEOUT_TYPE),
+            ),
+            duration: timeouts()
+                .find_map(|timeout| timeout.duration)
+                .or(TIMEOUT_DURATION),
+            max_usage: timeouts()
+                .find_map(|timeout| timeout.max_usage)
+                .or(TIMEOUT_MAX_USAGE),
+            extra_fields: Map::new(),
+        }
     }
     /// The password tries and delay: each one from the most specific level that sets it, or the
     /// build-time default.
@@ -600,6 +611,7 @@ mod tests {
     use super::*;
     use crate::Cred;
     use indexmap::{IndexMap, IndexSet};
+    use rootasrole_core::database::options::TimestampType;
     use rootasrole_core::util::{ENV_DELETE_LIST, ENV_KEEP_LIST};
 
     #[test]
@@ -950,6 +962,53 @@ mod tests {
                 tries: std::num::NonZeroU8::new(5).unwrap(),
                 delay: jiff::SignedDuration::from_secs(1),
             }
+        );
+    }
+
+    // each field of the timeout comes from the most specific level that sets it: a task that
+    // only changes the duration keeps the scope and the single use of its role
+    #[test]
+    fn test_calc_timeout_inherits_each_field() {
+        let stack = BorrowedOptStack::new(None);
+        let defaults = stack.calc_timeout();
+        assert_eq!(defaults.type_field, Some(TIMEOUT_TYPE));
+        assert_eq!(defaults.duration, TIMEOUT_DURATION);
+        assert_eq!(defaults.max_usage, TIMEOUT_MAX_USAGE);
+
+        let role: Opt = serde_json::from_str(
+            r#"{"timeout": {"type": "tty", "duration": "00:01:00", "max_usage": 1}}"#,
+        )
+        .unwrap();
+        let timeout = |task: &'static str| {
+            let task: Opt = serde_json::from_str(task).unwrap();
+            let stack = BorrowedOptStack {
+                config: None,
+                role: Some(&role),
+                task: Some(&task),
+            };
+            let timeout = stack.calc_timeout();
+            (timeout.type_field, timeout.duration, timeout.max_usage)
+        };
+        let minute = jiff::SignedDuration::from_secs(60);
+        assert_eq!(
+            timeout(r#"{"timeout": {"duration": "00:10:00"}}"#),
+            (
+                Some(TimestampType::TTY),
+                Some(jiff::SignedDuration::from_secs(600)),
+                Some(1)
+            )
+        );
+        assert_eq!(
+            timeout(r#"{"timeout": {"max_usage": 5}}"#),
+            (Some(TimestampType::TTY), Some(minute), Some(5))
+        );
+        assert_eq!(
+            timeout(r#"{"timeout": {"type": "ppid"}}"#),
+            (Some(TimestampType::PPID), Some(minute), Some(1))
+        );
+        assert_eq!(
+            timeout("{}"),
+            (Some(TimestampType::TTY), Some(minute), Some(1))
         );
     }
 
