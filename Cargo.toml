@@ -115,7 +115,7 @@ jiff = { version = "0.2", default-features = false, features = ["std"] }
 const_format = { version = "0.2", default-features = false }
 bon = { version = "3", default-features = false }
 ## dosr
-nonstick2 = { version = "0.1", optional = true }
+nonstick2 = { version = "0.1.5", optional = true }
 libpam-sys = { version = "0.2", default-features = false, optional = true }
 regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"], optional = true }
 globset = { version = "0.4", default-features = false, optional = true }

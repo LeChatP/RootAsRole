@@ -303,10 +303,11 @@ pub fn start_session<'a>(
                 SrError::AuthenticationFailed
             })?
     } else {
-        txn.account_management(AuthnFlags::SILENT).map_err(|e| {
-            error!("Account management failed: {}", e.1);
-            SrError::AuthenticationFailed
-        })?
+        txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
+            .map_err(|e| {
+                error!("Account management failed: {}", e.1);
+                SrError::AuthenticationFailed
+            })?
     };
     check_pam_user(&txn, user)?;
 
@@ -383,8 +384,8 @@ mod tests {
         else {
             return false;
         };
-
-        txn.account_management(AuthnFlags::SILENT).is_ok()
+        txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
+            .is_ok()
     }
 
     #[test]
