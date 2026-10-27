@@ -984,3 +984,131 @@ fn test_env_follows_the_book() {
         assert_eq!(actual, expected, "seed {seed}\n{policy}");
     }
 }
+
+/// The `PATH` of the command, decided by the rules of "The `path` option" in the book, with
+/// the inheritance of the env lists (`ResolvedPath::apply` in rootasrole-core): a level that
+/// sets `default` (other than `inherit`) sets the mode and replaces the lists that it defines,
+/// a level that does not adds them; then `delete` mode starts empty and the `keep` modes start
+/// from the caller's `PATH`; the directories of the policy come first, a relative directory is
+/// only kept in `keep-unsafe` mode, `sub` is removed, and each directory appears once.
+fn reference_path(levels: &[&Value], user_path: &[&str]) -> Vec<String> {
+    use rootasrole_core::util::{
+        ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
+    };
+    let owned = |list: &[&str]| list.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let mut mode = to_json(&ENV_PATH_BEHAVIOR).as_str().unwrap().to_string();
+    let mut lists = [
+        owned(ENV_PATH_ADD_LIST_SLICE),
+        owned(ENV_PATH_REMOVE_LIST_SLICE),
+    ];
+    for level in levels {
+        let Some(path) = level.get("path") else {
+            continue;
+        };
+        let declared = match path.get("default").and_then(Value::as_str) {
+            None | Some("inherit") => false,
+            Some(declared) => {
+                mode = declared.to_string();
+                true
+            }
+        };
+        for (list, field) in lists.iter_mut().zip(["add", "sub"]) {
+            let Some(entries) = path.get(field) else {
+                continue;
+            };
+            let entries = entries
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| entry.as_str().unwrap().to_string());
+            if declared {
+                *list = entries.collect();
+            } else {
+                list.extend(entries);
+            }
+        }
+    }
+    let [add, sub] = lists;
+    let keep_relative = mode == "keep-unsafe";
+    let from_user: &[&str] = if mode.starts_with("keep") {
+        user_path
+    } else {
+        &[]
+    };
+    let mut path: Vec<String> = Vec::new();
+    for dir in add
+        .iter()
+        .map(String::as_str)
+        .chain(from_user.iter().copied())
+    {
+        if (keep_relative || dir.starts_with('/'))
+            && !sub.iter().any(|removed| removed == dir)
+            && !path.iter().any(|kept| kept == dir)
+        {
+            path.push(dir.to_string());
+        }
+    }
+    path
+}
+
+// the path option decides the PATH of the command as the book says, for random options at the
+// global, role and task levels and a caller's PATH with relative directories
+#[test]
+fn test_path_follows_the_book() {
+    let user_path = ["/usr/bin", ".", "/opt/user", "rel", "/bin"];
+    let dirs = [
+        "/usr/bin",
+        "/usr/local/bin",
+        "/bin",
+        ".",
+        "rel",
+        "/opt/user",
+    ];
+    let cli = Cli::builder().cmd_path("/usr/bin/ls").build();
+    let cred = dummy_cred();
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let mut levels = [json!({}), json!({}), json!({})];
+        for level in &mut levels {
+            if rng.below(3) == 0 {
+                continue;
+            }
+            let mut path = json!({});
+            if rng.below(3) != 0 {
+                path["default"] =
+                    json!(rng.pick(&["delete", "keep-safe", "keep-unsafe", "inherit"]));
+            }
+            for list in ["add", "sub"] {
+                if rng.below(2) == 0 {
+                    path[list] = subset(&mut rng, &dirs);
+                }
+            }
+            level["path"] = path;
+        }
+        let [global, role, task] = &levels;
+        let policy = json!({
+            "options": global,
+            "roles": [{
+                "name": "r",
+                "actors": [{"type": "user", "id": nix::unistd::getuid().as_raw()}],
+                "options": role,
+                "tasks": [{"name": "t", "commands": ["/usr/bin/ls"], "options": task}]
+            }]
+        });
+        let text = policy.to_string();
+        let data = crate::finder::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&text))
+        .expect("a valid policy");
+        let settings =
+            BestExecSettings::retrieve_settings(&cli, &cred, &data, USER_ENV, &user_path)
+                .unwrap_or_else(|e| panic!("seed {seed}: {e:?}\n{policy}"));
+        assert_eq!(
+            settings.env_path,
+            reference_path(&[global, role, task], &user_path),
+            "seed {seed}\n{policy}"
+        );
+    }
+}
