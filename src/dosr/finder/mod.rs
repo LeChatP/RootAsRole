@@ -22,7 +22,7 @@ use options::BorrowedOptStack;
 use rootasrole_core::{
     Cred,
     database::{
-        actor::{DGroupType, DGroups},
+        actor::{DGroupType, DGroups, NameLookupCache},
         env::EnvFilter,
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, TtyOwner},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
@@ -130,7 +130,9 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
 where
     P: AsRef<Path>,
 {
+    // the PATH searches and the users and groups of the policy are looked up once per decision
     let _path_searches = cmd::PathSearchCache::start();
+    let _names = NameLookupCache::start();
     let env_vars: Vec<(String, String)> = env_vars
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
