@@ -2034,6 +2034,60 @@ mod tests {
         assert_eq!(task.as_deref(), Some("junior_task"), "{role}");
     }
 
+    // through a chain of ancestors: a failed lookup disables the ancestor that takes part in a
+    // separation of duties, not the others; dosr -r names a role that the user is an actor of,
+    // which gives the tasks of all its ancestors, and not an ancestor itself
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_failed_lookup_and_role_filter_through_ancestors() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json(
+                "junior",
+                false,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", false, None, &none),
+            role_json("other", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "junior"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["other"]),
+            Err(SrError::PermissionDenied)
+        ));
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
+            "middle"
+        );
+        let (_, task) = choose_role(&roles, "/usr/bin/ls", "senior").unwrap();
+        assert_eq!(task.as_deref(), Some("junior_task"));
+        for ancestor in ["middle", "junior"] {
+            assert!(
+                matches!(
+                    choose_role(&roles, "/usr/bin/ls", ancestor),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{ancestor}"
+            );
+        }
+    }
+
     #[test]
     fn test_default_policy_runs_as_the_requested_user() {
         api::register_plugins();
