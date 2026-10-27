@@ -875,4 +875,66 @@ mod tests {
         // the command of the user is resolved in PATH
         assert_eq!(final_path, Some(PathBuf::from("/usr/bin/ls")));
     }
+
+    // a command of one word is matched without splitting it, with the result of 4.1.0, which
+    // split it like a shell: for any word, any command and any arguments. A word that starts
+    // with `#` is a comment for the shell, so it allows nothing; it allows nothing either way,
+    // since the command of the user is resolved to an absolute path before it is compared
+    #[test]
+    fn test_one_word_command_matches_like_its_split() {
+        let env_path = ["/usr/bin", "/bin"];
+        let words = [
+            "/usr/bin/ls",
+            "/bin/ls",
+            "ls",
+            "/usr/bin/*",
+            "/usr/bin/l?",
+            "/usr/bin/[l]s",
+            "/usr/bin/{ls,cat}",
+            "**",
+            "#ls",
+            "#/usr/bin/ls",
+            "#*",
+            "/usr/bin/ls#",
+            "/opt/rar/#tool",
+        ];
+        let commands: [(&str, &[&str]); 6] = [
+            ("ls", &[]),
+            ("/usr/bin/ls", &[]),
+            ("/usr/bin/ls", &["-l"]),
+            ("/usr/sbin/reboot", &[]),
+            ("#ls", &[]),
+            ("/opt/rar/#tool", &[]),
+        ];
+        for word in words {
+            for (cmd, args) in commands {
+                let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+                let mut one_word_path = None;
+                let one_word = evaluate_command_match(
+                    &env_path,
+                    Path::new(cmd),
+                    &args,
+                    word,
+                    CmdMin::empty(),
+                    &mut one_word_path,
+                );
+                let mut split_path = None;
+                let split = shell_words::split(word).map_or(CmdMin::empty(), |split| {
+                    match_command_line(
+                        &env_path,
+                        Path::new(cmd),
+                        &args,
+                        &split,
+                        CmdMin::empty(),
+                        &mut split_path,
+                    )
+                });
+                assert_eq!(
+                    (one_word, one_word_path),
+                    (split, split_path),
+                    "{word} for {cmd} {args:?}"
+                );
+            }
+        }
+    }
 }
