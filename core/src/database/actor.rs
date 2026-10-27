@@ -80,32 +80,62 @@ impl SUserType {
     }
 }
 
+/// The ids of the names looked up, `None` for a name that nobody has.
+type NameIds = HashMap<String, Option<u32>>;
+
 thread_local! {
-    /// The ids of the names that this thread looked up. A policy names the same users and groups
-    /// in many of its tasks (root above all), and each lookup goes through NSS, which may query
-    /// systemd-userdb or a directory service: about 20 µs, for each task of a policy. A failed
-    /// lookup is not kept, so that it is seen each time.
-    static USER_IDS: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
-    static GROUP_IDS: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
+    /// The ids of the names looked up during one decision. A policy names the same users and
+    /// groups in many of its tasks (root above all), and each lookup goes through NSS, which may
+    /// query systemd-userdb or a directory service: about 20 µs, for each task of a policy. They
+    /// only exist while a decision runs ([`NameLookupCache::start`]): a program that lives longer
+    /// than a decision sees the users and groups as they are then, not a user deleted since, whose
+    /// id may now be another user's. A failed lookup is not kept, so that it is seen each time.
+    static USER_IDS: RefCell<Option<NameIds>> = const { RefCell::new(None) };
+    static GROUP_IDS: RefCell<Option<NameIds>> = const { RefCell::new(None) };
 }
 
-/// The id of `name` in `cache`, else from `lookup`, kept when the lookup succeeds.
+/// Keeps the ids of the names that this thread looks up while it lives: start it for one
+/// decision.
+pub struct NameLookupCache;
+
+impl NameLookupCache {
+    #[must_use = "the names are only kept while the cache lives"]
+    pub fn start() -> Self {
+        USER_IDS.with(|ids| *ids.borrow_mut() = Some(HashMap::new()));
+        GROUP_IDS.with(|ids| *ids.borrow_mut() = Some(HashMap::new()));
+        Self
+    }
+}
+
+impl Drop for NameLookupCache {
+    fn drop(&mut self) {
+        USER_IDS.with(|ids| *ids.borrow_mut() = None);
+        GROUP_IDS.with(|ids| *ids.borrow_mut() = None);
+    }
+}
+
+/// The id of `name` in `cache`, else from `lookup`, kept when the lookup succeeds and a
+/// [`NameLookupCache`] lives.
 fn cached_id(
-    cache: &'static LocalKey<RefCell<HashMap<String, Option<u32>>>>,
+    cache: &'static LocalKey<RefCell<Option<NameIds>>>,
     name: &str,
     lookup: impl FnOnce() -> nix::Result<Option<u32>>,
 ) -> nix::Result<Option<u32>> {
-    if let Some(id) = cache.with(|ids| ids.borrow().get(name).copied()) {
+    if let Some(id) = cache.with(|ids| ids.borrow().as_ref()?.get(name).copied()) {
         return Ok(id);
     }
     let id = lookup()?;
-    cache.with(|ids| ids.borrow_mut().insert(name.to_string(), id));
+    cache.with(|ids| {
+        if let Some(ids) = ids.borrow_mut().as_mut() {
+            ids.insert(name.to_string(), id);
+        }
+    });
     Ok(id)
 }
 
 impl DUserType<'_> {
-    /// The uid of the actor, a name being looked up once per thread: `Ok(None)` when no user has
-    /// that name, an error when the lookup itself fails (a directory service that does not
+    /// The uid of the actor, a name being looked up once per [`NameLookupCache`], else each time:
+    /// `Ok(None)` when no user has that name, an error when the lookup itself fails (a directory service that does not
     /// answer...).
     ///
     /// # Errors
@@ -189,8 +219,8 @@ impl SGroupType {
 }
 
 impl DGroupType<'_> {
-    /// The gid of the actor, a name being looked up once per thread: `Ok(None)` when no group has
-    /// that name, an error when the lookup itself fails (a directory service that does not
+    /// The gid of the actor, a name being looked up once per [`NameLookupCache`], else each time:
+    /// `Ok(None)` when no group has that name, an error when the lookup itself fails (a directory service that does not
     /// answer, a group whose members take more than the 1 MiB that nix allows for
     /// `getgrnam_r(3)`...).
     ///
@@ -1371,27 +1401,44 @@ mod tests {
         ));
     }
 
-    // a name is looked up once per thread, and a name that nobody has is kept too
+    /// The names kept in `cache`, `None` outside a decision.
+    fn kept(cache: &'static LocalKey<RefCell<Option<NameIds>>>) -> Option<NameIds> {
+        cache.with(|ids| ids.borrow().clone())
+    }
+
+    // during a decision, a name is looked up once, and a name that nobody has is kept too
     #[test]
     fn test_name_lookups_are_kept() {
+        let _names = NameLookupCache::start();
         let root = DUserType::from("root");
         assert_eq!(root.try_fetch_id().unwrap(), Some(0));
-        assert_eq!(
-            USER_IDS.with(|ids| ids.borrow().get("root").copied()),
-            Some(Some(0))
-        );
+        assert_eq!(kept(&USER_IDS).unwrap().get("root"), Some(&Some(0)));
         assert_eq!(root.try_fetch_id().unwrap(), Some(0));
         assert_eq!(DUserType::from("rar-no-such-user").fetch_id(), None);
         assert_eq!(
-            USER_IDS.with(|ids| ids.borrow().get("rar-no-such-user").copied()),
-            Some(None)
+            kept(&USER_IDS).unwrap().get("rar-no-such-user"),
+            Some(&None)
         );
         assert_eq!(DGroupType::from("root").try_fetch_id().unwrap(), Some(0));
-        assert_eq!(
-            GROUP_IDS.with(|ids| ids.borrow().get("root").copied()),
-            Some(Some(0))
-        );
+        assert_eq!(kept(&GROUP_IDS).unwrap().get("root"), Some(&Some(0)));
         // an id is never looked up
         assert_eq!(DUserType::from(42).try_fetch_id().unwrap(), Some(42));
+    }
+
+    // outside a decision, and once it ends, no name is kept: a user deleted since is not seen
+    #[test]
+    fn test_name_lookups_are_kept_only_during_a_decision() {
+        assert_eq!(DUserType::from("root").try_fetch_id().unwrap(), Some(0));
+        assert_eq!(kept(&USER_IDS), None);
+        {
+            let _names = NameLookupCache::start();
+            assert_eq!(DUserType::from("root").try_fetch_id().unwrap(), Some(0));
+            assert_eq!(DGroupType::from("root").try_fetch_id().unwrap(), Some(0));
+            assert_eq!(kept(&USER_IDS).unwrap().get("root"), Some(&Some(0)));
+        }
+        assert_eq!(kept(&USER_IDS), None);
+        assert_eq!(kept(&GROUP_IDS), None);
+        assert_eq!(DGroupType::from("root").try_fetch_id().unwrap(), Some(0));
+        assert_eq!(kept(&GROUP_IDS), None);
     }
 }
