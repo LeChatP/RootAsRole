@@ -3,9 +3,13 @@
 use log::{trace, warn};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::io::{self, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 
 pub const MAX_BACKCHANNEL_MESSAGE_SIZE: usize = 64 * 1024;
+
+/// A frame is the length of the message as a little-endian `u32`, then the message.
+const FRAME_HEADER_SIZE: usize = size_of::<u32>();
 
 macro_rules! signals {
     (core + [$($extra:expr),* $(,)?]) => {
@@ -65,12 +69,16 @@ pub enum MonitorMessage {
     Signal(i32),
     /// Ready to start
     Edge,
+    /// Resume the stopped command, with the pty in its foreground or not
+    Resume { foreground: bool },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ParentMessage {
     /// Command PID
     CommandPid(i32),
+    /// The command was stopped by this signal: suspend dosr, like a shell job
+    CommandStopped(i32),
     /// Exit status from the command
     ExitStatus(i32),
     /// Error during execution
@@ -79,6 +87,8 @@ pub enum ParentMessage {
 
 pub struct Backchannel {
     stream: UnixStream,
+    /// The bytes of the frame being read: on a non-blocking socket, a frame can arrive in parts.
+    received: Vec<u8>,
 }
 
 impl Backchannel {
@@ -90,9 +100,18 @@ impl Backchannel {
     pub fn pair() -> io::Result<(Self, Self)> {
         let (a, b) = UnixStream::pair()?;
         // Keep both as blocking - poll() will notify when data is available
-        Ok((Self { stream: a }, Self { stream: b }))
+        Ok((Self::new(a), Self::new(b)))
     }
 
+    const fn new(stream: UnixStream) -> Self {
+        Self {
+            stream,
+            received: Vec::new(),
+        }
+    }
+
+    /// Write a whole frame. It is written at once, and a full non-blocking socket is waited for:
+    /// a frame is never cut, whatever the peer reads in between.
     fn write_frame(&mut self, data: &[u8]) -> io::Result<()> {
         if data.len() > MAX_BACKCHANNEL_MESSAGE_SIZE {
             return Err(io::Error::new(
@@ -102,29 +121,93 @@ impl Backchannel {
         }
         #[allow(clippy::cast_possible_truncation)]
         let len = (data.len() as u32).to_le_bytes();
+        let mut frame = Vec::with_capacity(FRAME_HEADER_SIZE + data.len());
+        frame.extend_from_slice(&len);
+        frame.extend_from_slice(data);
         trace!("backchannel: write frame len={}", data.len());
-        self.stream.write_all(&len)?;
-        self.stream.write_all(data)?;
+        let mut written = 0;
+        while written < frame.len() {
+            match self.stream.write(&frame[written..]) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::WriteZero)),
+                Ok(count) => written += count,
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => self.wait_writable()?,
+                Err(e) => return Err(e),
+            }
+        }
         Ok(())
     }
 
+    /// Wait until the socket can be written again.
+    fn wait_writable(&self) -> io::Result<()> {
+        let mut fd = libc::pollfd {
+            fd: self.stream.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        loop {
+            // SAFETY: `fd` is one valid pollfd that outlives the call, and the count is 1
+            if unsafe { libc::poll(&raw mut fd, 1, -1) } >= 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    /// Read one frame. On a non-blocking socket, the bytes read so far are kept and `WouldBlock`
+    /// is returned until the frame is complete. Only the bytes of this frame are read: the next
+    /// one stays in the socket, so that `poll()` still reports it.
     fn read_frame(&mut self) -> io::Result<Vec<u8>> {
         use std::io::Read;
-        let mut len_buf = [0u8; 4];
-        self.stream.read_exact(&mut len_buf)?;
-        let len = u32::from_le_bytes(len_buf) as usize;
+        loop {
+            let size = self.frame_size()?;
+            let start = self.received.len();
+            if start == size {
+                trace!("backchannel: read frame len={}", size - FRAME_HEADER_SIZE);
+                let data = self.received.split_off(FRAME_HEADER_SIZE);
+                self.received.clear();
+                return Ok(data);
+            }
+            self.received.resize(size, 0);
+            match self.stream.read(&mut self.received[start..]) {
+                Ok(0) => {
+                    self.received.truncate(start);
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "backchannel closed",
+                    ));
+                }
+                Ok(count) => self.received.truncate(start + count),
+                Err(e) => {
+                    self.received.truncate(start);
+                    if e.kind() != io::ErrorKind::Interrupted {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The size of the frame being read, header included; the size of the header alone until it
+    /// is read. An invalid length means that the stream cannot be trusted anymore: the bytes read
+    /// so far are dropped.
+    fn frame_size(&mut self) -> io::Result<usize> {
+        let Some(header) = self.received.first_chunk::<FRAME_HEADER_SIZE>() else {
+            return Ok(FRAME_HEADER_SIZE);
+        };
+        let len = u32::from_le_bytes(*header) as usize;
         if len == 0 || len > MAX_BACKCHANNEL_MESSAGE_SIZE {
+            self.received.clear();
             warn!("backchannel: invalid frame size {len}");
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("invalid backchannel message size: {len} bytes"),
             ));
         }
-
-        let mut data = vec![0u8; len];
-        trace!("backchannel: read frame len={len}");
-        self.stream.read_exact(&mut data)?;
-        Ok(data)
+        Ok(FRAME_HEADER_SIZE + len)
     }
 
     /// # Errors
@@ -206,7 +289,9 @@ mod tests {
             .expect("receive monitor message")
         {
             MonitorMessage::Signal(signal) => assert_eq!(signal, libc::SIGUSR1),
-            MonitorMessage::Edge => panic!("unexpected monitor message"),
+            MonitorMessage::Edge | MonitorMessage::Resume { .. } => {
+                panic!("unexpected monitor message")
+            }
         }
 
         monitor
@@ -217,7 +302,9 @@ mod tests {
             .expect("receive parent message")
         {
             ParentMessage::CommandPid(pid) => assert_eq!(pid, 4242),
-            ParentMessage::ExitStatus(_) | ParentMessage::Error(_) => {
+            ParentMessage::ExitStatus(_)
+            | ParentMessage::Error(_)
+            | ParentMessage::CommandStopped(_) => {
                 panic!("unexpected parent message")
             }
         }
@@ -225,6 +312,33 @@ mod tests {
         parent
             .set_nonblocking(true)
             .expect("keep nonblocking mode configurable");
+    }
+
+    #[test]
+    fn backchannel_roundtrips_the_suspend_messages() {
+        let (mut parent, mut monitor) = Backchannel::pair().expect("create backchannel pair");
+
+        monitor
+            .send_parent_message(&ParentMessage::CommandStopped(libc::SIGTSTP))
+            .expect("send the stop");
+        assert!(matches!(
+            parent.recv_parent_message(),
+            Ok(ParentMessage::CommandStopped(libc::SIGTSTP))
+        ));
+
+        for foreground in [true, false] {
+            parent
+                .send_monitor_message(&MonitorMessage::Resume { foreground })
+                .expect("send the resume");
+            match monitor.recv_monitor_message() {
+                Ok(MonitorMessage::Resume {
+                    foreground: received,
+                }) => {
+                    assert_eq!(received, foreground);
+                }
+                other => panic!("unexpected result {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -278,5 +392,149 @@ mod tests {
             .recv_parent_message()
             .expect_err("truncated frame must fail gracefully");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// The bytes of one frame, as the sender writes them.
+    fn frame_bytes(msg: &ParentMessage) -> Vec<u8> {
+        use std::io::Read;
+        let (mut sender, mut receiver) = Backchannel::pair().expect("create backchannel pair");
+        sender
+            .send_parent_message(msg)
+            .expect("send parent message");
+        drop(sender);
+        let mut frame = Vec::new();
+        receiver
+            .get_mut()
+            .read_to_end(&mut frame)
+            .expect("read the frame");
+        frame
+    }
+
+    // The monitor can be preempted between the length and the payload of a frame: the runner
+    // reads a non-blocking socket and must keep what it already read until the frame is complete.
+    #[test]
+    fn backchannel_keeps_a_frame_split_across_reads() {
+        let frame = frame_bytes(&ParentMessage::ExitStatus(0));
+        let (mut monitor, mut runner) = Backchannel::pair().expect("create backchannel pair");
+        runner.set_nonblocking(true).expect("set nonblocking");
+
+        for split in 1..frame.len() {
+            monitor
+                .get_mut()
+                .write_all(&frame[..split])
+                .expect("write the first part");
+            let error = runner
+                .recv_parent_message()
+                .expect_err("a part of a frame is not a message");
+            assert_eq!(error.kind(), io::ErrorKind::WouldBlock, "split at {split}");
+
+            monitor
+                .get_mut()
+                .write_all(&frame[split..])
+                .expect("write the rest");
+            match runner.recv_parent_message() {
+                Ok(ParentMessage::ExitStatus(status)) => assert_eq!(status, 0),
+                other => panic!("split at {split}: unexpected result {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn backchannel_reads_a_frame_written_byte_by_byte() {
+        let frame = frame_bytes(&ParentMessage::CommandPid(4242));
+        let (mut monitor, mut runner) = Backchannel::pair().expect("create backchannel pair");
+        runner.set_nonblocking(true).expect("set nonblocking");
+
+        let (last, first) = frame.split_last().expect("a frame is not empty");
+        for byte in first {
+            monitor
+                .get_mut()
+                .write_all(std::slice::from_ref(byte))
+                .expect("write one byte");
+            let error = runner
+                .recv_parent_message()
+                .expect_err("a part of a frame is not a message");
+            assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        }
+        monitor
+            .get_mut()
+            .write_all(std::slice::from_ref(last))
+            .expect("write the last byte");
+        match runner.recv_parent_message() {
+            Ok(ParentMessage::CommandPid(pid)) => assert_eq!(pid, 4242),
+            other => panic!("unexpected result {other:?}"),
+        }
+    }
+
+    // The monitor handles one message per readable event: reading a frame must not take the
+    // bytes of the next one, or poll would not report them anymore.
+    #[test]
+    fn backchannel_leaves_the_next_frame_in_the_socket() {
+        use std::os::fd::AsRawFd;
+        let (mut runner, mut monitor) = Backchannel::pair().expect("create backchannel pair");
+        monitor.set_nonblocking(true).expect("set nonblocking");
+        runner
+            .send_monitor_message(&MonitorMessage::Signal(libc::SIGUSR1))
+            .expect("send a signal");
+        runner
+            .send_monitor_message(&MonitorMessage::Edge)
+            .expect("send the edge");
+
+        match monitor.recv_monitor_message() {
+            Ok(MonitorMessage::Signal(signal)) => assert_eq!(signal, libc::SIGUSR1),
+            other => panic!("unexpected result {other:?}"),
+        }
+        let mut fd = libc::pollfd {
+            fd: monitor.get_stream().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: `fd` is one valid pollfd that outlives the call, and the timeout is zero
+        let ready = unsafe { libc::poll(&raw mut fd, 1, 0) };
+        assert_eq!(ready, 1, "the second frame must still be readable");
+        assert!(matches!(
+            monitor.recv_monitor_message(),
+            Ok(MonitorMessage::Edge)
+        ));
+    }
+
+    // A frame sent on a full non-blocking socket waits for room instead of being cut.
+    #[test]
+    fn backchannel_waits_for_room_when_the_socket_is_full() {
+        use std::io::Read;
+        let (mut monitor, mut runner) = Backchannel::pair().expect("create backchannel pair");
+        monitor.set_nonblocking(true).expect("set nonblocking");
+        runner
+            .get_mut()
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .expect("set a read timeout");
+
+        let chunk = [0xffu8; 4096];
+        let mut filled = 0;
+        loop {
+            match monitor.get_mut().write(&chunk) {
+                Ok(written) => filled += written,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => panic!("fill the socket: {e}"),
+            }
+        }
+        // the reader drains the socket only once the frame is being sent on a full socket
+        let reader = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let mut filler = vec![0u8; filled];
+            runner
+                .get_mut()
+                .read_exact(&mut filler)
+                .expect("drain the filler");
+            runner.recv_parent_message()
+        });
+
+        monitor
+            .send_parent_message(&ParentMessage::ExitStatus(7))
+            .expect("the frame is sent whole");
+        match reader.join().expect("the reader thread ends") {
+            Ok(ParentMessage::ExitStatus(status)) => assert_eq!(status, 7),
+            other => panic!("unexpected result {other:?}"),
+        }
     }
 }

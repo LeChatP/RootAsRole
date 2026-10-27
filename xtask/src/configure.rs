@@ -17,8 +17,8 @@ use crate::util::{
     ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE, ENV_SET_LIST, INFO,
     ImmutableLock, Opt, OsTarget, PACKAGE_VERSION, PAM_CONFIG_SERVICE, Policy, RAR_AUTHENTICATION,
     RAR_BOUNDING, RAR_CFG_DATA_PATH, RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE,
-    RAR_USER_CONSIDERED, RootSettings, SEnvOptions, SPathOptions, STimeout, SWorkdirSet,
-    TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST_SLICE,
+    RAR_USER_CONSIDERED, RemoteStorageSettings, RootSettings, SEnvOptions, SPathOptions, STimeout,
+    SWorkdirSet, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, UMASK, WORKDIR_ADD_LIST_SLICE,
     WORKDIR_BEHAVIOR, WORKDIR_FALLBACK, WORKDIR_REMOVE_LIST_SLICE, cap_effective,
     toggle_lock_config,
 };
@@ -65,11 +65,17 @@ pub fn deploy_config_file() -> Result<ConfigState, anyhow::Error> {
 }
 
 fn set_immutable(config: &mut RootSettings, value: bool) {
-    if let Some(settings) = config.storage.settings.as_mut()
-        && let Some(mut _immutable) = settings.immutable
-    {
-        _immutable = value;
-    }
+    // written in the root file: without it, dosr and chsr take the build default (true), even
+    // on a file system without immutable flags; the value was set on a copy before
+    config
+        .storage
+        .settings
+        .get_or_insert_with(|| RemoteStorageSettings {
+            immutable: None,
+            path: None,
+            extra_fields: Value::Object(serde_json::Map::new()),
+        })
+        .immutable = Some(value);
 
     if !value {
         let roles = config
@@ -340,26 +346,36 @@ fn resolve_policy_path(base_path: &Path) -> PathBuf {
         base_path.to_path_buf()
     }
 }
-pub fn pam_config(os: &OsTarget) -> std::io::Result<String> {
+/// The PAM services of each distribution, built into xtask: reading them at run time depended on
+/// the working directory, which the privileged installer may not even be able to search.
+pub const PAM_CONFIGS: &[&str] = &[
+    include_str!("../../resources/debian/deb_sr_pam.conf"),
+    include_str!("../../resources/rh/rh_sr_pam.conf"),
+    include_str!("../../resources/opensuse/opensuse.conf"),
+    include_str!("../../resources/arch/arch_sr_pam.conf"),
+];
+
+#[must_use]
+pub const fn pam_config(os: &OsTarget) -> &'static str {
     match os {
-        OsTarget::Debian | OsTarget::Ubuntu => {
-            std::fs::read_to_string("../../resources/debian/deb_sr_pam.conf")
-        }
-        OsTarget::RedHat | OsTarget::Fedora => {
-            std::fs::read_to_string("../../resources/rh/rh_sr_pam.conf")
-        }
-        OsTarget::OpenSUSE => std::fs::read_to_string("../../resources/opensuse/opensuse.conf"),
-        OsTarget::ArchLinux => std::fs::read_to_string("../../resources/arch/arch_sr_pam.conf"),
+        OsTarget::Debian | OsTarget::Ubuntu => PAM_CONFIGS[0],
+        OsTarget::RedHat | OsTarget::Fedora => PAM_CONFIGS[1],
+        OsTarget::OpenSUSE => PAM_CONFIGS[2],
+        OsTarget::ArchLinux => PAM_CONFIGS[3],
     }
 }
 
+/// Deploy the PAM service of dosr when it is missing, or empty: an empty file is what a failed
+/// installation left, it is not a configuration of the administrator.
 fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
-    if fs::metadata(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE)).is_err() {
-        info!("Deploying PAM configuration file");
-        let mut pam_conf = File::create(Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE))?;
-        pam_conf.write_all(pam_config(os)?.as_bytes())?;
-        pam_conf.sync_all()?;
+    let path = Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE);
+    if fs::metadata(&path).is_ok_and(|meta| meta.len() > 0) {
+        return Ok(0);
     }
+    info!("Deploying PAM configuration file");
+    let mut pam_conf = File::create(&path)?;
+    pam_conf.write_all(pam_config(os).as_bytes())?;
+    pam_conf.sync_all()?;
     Ok(0)
 }
 
@@ -444,6 +460,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_pam_services_end_with_a_newline() {
+        // a line appended to /etc/pam.d/dosr would otherwise be glued to the last one
+        for config in PAM_CONFIGS {
+            assert!(config.ends_with('\n'), "{config:?}");
+        }
+    }
+
+    #[test]
     fn test_default_policy_file_of_a_policy_directory() {
         assert_eq!(
             resolve_policy_path(Path::new("/etc/security/rootasrole.d/")),
@@ -453,5 +477,17 @@ mod tests {
             resolve_policy_path(Path::new("/etc/security/rootasrole.json")),
             PathBuf::from("/etc/security/rootasrole.json")
         );
+    }
+
+    #[test]
+    fn test_set_immutable_writes_the_value() {
+        let template = include_str!("../../resources/rootasrole.json")
+            .replace("PACKAGE_VERSION", &PACKAGE_VERSION.to_string());
+        for value in [true, false] {
+            let mut settings: RootSettings = serde_json::from_str(&template).unwrap();
+            set_immutable(&mut settings, value);
+            let written = serde_json::to_value(&settings).unwrap();
+            assert_eq!(written["storage"]["settings"]["immutable"], value);
+        }
     }
 }

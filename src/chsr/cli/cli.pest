@@ -72,11 +72,19 @@ policy_path = @{ name }
 role         = { ("role" | "r") ~ roles_operations }
 roles_operations = { purge | role_operations }
 
-role_operations = { role_id ~ ( add | del | role_show_purge | role_grant_revoke | tasks_operations | options_operations) }
+role_operations = { role_id ~ ( add | del | role_show_purge | role_grant_revoke | role_links | tasks_operations | options_operations) }
 role_id         = @{ name }
 role_grant_revoke  = { (grant | revoke) ~ user_or_groups }
 role_show_purge    = { (list|purge) ~ role_type_arg? }
 role_type_arg = @{ "actors" | "tasks" | all }
+
+// chsr r r1 ssd add r2,r3       the roles that a member of r1 must not hold (ssd plugin)
+// chsr r r1 parents set r2      the roles whose tasks r1 gets (hierarchy plugin)
+// chsr r r1 ssd purge
+role_links     = { role_link_kind ~ ((add | del | set) ~ linked_roles | purge) }
+role_link_kind = { "ssd" | "parents" }
+linked_roles   = { linked_role ~ ("," ~ linked_role)* }
+linked_role    = @{ (!("," | WHITESPACE) ~ ANY)+ }
 
 
 user_or_groups   =  { (user | group)+ }
@@ -95,7 +103,13 @@ actor_name             = @{ (CASED_LETTER | "_") ~ ((CASED_LETTER | ASCII_DIGIT 
 // chsr r r1 t t1 del
 
 tasks_operations        = { task_spec ~ (task_operations | options_operations) }
-task_operations = { task_show_purge | add | del | command_operations | credentials_operations }
+task_operations = { task_show_purge | add | del | command_operations | credentials_operations | purpose_operations }
+
+// chsr r r1 t t1 purpose set Back up the databases
+// chsr r r1 t t1 purpose unset
+purpose_operations = _{ purpose_keyword ~ (set ~ purpose_text | del) }
+purpose_keyword    = { "purpose" }
+purpose_text       = ${ ANY+ }
 task_show_purge = { (list | purge) ~ task_type_arg? }
 task_type_arg = { all | cmd_keyword | cred_keyword }
 
@@ -116,8 +130,15 @@ command_operations       = _{ cmd_keyword ~ (cmd_setpolicy | cmd_checklisting) }
 cmd_setpolicy = { setpolicy ~ cmd_policy }
 cmd_policy    =  { "allow-all" | "deny-all" }
 
-cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd | purge) }
-cmd = ${  ANY+  }
+cmd_checklisting = { (whitelist | blacklist) ~ ((add | del) ~ cmd_checks? ~ cmd | purge) }
+// chsr r r1 t t1 cmd whitelist add --sha256 <hash> --read-only /usr/bin/ls   (hashchecker plugin)
+cmd_checks     = { (cmd_hash | cmd_check_flag)+ }
+cmd_hash       = ${ cmd_hash_type ~ ("=" | WHITESPACE+) ~ cmd_hash_value }
+cmd_hash_type  = { "--sha224" | "--sha256" | "--sha384" | "--sha512" }
+cmd_hash_value = @{ (!WHITESPACE ~ ANY)+ }
+cmd_check_flag = { "--read-only" | "--immutable" }
+// a command never starts with a check: a malformed check is an error, not part of the command
+cmd = ${ !("--sha" | "--read-only" | "--immutable") ~ ANY+ }
 
 // ========================
 // credentials
@@ -130,12 +151,15 @@ cred_keyword = { ("credentials" | "cred") }
 credentials_operations  = _{ cred_keyword ~ (cred_set_operations | cred_caps_operations | list) }
 cred_set_operations     = _{ (set | del) ~ cred_set_args }
 cred_set_args = _{
-    (cred_c | cred_u | cred_g)+
+    (cred_c | cred_u | cred_from | cred_g)+
   | help
 }
 cred_c       =  ${ ("--caps" ~ assignment | "-c" ~ WHITESPACE+) ~ capabilities? }
 cred_u       =  ${ ("--setuid" ~ assignment | "-u" ~ WHITESPACE+) ~ actor_name }
 cred_g       =  ${ ("--setgid" ~ assignment | "-g" ~ WHITESPACE+) ~ name_combination }
+// before cred_g, which --setgid-from starts like
+cred_from    =  ${ "--setgid-from" ~ ("=" | WHITESPACE+) ~ groups_from }
+groups_from  =  { "caller" | "target" }
 
 capabilities = _{ capability ~ (","?) ~ capabilities | capability }
 capability   =  @{ ^"CAP_"? ~ (LETTER | "_")+ }
@@ -168,11 +192,17 @@ caps_listing   =  { (whitelist | blacklist) ~ ((add | del | set) ~ capabilities 
 // chsr o timeout set --type tty --duration 5:00 --max_usage 1
 // chsr o t unset --type --duration --max_usage
 
+// chsr o password set --tries 3 --delay 00:00:05
+// chsr o password unset --tries --delay
+
+// chsr o tty owner (target|caller|unset)
+
 options_operations  = { ("options" | "o") ~ opt_args }
-opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_skip_auth | opt_execinfo | opt_mask }
+opt_args = _{ opt_show | opt_path | opt_workdir | opt_env | opt_root | opt_bounding | opt_timeout | opt_password | opt_tty | opt_skip_auth | opt_execinfo | opt_mask }
 
 opt_show     = _{ list ~ opt_show_arg? }
-opt_show_arg = { "all" | "cmd" | "cred" | "path" | "env" | "root" | "bounding" | "timeout"  }
+// a longer name before its prefix: "authentication" before "auth"
+opt_show_arg = { "all" | "path" | "env" | "root" | "bounding" | "timeout" | "password" | "tty" | "authentication" | "auth" | "execinfo" | "info" | "umask" | "mask" | "workdir" }
 
 opt_path           = { "path" ~ (opt_path_args | help) }
 opt_path_args      = _{ opt_path_setpolicy | opt_path_set | opt_path_listing }
@@ -188,7 +218,10 @@ opt_workdir_listing   =  { (whitelist | blacklist) ~ (((add | del | set) ~ path)
 workdir_policy = { "all" | "none" | "inherit" }
 
 opt_env         = { "env" ~ (opt_env_args | help) }
-opt_env_args    = _{ opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }
+opt_env_args    = _{ opt_env_override | opt_env_setpolicy | opt_env_keep | opt_env_delete | opt_env_set | opt_env_listing | opt_env_setlisting }
+// chsr o env override allow|deny|unset     whether dosr -E may change the env behavior
+opt_env_override   = { "override" ~ (env_override_value | del) }
+env_override_value = { "allow" | "deny" }
 opt_env_setpolicy = { setpolicy ~ env_policy }
 env_policy      =  { "delete-all" | "keep-all" | "inherit" }
 opt_env_listing =  { (whitelist | blacklist | checklist) ~ (((add | del | set) ~ env_key_list) | purge) }
@@ -207,7 +240,8 @@ env_unquoted_value = { (!"," ~ !"\"" ~ ANY)* }
 env_char        = _{ (!"\\" ~ !"\"") ~ ANY }
 env_escape      = _{ "\\" ~ ("\"" | ",") }
 
-env_key   = @{ (CASED_LETTER | "_") ~ (CASED_LETTER | ASCII_DIGIT | "-" | "_")+ }
+// a variable name, where `*` matches any characters (core::util::is_valid_env_pattern)
+env_key   = @{ (ASCII_ALPHA | "_" | "*") ~ (ASCII_ALPHANUMERIC | "_" | "*")* }
 
 opt_root      = { "root" ~ (opt_root_args | help) }
 opt_root_args = { del | "privileged" | "user" }
@@ -220,6 +254,10 @@ opt_skip_auth_args = { del | "skip" | "perform" }
 
 opt_execinfo = { ( "execinfo" | "info") ~ (opt_execinfo_args | help) }
 opt_execinfo_args = { del | "show" | "hide" }
+
+opt_tty = { "tty" ~ (opt_tty_owner | help) }
+opt_tty_owner = { "owner" ~ opt_tty_owner_args }
+opt_tty_owner_args = { del | "target" | "caller" }
 
 opt_mask = { ( "umask" | "mask") ~ (opt_mask_args | help) }
 opt_mask_args = { ASCII_DIGIT{1,4} | del }
@@ -243,6 +281,13 @@ seconds     =  _{ ASCII_DIGIT+ }
 opt_timeout_m_arg    =  { ("--max-usage" ~ assignment | "-m" ) ~ opt_timeout_max_usage? }
 opt_timeout_max_usage    =  { ASCII_DIGIT+ }
 
+opt_password = { "password" ~ (opt_password_operations | help) }
+opt_password_operations = { (set | del) ~ opt_password_args }
+opt_password_args = _{ opt_password_t_arg ~ opt_password_d_arg? | opt_password_d_arg ~ opt_password_t_arg? }
+opt_password_t_arg = { ("--tries" ~ assignment | "-t") ~ opt_password_tries? }
+opt_password_tries = @{ ASCII_DIGIT+ }
+opt_password_d_arg = { ("--delay" ~ assignment | "-d") ~ opt_password_delay? }
+opt_password_delay = @{ ASCII_DIGIT+ ~ (":" ~ ASCII_DIGIT+){0,2} }
 
 assignment   =  _{ "=" | WHITESPACE*}
 help = { "-h" | "--help" }

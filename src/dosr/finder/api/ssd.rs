@@ -3,7 +3,7 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
-use log::debug;
+use log::{debug, warn};
 use serde_json::Value;
 
 #[cfg(feature = "hierarchy")]
@@ -57,6 +57,21 @@ pub(super) fn excludes(role: &DLinkedRole) -> SrResult<bool> {
 }
 
 fn check_ssd_recursive(role: &DLinkedRole, visited: &mut HashSet<u64>) -> SrResult<bool> {
+    // a failed lookup of an actor leaves unknown whether the user holds a role: the separation
+    // of duties cannot be checked, so every role of the policy file that has one is disabled
+    // (decided by the maintainer on 2026-10-23); SSD only names roles of the same file
+    if role.role().extra_values.contains_key("ssd")
+        && role
+            .config()
+            .roles()
+            .any(|other| other.role().lookup_failed)
+    {
+        warn!(
+            "The role {} is disabled: it has a separation of duties, and an actor of its policy could not be looked up",
+            role.role().role
+        );
+        return Ok(true);
+    }
     if let Some(Value::Array(ssd)) = role.role().extra_values.get("ssd") {
         for ssd in ssd {
             if let Value::String(ssd) = ssd {

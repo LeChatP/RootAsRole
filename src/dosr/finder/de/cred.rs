@@ -8,7 +8,7 @@ use rootasrole_core::{
     database::{
         actor::{DGroupType, DGroups, DUserType},
         score::{CapsMin, SetgidMin, SetuidMin, TaskScore},
-        structs::{SCapabilities, SetBehavior},
+        structs::{GroupsFrom, SCapabilities, SetBehavior},
     },
     util::capabilities_are_exploitable,
 };
@@ -28,6 +28,8 @@ pub(super) struct CredFinderDeserializerReturn<'a> {
 pub struct CredData<'a> {
     pub setuid: Option<DUserType<'a>>,
     pub setgroups: Option<DGroups<'a>>,
+    /// Whose groups the command gets when `setgroups` is `None`
+    pub groups_from: Option<GroupsFrom>,
     pub caps: Option<CapSet>,
     #[builder(default)]
     pub extra_values: HashMap<Cow<'a, str>, Value>,
@@ -37,6 +39,8 @@ pub struct CredData<'a> {
 pub struct CredOwnedData {
     pub setuid: Option<User>,
     pub setgroups: Option<Vec<Group>>,
+    /// Whose groups the command gets when `setgroups` is `None`
+    pub groups_from: Option<GroupsFrom>,
     pub caps: Option<CapSet>,
     #[builder(default)]
     pub extra_values: HashMap<String, Value>,
@@ -96,6 +100,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
             {
                 let mut setuid = None;
                 let mut setgroups = None;
+                let mut groups_from = None;
                 let mut caps = None;
                 let mut score = TaskScore::default();
                 let mut ok = true;
@@ -114,9 +119,10 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                         }
                         Field::Setgid => {
                             debug!("CredFinderVisitor: setgid");
-                            let (groups, setuser_min, groups_ok) =
+                            let (groups, setuser_min, groups_ok, from) =
                                 map.next_value_seed(SetGroupsDeserializerReturn { cli: self.cli })?;
                             setgroups = groups;
+                            groups_from = from;
                             score.setuser_min.gid = setuser_min;
                             if !groups_ok {
                                 ok = false;
@@ -141,6 +147,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
                     cred: CredData {
                         setuid,
                         setgroups,
+                        groups_from,
                         caps,
                         extra_values,
                     },
@@ -159,16 +166,25 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for CredFinderDeserializerReturn<'a> {
 fn fixed_groups<'a, E: serde::de::Error>(
     cli: &Cli,
     groups: DGroups<'a>,
-) -> Result<(Option<DGroups<'a>>, Option<SetgidMin>, bool), E> {
+) -> Result<SetGroupsResult<'a>, E> {
     if let Some(requested) = cli.opt_filter.as_ref().and_then(|f| f.group.as_ref()) {
         let ids: Vec<u32> = (&groups).try_into().map_err(E::custom)?;
         if *requested != ids {
-            return Ok((None, None, false));
+            return Ok((None, None, false, None));
         }
     }
     let score = Some(SetgidMin::from(&groups));
-    Ok((Some(groups), score, true))
+    Ok((Some(groups), score, true, None))
 }
+
+/// The groups of a `setgid`, their score, whether the task can be used with the `-g` of the
+/// command line, and `from` of a selector.
+type SetGroupsResult<'a> = (
+    Option<DGroups<'a>>,
+    Option<SetgidMin>,
+    bool,
+    Option<GroupsFrom>,
+);
 
 // New deserializer for SetGroups that returns values instead of using &mut
 struct SetGroupsDeserializerReturn<'a> {
@@ -176,7 +192,7 @@ struct SetGroupsDeserializerReturn<'a> {
 }
 
 impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
-    type Value = (Option<DGroups<'a>>, Option<SetgidMin>, bool);
+    type Value = SetGroupsResult<'a>;
     #[allow(clippy::too_many_lines)]
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -194,12 +210,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
             Add,
             #[serde(alias = "s", alias = "sub")]
             Del,
+            #[serde(alias = "o")]
+            From,
         }
         struct SGroupsChooserVisitor<'a> {
             cli: &'a Cli,
         }
         impl<'de: 'a, 'a> serde::de::Visitor<'de> for SGroupsChooserVisitor<'a> {
-            type Value = (Option<DGroups<'a>>, Option<SetgidMin>, bool);
+            type Value = SetGroupsResult<'a>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("SGroups structure")
@@ -261,7 +279,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                     }
                 }
                 if groups.is_empty() {
-                    return Ok((None, None, false));
+                    return Ok((None, None, false, None));
                 }
                 fixed_groups(self.cli, DGroups::from(groups))
             }
@@ -273,9 +291,14 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 let mut score = None;
                 let mut ok = false;
                 let mut default_all = false;
+                let mut from = None;
                 let filter = self.cli.opt_filter.as_ref().and_then(|x| x.group.as_ref());
                 'fields: while let Some(key) = map.next_key()? {
                     match key {
+                        Field::From => {
+                            debug!("SGroupsChooserVisitor: from");
+                            from = Some(map.next_value::<GroupsFrom>()?);
+                        }
                         Field::Default => {
                             debug!("SGroupsChooserVisitor: default");
                             let default = map.next_value::<SetBehavior>()?;
@@ -361,7 +384,11 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                     score.replace((&requested).into());
                     groups = Some(requested);
                 }
-                Ok((groups, score, ok))
+                // without -g nor fallback, the groups that from names
+                if filter.is_none() && groups.is_none() && from.is_some() {
+                    ok = true;
+                }
+                Ok((groups, score, ok, from))
             }
         }
         deserializer.deserialize_any(SGroupsChooserVisitor { cli: self.cli })
@@ -699,7 +726,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::from(vec![1.into(), 2.into()]);
         assert_eq!(score, Some((&groups1).into()));
@@ -742,10 +769,62 @@ mod test {
             FilterMatcher::builder().group(gids).unwrap().build()
         });
         let cli = Cli::builder().maybe_opt_filter(filter).build();
-        let (groups, score, ok) = SetGroupsDeserializerReturn { cli: &cli }
+        let (groups, score, ok, _) = SetGroupsDeserializerReturn { cli: &cli }
             .deserialize(&mut serde_json::Deserializer::from_str(json))
             .unwrap();
         ok.then(|| ((&groups.unwrap()).try_into().unwrap(), score.unwrap()))
+    }
+
+    /// The result of a setgid selector for the `-g` of the command line, `requested`.
+    fn selector(json: &str, requested: Option<&[u32]>) -> (bool, bool, Option<GroupsFrom>) {
+        let filter = requested.map(|gids| {
+            let gids: Vec<SGroupType> = gids.iter().map(|gid| (*gid).into()).collect();
+            FilterMatcher::builder().group(gids).unwrap().build()
+        });
+        let cli = Cli::builder().maybe_opt_filter(filter).build();
+        let (groups, _, ok, from) = SetGroupsDeserializerReturn { cli: &cli }
+            .deserialize(&mut serde_json::Deserializer::from_str(json))
+            .unwrap();
+        (ok, groups.is_some(), from)
+    }
+
+    #[test]
+    fn test_group_selector_from() {
+        let gid = get_non_root_gid(0).unwrap();
+        // without -g nor fallback, the task is usable with the groups that from names
+        assert_eq!(
+            selector(r#"{"from": "caller"}"#, None),
+            (true, false, Some(GroupsFrom::Caller))
+        );
+        assert_eq!(
+            selector(
+                &format!(r#"{{"default": "none", "add": [[{gid}]], "o": "target"}}"#),
+                None
+            ),
+            (true, false, Some(GroupsFrom::Target))
+        );
+        // without from, the none default still requires -g
+        assert_eq!(
+            selector(&format!(r#"{{"default": "none", "add": [[{gid}]]}}"#), None),
+            (false, false, None)
+        );
+        // the all default without fallback: no groups here, the target user gives them
+        assert_eq!(selector(r#"{"default": "all"}"#, None), (true, false, None));
+        // from does not allow a group that the selector does not list
+        assert_eq!(
+            selector(r#"{"from": "caller"}"#, Some(&[gid])),
+            (false, false, Some(GroupsFrom::Caller))
+        );
+        // a fallback is still taken first
+        assert_eq!(
+            selector(
+                &format!(r#"{{"default": "none", "fallback": [{gid}], "from": "caller"}}"#),
+                None
+            ),
+            (true, true, Some(GroupsFrom::Caller))
+        );
+        // a forced group has no from
+        assert_eq!(selector(&gid.to_string(), None), (true, true, None));
     }
 
     #[test]
@@ -806,7 +885,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::Single("root".into());
         assert_eq!(score, Some((&groups1).into()));
@@ -817,7 +896,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::Single(gid1.into());
         assert_eq!(score, Some((&groups1).into()));
@@ -828,7 +907,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
@@ -839,7 +918,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::Single("root".into());
         assert_eq!(score, Some((&groups1).into()));
@@ -850,7 +929,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
@@ -861,7 +940,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
@@ -871,7 +950,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::Single(0.into());
         assert_eq!(score, Some((&groups1).into()));
@@ -889,7 +968,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::from(vec!["root".into(), 1.into()]);
         assert_eq!(score, Some((&groups1).into()));
@@ -900,7 +979,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         let groups1 = DGroups::from(vec!["root".into(), 1.into()]);
         assert_eq!(score, Some((&groups1).into()));
@@ -911,7 +990,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(!ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);
@@ -929,7 +1008,7 @@ mod test {
         let deserializer = SetGroupsDeserializerReturn { cli: &cli };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(json));
         assert!(result.is_ok());
-        let (groups, score, ok) = result.unwrap();
+        let (groups, score, ok, _) = result.unwrap();
         assert!(ok);
         assert_eq!(score, None);
         assert_eq!(groups, None);

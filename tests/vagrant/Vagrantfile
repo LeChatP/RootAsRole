@@ -12,11 +12,16 @@
 #   vagrant destroy -f
 #
 # Machines: debian (the distribution of the official package) and arch (the AUR package dosr).
-# Their boxes can be replaced with RAR_BOX_DEBIAN and RAR_BOX_ARCH.
+# Their boxes can be replaced with RAR_BOX_DEBIAN and RAR_BOX_ARCH. archlinux/archlinux publishes
+# no box for libvirt anymore, so arch uses generic/arch, which is older than the repositories: the
+# first `vagrant up arch` installs rsync without upgrading the system, which breaks rsync. Then:
+#
+#   vagrant ssh arch -c 'sudo pacman -Sy --noconfirm archlinux-keyring && sudo pacman -Syu --noconfirm'
+#   vagrant reload arch --provision
 
 BOXES = {
   "debian" => ENV.fetch("RAR_BOX_DEBIAN", "debian/testing64"),
-  "arch" => ENV.fetch("RAR_BOX_ARCH", "archlinux/archlinux"),
+  "arch" => ENV.fetch("RAR_BOX_ARCH", "generic/arch"),
 }.freeze
 
 Vagrant.configure("2") do |config|

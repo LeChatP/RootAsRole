@@ -31,10 +31,9 @@ konst = { version= "0.4", default-features = false, features = ["parsing_proc", 
 semver = { version = "1.0", default-features = false, features = ["std", "serde"] }
 
 [features]
-default = ["cli", "ebpf", "deploy"]
+default = ["cli", "ebpf"]
 cli = []
 ebpf = []
-deploy = []
 
 [lints.rust]
 dead-code = { level = "allow" }

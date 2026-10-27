@@ -28,8 +28,12 @@ jobs:
         session [success=1 default=ignore]  pam_permit.so
         session requisite                   pam_permit.so
         session required                    pam_permit.so" | tee /etc/pam.d/dosr'
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang pkg-config libpam0g-dev libseccomp-dev pandoc
     - name: Install RootAsRole
-      run: cargo xtask install -bip sudo
+      run: cargo xtask install -bp sudo
     - name: print config
       run: dosr cat /etc/security/rootasrole.json
     - name: getenv

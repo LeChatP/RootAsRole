@@ -11,7 +11,12 @@ use serde_json::Value;
 
 use crate::{
     PACKAGE_VERSION,
-    database::migration::{Migration, MigrationError},
+    database::{
+        command::{
+            anchored_regex, has_top_level_alternation, regex_arguments, regex_body, split_command,
+        },
+        migration::{Migration, MigrationError},
+    },
     util::{ENV_DELETE_LIST_SLICE, is_valid_env_pattern},
 };
 
@@ -66,6 +71,17 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             rewrite_env_entries(document, wildcard_to_regex);
             rewrite_path_behaviors(document, path_behavior_4_0_3);
             rewrite_commands(document, command_with_no_argument);
+            Ok(())
+        },
+    },
+    Migration {
+        from: || Version::new(4, 1, 0),
+        to: || Version::new(4, 2, 0),
+        up: unchanged,
+        down: |_, document| {
+            remove_options_of_4_2(document);
+            remove_groups_from(document);
+            rewrite_commands(document, group_top_level_alternation);
             Ok(())
         },
     },
@@ -163,6 +179,84 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
             .for_each(|value| rewrite_path_behaviors(value, rewrite)),
         _ => {}
     }
+}
+
+/// 4.1.0 has neither the `password` nor the `tty` option: they are removed from the options of
+/// every level. Without `tty`, 4.1.0 leaves the terminal to the caller, as `"owner": "caller"`.
+fn remove_options_of_4_2(document: &mut Value) {
+    match document {
+        Value::Object(map) => {
+            if let Some(Value::Object(options)) = map.get_mut("options") {
+                for name in ["password", "tty"] {
+                    if options.remove(name).is_some() {
+                        info!("Removing the {name} option, unknown before 4.2.0");
+                    }
+                }
+            }
+            map.values_mut().for_each(remove_options_of_4_2);
+        }
+        Value::Array(values) => values.iter_mut().for_each(remove_options_of_4_2),
+        _ => {}
+    }
+}
+
+/// `from` of a `setgid` selector is unknown before 4.2.0, whatever its key (the CBOR format writes
+/// `o`). A selector with nothing else than `"default": "none"` is removed with it: 4.1.0 then
+/// keeps the groups of the caller, as `from: caller` did, instead of requiring `-g`. 4.1.0 cannot
+/// give the groups of the target user, which `from: target` and a task without `setgid` do.
+fn remove_groups_from(document: &mut Value) {
+    let Value::Object(document) = document else {
+        return;
+    };
+    for roles in ["roles", "r"] {
+        let Some(Value::Array(roles)) = document.get_mut(roles) else {
+            continue;
+        };
+        for role in roles {
+            for tasks in ["tasks", "t"] {
+                let Some(Value::Array(tasks)) = role.get_mut(tasks) else {
+                    continue;
+                };
+                for task in tasks {
+                    for cred in ["cred", "credentials", "i"] {
+                        if let Some(Value::Object(cred)) = task.get_mut(cred) {
+                            remove_cred_groups_from(cred);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn remove_cred_groups_from(cred: &mut serde_json::Map<String, Value>) {
+    for setgid in ["setgid", "g"] {
+        let Some(Value::Object(selector)) = cred.get_mut(setgid) else {
+            continue;
+        };
+        let Some(from) = selector.remove("from").or_else(|| selector.remove("o")) else {
+            continue;
+        };
+        info!("Removing from: {from} of a setgid selector, unknown before 4.2.0");
+        let nothing_else = selector.iter().all(|(key, value)| {
+            matches!(key.as_str(), "default" | "d") && (value == "none" || value == 0)
+        });
+        if nothing_else {
+            cred.remove(setgid);
+        }
+    }
+}
+
+/// A top-level alternation grouped for 4.1.0, which allows no more than 4.2.0.
+///
+/// Since 4.2.0, a regular expression on the arguments matches the whole arguments whatever its
+/// alternations, where 4.1.0 read `^start|stop$` as `^start` or `stop$`. The upgrade leaves it as
+/// written, since it now allows less; the downgrade writes `^(?:start|stop)$`.
+fn group_top_level_alternation(command: &str) -> Option<String> {
+    let (path, args) = split_command(command)?;
+    let regex = regex_arguments(args)?;
+    has_top_level_alternation(regex_body(regex))
+        .then(|| format!("{path} {}", anchored_regex(regex)))
 }
 
 /// Whether a command of the policy is only a path, without arguments.
@@ -537,7 +631,7 @@ mod tests {
     fn test_commands_without_arguments_up_and_down() {
         // the upgrade leaves them as written: since 4.1.0 they allow no argument
         let commands = json!(["/usr/bin/id", "**", "/usr/bin/ls ^.*$"]);
-        let mut document = json!({"roles": [{"tasks": [{"commands": commands.clone()}]}]});
+        let mut document = json!({"roles": [{"tasks": [{"commands": commands}]}]});
         Migration::migrate_from(
             &Version::new(4, 0, 3),
             &PACKAGE_VERSION,
@@ -585,6 +679,225 @@ mod tests {
         )
         .unwrap();
         assert_eq!(document["r"][0]["t"][0]["c"], json!(["/usr/bin/id ^$"]));
+    }
+
+    #[test]
+    fn test_password_option_up_and_down() {
+        let mut document = json!({
+            "options": {"password": {"tries": 5}, "timeout": {"type": "tty"}},
+            "roles": [{
+                "name": "r",
+                "options": {"password": {"delay": "00:00:01"}},
+                "tasks": [{"name": "t", "options": {"password": {"tries": 1}}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade keeps the option");
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
+        assert_eq!(document["roles"][0]["options"], json!({}));
+        assert_eq!(document["roles"][0]["tasks"][0]["options"], json!({}));
+    }
+
+    #[test]
+    fn test_tty_option_up_and_down() {
+        let mut document = json!({
+            "options": {"tty": {"owner": "target"}, "timeout": {"type": "tty"}},
+            "roles": [{
+                "name": "r",
+                "options": {"tty": {"owner": "caller"}},
+                "tasks": [{"name": "t", "options": {"tty": {"owner": "target"}, "umask": "022"}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade keeps the option");
+
+        // 4.1.0 always leaves the terminal to the caller
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["options"], json!({"timeout": {"type": "tty"}}));
+        assert_eq!(document["roles"][0]["options"], json!({}));
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["options"],
+            json!({"umask": "022"})
+        );
+    }
+
+    #[test]
+    fn test_groups_from_is_removed_down() {
+        let task = |cred: Value| json!({"name": "t", "cred": cred});
+        let mut document = json!({
+            "roles": [{
+                "name": "r",
+                "tasks": [
+                    task(json!({"setuid": "nobody", "setgid": {"from": "caller"}})),
+                    task(json!({"setgid": {"default": "none", "add": [["adm"]], "from": "caller"}})),
+                    task(json!({"setgid": {"default": "all", "from": "target"}})),
+                    task(json!({"setgid": {"default": "none", "fallback": ["adm"], "from": "target"}})),
+                    task(json!({"setgid": "adm"}))
+                ]
+            }, {
+                // the short keys of the CBOR format
+                "name": "c",
+                "t": [{"name": "t", "i": {"g": {"d": 0, "o": "caller"}}}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document, before, "the upgrade writes no from");
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        let creds: Vec<&Value> = document["roles"][0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|task| &task["cred"])
+            .collect();
+        // nothing else than from: no setgid, 4.1.0 keeps the groups of the caller
+        assert_eq!(creds[0], &json!({"setuid": "nobody"}));
+        assert_eq!(
+            creds[1],
+            &json!({"setgid": {"default": "none", "add": [["adm"]]}})
+        );
+        assert_eq!(creds[2], &json!({"setgid": {"default": "all"}}));
+        assert_eq!(
+            creds[3],
+            &json!({"setgid": {"default": "none", "fallback": ["adm"]}})
+        );
+        assert_eq!(creds[4], &json!({"setgid": "adm"}));
+        assert_eq!(document["roles"][1]["t"][0]["i"], json!({}));
+    }
+
+    #[test]
+    fn test_top_level_alternation_is_grouped_down() {
+        let mut document = json!({
+            "roles": [{
+                "name": "r",
+                "tasks": [{
+                    "name": "t",
+                    "commands": [
+                        "/usr/bin/systemctl ^start|stop$",
+                        "/usr/bin/systemctl '^start|restart$'",
+                        "/usr/bin/systemctl ^(start|stop) caddy$",
+                        "/usr/bin/tail ^-n [0-9]+$",
+                        "/usr/bin/apt update"
+                    ]
+                }, {
+                    "name": "selector",
+                    "commands": {"default": "none", "del": ["/usr/bin/kill ^-9|-KILL$"]}
+                }]
+            }, {
+                // the short keys of the CBOR format
+                "name": "c",
+                "t": [{"name": "t", "c": ["/usr/bin/systemctl ^a|b$"]}]
+            }]
+        });
+        let before = document.clone();
+        Migration::migrate_from(
+            &Version::new(4, 1, 0),
+            &PACKAGE_VERSION,
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(
+            document, before,
+            "the upgrade leaves the commands as written"
+        );
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(
+            document["roles"][0]["tasks"][0]["commands"],
+            json!([
+                "/usr/bin/systemctl ^(?:start|stop)$",
+                "/usr/bin/systemctl ^(?:start|restart)$",
+                "/usr/bin/systemctl ^(start|stop) caddy$",
+                "/usr/bin/tail ^-n [0-9]+$",
+                "/usr/bin/apt update"
+            ])
+        );
+        assert_eq!(
+            document["roles"][0]["tasks"][1]["commands"]["del"],
+            json!(["/usr/bin/kill ^(?:-9|-KILL)$"])
+        );
+        assert_eq!(
+            document["roles"][1]["t"][0]["c"],
+            json!(["/usr/bin/systemctl ^(?:a|b)$"])
+        );
+    }
+
+    #[test]
+    fn test_4_1_0_documents_up_and_down() {
+        let original = json!({
+            "version": "4.1.0",
+            "options": {"env": {"default": "delete", "check": ["LC_*"]}, "path": {"default": "keep-safe"}},
+            "roles": [{"name": "r", "tasks": [{"name": "t", "commands": ["/usr/bin/ls ^.*$"]}]}]
+        });
+        let mut document = original.clone();
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migration.from, Version::new(4, 1, 0));
+        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        let mut unchanged = original.clone();
+        unchanged["version"] = document["version"].clone();
+        assert_eq!(
+            document, unchanged,
+            "4.1.0 to 4.2.0 changes nothing but the version"
+        );
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        document["version"] = original["version"].clone();
+        assert_eq!(document, original);
     }
 
     #[test]

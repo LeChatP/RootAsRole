@@ -4,6 +4,7 @@ use std::{
     fs::{self, File},
     io,
     num::ParseIntError,
+    os::unix::process::ExitStatusExt,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output},
@@ -621,6 +622,10 @@ pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
 
 static DRY_RUN: AtomicBool = AtomicBool::new(false);
 
+/// Held by the tests that change `DRY_RUN`, which is global.
+#[cfg(test)]
+pub static DRY_RUN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Debug)]
 pub enum ImmutableLock {
     Set,
@@ -779,6 +784,15 @@ pub fn is_dry_run() -> bool {
 ///
 /// Will return an error if the command fails to execute or exits with a non-zero code
 pub fn status_checked(command: &mut Command, action: &str) -> Result<ExitStatus, anyhow::Error> {
+    // the commands run through here change something (packages, build, privileges): a dry run
+    // prints them instead; output_checked runs the queries, which change nothing
+    if is_dry_run() {
+        info!(
+            "{BOLD}Dry run, not running:{RST} {}\n{BOLD}  Objective -->{RST} {action}",
+            shell_quote_command(command)
+        );
+        return Ok(ExitStatus::from_raw(0));
+    }
     let status = command
         .status()
         .with_context(|| format!("Failed to {action}: {command:?}"))?;
@@ -814,7 +828,9 @@ fn shell_quote_command(command: &Command) -> String {
 ///
 /// Will return an error if the command fails to execute or exits with a non-zero code
 pub fn run_checked(command: &mut Command, action: &str) -> Result<(), anyhow::Error> {
-    log_command_execution(command, action);
+    if !is_dry_run() {
+        log_command_execution(command, action);
+    }
     let _ = status_checked(command, action)?;
     Ok(())
 }
@@ -947,6 +963,41 @@ pub fn get_os(os: Option<&OsTarget>) -> Result<OsTarget, anyhow::Error> {
             })
             .context("Failed to detect the OS")?
     })
+}
+
+/// Whether `command` is an executable file of a directory of `PATH`.
+#[must_use]
+pub fn command_exists(command: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(command);
+        if is_executable(&candidate) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_executable(path: &Path) -> bool {
+    if let Ok(metadata) = std::fs::metadata(path) {
+        if !metadata.is_file() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+        #[cfg(not(unix))]
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[must_use]

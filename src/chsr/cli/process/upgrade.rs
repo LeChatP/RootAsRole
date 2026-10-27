@@ -1,3 +1,4 @@
+use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
 use std::error::Error;
 
 use log::debug;
@@ -65,12 +66,12 @@ pub fn upgrade(settings: &mut FileSettings, check: bool) -> Result<bool, Box<dyn
     if pending && !check {
         debug!("Saving the upgraded files");
         if let Err(e) = settings.save_migrated() {
-            eprintln!("{}", printable(&e.to_string()));
+            eprintln_ignore_io_error!("{}", printable(&e.to_string()));
             return Err(e);
         }
     }
     for line in report {
-        println!("{line}");
+        println_ignore_io_error!("{line}");
     }
     if blocked {
         Err("One or more policy files cannot be upgraded".into())

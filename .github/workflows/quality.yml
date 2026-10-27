@@ -40,8 +40,10 @@ jobs:
           components: clippy
           override: false
 
-      - name: Install RootAsRole
-        run: cargo xtask dependencies -dip sudo
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpam0g-dev libseccomp-dev pandoc
 
       # if pull request review only
       - uses: mbrobbel/rustfmt-check@master

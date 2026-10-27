@@ -1,18 +1,17 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use log::{debug, warn};
-use nix::unistd::{Gid, Group};
 use rootasrole_core::{
     Cred,
     database::{
-        actor::{DActor, DGroups},
+        actor::{DActor, DGroupType, DGroups, DUserType},
         score::ActorMatchMin,
     },
-    util::{Either, StorageMethod},
+    util::{StorageMethod, either_to_gid},
 };
 use serde::{
     Deserialize,
-    de::{DeserializeSeed, IgnoredAny, Visitor},
+    de::{DeserializeSeed, Visitor},
 };
 use serde_json::Value;
 
@@ -119,6 +118,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
                 let mut options = None;
                 let mut extra_values = HashMap::new();
                 let mut user_min = ActorMatchMin::default();
+                let mut lookup_failed = false;
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Options => {
@@ -127,23 +127,18 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
                         }
                         Field::Name => {
                             debug!("RoleFinderVisitor: name");
-                            let role_name = map.next_value()?;
-                            if self
-                                .cli
-                                .opt_filter
-                                .as_ref()
-                                .and_then(|x| x.role.as_ref())
-                                .is_some_and(|r| r != &role_name)
-                            {
-                                while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-                                return Ok(None);
-                            }
-                            role = Some(role_name);
+                            // every role is read, -r included: the plugins need the others,
+                            // the SSD plugin to know which roles the user holds, the hierarchy
+                            // plugin for the tasks of the parents; -r applies when choosing
+                            role = Some(map.next_value()?);
                         }
                         Field::Actors => {
                             debug!("RoleFinderVisitor: actors");
-                            user_min =
-                                map.next_value_seed(ActorsFinderDeserializer { cred: self.cred })?;
+                            (user_min, lookup_failed) =
+                                map.next_value_seed(ActorsFinderDeserializer {
+                                    cred: self.cred,
+                                    lookup: SYSTEM_LOOKUP,
+                                })?;
                         }
                         Field::Tasks => {
                             debug!("RoleFinderVisitor: tasks");
@@ -159,6 +154,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
                 }
                 Ok(Some(DRoleFinder {
                     user_min,
+                    lookup_failed,
                     role: role.unwrap_or_default(),
                     tasks,
                     options,
@@ -177,20 +173,91 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for RoleFinderDeserializer<'a> {
 
 struct ActorsFinderDeserializer<'a> {
     cred: &'a Cred,
+    lookup: ActorLookup,
+}
+
+/// How the actors written by name are looked up: in the system databases (NSS), or with a
+/// stand-in in the tests, to make a lookup fail.
+#[derive(Clone, Copy)]
+struct ActorLookup {
+    user: fn(&DUserType<'_>) -> nix::Result<Option<u32>>,
+    group: fn(&DGroupType<'_>) -> nix::Result<Option<u32>>,
+}
+
+fn system_user_id(user: &DUserType<'_>) -> nix::Result<Option<u32>> {
+    user.try_fetch_id()
+}
+
+fn system_group_id(group: &DGroupType<'_>) -> nix::Result<Option<u32>> {
+    group.try_fetch_id()
+}
+
+const SYSTEM_LOOKUP: ActorLookup = ActorLookup {
+    user: system_user_id,
+    group: system_group_id,
+};
+
+/// How well an actor matches the user, and whether looking a name up failed. A failed lookup
+/// never matches, so it never grants a role; the SSD plugin disables the roles with a
+/// separation of duties, which it cannot check then (`finder::api::ssd`).
+fn actor_matches(user: &Cred, actor: &DActor<'_>, lookup: ActorLookup) -> (ActorMatchMin, bool) {
+    match actor {
+        DActor::User { id, .. } => match (lookup.user)(id) {
+            Ok(uid) if uid == Some(user.user.uid.as_raw()) => (ActorMatchMin::UserMatch, false),
+            Ok(_) => (ActorMatchMin::NoMatch, false),
+            Err(e) => {
+                warn!("Cannot look up the user {id}: {e}");
+                (ActorMatchMin::NoMatch, true)
+            }
+        },
+        DActor::Group { groups, .. } => {
+            // the groups of the user are kernel gids: only the policy side is looked up
+            let user_gids: Vec<u32> = user
+                .groups
+                .iter()
+                .map(|group| either_to_gid(group).as_raw())
+                .collect();
+            let mut failed = false;
+            let mut holds = |group: &DGroupType<'_>| match (lookup.group)(group) {
+                Ok(gid) => gid.is_some_and(|gid| user_gids.contains(&gid)),
+                Err(e) => {
+                    warn!("Cannot look up the group {group}: {e}");
+                    failed = true;
+                    false
+                }
+            };
+            let matched = match groups {
+                DGroups::Single(group) => holds(group),
+                DGroups::Multiple(groups) => groups.iter().all(holds),
+            };
+            if matched {
+                (ActorMatchMin::GroupMatch(groups.len()), failed)
+            } else {
+                (ActorMatchMin::NoMatch, failed)
+            }
+        }
+        DActor::Unknown(element) => {
+            // a type of actor that this version does not know never matches
+            warn!("Unknown actor type, it never matches: {element:?}");
+            (ActorMatchMin::NoMatch, false)
+        }
+    }
 }
 
 impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
-    type Value = ActorMatchMin;
+    /// The best match of the actors, and whether looking one of them up failed.
+    type Value = (ActorMatchMin, bool);
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct ActorsFinderVisitor<'a> {
             cred: &'a Cred,
+            lookup: ActorLookup,
         }
 
         impl<'de> Visitor<'de> for ActorsFinderVisitor<'_> {
-            type Value = ActorMatchMin;
+            type Value = (ActorMatchMin, bool);
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a set of users")
             }
@@ -199,54 +266,24 @@ impl<'de> DeserializeSeed<'de> for ActorsFinderDeserializer<'_> {
                 A: serde::de::SeqAccess<'de>,
             {
                 let mut user_matches = ActorMatchMin::NoMatch;
+                let mut lookup_failed = false;
                 while let Some(actor) = seq.next_element::<DActor>()? {
                     debug!("ActorsSettingsVisitor: actor {actor:?}");
-                    let temp = Self::user_matches(self.cred, &actor);
+                    let (temp, failed) = actor_matches(self.cred, &actor, self.lookup);
+                    lookup_failed |= failed;
                     if temp != ActorMatchMin::NoMatch && temp < user_matches {
                         debug!("ActorsSettingsVisitor: Better actor found {temp:?}");
                         user_matches = temp;
                     }
                 }
-                Ok(user_matches)
+                Ok((user_matches, lookup_failed))
             }
         }
 
-        impl ActorsFinderVisitor<'_> {
-            fn match_groups(groups: &[Either<Group, Gid>], role_groups: &[&DGroups<'_>]) -> bool {
-                for role_group in role_groups {
-                    if match role_group {
-                        DGroups::Single(group) => groups.iter().any(|g| group == g),
-                        DGroups::Multiple(multiple_actors) => multiple_actors
-                            .iter()
-                            .all(|actor| groups.iter().any(|g| actor == g)),
-                    } {
-                        return true;
-                    }
-                }
-                false
-            }
-            fn user_matches(user: &Cred, actor: &DActor<'_>) -> ActorMatchMin {
-                match actor {
-                    DActor::User { id, .. } => {
-                        if *id == user.user {
-                            return ActorMatchMin::UserMatch;
-                        }
-                    }
-                    DActor::Group { groups, .. } => {
-                        if Self::match_groups(&user.groups, &[groups]) {
-                            return ActorMatchMin::GroupMatch(groups.len());
-                        }
-                    }
-                    DActor::Unknown(element) => {
-                        // a type of actor that this version does not know never matches
-                        warn!("Unknown actor type, it never matches: {element:?}");
-                    }
-                }
-                ActorMatchMin::NoMatch
-            }
-        }
-
-        deserializer.deserialize_seq(ActorsFinderVisitor { cred: self.cred })
+        deserializer.deserialize_seq(ActorsFinderVisitor {
+            cred: self.cred,
+            lookup: self.lookup,
+        })
     }
 }
 
@@ -269,11 +306,88 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
+            lookup: SYSTEM_LOOKUP,
         };
         let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
         assert!(result.is_ok(), "Failed to deserialize: {result:?}");
-        let user_min = result.unwrap();
+        let (user_min, lookup_failed) = result.unwrap();
         assert_eq!(user_min, ActorMatchMin::UserMatch);
+        assert!(!lookup_failed);
+    }
+
+    fn failing_user_lookup(_: &DUserType<'_>) -> nix::Result<Option<u32>> {
+        Err(nix::Error::EIO)
+    }
+
+    fn failing_group_lookup(_: &DGroupType<'_>) -> nix::Result<Option<u32>> {
+        Err(nix::Error::ERANGE)
+    }
+
+    #[test]
+    fn test_a_failed_lookup_never_matches_and_is_reported() {
+        let cred = Cred::builder()
+            .curdir()
+            .unwrap()
+            .groups()
+            .unwrap()
+            .user()
+            .unwrap()
+            .build();
+        let failing = ActorLookup {
+            user: failing_user_lookup,
+            group: failing_group_lookup,
+        };
+        let me = format!(r#"{{"type": "user", "id": "{}"}}"#, cred.user.name);
+        let me: DActor<'_> = serde_json::from_str(&me).unwrap();
+        let my_group = format!(r#"{{"type": "group", "groups": [{}]}}"#, getgid().as_raw());
+        let my_group: DActor<'_> = serde_json::from_str(&my_group).unwrap();
+        let named_group: DActor<'_> =
+            serde_json::from_str(r#"{"type": "group", "groups": ["rar-no-such-group"]}"#).unwrap();
+        let unknown: DActor<'_> =
+            serde_json::from_str(r#"{"type": "user", "id": "rar-no-such-user"}"#).unwrap();
+        // the system databases: a match, and a name that nobody has, without any failure
+        assert_eq!(
+            actor_matches(&cred, &me, SYSTEM_LOOKUP),
+            (ActorMatchMin::UserMatch, false)
+        );
+        assert_eq!(
+            actor_matches(&cred, &unknown, SYSTEM_LOOKUP),
+            (ActorMatchMin::NoMatch, false)
+        );
+        assert_eq!(
+            actor_matches(&cred, &named_group, SYSTEM_LOOKUP),
+            (ActorMatchMin::NoMatch, false)
+        );
+        // a failed lookup never matches, even for the user itself, and is reported
+        assert_eq!(
+            actor_matches(&cred, &me, failing),
+            (ActorMatchMin::NoMatch, true)
+        );
+        assert_eq!(
+            actor_matches(&cred, &named_group, failing),
+            (ActorMatchMin::NoMatch, true)
+        );
+        // a group given by its id
+        assert_eq!(
+            actor_matches(&cred, &my_group, SYSTEM_LOOKUP),
+            (ActorMatchMin::GroupMatch(1), false)
+        );
+        // the failure of one actor is the failure of the role, even when another one matches
+        let actors = format!(
+            r#"[{{"type": "user", "id": {}}}, {{"type": "group", "groups": ["staff"]}}]"#,
+            getuid().as_raw()
+        );
+        let failing_groups = ActorLookup {
+            user: SYSTEM_LOOKUP.user,
+            group: failing_group_lookup,
+        };
+        let result = ActorsFinderDeserializer {
+            cred: &cred,
+            lookup: failing_groups,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&actors))
+        .unwrap();
+        assert_eq!(result, (ActorMatchMin::UserMatch, true));
     }
 
     #[test]
@@ -430,6 +544,7 @@ mod test {
                 .user()
                 .unwrap()
                 .build(),
+            lookup: SYSTEM_LOOKUP,
         };
         let result = actors.deserialize(&mut serde_json::Deserializer::from_str(int));
         assert!(result.is_err(), "Expected error, got: {result:?}");

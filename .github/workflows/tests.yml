@@ -39,7 +39,7 @@ jobs:
         session required                    pam_permit.so" | tee /etc/pam.d/dosr'
 
     - name: Install Dependencies
-      run: cargo xtask dependencies -dip sudo
+      run: apt install -y pkg-config libpam0g-dev libseccomp-dev pandoc
 
     - name: run integration coverage
       run: cargo +nightly coverage

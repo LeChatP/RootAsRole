@@ -1,9 +1,57 @@
 use log::{debug, info, warn};
 use rootasrole_core::{
-    database::score::{CmdMin, CmdOrder},
+    database::{
+        command::{anchored_regex, regex_arguments, split_command},
+        score::{CmdMin, CmdOrder},
+    },
     util::{all_paths_from_env, match_single_path},
 };
-use std::path::{Path, PathBuf};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+/// The paths found for a command name (the second key) in a PATH (the first key, joined by `:`).
+type PathSearches = HashMap<(String, PathBuf), Vec<PathBuf>>;
+
+thread_local! {
+    /// Where a command typed by its name is found in a PATH, during one decision: most tasks
+    /// share their PATH, and each search costs a `stat` per directory, for each command of each
+    /// task. It only exists while a decision runs ([`PathSearchCache::start`]), so that another
+    /// decision, or a direct call, sees the files as they are then.
+    static PATH_SEARCHES: RefCell<Option<PathSearches>> = const { RefCell::new(None) };
+}
+
+/// Keeps the searches in the PATH while it lives.
+pub(super) struct PathSearchCache;
+
+impl PathSearchCache {
+    pub(super) fn start() -> Self {
+        PATH_SEARCHES.with(|searches| *searches.borrow_mut() = Some(HashMap::new()));
+        Self
+    }
+}
+
+impl Drop for PathSearchCache {
+    fn drop(&mut self) {
+        PATH_SEARCHES.with(|searches| *searches.borrow_mut() = None);
+    }
+}
+
+/// [`all_paths_from_env`], kept for the rest of the decision when a [`PathSearchCache`] lives.
+fn paths_from_env(env_path: &[&str], exe_name: &Path) -> Vec<PathBuf> {
+    PATH_SEARCHES.with(|searches| {
+        let mut searches = searches.borrow_mut();
+        let Some(searches) = searches.as_mut() else {
+            return all_paths_from_env(env_path, exe_name);
+        };
+        searches
+            .entry((env_path.join(":"), exe_name.to_path_buf()))
+            .or_insert_with(|| all_paths_from_env(env_path, exe_name))
+            .clone()
+    })
+}
 
 /// Path of the command to run when a task allows every command, or for the `**` pattern.
 /// A name without `/` is only searched in PATH, never in the current directory (like a shell),
@@ -22,7 +70,7 @@ pub(super) fn resolve_any_command(cmd_path: &Path, env_path: &[&str]) -> Option<
 fn match_path(
     env_path: &[&str],
     user_path: &Path,
-    role_path: &String,
+    role_path: &str,
     previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
@@ -49,7 +97,7 @@ fn match_path(
     } else {
         debug!("match_path: user relative path");
         let mut curmin = CmdMin::empty();
-        all_paths_from_env(env_path, user_path)
+        paths_from_env(env_path, user_path)
             .iter()
             .find_map(|cmd_path| {
                 let min = match_single_path(cmd_path, role_path);
@@ -72,33 +120,12 @@ fn match_path(
     }
 }
 
-/// The regular expression of the arguments of a command of the policy, as written after its
-/// path: arguments starting with `^` and ending with `$`, single-quoted or not.
-fn regex_arguments(args: &str) -> Option<&str> {
-    let args = args.trim();
-    let args = args
-        .strip_prefix('\'')
-        .and_then(|quoted| quoted.strip_suffix('\''))
-        .filter(|quoted| quoted.starts_with('^') && quoted.ends_with('$'))
-        .unwrap_or(args);
-    (args.len() >= 2 && args.starts_with('^') && args.ends_with('$')).then_some(args)
-}
-
 /// The path of a command of the policy, unquoted, and its arguments as written: a regular
 /// expression must not go through shell splitting, which removes its backslashes.
 fn split_role_command(role_cmd: &str) -> Option<(String, &str)> {
-    let role_cmd = role_cmd.trim_start();
-    let first = role_cmd.chars().next()?;
-    let path_end = if first == '\'' || first == '"' {
-        role_cmd[1..].find(first)? + 2
-    } else {
-        role_cmd.find(char::is_whitespace).unwrap_or(role_cmd.len())
-    };
-    let path = shell_words::split(&role_cmd[..path_end])
-        .ok()?
-        .into_iter()
-        .next()?;
-    Some((path, &role_cmd[path_end..]))
+    let (path, args) = split_command(role_cmd)?;
+    let path = shell_words::split(path).ok()?.into_iter().next()?;
+    Some((path, args))
 }
 
 /// Whether the arguments of the user match the regular expression `regex` of the policy.
@@ -112,7 +139,8 @@ fn match_regex_args(
             .order(CmdOrder::FullRegexArgs)
             .build());
     }
-    evaluate_regex_cmd(regex, &shell_words::join(input_args)).inspect_err(|e| {
+    // anchored at both ends whatever its alternations: ^start|stop$ allows start or stop alone
+    evaluate_regex_cmd(&anchored_regex(regex), &shell_words::join(input_args)).inspect_err(|e| {
         warn!("Invalid regular expression in the policy, it never matches: {regex}: {e}");
     })
 }
@@ -226,6 +254,18 @@ pub fn evaluate_command_match(
     previous_min: CmdMin,
     final_path: &mut Option<PathBuf>,
 ) -> CmdMin {
+    // a path alone, the most common command of a policy, needs no splitting: like a command
+    // line of one word, it allows the command without arguments
+    if !role_cmd.is_empty()
+        && !role_cmd.contains(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | '\\'))
+    {
+        let result = match_path(env_path, cmd_path, role_cmd, previous_min, final_path);
+        return if result.is_empty() || cmd_args.is_empty() {
+            result
+        } else {
+            CmdMin::empty()
+        };
+    }
     // a regular expression is taken as written: unquoted, it may contain spaces, quotes and
     // backslashes that shell splitting would change
     if let Some((role_path, args)) = split_role_command(role_cmd)
@@ -717,6 +757,31 @@ mod tests {
             CmdMin::empty(),
             &mut final_path,
         )
+    }
+
+    #[test]
+    fn test_a_top_level_alternation_is_anchored_on_both_sides() {
+        let systemctl =
+            |rule: &str, args: &[&str]| allows(rule, "/usr/bin/systemctl", args).matching();
+        let rule = "/usr/bin/systemctl ^start|stop$";
+        assert!(systemctl(rule, &["start"]));
+        assert!(systemctl(rule, &["stop"]));
+        // not ^start or stop$: the alternation is between the whole arguments
+        assert!(!systemctl(rule, &["start", "anything"]));
+        assert!(!systemctl(rule, &["please", "stop"]));
+        // a group, a character class and an escaped bar keep their meaning
+        assert!(systemctl(
+            "/usr/bin/systemctl ^(start|stop) caddy$",
+            &["stop", "caddy"]
+        ));
+        assert!(!systemctl(
+            "/usr/bin/systemctl ^(start|stop) caddy$",
+            &["stop", "sshd"]
+        ));
+        // a bar in a character class is no alternation; the arguments are joined with the
+        // quotes of a shell, so a bar typed by the user would be '|'
+        assert!(systemctl("/usr/bin/systemctl ^[x|y]z$", &["xz"]));
+        assert!(!systemctl("/usr/bin/systemctl ^[x|y]z$", &["x"]));
     }
 
     #[test]

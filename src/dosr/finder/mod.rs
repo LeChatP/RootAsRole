@@ -4,6 +4,7 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
+    ffi::CString,
     fs,
     io::BufReader,
     path::{Path, PathBuf},
@@ -13,13 +14,19 @@ use api::{Api, ApiEvent};
 use bon::Builder;
 use de::{ConfigFinderDeserializer, DConfigFinder, DLinkedCommand, DLinkedRole, DLinkedTask};
 use log::{debug, error, warn};
+use nix::{
+    errno::Errno,
+    unistd::{Group, User, getgrouplist},
+};
 use options::BorrowedOptStack;
 use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups},
-        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask},
+        env::EnvFilter,
+        options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, TtyOwner},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
+        structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
     util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
@@ -29,7 +36,10 @@ use serde::de::DeserializeSeed;
 use crate::{
     Cli,
     error::{SrError, SrResult},
-    finder::de::{cred::CredOwnedData, settings::read_storage},
+    finder::de::{
+        cred::{CredData, CredOwnedData},
+        settings::read_storage,
+    },
 };
 
 pub mod api;
@@ -37,6 +47,8 @@ pub mod cmd;
 use cmd::resolve_any_command;
 pub mod de;
 mod options;
+
+pub use options::PasswordSettings;
 
 #[derive(Debug, Default, Clone, Builder)]
 pub struct BestExecSettings {
@@ -62,6 +74,10 @@ pub struct BestExecSettings {
     /// The final set of environment variable to keep/set
     pub env: HashMap<String, String>,
     #[builder(default)]
+    /// The filter of the policy on the environment, for the variables that PAM modules set once
+    /// the session is open
+    pub env_filter: EnvFilter,
+    #[builder(default)]
     /// The PATH variable is managed indepedently given the policy
     pub env_path: Vec<String>,
     /// The working directory to set, if specified in policy
@@ -75,6 +91,12 @@ pub struct BestExecSettings {
     #[builder(default)]
     /// Information about whether the user should authenticate or bypass it
     pub auth: SAuthentication,
+    #[builder(default)]
+    /// How many times the password is asked, and the delay after a wrong one
+    pub password: PasswordSettings,
+    #[builder(default)]
+    /// Who owns the pseudo-terminal of the command
+    pub tty_owner: TtyOwner,
     #[builder(default)]
     /// Is root id has it's privileges or not? If not, root is going to be a simple user
     pub root: SPrivileged,
@@ -108,6 +130,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
 where
     P: AsRef<Path>,
 {
+    let _path_searches = cmd::PathSearchCache::start();
     let env_vars: Vec<(String, String)> = env_vars
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
@@ -205,10 +228,64 @@ where
                     SrError::ConfigurationError
                 }
             })
-            .and_then(BestExecSettings::refuse_tie);
+            .and_then(BestExecSettings::refuse_tie)
+            .and_then(BestExecSettings::with_target_groups);
     }
 
-    parse_file(&file_path).and_then(BestExecSettings::refuse_tie)
+    parse_file(&file_path)
+        .and_then(BestExecSettings::refuse_tie)
+        .and_then(BestExecSettings::with_target_groups)
+}
+
+/// The user and the groups of the credentials of a task, or what does not resolve: a name that
+/// nobody has, an id without an entry, or a lookup that fails. Before, such a user was dropped,
+/// so the command ran as the caller, and such a group was dropped from the list, so the command
+/// kept the primary group of the caller when no group was left.
+fn resolve_cred(cred: &CredData<'_>) -> Result<(Option<User>, Option<Vec<Group>>), String> {
+    let setuid = cred
+        .setuid
+        .as_ref()
+        .map(|user| user.fetch_user().ok_or_else(|| format!("the user {user}")))
+        .transpose()?;
+    let group = |group: &DGroupType<'_>| {
+        group
+            .fetch_group()
+            .ok_or_else(|| format!("the group {group}"))
+    };
+    let setgroups = match &cred.setgroups {
+        None => None,
+        Some(DGroups::Single(single)) => Some(vec![group(single)?]),
+        Some(DGroups::Multiple(groups)) if groups.is_empty() => {
+            return Err("an empty list of groups".into());
+        }
+        Some(DGroups::Multiple(groups)) => {
+            Some(groups.iter().map(group).collect::<Result<_, _>>()?)
+        }
+    };
+    Ok((setuid, setgroups))
+}
+
+/// The groups of `user` as a login gives them (`initgroups(3)`): its primary group first, then
+/// the groups that list it as a member, like sudo-rs `User::from_libc` (sudo-rs/src/system/mod.rs).
+/// A gid without a name is named by its number.
+fn login_groups(user: &User) -> nix::Result<Vec<Group>> {
+    let name = CString::new(user.name.as_bytes()).map_err(|_| Errno::EINVAL)?;
+    let mut gids = vec![user.gid];
+    for gid in getgrouplist(&name, user.gid)? {
+        if !gids.contains(&gid) {
+            gids.push(gid);
+        }
+    }
+    gids.into_iter()
+        .map(|gid| {
+            Ok(Group::from_gid(gid)?.unwrap_or_else(|| Group {
+                name: gid.to_string(),
+                passwd: CString::default(),
+                gid,
+                mem: Vec::new(),
+            }))
+        })
+        .collect()
 }
 
 impl BestExecSettings {
@@ -221,7 +298,27 @@ impl BestExecSettings {
         env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
         env_path: &[&str],
     ) -> SrResult<Self> {
-        Self::evaluate(cli, cred, data, env_vars, env_path).and_then(Self::refuse_tie)
+        Self::evaluate(cli, cred, data, env_vars, env_path)
+            .and_then(Self::refuse_tie)
+            .and_then(Self::with_target_groups)
+    }
+
+    /// The task changes the user without giving the groups: the command gets the groups of the
+    /// target user, as a login gives them, unless `from` names the groups of the caller. A task
+    /// that keeps the user keeps the groups of the caller. A lookup that fails refuses the
+    /// command, it never falls back on the groups of the caller.
+    fn with_target_groups(mut self) -> SrResult<Self> {
+        if self.cred.setgroups.is_none()
+            && self.cred.groups_from != Some(GroupsFrom::Caller)
+            && let Some(user) = &self.cred.setuid
+        {
+            let groups = login_groups(user).map_err(|e| {
+                error!("Cannot read the groups of the user {}: {e}", user.name);
+                SrError::SystemError
+            })?;
+            self.cred.setgroups = Some(groups);
+        }
+        Ok(self)
     }
 
     /// Refuse the settings when another task is as good as the best one: none of them needs
@@ -268,7 +365,15 @@ impl BestExecSettings {
         let mut result = Self::default();
         let mut matching = false;
         let mut opt_stack = BorrowedOptStack::new(data.options.as_ref());
+        let role_filter = cli
+            .opt_filter
+            .as_ref()
+            .and_then(|filter| filter.role.as_deref());
         for role in data.roles() {
+            // the role asked with -r, the others were read for the plugins
+            if role_filter.is_some_and(|name| name != role.role().role.as_ref()) {
+                continue;
+            }
             // only the roles that the user holds: their actors match and no plugin excludes
             // them (separation of duties), the hierarchy plugin relies on it
             if !result.actors_settings(&role)? {
@@ -288,8 +393,10 @@ impl BestExecSettings {
         if !matching {
             return Err(SrError::PermissionDenied);
         }
-        result.env = opt_stack
-            .calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref())
+        let env =
+            opt_stack.calc_temp_env(opt_stack.calc_override_behavior(), cli.opt_filter.as_ref());
+        result.env_filter = env.filter();
+        result.env = env
             .final_env(
                 env_vars,
                 opt_stack.calc_path(env_path),
@@ -312,6 +419,8 @@ impl BestExecSettings {
         result.auth = opt_stack.calc_authentication();
         result.bounding = opt_stack.calc_bounding();
         result.timeout = opt_stack.calc_timeout();
+        result.password = opt_stack.calc_password();
+        result.tty_owner = opt_stack.calc_tty_owner();
         result.root = opt_stack.calc_privileged();
         result.umask = opt_stack.calc_umask();
         result.workdir = opt_stack.calc_workdir();
@@ -383,6 +492,65 @@ impl BestExecSettings {
     ) -> SrResult<bool> {
         debug!("task_settings: {:?}", data.id);
         let temp_opt_stack = BorrowedOptStack::from_task(data);
+        // The commands come first: most tasks do not allow the command, and their options need
+        // not be resolved. The task is evaluated on its own: the best settings found so far are
+        // only replaced if its full score is better, so a task cannot change how the next ones
+        // are compared.
+        let mut task_cmd_min = CmdMin::empty();
+        let mut task_final_path = None;
+        // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
+        let mut task_env_path = None;
+        if let Some(commands) = data.commands() {
+            // a command given by its path is compared without the PATH, unless a rule of the
+            // task resolves the command itself (`**`, the `all` default, a plugin)
+            let needs_path = !cli.cmd_path.is_absolute()
+                || commands.default_behavior.is_some_and(|b| b.is_all())
+                || commands
+                    .add()
+                    .chain(commands.del())
+                    .any(|command| Self::resolves_the_command(&command));
+            let t_env_path = if needs_path {
+                temp_opt_stack.calc_path(env_path)
+            } else {
+                Vec::new()
+            };
+            let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
+            for command in commands.del() {
+                if Self::match_command(&t_env_path_ref, cli, &command)?.is_some() {
+                    debug!("task_settings: deny task, the command is in its deny list");
+                    return Ok(false);
+                }
+            }
+            if commands.default_behavior.is_some_and(|b| b.is_all()) {
+                debug!("default behavior is all");
+                debug!("{}", &cli.cmd_path.display());
+                task_final_path = Some(
+                    resolve_any_command(&cli.cmd_path, &t_env_path_ref)
+                        .ok_or(SrError::ExecutionFailed)?,
+                );
+                // any command with any arguments, like a "**" rule
+                task_cmd_min = CmdMin::builder()
+                    .matching()
+                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
+                    .build();
+            } else {
+                for command in commands.add() {
+                    if let Some((cmd_min, final_path)) =
+                        Self::match_command(&t_env_path_ref, cli, &command)?
+                        && cmd_min.better(task_cmd_min)
+                    {
+                        task_cmd_min = cmd_min;
+                        task_final_path = Some(final_path);
+                    }
+                }
+            }
+            if needs_path {
+                task_env_path = Some(t_env_path);
+            }
+        }
+        if !task_cmd_min.matching() {
+            return Ok(false);
+        }
         if let Some(entry) = temp_opt_stack.invalid_env_entry() {
             error!(
                 "task_settings: deny task {:?}: invalid environment entry `{entry}`, it must be a variable name where `*` matches any characters",
@@ -390,10 +558,6 @@ impl BestExecSettings {
             );
             return Ok(false);
         }
-        // the PATH of this task: its commands are resolved in it, and it is kept if the task wins
-        let mut task_env_path = None;
-        // We must do this check for each task as long they could have different options
-        // These checks are a small optimization to avoid useless command checks
         if cli
             .opt_filter
             .as_ref()
@@ -428,53 +592,13 @@ impl BestExecSettings {
             debug!("task_settings: deny task due to inherited from role or config info hide");
             return Ok(false);
         }
-        // The task is evaluated on its own: the best settings found so far are only replaced
-        // if its full score is better, so a task cannot change how the next ones are compared.
-        let mut task_cmd_min = CmdMin::empty();
-        let mut task_final_path = None;
-        if let Some(commands) = data.commands() {
-            let t_env_path = temp_opt_stack.calc_path(env_path);
-            let t_env_path_ref: Vec<&str> = t_env_path.iter().map(String::as_str).collect();
-            for command in commands.del() {
-                if Self::match_command(&t_env_path_ref, cli, &command)?.is_some() {
-                    debug!("task_settings: deny task, the command is in its deny list");
-                    return Ok(false);
-                }
-            }
-            if commands.default_behavior.is_some_and(|b| b.is_all()) {
-                debug!("default behavior is all");
-                debug!("{}", &cli.cmd_path.display());
-                task_final_path = Some(
-                    resolve_any_command(&cli.cmd_path, &t_env_path_ref)
-                        .ok_or(SrError::ExecutionFailed)?,
-                );
-                // any command with any arguments, like a "**" rule
-                task_cmd_min = CmdMin::builder()
-                    .matching()
-                    .order(CmdOrder::FullWildcardPath | CmdOrder::FullRegexArgs)
-                    .build();
-            } else {
-                for command in commands.add() {
-                    if let Some((cmd_min, final_path)) =
-                        Self::match_command(&t_env_path_ref, cli, &command)?
-                        && cmd_min.better(task_cmd_min)
-                    {
-                        task_cmd_min = cmd_min;
-                        task_final_path = Some(final_path);
-                    }
-                }
-            }
-            task_env_path = Some(t_env_path);
-        }
-        let found = task_cmd_min.matching();
         let mut score = data.score(task_cmd_min, temp_opt_stack.calc_security_min());
         score.set_role_score(&held_through);
         Api::notify(ApiEvent::BestTaskSettingsFound(
             cli, data, opt_stack, self, &mut score,
         ))?;
         let task_address = std::ptr::from_ref(data.task).addr();
-        if found
-            && task_final_path.is_some()
+        if task_final_path.is_some()
             && score.fully_matching()
             && !score.better_fully(&self.score)
             && score.cmp(&self.score) == Ordering::Equal
@@ -485,10 +609,22 @@ impl BestExecSettings {
             self.tie
                 .get_or_insert_with(|| format!("{}/{}", data.role().role().role, data.id));
         }
-        if found
-            && let Some(final_path) = task_final_path
+        if let Some(final_path) = task_final_path
             && score.better_fully(&self.score)
         {
+            // a task whose user or groups do not exist cannot run as written: it is left out like
+            // a task that does not match, so that it tells nothing more before the authentication
+            let (setuid, setgroups) = match resolve_cred(&data.cred) {
+                Ok(cred) => cred,
+                Err(missing) => {
+                    error!(
+                        "The task {}/{} cannot run: {missing} does not exist or cannot be read",
+                        data.role().role().role,
+                        data.id
+                    );
+                    return Ok(true);
+                }
+            };
             debug!("found better task settings");
             self.best_task = Some(task_address);
             // a tie with the previous best task does not matter anymore
@@ -498,18 +634,28 @@ impl BestExecSettings {
             self.task = Some(data.id.to_string());
             self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
             self.score = score;
-            self.cred.setuid = data.cred.setuid.clone().and_then(|u| u.fetch_user());
-            self.cred.setgroups = data.cred.setgroups.clone().map(|g| match g {
-                DGroups::Single(g) => vec![g.fetch_group()].into_iter().flatten().collect(),
-                DGroups::Multiple(g) => g.iter().filter_map(DGroupType::fetch_group).collect(),
-            });
+            self.cred.setuid = setuid;
+            self.cred.setgroups = setgroups;
+            self.cred.groups_from = data.cred.groups_from;
             self.cred.caps = data.cred.caps;
             opt_stack.set_role(data);
             opt_stack.set_task(data);
             debug!("resulting settings: {self:?}");
         }
 
-        Ok(found)
+        Ok(true)
+    }
+
+    /// Whether a command of the policy resolves the command of the user in the PATH: `**`, which
+    /// allows any command, or a complex command, which a plugin evaluates.
+    fn resolves_the_command(command: &DLinkedCommand<'_, '_, '_, '_, '_>) -> bool {
+        match &**command {
+            de::DCommand::Simple(role_cmd) => role_cmd
+                .trim_start()
+                .trim_start_matches(['\'', '"'])
+                .starts_with("**"),
+            de::DCommand::Complex(_) => true,
+        }
     }
 
     /// How a command of the policy matches the command line: its score and the path to run,
@@ -571,6 +717,8 @@ mod tests {
     use crate::finder::options::{DEnvOptions, DPathOptions, Opt};
     use rootasrole_core::Cred;
     use test_log::test;
+
+    mod perf;
 
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
@@ -686,6 +834,65 @@ mod tests {
         let env_path = &["/bin"];
         let result = BestExecSettings::retrieve_settings(&cli, &cred, &data, env_vars, env_path);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_a_task_that_changes_the_user_gets_its_groups() {
+        let root = User::from_uid(nix::unistd::Uid::from_raw(0))
+            .unwrap()
+            .unwrap();
+        let settings = |setuid: Option<User>, groups_from, setgroups| BestExecSettings {
+            cred: CredOwnedData::builder()
+                .maybe_setuid(setuid)
+                .maybe_groups_from(groups_from)
+                .maybe_setgroups(setgroups)
+                .build(),
+            ..Default::default()
+        };
+        // setuid without setgid: the groups of the target user, its primary group first
+        for groups_from in [None, Some(GroupsFrom::Target)] {
+            let groups = settings(Some(root.clone()), groups_from, None)
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .unwrap();
+            assert_eq!(groups[0].gid, root.gid, "{groups_from:?}");
+            assert_eq!(groups, login_groups(&root).unwrap());
+        }
+        // from: caller, a task that keeps the user, and forced groups are left as they are
+        let caller = settings(Some(root.clone()), Some(GroupsFrom::Caller), None);
+        assert!(
+            caller
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .is_none()
+        );
+        let same_user = settings(None, None, None);
+        assert!(
+            same_user
+                .with_target_groups()
+                .unwrap()
+                .cred
+                .setgroups
+                .is_none()
+        );
+        let forced = Group::from_gid(root.gid).unwrap().unwrap();
+        let forced_settings = settings(Some(root.clone()), None, Some(vec![forced.clone()]));
+        assert_eq!(
+            forced_settings.with_target_groups().unwrap().cred.setgroups,
+            Some(vec![forced])
+        );
+        // a lookup that fails refuses the command instead of keeping the groups of the caller
+        let mut broken = root;
+        broken.name = "bro\0ken".into();
+        assert!(
+            settings(Some(broken), None, None)
+                .with_target_groups()
+                .is_err()
+        );
     }
 
     #[test]
@@ -1128,6 +1335,184 @@ mod tests {
         .map(|settings| settings.task.unwrap_or_default())
     }
 
+    /// The final policy of the book, under its heading in `book/src/configuration.md`, or `None`
+    /// when the book is not in this source tree: the crate and the Debian sources leave it out.
+    fn book_policy() -> Option<Value> {
+        let page = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("book/src/configuration.md"),
+        )
+        .ok()?;
+        let section = &page[page.find("## The complete WebOps policy")?..];
+        let start = section.find("```json\n")? + "```json\n".len();
+        let end = section[start..].find("\n```")? + start;
+        Some(serde_json::from_str(&section[start..end]).expect("the policy of the book is JSON"))
+    }
+
+    #[test]
+    fn test_the_policy_of_the_book() {
+        let Some(mut policy) = book_policy() else {
+            eprintln!("skipped: the book is not in this source tree");
+            return;
+        };
+        rootasrole_core::database::migrations::migrate_document(&mut policy).unwrap();
+        serde_json::from_value::<rootasrole_core::database::structs::SPolicy>(policy.clone())
+            .expect("rootasrole-core reads the policy of the book");
+        // the current user takes the place of the team, but not of sys-admin, which excludes
+        // caddy-admin
+        let uid = nix::unistd::getuid().as_raw();
+        for role in policy["roles"].as_array_mut().unwrap() {
+            if role["name"] != "sys-admin" {
+                role["actors"] = serde_json::json!([{"type": "user", "id": uid}]);
+            }
+        }
+        let dir = PolicyDir::new("book");
+        let file = dir.0.join("default.json");
+        write_file(&file, &policy, StorageMethod::JSON, 0o600);
+        let root = dir.0.join("rootasrole.json");
+        write_file(
+            &root,
+            &root_settings(StorageMethod::JSON, &file, serde_json::json!([])),
+            StorageMethod::JSON,
+            0o600,
+        );
+        let decide = |cmd: &str, args: &[&str]| -> Option<String> {
+            let cli = Cli::builder()
+                .cmd_path(cmd)
+                .cmd_args(args.iter().map(ToString::to_string))
+                .build();
+            find_best_exec_settings(
+                &cli,
+                &dummy_cred(),
+                &root,
+                &root,
+                StorageMethod::JSON,
+                vec![("A", "B")],
+                &["/usr/bin"],
+            )
+            .ok()
+            .filter(|settings| settings.score.fully_matching())
+            .and_then(|settings| settings.task)
+        };
+        // the groups of read-logs come with systemd, which a container may not have: a task
+        // whose group does not exist is left out
+        let read_logs = policy["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|role| role["tasks"].as_array().into_iter().flatten())
+            .filter(|task| task["name"] == "read-logs")
+            .flat_map(|task| match &task["cred"]["setgid"] {
+                Value::Array(groups) => groups.clone(),
+                group => vec![group.clone()],
+            })
+            .all(|group| {
+                group
+                    .as_str()
+                    .is_some_and(|name| Group::from_name(name).ok().flatten().is_some())
+            })
+            .then_some("read-logs");
+        let log = "/var/log/caddy/access.log";
+        assert_eq!(
+            decide("/usr/bin/tail", &["-n", "50", log]).as_deref(),
+            read_logs
+        );
+        assert_eq!(decide("/usr/bin/tail", &["-f", log]).as_deref(), read_logs);
+        assert_eq!(
+            decide("/usr/bin/journalctl", &["--no-pager", "-u", "caddy"]).as_deref(),
+            read_logs
+        );
+        // the path traversal of the chapter
+        let traversal = "/var/log/caddy/../../../etc/shadow";
+        assert_eq!(decide("/usr/bin/tail", &["-n", "50", traversal]), None);
+        assert_eq!(decide("/usr/bin/less", &[traversal]), None);
+        // the pager of systemctl, without --no-pager
+        assert_eq!(decide("/usr/bin/systemctl", &["status", "caddy"]), None);
+        assert_eq!(
+            decide("/usr/bin/systemctl", &["status", "--no-pager", "caddy"]).as_deref(),
+            Some("caddy-service")
+        );
+        assert_eq!(
+            decide("/usr/bin/systemctl", &["restart", "caddy"]).as_deref(),
+            Some("caddy-service")
+        );
+        assert_eq!(decide("/usr/bin/systemctl", &["restart", "sshd"]), None);
+        // alice's escape: more arguments than the regular expression allows
+        let escape = [
+            "-d",
+            "-m",
+            "777",
+            "-o",
+            "alice",
+            "-g",
+            "alice",
+            "/srv/www/x",
+            "/etc",
+        ];
+        assert_eq!(decide("/usr/bin/install", &escape), None);
+        // the user of web-push is www-data, which not every distribution has
+        if User::from_name("www-data").ok().flatten().is_some() {
+            assert_eq!(
+                decide("/usr/bin/install", &["-d", "-m", "755", "/srv/www/site"]).as_deref(),
+                Some("web-push")
+            );
+        }
+        // the root-equivalent tasks of sys-admin are not held
+        assert_eq!(decide("/usr/bin/systemctl", &["reboot"]), None);
+    }
+
+    #[test]
+    fn test_a_task_whose_credentials_do_not_resolve_is_left_out() {
+        let task = |name: &str, cred: Value| serde_json::json!({"name": name, "cred": cred, "commands": ["/usr/bin/ls -l"]});
+        let role = |tasks: Vec<Value>| {
+            serde_json::json!([{
+                "name": "r",
+                "actors": [{"type": "user", "id": nix::unistd::getuid().as_raw()}],
+                "tasks": tasks
+            }])
+        };
+        let decide = |roles: Value| {
+            let dir = PolicyDir::new("unresolved");
+            let root = dir.0.join("rootasrole");
+            write_file(
+                &root,
+                &root_settings(StorageMethod::JSON, &root, roles),
+                StorageMethod::JSON,
+                0o600,
+            );
+            let cli = Cli::builder()
+                .cmd_path("/usr/bin/ls")
+                .cmd_args(vec!["-l".to_string()])
+                .build();
+            find_best_exec_settings(
+                &cli,
+                &dummy_cred(),
+                &root,
+                &root,
+                StorageMethod::JSON,
+                vec![("A", "B")],
+                &["/usr/bin"],
+            )
+            .unwrap()
+        };
+        let broken = || {
+            vec![
+                task("no-user", serde_json::json!({"setuid": "rar-no-such-user"})),
+                task(
+                    "no-group",
+                    serde_json::json!({"setgid": ["root", "rar-no-such-group"]}),
+                ),
+            ]
+        };
+        // the broken tasks are more precise than any, which is chosen
+        let mut tasks = broken();
+        tasks.push(serde_json::json!({"name": "any", "commands": ["/usr/bin/ls ^.*$"]}));
+        assert_eq!(decide(role(tasks)).task.as_deref(), Some("any"));
+        // without another task, none is chosen, and the command is refused after authentication
+        let settings = decide(role(broken()));
+        assert_eq!(settings.task, None);
+        assert!(!settings.score.fully_matching());
+    }
+
     #[test]
     fn test_find_best_exec_settings_single_file() {
         for method in [StorageMethod::JSON, StorageMethod::CBOR] {
@@ -1140,6 +1525,45 @@ mod tests {
                 find(&root, method, "/usr/bin/cat"),
                 Err(SrError::PermissionDenied)
             ));
+        }
+    }
+
+    // the tty option of the policy reaches the settings of the execution, the build-time default
+    // without it
+    #[test]
+    fn test_find_best_exec_settings_tty_owner() {
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let dir = PolicyDir::new(&format!("tty-{method}"));
+            let root = dir.0.join("rootasrole");
+            let mut roles = user_role("t", "/usr/bin/ls", &[]);
+            let tty_owner = |root: &Path| {
+                let cli = Cli::builder().cmd_path("/usr/bin/ls".to_string()).build();
+                find_best_exec_settings(
+                    &cli,
+                    &dummy_cred(),
+                    root,
+                    root,
+                    method,
+                    vec![("A", "B")],
+                    &["/usr/bin"],
+                )
+                .unwrap()
+                .tty_owner
+            };
+            write_file(
+                &root,
+                &root_settings(method, &root, roles.clone()),
+                method,
+                0o600,
+            );
+            assert_eq!(
+                tty_owner(&root),
+                rootasrole_core::util::TTY_OWNER,
+                "{method}"
+            );
+            roles[0]["tasks"][0]["options"] = serde_json::json!({"tty": {"owner": "target"}});
+            write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+            assert_eq!(tty_owner(&root), TtyOwner::Target, "{method}");
         }
     }
 
@@ -1407,6 +1831,167 @@ mod tests {
             choose(&roles, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
         ));
+    }
+
+    /// The role chosen for `cmd`, after a failed lookup of the actors of the roles `failed`.
+    #[cfg(feature = "ssd")]
+    fn choose_after_failed_lookups(roles: &Value, cmd: &str, failed: &[&str]) -> SrResult<String> {
+        api::register_plugins();
+        let policy = serde_json::json!({ "roles": roles }).to_string();
+        let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+        let cred = dummy_cred();
+        let mut data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        for role in &mut data.roles {
+            role.lookup_failed = failed.contains(&role.role.as_ref());
+        }
+        BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &["/usr/bin"])
+            .map(|settings| settings.role)
+    }
+
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_a_failed_lookup_disables_the_roles_with_ssd() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", false, None, &none),
+            role_json("ops", true, Some("/usr/bin/cat"), &none),
+            role_json("other", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "dev"
+        );
+        // whatever role the failed lookup belongs to, the roles with an ssd are disabled
+        for failed in ["auditor", "other", "dev"] {
+            assert!(
+                matches!(
+                    choose_after_failed_lookups(&roles, "/usr/bin/ls", &[failed]),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{failed}"
+            );
+        }
+        // the roles without one are not
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
+            "ops"
+        );
+    }
+
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_a_failed_lookup_disables_the_parents_of_a_role_with_ssd() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"], "ssd": ["auditor"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json("auditor", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "junior"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["auditor"]),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
+    /// The role and task chosen for `cmd` with `dosr -r role`.
+    fn choose_role(roles: &Value, cmd: &str, role: &str) -> SrResult<(String, Option<String>)> {
+        api::register_plugins();
+        let policy = serde_json::json!({ "roles": roles }).to_string();
+        let cli = Cli::builder()
+            .cmd_path(cmd.to_string())
+            .opt_filter(FilterMatcher::builder().role(role.to_string()).build())
+            .build();
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &["/usr/bin"])
+            .map(|settings| (settings.role, settings.task))
+    }
+
+    #[test]
+    fn test_role_filter_chooses_among_the_roles() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json("first", true, Some("/usr/bin/ls"), &none),
+            role_json("second", true, Some("/usr/bin/ls"), &none),
+            role_json("other", false, Some("/usr/bin/ls"), &none),
+        ]);
+        assert_eq!(
+            choose_role(&roles, "/usr/bin/ls", "second").unwrap().0,
+            "second"
+        );
+        assert_eq!(
+            choose_role(&roles, "/usr/bin/ls", "first").unwrap().0,
+            "first"
+        );
+        // a role that the user does not hold, or that does not exist
+        for role in ["other", "nope"] {
+            assert!(matches!(
+                choose_role(&roles, "/usr/bin/ls", role),
+                Err(SrError::PermissionDenied)
+            ));
+        }
+    }
+
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_role_filter_does_not_lift_the_separation_of_duties() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", true, None, &none),
+        ]);
+        // dosr -r dev read only the role dev: auditor, which the user holds, was not seen
+        assert!(matches!(
+            choose_role(&roles, "/usr/bin/ls", "dev"),
+            Err(SrError::PermissionDenied)
+        ));
+    }
+
+    #[cfg(feature = "hierarchy")]
+    #[test]
+    fn test_role_filter_keeps_the_tasks_of_the_parents() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+        ]);
+        let (role, task) = choose_role(&roles, "/usr/bin/ls", "senior").unwrap();
+        assert_eq!(task.as_deref(), Some("junior_task"), "{role}");
     }
 
     #[test]
@@ -1882,5 +2467,95 @@ mod tests {
             Some(std::env::current_dir().unwrap().join("./Cargo.toml"))
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The environment that dosr decides for `cli`, completed with variables set by PAM.
+    fn env_with_pam_vars(cli: &Cli, pam_vars: &[(&str, &str)]) -> HashMap<String, String> {
+        use serde::de::DeserializeSeed;
+        let policy = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"t","commands":["/usr/bin/true"],"options":{{"env":{{"default":"delete","override_behavior":true,"keep":["PAM_*"],"check":["CHECKED"],"delete":["LD_*"],"set":{{"SET":"policy"}}}}}}}}]}}]}}"#,
+            nix::unistd::getuid()
+        );
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer { cli, cred: &cred }
+            .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+            .expect("valid policy");
+        let mut settings = BestExecSettings::retrieve_settings(
+            cli,
+            &cred,
+            &data,
+            [("PAM_USER_VAR", "user")],
+            &["/usr/bin"],
+        )
+        .unwrap();
+        settings.env_filter.add_vars(
+            &mut settings.env,
+            pam_vars
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string())),
+        );
+        settings.env
+    }
+
+    #[test]
+    fn test_a_task_without_any_directory_gives_no_path() {
+        // an empty PATH would be the working directory for a shell, which the user chooses
+        let policy = format!(
+            r#"{{"roles":[{{"name":"r","actors":[{{"type":"user","id":{}}}],"tasks":[{{"name":"t","commands":["/usr/bin/true"],"options":{{"path":{{"default":"delete","add":[".",""]}},"env":{{"default":"delete","keep":["PATH"]}}}}}}]}}]}}"#,
+            nix::unistd::getuid()
+        );
+        let cli = Cli::builder().cmd_path("/usr/bin/true".to_string()).build();
+        let cred = dummy_cred();
+        let data = super::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .expect("valid policy");
+        let settings = BestExecSettings::retrieve_settings(
+            &cli,
+            &cred,
+            &data,
+            [("PATH", ".:/tmp")],
+            &[".", "/usr/bin"],
+        )
+        .unwrap();
+        assert!(!settings.env.contains_key("PATH"), "{:?}", settings.env);
+        assert!(settings.env_path.is_empty(), "{:?}", settings.env_path);
+    }
+
+    #[test]
+    fn test_pam_vars_go_through_the_env_filter_of_the_task() {
+        let pam_vars = [
+            ("PAM_NEW", "pam"),
+            ("PAM_USER_VAR", "pam"),
+            ("SET", "pam"),
+            ("PATH", "/tmp/evil"),
+            ("CHECKED", "/unsafe"),
+            ("OTHER", "pam"),
+            ("LD_PRELOAD", "/tmp/evil.so"),
+        ];
+        let cli = Cli::builder().cmd_path("/usr/bin/true".to_string()).build();
+        let env = env_with_pam_vars(&cli, &pam_vars);
+        assert_eq!(env.get("PAM_NEW").unwrap(), "pam");
+        assert_eq!(env.get("PAM_USER_VAR").unwrap(), "user");
+        assert_eq!(env.get("SET").unwrap(), "policy");
+        assert!(!env.get("PATH").unwrap().contains("/tmp/evil"));
+        assert!(!env.contains_key("CHECKED"));
+        assert!(!env.contains_key("OTHER"));
+        assert!(!env.contains_key("LD_PRELOAD"));
+        // dosr -E, which this task allows: the PAM variables are kept but for the delete list
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/true".to_string())
+            .opt_filter(
+                FilterMatcher::builder()
+                    .env_behavior(EnvBehavior::Keep)
+                    .build(),
+            )
+            .build();
+        let env = env_with_pam_vars(&cli, &pam_vars);
+        assert_eq!(env.get("OTHER").unwrap(), "pam");
+        assert!(!env.contains_key("CHECKED"));
+        assert!(!env.contains_key("LD_PRELOAD"));
     }
 }

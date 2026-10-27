@@ -88,7 +88,7 @@ The data is split into two parts: the **root file**, which tells RaR where the p
 
 ```json
 {
-  "version": "4.1.0",
+  "version": "4.2.0",
   "storage": {
     "method": "json",
     "settings": {
@@ -109,7 +109,7 @@ For the WebOps team, the policy will be stored in `/etc/security/rootasrole.d/de
 
 ```json
 {
-  "version": "4.1.0",
+  "version": "4.2.0",
   "options": { },
   "roles": [ ]
 }
@@ -230,11 +230,21 @@ Arguments can be matched in two ways:
     /usr/bin/install ^-d -m 0?[0-7]{3} /srv/www/[^ ]+$
     ```
 
-Regular expressions follow the syntax of the Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate. Note that this syntax does not support look-around nor backreferences.
+Regular expressions follow the syntax of the Rust [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate. Note that this syntax does not support look-around nor backreferences. For a safer implementation of regex, we encapsulated the regex inside a non-capturing group, so the regex looks like `^(?:your_regex_here)$`. 
 
-<blockquote class="caroot">
-We are still working on the way to express a regular expression safely on the arguments.
-</blockquote>
+Note that when arguments hold special characters, the regex must take into account the quotes needed by the shell to express them. Before matching, `dosr` joins the arguments the way a shell would quote them, with single quotes only:
+
+- an argument that contains a space, a tab, a newline, or one of `'`, `"`, `\`, `|`, `&`, `;`, `<`, `>`, `(`, `)`, `$`, `` ` ``, `*`, `?`, `[`, `#`, `~`, `=` or `%` is wrapped in single quotes;
+- an empty argument becomes `''`;
+- a single quote inside an argument is written `'\''`.
+
+So `ls -l "My Documents"` is matched by `/usr/bin/ls ^-l 'My Documents'$`, and never by `^-l "My Documents"$`. The `=` of an option is the most common trap: bob's `journalctl --unit=caddy --no-pager` is seen as `'--unit=caddy' --no-pager`, so the regex must be `^'--unit=caddy' --no-pager$`. For `ls -l "My Doc'uments"`, the backslash of `'\''` must be escaped in the regex, `^-l 'My Doc'\\''uments'$`, and once more in the JSON file (`\\\\`).
+
+Exact matches are not concerned: the arguments written in the policy are quoted the same way before the comparison.
+
+For example, the following command `ls -l "My Doc'uments"`, must be translated in the policy in a single quote form: `/usr/bin/ls ^-l 'My Doc'\\\\''uments'$`. This amount of escaping is needed because the policy is a JSON file, and the regex is a string inside it. The shell will remove the quotes and the backslashes, and the regex engine will see `My Doc'uments` as expected.
+
+An argument is enclosed in single quotes whenever it contains any of the following characters: space, tab, newline, <code>‘ " \ | & ; < > ( ) $ ` * ? [ # ~ = %</code>. An empty argument becomes ''. Non-regex arguments does not have this escaping requirement.
 
 ### Applying it to WebOps
 
@@ -277,9 +287,17 @@ The `setuid` field sets the user the command runs as. In security terms, this is
 
 Most administrators want to be a single user: root, because the system's discretionary access control (DAC) is built around it. RaR suggests another approach: when impersonating root is needed, grant it **without capabilities**. Root then only has the rights given by file permissions, like a regular user. Going further, system configuration that administrators need should have a segregated DAC, owned by a dedicated user, so that bypassing it requires an explicit Linux capability.
 
+One note is : If you don't specify a `setgid`, the command is taking groups from the `setuid` user, aligning with DAC policy. If you want to reduce/edit the groups, you must specify a `setgid` to override the default.
+
+Also, if the user or group in the task does not exist, the task is left out, like a task that does not match: another task may still be chosen. The missing user or group is written in the log.
+
 ### `setgid`
 
 The `setgid` field makes DAC configuration easier. You can define a single group, or a list of groups. If a list is defined, the first group is the primary group, and the others are supplementary groups.
+
+Now, let's discuss about subtleties. the `setgid` field can start from the caller groups, or from the `setuid` (target) user groups, with the `from` field of its [selector form](#setgid-1). If you don't specify a `setgid`, the command is taking groups from the target user, aligning with DAC policy. If you want to reduce/edit the groups, you must specify a `setgid` to override the default.
+
+Same as `setuid`, if a group of the task does not exist, the task is left out, like a task that does not match. The missing group is written in the log.
 
 ### `capabilities`
 
@@ -376,6 +394,22 @@ Gives no capability, except `CAP_NET_BIND_SERVICE`. This is a common use case fo
   "add": [["wheel"]]
 }
 ```
+
+`fallback` is the group set used when the caller does not specify `-g`. Without `fallback`, the `from` field says whose groups the command gets:
+
+```json
+"setgid": {
+  "default": "none",
+  "from": "caller"
+}
+```
+
+- `target` (the default): the groups of the user the command runs as, its primary group and the groups that list it as a member, as a login gives them;
+- `caller`: the groups of the user who runs `dosr`.
+
+Without `fallback` nor `from`, the `none` default requires `-g`, and the `all` default gives the groups of the target user. With chsr, `--setgid-from` sets it, for example `chsr role admin task backup credentials set --setuid backup --setgid-from caller`.
+
+Keep `caller` for the tasks that really need it: the command then runs as the target user with every group of the caller (`adm`, `docker`…), which neither of them has alone.
 
 `setuid` and `setgid` can also be written in their compact mandatory form (a single user, or a group/group list), as in the WebOps tasks.
 
@@ -474,6 +508,10 @@ For bob's `read-logs` task, the `set` directive disables the shell escape of `le
 
 Since no `default` is declared at the task level, the global mode and lists are inherited, and these values are added on top.
 
+#### PAM management of environment variables
+
+In the case where PAM is used to set environment variables through `pam_env` or `pam_env.so`. The `env` option of RaR will still filter these variables according to the policy, ensuring that only allowed variables are passed to the command.
+
 ### The `path` option
 
 The `PATH` variable is a colon-separated list of directories searched for executables. The `path` option controls it and must be carefully configured to avoid privilege escalation.
@@ -484,8 +522,10 @@ This option works, again, like mathematical sets, with `add` and `sub` (alias `d
 
 - `delete`: start from an empty list and add directories. This is the recommended mode.
 - `keep-safe`: start from the caller's `PATH`, and remove relative paths (such as `.` or `bin`). Absolute directories are kept as is, even if they are writable by the caller.
-- `keep-unsafe`: start from the caller's `PATH` as is. Avoid it.
+- `keep-unsafe`: start from the caller's `PATH` as is. Avoid it. We use it only for development purposes.
 - `inherit`: use the mode of the level above.
+
+Some details: in `delete` mode, the caller's `PATH` is not used at all. A relative directory is the working directory of the command, which the caller chooses, so except for `keep-unsafe`, relative directories are removed, from the caller's `PATH` as from the `add` lists of the policy (the ones of the policy are written in the log). The directories of the policy come first, then the ones of the caller; the `sub` list is removed, and each directory appears once. Whether a directory exists is not checked. If the resulting list is empty, then the PATH variable is not set at all, meaning that the user must type the full path of the command to run it.
 
 For WebOps, the global level only allows system directories, including `/usr/local/bin` where `caddy-probe` lives:
 
@@ -503,16 +543,20 @@ These directories must only be writable by root; otherwise, anyone able to write
 | Option           | Values                          | Description                                                                                                       |
 |------------------|---------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `authentication` | `perform` \| `skip`             | Whether the user must authenticate before running the command.                                                    |
-| `timeout`        | `type`, `duration`, `max_usage` | How long, and how many times, an authentication remains valid, and its scope (`ppid`, `tty` or `uid`).           |
+| `timeout`        | `type`, `duration` (hh:mm:ss format), `max_usage` | How long, and how many times, an authentication remains valid, and its scope (`ppid`, `tty` or `uid`).           |
 | `root`           | `privileged` \| `user`          | `user` sets the `SECBIT_*` securebits that disable the special privileges of uid 0: root becomes a regular user, and gets only the capabilities granted by the task. `privileged` keeps the legacy root behavior. |
 | `bounding`       | `strict` \| `ignore`            | `strict` enforces the granted capabilities on the bounding set: the command and its children can never regain any other capability. |
 | `execinfo`       | `show` \| `hide`                | Whether `dosr --info` may disclose the existence of the matching policy element to the user.                       |
 | `workdir`        | path \| selector                | Working directory of the command, or the set of directories the user may choose.                                  |
 | `umask`          | string                          | File creation mask of the command.                                                                                |
+| `password`       | `tries`, `delay` (hh:mm:ss format)               | Number of attempts and delay between them for password authentication.                                            |
+| `tty`            | `owner`: `caller` \| `target`   | Who owns the terminal of a command run as another user, when `dosr` runs from a terminal: the caller (the default) or the target user. Generally, the `caller` option is safer, but sudo uses the `target` option behavior. The security of this option depends on the context of use. |
 
 The `root` option deserves attention. On Linux, a process running as uid 0 that executes a binary automatically obtains all capabilities. Without `"root": "user"`, a task with `"setuid": "root"` and `"capabilities": []` would get them back as soon as the command runs another program. This is what makes the WebOps `caddy-service` and `reboot` tasks really unprivileged, so the team sets `root` to `user` and `bounding` to `strict` globally.
 
 `execinfo` also has a security impact: listing what the policy allows is valuable information for an attacker who stole an account. The team sets it to `hide` globally.
+
+`tty` is written `"tty": { "owner": "target" }`. With `caller`, the user the command runs as cannot reopen its terminal by its name: a program that does, like pinentry through `GPG_TTY`, fails. With `target`, the other processes of that user can open the terminal while the command runs, and read what is typed into it. The default comes from the build (`RAR_TTY_OWNER`, see [Build](install/build.md)).
 
 For `sys-admin`, the most critical role, the team requires authentication on every use, with a short and non-reusable timeout:
 
@@ -535,12 +579,25 @@ This utility addresses differences in pattern syntax and list inheritance:
 
 Tasks still using unmigrated regular expressions are rejected by `dosr` at runtime until the upgrade has been completed.
 
+### Migrating configurations from version 4.1
+
+No migration is needed from version 4.1 to 4.2.0. However, downgrading from 4.2.0 to 4.1:
+
+* removes the new `password` and `tty` options, and the `from` field of `setgid`;
+* writes a regular expression with a top-level alternation, like `^start|stop$`, as `^(?:start|stop)$`, so that 4.1 does not allow more.
+
+Note that 4.1 gives the caller's groups to a task that changes the user, whatever the policy says.
+
 ## Hierarchy and separation of duty
 
 Hierarchy and separation of duty (SoD) are designed as plugins on top of the core RBAC-0 model. They are not part of the core model, but they are implemented in the RaR project.
 
 - The **hierarchy** plugin lets a role declare its parent roles, through the `parents` field. The role inherits the tasks of its parents.
 - The **static separation of duty** plugin declares conflicting roles, through the `ssd` field: a user should never be an actor of two conflicting roles.
+
+When the lookup of an actor fails, for example a directory service that does not answer, `dosr` cannot know whether the user holds the conflicting role: it then disables every role with an `ssd` field in that policy file, and writes the failure in the log.
+
+Note that A role that is in conflict with one of its parents is invalid, because it would inherit the parent's tasks and thus be in conflict with itself.
 
 ### Applying it to WebOps
 
@@ -605,7 +662,7 @@ Here is the resulting `/etc/security/rootasrole.d/default.json`:
 
 ```json
 {
-  "version": "4.1.0",
+  "version": "4.2.0",
   "options": {
     "path": {
       "default": "delete",

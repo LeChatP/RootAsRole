@@ -13,7 +13,7 @@ use crate::orchestrator::{Orchestrator, PreExecContext};
 use super::event::{EventRegistry, PollEvent, Process, StopReason};
 use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
-use super::signal::{SignalStream, register_signal_handler};
+use super::signal::{SignalStream, register_signal_handler, terminate_process};
 use super::terminal::{ProcessId, TermSize, TerminalExt, UserTerm};
 
 pub struct SimpleFileLogger {
@@ -188,6 +188,19 @@ impl ExecRunner {
                     debug!("runner: command pid set to {pid}");
                     self.command_pid = pid;
                 }
+                Ok(ParentMessage::CommandStopped(signal)) => {
+                    debug!("runner: command stopped by signal {signal}, suspending");
+                    if let Some(foreground) = self.suspend(signal, registry)
+                        && self
+                            .backchannel
+                            .send_monitor_message(&MonitorMessage::Resume { foreground })
+                            .is_err()
+                    {
+                        warn!("runner: failed to resume the command, checking monitor exit");
+                        self.check_monitor_exit(registry);
+                    }
+                    self.pipe.resume_events(registry);
+                }
                 Ok(ParentMessage::ExitStatus(status)) => {
                     debug!("runner: exit status received: {status}");
                     registry.set_exit(std::process::ExitStatus::from_raw(status));
@@ -229,6 +242,100 @@ impl ExecRunner {
                 unsafe { libc::killpg(self.command_pid, libc::SIGWINCH) };
             }
         }
+        Ok(())
+    }
+
+    /// Suspend dosr with the stopped command, like a shell job, and tell how to resume the
+    /// command once dosr is continued: `Some(true)` with the pty in its foreground, `Some(false)`
+    /// in the background, `None` to leave it stopped.
+    fn suspend(&mut self, signal: libc::c_int, registry: &mut EventRegistry<Self>) -> Option<bool> {
+        // A SIGCONT received while suspending would resume the terminal a second time.
+        let _ignore_sigcont = SignalDisposition::set(libc::SIGCONT, libc::SIG_IGN)
+            .inspect_err(|e| warn!("runner: cannot ignore SIGCONT: {e}"))
+            .ok();
+
+        if matches!(signal, libc::SIGTTOU | libc::SIGTTIN) {
+            // The command wants the terminal: when dosr is in the foreground, the command is
+            // resumed at once, whether the terminal was already raw or not (sudo-rs #1598).
+            if !self.foreground && self.check_foreground().is_err() {
+                // the user's terminal was revoked
+                return None;
+            }
+            if self.foreground {
+                if !self.term_raw
+                    && self
+                        .pipe
+                        .left_mut()
+                        .set_raw_mode(true, self.preserve_oflag)
+                        .is_ok()
+                {
+                    self.term_raw = true;
+                }
+                self.pipe.enable_input(registry);
+                return Some(true);
+            }
+        }
+
+        self.pipe.ignore_events(registry);
+        if self.term_raw {
+            match self.pipe.left_mut().restore(false) {
+                Ok(()) => self.term_raw = false,
+                Err(e) => warn!("runner: cannot restore the terminal settings: {e}"),
+            }
+        }
+
+        // Stop the job of dosr with the same signal, with its default action.
+        let default_action = if signal == libc::SIGSTOP {
+            None
+        } else {
+            SignalDisposition::set(signal, libc::SIG_DFL)
+                .inspect_err(|e| warn!("runner: cannot set the default action of {signal}: {e}"))
+                .ok()
+        };
+        let pgrp = self.parent_pgrp.inner();
+        // SAFETY: getpid, kill and killpg do not access memory
+        let suspended = unsafe {
+            (pgrp == libc::getpid() || libc::kill(pgrp, 0) == 0) && libc::killpg(pgrp, signal) == 0
+        };
+        drop(default_action);
+
+        if !suspended {
+            error!("runner: no process group to suspend, terminating the command");
+            terminate_process(self.command_pid, true);
+            return None;
+        }
+        // dosr was continued
+        if self.command_pid <= 0 || self.resume_after_suspend().is_err() {
+            return None;
+        }
+        Some(self.term_raw)
+    }
+
+    /// Set the terminals up again when dosr is continued after a suspension.
+    fn resume_after_suspend(&mut self) -> io::Result<()> {
+        self.check_foreground()?;
+        // the user may have changed the terminal settings while dosr was stopped
+        self.pipe.left().copy_to(self.pipe.right())?;
+        if self.foreground {
+            if self
+                .pipe
+                .left_mut()
+                .set_raw_mode(true, self.preserve_oflag)
+                .is_ok()
+            {
+                self.term_raw = true;
+            }
+        } else {
+            // in the background, dosr cannot use the terminal
+            self.term_raw = false;
+        }
+        Ok(())
+    }
+
+    /// Check whether dosr is in the foreground of the user's terminal.
+    fn check_foreground(&mut self) -> io::Result<()> {
+        let pgrp = self.pipe.left().as_tty()?.tcgetpgrp()?;
+        self.foreground = pgrp == self.parent_pgrp;
         Ok(())
     }
 
@@ -349,10 +456,7 @@ pub fn run_no_pty(
                             return Ok(status);
                         }
                     }
-                    libc::SIGALRM => {
-                        // SAFETY: kill does not access memory, it only sends a signal to the command
-                        unsafe { libc::kill(child_pid, libc::SIGKILL) };
-                    }
+                    libc::SIGALRM => terminate_process(child_pid, false),
                     libc::SIGWINCH => {
                         // SAFETY: kill does not access memory, it only sends a signal to the command
                         unsafe { libc::kill(child_pid, libc::SIGWINCH) };
@@ -388,8 +492,22 @@ pub fn run(
     orchestrator: Orchestrator,
     logger: Option<Box<dyn IoLogger>>,
 ) -> io::Result<std::process::ExitStatus> {
+    run_with_pty_setup(command, orchestrator, logger, |_| Ok(()))
+}
+
+/// Like [`run`], and when the command gets a pty, `pty_setup` prepares it before the command
+/// starts, for example to give it to the user that the command runs as.
+///
+/// # Errors
+/// Returns the errors of [`run`], and the error of `pty_setup`, before the command starts.
+pub fn run_with_pty_setup(
+    command: Command,
+    orchestrator: Orchestrator,
+    logger: Option<Box<dyn IoLogger>>,
+    pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
+) -> io::Result<std::process::ExitStatus> {
     match UserTerm::open() {
-        Ok(term) => run_with_pty(command, orchestrator, logger, term),
+        Ok(term) => run_in_pty(command, orchestrator, logger, term, pty_setup),
         Err(_) => run_no_pty(command, orchestrator),
     }
 }
@@ -416,12 +534,22 @@ pub fn run(
 /// - Failure in the backchannel communication
 /// - Failure in the orchestrator's pre-exec function
 /// - Failure in spawning the command execution
-#[allow(clippy::too_many_lines)]
 pub fn run_with_pty(
     command: Command,
     orchestrator: Orchestrator,
     logger: Option<Box<dyn IoLogger>>,
+    user_term: UserTerm,
+) -> io::Result<std::process::ExitStatus> {
+    run_in_pty(command, orchestrator, logger, user_term, |_| Ok(()))
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_in_pty(
+    command: Command,
+    orchestrator: Orchestrator,
+    logger: Option<Box<dyn IoLogger>>,
     mut user_term: UserTerm,
+    pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
 ) -> io::Result<std::process::ExitStatus> {
     let original_set = block_all_signals();
 
@@ -444,6 +572,11 @@ pub fn run_with_pty(
 
     // Create Pty
     let pty = Pty::open()?;
+    if let Err(e) = pty_setup(&pty) {
+        // the caller goes on without the command: its signals are delivered again
+        restore_signals(original_set);
+        return Err(e);
+    }
     let tty_size = user_term.get_size().unwrap_or_else(|_| TermSize::new(0, 0));
     pty.leader.set_size(&tty_size)?; // set window size by default, resizing comes with features
     debug!("runner(pty): initial tty size {tty_size}");
@@ -645,6 +778,42 @@ pub fn run_with_pty(
     }
 }
 
+/// Changes the action of a signal until it is dropped, then puts the previous action back.
+struct SignalDisposition {
+    signal: libc::c_int,
+    previous: libc::sigaction,
+}
+
+impl SignalDisposition {
+    fn set(signal: libc::c_int, action: libc::sighandler_t) -> io::Result<Self> {
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut new: libc::sigaction = unsafe { std::mem::zeroed() };
+        new.sa_sigaction = action;
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: both pointers reference valid sigaction structs that outlive the call
+        if unsafe { libc::sigaction(signal, &raw const new, &raw mut previous) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { signal, previous })
+    }
+}
+
+impl Drop for SignalDisposition {
+    fn drop(&mut self) {
+        // SAFETY: `previous` was filled by sigaction for this signal, and outlives the call
+        if unsafe { libc::sigaction(self.signal, &raw const self.previous, std::ptr::null_mut()) }
+            == -1
+        {
+            warn!(
+                "runner: cannot restore the action of signal {}: {}",
+                self.signal,
+                io::Error::last_os_error()
+            );
+        }
+    }
+}
+
 fn block_all_signals() -> Option<libc::sigset_t> {
     // SAFETY: sigset_t is a plain bitmask, for which all zeroes is a valid value
     let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
@@ -672,7 +841,7 @@ fn restore_signals(original: Option<libc::sigset_t>) {
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 mod tests {
-    use super::{SimpleFileLogger, run_no_pty};
+    use super::{SimpleFileLogger, run_no_pty, run_with_pty_setup};
     use crate::MUTEX;
     use crate::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
     use crate::pipe::io_logger_sealed::Sealed;
@@ -791,6 +960,29 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    // suspending dosr sets SIGCONT to ignored and the stop signal to its default action, and must
+    // put the previous actions back once dosr is continued
+    #[test]
+    fn signal_disposition_restores_the_previous_action() {
+        fn action(signal: libc::c_int) -> libc::sighandler_t {
+            let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut current) },
+                0
+            );
+            current.sa_sigaction
+        }
+
+        let _guard = MUTEX.lock().unwrap();
+        let before = action(libc::SIGUSR2);
+        {
+            let _ignored = super::SignalDisposition::set(libc::SIGUSR2, libc::SIG_IGN)
+                .expect("ignore SIGUSR2");
+            assert_eq!(action(libc::SIGUSR2), libc::SIG_IGN);
+        }
+        assert_eq!(action(libc::SIGUSR2), before);
+    }
+
     #[test]
     fn run_no_pty_returns_command_exit_code() {
         let _guard = MUTEX.lock().unwrap();
@@ -811,6 +1003,51 @@ mod tests {
 
         let status = run_no_pty(command, Orchestrator::new(SET_ENV_STEPS)).expect("run command");
         assert!(status.success());
+    }
+
+    /// Whether this thread blocks each of the standard signals.
+    fn signal_mask() -> Vec<bool> {
+        let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &raw mut set) },
+            0
+        );
+        (1..libc::SIGRTMIN())
+            .map(|signal| unsafe { libc::sigismember(&raw const set, signal) } == 1)
+            .collect()
+    }
+
+    // with a terminal, a failed setup of the pty stops before the command starts; without one,
+    // there is no pty to set up and the command runs
+    #[test]
+    fn run_with_pty_setup_stops_on_a_failed_setup() {
+        let _guard = MUTEX.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("rar-pty-setup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create the test directory");
+        let marker = dir.join("ran");
+        let mut command = Command::new("/usr/bin/touch");
+        command.arg(&marker);
+        let mask_before = signal_mask();
+        let mut called = false;
+        let result = run_with_pty_setup(command, Orchestrator::new(NOOP_STEPS), None, |pty| {
+            called = true;
+            assert!(!pty.path.as_bytes().is_empty());
+            Err(io::Error::other("setup refused"))
+        });
+        if called {
+            let error = result.expect_err("the setup error is returned");
+            assert_eq!(error.to_string(), "setup refused");
+            assert!(!marker.exists(), "the command did not start");
+            assert_eq!(
+                signal_mask(),
+                mask_before,
+                "the signals are delivered again"
+            );
+        } else {
+            assert!(result.expect("run without a pty").success());
+            assert!(marker.exists(), "the command ran without a pty");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -2,6 +2,37 @@
 //! It is a library so that its internals can be fuzzed in-process (see the `fuzzing` feature).
 #![cfg(feature = "finder")]
 
+// `println!` and the like panic when the output is a closed pipe (`EPIPE`, since Rust ignores
+// `SIGPIPE`): outside the tests, the `*_ignore_io_error` macros of rootasrole-core are used.
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! println {
+    ($($tt:tt)*) => {
+        compile_error!("println! panics on EPIPE, use println_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! print {
+    ($($tt:tt)*) => {
+        compile_error!("print! panics on EPIPE, use print_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprintln {
+    ($($tt:tt)*) => {
+        compile_error!("eprintln! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+#[cfg(not(test))]
+#[allow(unused_macros)]
+macro_rules! eprint {
+    ($($tt:tt)*) => {
+        compile_error!("eprint! panics on EPIPE, use eprintln_ignore_io_error!")
+    };
+}
+
 mod error;
 mod finder;
 #[cfg(feature = "fuzzing")]
@@ -17,7 +48,7 @@ use bon::Builder;
 use capctl::{Cap, CapState};
 use const_format::formatcp;
 use nix::unistd::{Uid, User};
-use rootasrole_core::database::options::SBounding;
+use rootasrole_core::database::options::{SBounding, TtyOwner};
 use rootasrole_core::util::{initialize_capabilities, with_privileges};
 use rootasrole_core::{
     Cred,
@@ -26,11 +57,12 @@ use rootasrole_core::{
         actor::{SGroupType, SGroups, SUserType},
         options::EnvBehavior,
     },
-    log::subsribe,
+    log::subscribe,
 };
 
 use log::{debug, error, info};
 use pam::PAM_PROMPT;
+use rootasrole_core::{eprintln_ignore_io_error, print_ignore_io_error, println_ignore_io_error};
 use std::ffi::{CString, OsString};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
@@ -61,7 +93,7 @@ pub(crate) const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 //and each role has a set of rights to execute commands.";
 #[allow(clippy::needless_raw_string_hashes)]
 const USAGE: &str = formatcp!(
-    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [COMMAND]...
+    r#"{UNDERLINE}{BOLD}Usage:{RST} {BOLD}dosr{RST} [OPTIONS] [--] [COMMAND]...
 
 {UNDERLINE}{BOLD}Arguments:{RST}
   [COMMAND]...
@@ -80,21 +112,21 @@ const USAGE: &str = formatcp!(
   {BOLD}-D, --chdir <WORKDIR>{RST}
           Workdir option allows you to specify the working directory for the command
 
-  {BOLD}-S, --stdin{RST}
-          Use stdin for password prompt
-
   {BOLD}-p, --prompt <PROMPT>{RST}
           Prompt option allows you to override the default password prompt and use a custom one
           [default: "Password: "]
+
+  {BOLD}-S, --stdin{RST}
+          Read the password from the standard input instead of the terminal
+
+  {BOLD}-K, --remove-timestamp{RST}
+          Remove your timestamp cookies before authentication; without a command, only remove them
 
   {BOLD}-u, --user <USER>{RST}
           Specify the user to execute the command as
 
   {BOLD}-g --group <GROUP>(,<GROUP>...){RST}
           Specify the group to execute the command as
-  
-  {BOLD}-K, --remove-timestamp{RST}
-          Delete timestamp cookie after successful authentication
 
   {BOLD}-i, --info{RST}
           Display rights of executor
@@ -147,10 +179,68 @@ impl Default for Cli {
     }
 }
 
-const CAPABILITIES_ERROR: &str =
-    "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run sr";
+const CAPABILITIES_ERROR: &str = "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run dosr";
 fn cap_effective_error(caplist: &str) -> String {
     format!("Unable to toggle {caplist} privilege. {CAPABILITIES_ERROR}")
+}
+
+/// Why dosr lacks the capabilities that it needs to run at all (see [`CAPABILITIES_ERROR`]),
+/// from the state of its process: `None` when it has them.
+///
+/// Without them, reading the policy fails and the user would only see "Permission denied", as if
+/// the policy refused the command. The usual case is dosr run from a command that dosr started:
+/// with `root: user`, that command has `no_new_privs`, and under a strict bounding set it lacks
+/// the capabilities dosr needs.
+fn missing_privileges_reason(
+    no_new_privs: bool,
+    permitted: capctl::CapSet,
+    bounding: capctl::CapSet,
+) -> Option<String> {
+    let mut missing: capctl::CapSet = [Cap::SETPCAP, Cap::SETUID]
+        .into_iter()
+        .filter(|cap| !permitted.has(*cap))
+        .collect();
+    if !permitted.has(Cap::DAC_READ_SEARCH) && !permitted.has(Cap::DAC_OVERRIDE) {
+        missing.add(Cap::DAC_READ_SEARCH);
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    let names = |caps: capctl::CapSet| {
+        caps.iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let outside_bounding = missing & !bounding;
+    Some(if no_new_privs {
+        "no_new_privs is set in this session, so the kernel does not give dosr the capabilities \
+         of its file: it is set by a service with NoNewPrivileges=yes, a container, \
+         setpriv --no-new-privs, or a command that dosr runs with \"root\": \"user\""
+            .to_string()
+    } else if !outside_bounding.is_empty() {
+        format!(
+            "the bounding set of this session lacks {}, which dosr needs: it is reduced by a \
+             service with CapabilityBoundingSet=, a container, or a command that dosr runs with \
+             a strict bounding set",
+            names(outside_bounding)
+        )
+    } else {
+        format!(
+            "dosr lacks {}: its file has no capabilities (setcap '=p'), or its file system is \
+             mounted nosuid",
+            names(missing)
+        )
+    })
+}
+
+/// [`missing_privileges_reason`] for this process.
+fn missing_privileges() -> Option<String> {
+    let no_new_privs = capctl::prctl::get_no_new_privs().unwrap_or(false);
+    let permitted = CapState::get_current()
+        .map(|state| state.permitted)
+        .unwrap_or_default();
+    missing_privileges_reason(no_new_privs, permitted, capctl::bounding::probe())
 }
 
 fn getopt<S, I>(s: I) -> SrResult<Cli>
@@ -215,8 +305,16 @@ where
             "-h" | "--help" => {
                 args.help = true;
             }
+            // the end of the options, like sudo: the next word is the command, even when it
+            // starts with -
+            "--" => {
+                if let Some(command) = iter.next() {
+                    args.cmd_path = command.as_ref().into();
+                }
+                break;
+            }
             "-v" | "--version" => {
-                println!("dosr: version {}", env!("CARGO_PKG_VERSION"));
+                println_ignore_io_error!("dosr: version {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             _ => {
@@ -256,14 +354,22 @@ where
 
 #[cfg(not(tarpaulin_include))]
 pub fn dosr_main() {
-    if let Err(e) = subsribe("sr") {
-        eprintln!("dosr: Failed to initialize logging: {e}");
+    if let Err(e) = subscribe("dosr") {
+        eprintln_ignore_io_error!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
     if let Err(e) = main_inner() {
-        eprintln!("dosr: {e}");
-        if e == SrError::InsufficientPrivileges {
-            error!("Insufficient privileges to run sr. {CAPABILITIES_ERROR}");
+        eprintln_ignore_io_error!("dosr: {e}");
+        // whatever the error, it comes from the missing capabilities when dosr lacks them
+        let missing = missing_privileges();
+        if let Some(reason) = &missing {
+            eprintln_ignore_io_error!("dosr: {reason}");
+        }
+        if e == SrError::InsufficientPrivileges || missing.is_some() {
+            error!(
+                "Insufficient privileges to run dosr: {}",
+                missing.as_deref().unwrap_or(CAPABILITIES_ERROR)
+            );
         } else if e == SrError::AuthenticationFailed {
             error!(
                 "Authentication failed for user '{}', when trying running '''{}'''",
@@ -272,7 +378,7 @@ pub fn dosr_main() {
                     .unwrap_or_else(|_| Uid::current().to_string()),
                 command_line()
             );
-            eprintln!("This incident is reported.");
+            eprintln_ignore_io_error!("This incident is reported.");
         } else {
             error!(
                 "User '{}' got a '{}' when trying running '''{}'''",
@@ -295,7 +401,7 @@ fn main_inner() -> SrResult<()> {
     use crate::{
         RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
-        pam::start_session,
+        pam::{session_env, start_session},
     };
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
@@ -304,13 +410,13 @@ fn main_inner() -> SrResult<()> {
     drop_effective()?;
     let args = utf8_args(std::env::args_os())?;
     if args.len() < 2 {
-        println!("{USAGE}");
+        println_ignore_io_error!("{USAGE}");
         return Ok(());
     }
     let args = getopt(args)?;
 
     if args.help {
-        println!("{USAGE}");
+        println_ignore_io_error!("{USAGE}");
         return Ok(());
     }
     let user = make_cred().map_err(|_| SrError::SystemError)?;
@@ -332,7 +438,7 @@ fn main_inner() -> SrResult<()> {
         }
     }
     register_plugins();
-    let execcfg = find_best_exec_settings(
+    let mut execcfg = find_best_exec_settings(
         &args,
         &user,
         RAR_CFG_PATH,
@@ -349,10 +455,22 @@ fn main_inner() -> SrResult<()> {
     debug!("Best exec settings: {execcfg:?}");
 
     // Let the PAM session live until the end of the program
-    let session = start_session(execcfg.auth, &execcfg.timeout, &user, &args)?;
+    let session = start_session(
+        execcfg.auth,
+        &execcfg.timeout,
+        execcfg.password,
+        &user,
+        &args,
+    )?;
+    // The variables that PAM modules set go through the filter of the policy, like the user's
+    execcfg
+        .env_filter
+        .add_vars(&mut execcfg.env, session_env(&session));
 
     if !execcfg.score.fully_matching() {
-        println!("You are not allowed to execute this command, this incident will be reported.");
+        println_ignore_io_error!(
+            "You are not allowed to execute this command, this incident will be reported."
+        );
         error!(
             "User {} tried to execute command : {} {:?} without the permission.",
             &user.user.name,
@@ -372,7 +490,7 @@ fn main_inner() -> SrResult<()> {
             .map(|cap| cap.to_string())
             .collect::<Vec<_>>()
             .join(" ");
-        eprintln!(
+        eprintln_ignore_io_error!(
             "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
         );
         error!(
@@ -386,8 +504,7 @@ fn main_inner() -> SrResult<()> {
     }
 
     if args.info {
-        use capctl::CapSet;
-        println!(
+        println_ignore_io_error!(
             "Role: {}",
             if execcfg.role.is_empty() {
                 "None"
@@ -395,8 +512,8 @@ fn main_inner() -> SrResult<()> {
                 &execcfg.role
             }
         );
-        println!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
-        print!(
+        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
+        print_ignore_io_error!(
             "Execute as user: {}",
             if let Some(u) = execcfg.cred.setuid {
                 format!("{} ({})", u.name, u.uid)
@@ -405,31 +522,21 @@ fn main_inner() -> SrResult<()> {
             }
         );
         if let Some(gids) = execcfg.cred.setgroups.as_ref() {
-            print!(" and group(s): ");
+            print_ignore_io_error!(" and group(s): ");
             let groups = gids
                 .iter()
                 .map(|g| format!("{} ({})", g.name, g.gid))
                 .collect::<Vec<_>>()
                 .join(", ");
-            println!("{groups}");
+            println_ignore_io_error!("{groups}");
         } else {
-            println!(" your current group(s)");
+            println_ignore_io_error!(" your current group(s)");
         }
-        println!(
+        println_ignore_io_error!(
             "With capabilities: {}",
-            execcfg.cred.caps.map_or_else(
-                || "None".to_string(),
-                |caps| if caps == !CapSet::empty() {
-                    "All capabilities".to_string()
-                } else {
-                    caps.into_iter()
-                        .fold(String::new(), |acc, cap| acc + &cap.to_string() + " ")
-                        .trim_end()
-                        .to_string()
-                }
-            )
+            capabilities_display(execcfg.cred.caps)
         );
-        println!(
+        println_ignore_io_error!(
             "Command: {} {:?}",
             execcfg.final_path.display(),
             args.cmd_args
@@ -483,17 +590,47 @@ fn main_inner() -> SrResult<()> {
         cargs.join(" ")
     );
 
-    let status = match rootasrole_exec::runner::run(command_builder, PRE_EXEC_ORCHESTRATOR, None) {
+    let tty_owner = tty_owner(execcfg.tty_owner, &user.user, execcfg.cred.setuid.as_ref());
+    let status = match rootasrole_exec::runner::run_with_pty_setup(
+        command_builder,
+        PRE_EXEC_ORCHESTRATOR,
+        None,
+        |pty| tty_owner.map_or(Ok(()), |owner| give_pty(pty, owner)),
+    ) {
         Ok(status) => status,
         Err(e) => {
             error!("{e}");
-            eprintln!("dosr: {} : {}", cfinal_path.display(), e);
+            eprintln_ignore_io_error!("dosr: {} : {}", cfinal_path.display(), e);
             std::process::exit(1);
         }
     };
     // drop PAM session here for underlining to the compiler that the session ends here.
     drop(session);
     exit_like(status)
+}
+
+/// The user that gets the pseudo-terminal of the command, when it is not the caller: the user
+/// that the command runs as, if the `tty` option says `target`.
+fn tty_owner<'a>(owner: TtyOwner, caller: &User, target: Option<&'a User>) -> Option<&'a User> {
+    match owner {
+        TtyOwner::Target => target.filter(|target| target.uid != caller.uid),
+        TtyOwner::Caller => None,
+    }
+}
+
+/// Give the pseudo-terminal to `owner`, with `CAP_CHOWN` only for that, before the command starts.
+fn give_pty(pty: &rootasrole_exec::pty::Pty, owner: &User) -> io::Result<()> {
+    with_privileges(&[Cap::CHOWN], || pty.follower.set_owner(owner.uid.as_raw())).map_err(|e| {
+        error!(
+            "Cannot give the terminal {} to {}: {e}",
+            pty.path.to_string_lossy(),
+            owner.name
+        );
+        io::Error::new(
+            e.kind(),
+            format!("cannot give the terminal to {}: {e}", owner.name),
+        )
+    })
 }
 
 /// How the command ended: its exit code, or the signal that killed it.
@@ -650,13 +787,35 @@ fn execution_log_line(user: &Cred, execcfg: &finder::BestExecSettings, args: &Cl
     )
 }
 
+/// The credentials of the caller. Its groups are kept as ids: the policy names groups, which
+/// are looked up once and compared with these ids, while the name of each group of the caller
+/// would cost an NSS lookup at each run (with systemd-userdb, about 0.5 ms each).
 fn make_cred() -> std::io::Result<Cred> {
-    Ok(Cred::builder()
-        .user()?
-        .groups()?
-        .curdir()?
-        .maybe_tty(procfs::controlling_tty())
-        .build())
+    Ok(Cred {
+        user: User::from_uid(Uid::current())?
+            .ok_or_else(|| std::io::Error::other("User not found"))?,
+        groups: nix::unistd::getgroups()?
+            .into_iter()
+            .map(rootasrole_core::util::Either::Right)
+            .collect(),
+        tty: procfs::controlling_tty(),
+        ppid: nix::unistd::getppid(),
+        curdir: std::env::current_dir()?,
+    })
+}
+
+/// The capabilities of the command, as `dosr -i` shows them: a task without capabilities
+/// shows `None`, like a task that does not set them.
+fn capabilities_display(caps: Option<capctl::CapSet>) -> String {
+    match caps {
+        Some(caps) if caps == !capctl::CapSet::empty() => "All capabilities".to_string(),
+        Some(caps) if !caps.is_empty() => caps
+            .into_iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => "None".to_string(),
+    }
 }
 
 /// The capabilities of the task that the bounding set does not have anymore: no process of
@@ -813,6 +972,24 @@ mod tests {
     }
 
     #[test]
+    fn test_getopt_double_dash_ends_the_options() {
+        let args = getopt(["dosr", "-r", "r1", "--", "-weird", "-l", "--"]).unwrap();
+        assert_eq!(args.cmd_path, PathBuf::from("-weird"));
+        assert_eq!(args.cmd_args, vec!["-l".to_string(), "--".to_string()]);
+        assert_eq!(
+            args.opt_filter.as_ref().and_then(|f| f.role.as_deref()),
+            Some("r1")
+        );
+        let args = getopt(["dosr", "--", "ls", "-l"]).unwrap();
+        assert_eq!(args.cmd_path, PathBuf::from("ls"));
+        assert_eq!(args.cmd_args, vec!["-l".to_string()]);
+        // nothing after it: no command, as without it
+        let args = getopt(["dosr", "-i", "--"]).unwrap();
+        assert!(args.cmd_path.as_os_str().is_empty());
+        assert!(args.info);
+    }
+
+    #[test]
     fn test_getopt_missing_prompt() {
         assert!(matches!(
             getopt(["dosr", "-p"]),
@@ -915,18 +1092,14 @@ mod tests {
     fn test_make_cred() {
         let user = make_cred().unwrap();
         assert_eq!(user.user.uid, getuid());
-        let groups = getgroups()
-            .unwrap()
-            .iter()
-            .map(|g| Group::from_gid(*g).unwrap().unwrap())
-            .collect::<Vec<_>>();
         assert!(!user.groups.is_empty());
+        // the groups of the caller are its ids, never looked up
         assert_eq!(
             user.groups
                 .iter()
-                .map(|e| e.left().unwrap().clone())
+                .map(|e| *e.right().unwrap())
                 .collect::<Vec<_>>(),
-            groups
+            getgroups().unwrap()
         );
         assert_eq!(user.ppid, Pid::parent());
     }
@@ -1003,6 +1176,93 @@ mod tests {
                 WaitStatus::Signaled(child, Signal::SIGTERM, false)
             ),
         }
+    }
+
+    #[test]
+    fn test_missing_privileges_reason() {
+        let all = CapSet::from_iter([
+            Cap::SETPCAP,
+            Cap::SETUID,
+            Cap::SETGID,
+            Cap::DAC_READ_SEARCH,
+            Cap::DAC_OVERRIDE,
+        ]);
+        assert_eq!(missing_privileges_reason(false, all, all), None);
+        // one of the two DAC capabilities is enough to read the policy
+        let only_override = CapSet::from_iter([Cap::SETPCAP, Cap::SETUID, Cap::DAC_OVERRIDE]);
+        assert_eq!(
+            missing_privileges_reason(false, only_override, only_override),
+            None
+        );
+        // the file capabilities are ignored under no_new_privs
+        let reason = missing_privileges_reason(true, CapSet::empty(), all).unwrap();
+        assert!(reason.contains("no_new_privs"), "{reason}");
+        // a reduced bounding set names what it lacks
+        let bounding = CapSet::from_iter([Cap::SETPCAP, Cap::DAC_READ_SEARCH]);
+        let reason = missing_privileges_reason(false, bounding, bounding).unwrap();
+        assert!(reason.contains("bounding set"), "{reason}");
+        assert!(reason.contains(&Cap::SETUID.to_string()), "{reason}");
+        assert!(!reason.contains(&Cap::SETPCAP.to_string()), "{reason}");
+        // in the bounding set but not permitted: the file of dosr
+        let reason = missing_privileges_reason(false, CapSet::empty(), all).unwrap();
+        assert!(reason.contains("setcap"), "{reason}");
+    }
+
+    #[test]
+    fn test_capabilities_display() {
+        assert_eq!(capabilities_display(None), "None");
+        // "capabilities": "none" or [] in the policy
+        assert_eq!(capabilities_display(Some(CapSet::empty())), "None");
+        assert_eq!(
+            capabilities_display(Some(!CapSet::empty())),
+            "All capabilities"
+        );
+        let caps: CapSet = [Cap::NET_RAW, Cap::SYS_BOOT].into_iter().collect();
+        assert_eq!(
+            capabilities_display(Some(caps)),
+            format!("{} {}", Cap::NET_RAW, Cap::SYS_BOOT)
+        );
+    }
+
+    // each option of dosr is listed once in its help
+    #[test]
+    fn test_usage_lists_each_option_once() {
+        for option in [
+            "-r, --role",
+            "-t, --task",
+            "-E, --preserve-env",
+            "-D, --chdir",
+            "-p, --prompt",
+            "-S, --stdin",
+            "-K, --remove-timestamp",
+            "-u, --user",
+            "-g --group",
+            "-i, --info",
+            "-v, --version",
+            "-h, --help",
+        ] {
+            assert_eq!(USAGE.matches(option).count(), 1, "{option}");
+        }
+    }
+
+    // the terminal changes hands only with `target`, and only for another user
+    #[test]
+    fn test_tty_owner() {
+        let caller = User::from_uid(getuid()).unwrap().unwrap();
+        let root = User::from_uid(Uid::from_raw(0)).unwrap().unwrap();
+        let target = if caller.uid.is_root() {
+            User::from_name("nobody").unwrap().unwrap()
+        } else {
+            root
+        };
+        assert_eq!(
+            tty_owner(TtyOwner::Target, &caller, Some(&target)).map(|u| u.uid),
+            Some(target.uid)
+        );
+        assert_eq!(tty_owner(TtyOwner::Caller, &caller, Some(&target)), None);
+        assert_eq!(tty_owner(TtyOwner::Target, &caller, Some(&caller)), None);
+        assert_eq!(tty_owner(TtyOwner::Target, &caller, None), None);
+        assert_eq!(tty_owner(TtyOwner::Caller, &caller, None), None);
     }
 
     #[test]

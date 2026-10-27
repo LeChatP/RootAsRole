@@ -1,51 +1,18 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::fs;
 
 use clap::Parser;
 use log::{info, warn};
 
-use crate::util::{RAR_CFG_PATH, detect_priv_bin, get_os};
+use crate::{
+    installer::dependencies,
+    util::{RAR_CFG_PATH, command_exists, detect_priv_bin, get_os},
+};
 
 #[derive(Debug, Parser)]
 pub struct DoctorOptions {
     /// Also check optional packaging/build tools
     #[clap(long)]
     pub full: bool,
-}
-
-fn command_exists(command: &str) -> bool {
-    let Some(path) = env::var_os("PATH") else {
-        return false;
-    };
-
-    for dir in env::split_paths(&path) {
-        let candidate: PathBuf = dir.join(command);
-        if is_executable(&candidate) {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn is_executable(path: &Path) -> bool {
-    if let Ok(metadata) = fs::metadata(path) {
-        if !metadata.is_file() {
-            return false;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            return metadata.permissions().mode() & 0o111 != 0;
-        }
-        #[cfg(not(unix))]
-        {
-            return true;
-        }
-    }
-    false
 }
 
 pub fn doctor(opts: &DoctorOptions) -> Result<(), anyhow::Error> {
@@ -66,8 +33,27 @@ pub fn doctor(opts: &DoctorOptions) -> Result<(), anyhow::Error> {
         }
     }
 
+    for (build, what) in [(false, "run"), (true, "build")] {
+        match dependencies::missing_packages(&os, build) {
+            Ok(missing) if missing.is_empty() => info!("Found the packages to {what} RootAsRole"),
+            Ok(missing) => warn!("{}", dependencies::missing_message(&os, build, &missing)?),
+            Err(e) => warn!("The packages to {what} RootAsRole cannot be checked: {e:#}"),
+        }
+    }
+    match dependencies::missing_optional(&os) {
+        Ok(missing) => {
+            for (package, purpose) in missing {
+                warn!(
+                    "{}",
+                    dependencies::optional_message(&os, &package, &purpose)?
+                );
+            }
+        }
+        Err(e) => warn!("The optional packages cannot be checked: {e:#}"),
+    }
+
     if opts.full {
-        for command in ["pandoc", "gzip", "upx"] {
+        for command in ["gzip", "upx"] {
             if command_exists(command) {
                 info!("Found optional command: {command}");
             } else {

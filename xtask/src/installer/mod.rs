@@ -4,7 +4,7 @@ pub mod install;
 mod uninstall;
 
 use std::fmt::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{collections::VecDeque, fmt::Display};
 
@@ -14,12 +14,16 @@ use jiff::civil::Date;
 use semver::Version;
 
 use anyhow::anyhow;
-use log::debug;
+use capctl::{Cap, CapState};
+use log::{debug, info, warn};
 
 use crate::util::path_exe_from_env;
 use crate::{
     configure,
-    util::{OsTarget, detect_priv_bin, get_os, is_dry_run},
+    util::{
+        OsTarget, PAM_CONFIG_SERVICE, RAR_CFG_DATA_PATH, RAR_CFG_PATH, detect_priv_bin, get_os,
+        is_dry_run,
+    },
 };
 pub const RAR_BIN_PATH: &str = env!("RAR_BIN_PATH");
 pub const SR_DEST: &str = "dosr";
@@ -35,7 +39,7 @@ pub struct InstallOptions {
     #[clap(long, hide = true)]
     pub nested_install: bool,
 
-    /// The OS target for PAM configuration and dependencies installation (if -i is set)
+    /// The OS target for PAM configuration and the packages to check
     /// By default, it tries to autodetect it
     #[clap(long, short)]
     pub os: Option<OsTarget>,
@@ -44,33 +48,13 @@ pub struct InstallOptions {
     #[clap(long, short = 'b')]
     pub build: bool,
 
-    /// Install dependencies before building
-    #[clap(long, short = 'i')]
+    /// Deprecated, does nothing: the packages are checked, and are installed by the administrator
+    #[clap(long, short = 'i', hide = true)]
     pub install_dependencies: bool,
 
     /// Clean the target directory after installing
     #[clap(long, short = 'a')]
     pub clean_after: bool,
-}
-
-#[derive(Debug, Parser)]
-pub struct InstallDependenciesOptions {
-    /// The OS target for PAM configuration and dependencies installation (if -i is set)
-    /// By default, it tries to autodetect it
-    #[clap(long, short)]
-    pub os: Option<OsTarget>,
-
-    /// Install dependencies before installing
-    #[clap(long, short = 'i')]
-    pub install_dependencies: bool,
-
-    /// Install development dependencies for compiling
-    #[clap(long, short = 'd')]
-    pub dev: bool,
-
-    /// The binary to elevate privileges
-    #[clap(long, short = 'p', visible_alias = "privbin")]
-    pub priv_bin: Option<PathBuf>,
 }
 
 #[derive(Debug, Parser)]
@@ -277,32 +261,73 @@ impl FromStr for Toolchain {
     }
 }
 
+/// What `configure` would change, for a dry run.
+fn configure_plan() -> Vec<String> {
+    vec![
+        format!("deploy /etc/pam.d/{PAM_CONFIG_SERVICE} if it is missing or empty"),
+        format!(
+            "deploy the policy, {RAR_CFG_PATH} and {RAR_CFG_DATA_PATH}, if missing, immutable when the file system allows it, then run chsr upgrade"
+        ),
+    ]
+}
+
+fn print_plan(what: &str, plan: &[String]) {
+    info!("Dry run, nothing is changed: {what} would");
+    for step in plan {
+        info!("  - {step}");
+    }
+}
+
 pub fn configure(os: Option<OsTarget>) -> Result<(), anyhow::Error> {
     if is_dry_run() {
-        debug!("Dry-run mode: skipping configure changes");
+        print_plan("configure", &configure_plan());
         return Ok(());
     }
     configure::configure(os)
 }
 
-pub fn dependencies(opts: &InstallDependenciesOptions) -> Result<(), anyhow::Error> {
-    if is_dry_run() {
-        debug!("Dry-run mode: skipping dependencies installation");
-        return Ok(());
+/// What the privileged part of `install` would change, for a dry run: these steps change the
+/// system without a command that a dry run could print.
+fn install_plan(opts: &InstallOptions, priv_bin: Option<&Path>) -> Vec<String> {
+    let mut plan = Vec::new();
+    let privileged = CapState::get_current().is_ok_and(|state| {
+        [Cap::DAC_OVERRIDE, Cap::CHOWN, Cap::SETFCAP]
+            .into_iter()
+            .all(|cap| state.permitted.has(cap))
+    });
+    if !privileged {
+        let exe = std::env::current_exe()
+            .map_or_else(|_| "xtask".into(), |exe| exe.display().to_string());
+        plan.push(
+            priv_bin
+                .map(Path::to_path_buf)
+                .or_else(detect_priv_bin)
+                .map_or_else(
+                    || "stop: no privilege escalation (dosr, sudo, doas, please) was found".into(),
+                    |priv_bin| {
+                        format!(
+                            "run {} {exe} install --nested-install, to do the rest with privileges",
+                            priv_bin.display()
+                        )
+                    },
+                ),
+        );
     }
-    dependencies::install(opts)
+    let profile = opts.build_opts.profile;
+    plan.push(format!(
+        "copy target/{profile}/{SR_DEST} and target/{profile}/{CHSR_DEST} into {RAR_BIN_PATH} as new files of root, mode 0555"
+    ));
+    plan.push(format!(
+        "give {RAR_BIN_PATH}/{SR_DEST} the file capabilities =p"
+    ));
+    plan.extend(configure_plan());
+    if opts.clean_after {
+        plan.push("run cargo clean".into());
+    }
+    plan
 }
 
 pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
-    if is_dry_run() {
-        debug!("Dry-run mode: skipping install changes");
-        return Ok(());
-    }
-    if opts.nested_install {
-        unsafe { std::env::set_var("ROOTASROLE_INSTALLER_NESTED", "1") };
-    } else {
-        unsafe { std::env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
-    }
     let os = get_os(opts.os.as_ref())?;
     let priv_bin = opts
         .build_opts
@@ -320,17 +345,25 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
             )
         });
     if opts.install_dependencies {
-        debug!("Installing dependencies");
-        dependencies(&InstallDependenciesOptions {
-            os: Some(os.clone()),
-            install_dependencies: true,
-            dev: opts.build,
-            priv_bin: priv_bin.clone(),
-        })?;
+        warn!(
+            "-i is deprecated and does nothing: xtask checks the packages, install the missing ones yourself"
+        );
     }
     if opts.build {
         debug!("Building sr and chsr");
-        build(&opts.build_opts)?;
+        dependencies::check(&os, true)?;
+        build::build(&opts.build_opts)?;
+    } else {
+        dependencies::check(&os, false)?;
+    }
+    if is_dry_run() {
+        print_plan("install", &install_plan(opts, priv_bin.as_deref()));
+        return Ok(());
+    }
+    if opts.nested_install {
+        unsafe { std::env::set_var("ROOTASROLE_INSTALLER_NESTED", "1") };
+    } else {
+        unsafe { std::env::remove_var("ROOTASROLE_INSTALLER_NESTED") };
     }
     if install::install(
         priv_bin.as_deref(),
@@ -346,14 +379,77 @@ pub fn install(opts: &InstallOptions) -> Result<(), anyhow::Error> {
     }
 }
 
+/// Build, once the packages to build are checked. An OS that is not detected is only warned
+/// about: the build tells then.
 pub fn build(opts: &BuildOptions) -> Result<(), anyhow::Error> {
+    match get_os(None) {
+        Ok(os) => dependencies::check(&os, true)?,
+        Err(e) => warn!("The packages to build cannot be checked: {e:#}"),
+    }
     build::build(opts)
 }
 
+/// What `uninstall` would remove, for a dry run or without `--apply`.
+fn uninstall_plan(opts: &UninstallOptions) -> Vec<String> {
+    let mut plan = Vec::new();
+    if opts.kind.is_all() || opts.kind.is_sr() {
+        plan.push(format!(
+            "remove {RAR_BIN_PATH}/{SR_DEST} and {RAR_BIN_PATH}/{CHSR_DEST}"
+        ));
+        plan.push(if opts.clean_config {
+            format!("remove /etc/pam.d/{PAM_CONFIG_SERVICE}")
+        } else {
+            format!("remove /etc/pam.d/{PAM_CONFIG_SERVICE} if it is the one that install deploys")
+        });
+        if opts.clean_config {
+            plan.push(format!(
+                "remove the immutable flag of {RAR_CFG_PATH} and {RAR_CFG_DATA_PATH}, and remove {RAR_CFG_PATH}"
+            ));
+        }
+    }
+    plan
+}
+
+/// Whether uninstall changes the system: `--apply` is required, and a dry run never does.
+fn uninstall_applies(opts: &UninstallOptions) -> bool {
+    opts.apply && !is_dry_run()
+}
+
 pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
-    if is_dry_run() {
-        debug!("Dry-run mode: skipping uninstall changes");
+    if !uninstall_applies(opts) {
+        print_plan("uninstall", &uninstall_plan(opts));
+        if !opts.apply {
+            info!("Add --apply to uninstall");
+        }
         return Ok(());
     }
     uninstall::uninstall(opts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::{DRY_RUN_TEST_LOCK, set_dry_run};
+
+    #[test]
+    fn test_uninstall_needs_apply_and_no_dry_run() {
+        let _guard = DRY_RUN_TEST_LOCK.lock().unwrap();
+        let opts = |apply| UninstallOptions {
+            clean_config: false,
+            apply,
+            kind: UninstallKind::All,
+        };
+        set_dry_run(false);
+        assert!(!uninstall_applies(&opts(false)));
+        assert!(uninstall_applies(&opts(true)));
+        set_dry_run(true);
+        assert!(!uninstall_applies(&opts(true)));
+        set_dry_run(false);
+        let plan = uninstall_plan(&opts(false)).join("\n");
+        assert!(
+            plan.contains(&format!("{RAR_BIN_PATH}/{SR_DEST}")),
+            "{plan}"
+        );
+        assert!(!plan.contains(RAR_CFG_PATH), "{plan}");
+    }
 }

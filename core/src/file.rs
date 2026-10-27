@@ -5,6 +5,7 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io::{self, BufReader, Seek},
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -54,6 +55,19 @@ pub struct LockedSettingsFile<T: Serialize + DeserializeOwned + Debug + Default>
     pub data: T,
     /// The migration applied to the document when it was loaded, until it is saved.
     migration: Option<DocumentMigration>,
+    /// The data as loaded, or as last saved: a file whose data is the same is not written
+    /// again. `None` when the data did not come from the file.
+    saved: Option<serde_json::Value>,
+}
+
+/// How a policy file is opened to be written. A new file is only readable and writable by its
+/// owner (the umask can only remove more), like the files of the installers: the policy must not
+/// be readable, nor writable, by other users (see `check_others_permissions`). An existing file
+/// keeps its owner and mode, since saving rewrites it in place.
+fn write_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).mode(0o600);
+    options
 }
 
 /// This opens, deserialize and locks a settings file, and keeps the file descriptor open to keep the lock
@@ -79,12 +93,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     where
         S: AsRef<Path>,
     {
-        Self::open(
-            path,
-            OpenOptions::new().read(true).write(true).create(true),
-            true,
-            data_loader,
-        )
+        Self::open(path, &write_options(), true, data_loader)
     }
 
     /// # Errors
@@ -105,9 +114,11 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
                 nix::fcntl::FlockArg::LockExclusive,
             )?;
 
+            let data = data_loader(&path, &file)?;
             Ok(Self {
                 path: path.as_ref().to_path_buf(),
-                data: data_loader(&path, &file)?,
+                saved: serde_json::to_value(&data).ok(),
+                data,
                 fd: file,
                 migration: None,
             })
@@ -121,6 +132,13 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         }
 
         load_data()
+    }
+
+    /// Whether the data differs from what the file holds: changed since it was loaded or saved,
+    /// or not loaded from the file.
+    #[must_use]
+    pub fn changed(&self) -> bool {
+        self.saved.is_none() || self.saved != serde_json::to_value(&self.data).ok()
     }
 
     /// # Errors
@@ -150,6 +168,7 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
             debug!("Wrote config file");
         }
         self.migration = None;
+        self.saved = serde_json::to_value(&self.data).ok();
 
         Ok(())
     }
@@ -184,10 +203,13 @@ pub struct FileSettings {
     ///# Errors
     /// Returns an error if any of the files cannot be opened or locked
     #[builder(with = |path: PathBuf,config : RootSettings| -> Result<_, Box<dyn Error>> {
-        Ok(LockedSettingsFile::open_write(path, |_, _| {
+        let mut root = LockedSettingsFile::open_write(path, |_, _| {
             let versioned: Versioning<RootSettings> = Versioning::new(config.clone());
             Ok(versioned)
-        })?)
+        })?;
+        // made from these settings, not read from the file: it is written by the next save
+        root.saved = None;
+        Ok(root)
     })]
     root: LockedRootSettings,
     /// Policy files of a directory that could not be loaded, with the reason.
@@ -228,7 +250,7 @@ impl FileSettings {
             rar_cfg_path,
             rar_cfg_data_path,
             rar_cfg_type,
-            OpenOptions::new().read(true).write(true).create(true),
+            &write_options(),
             true,
         )
     }
@@ -247,12 +269,7 @@ impl FileSettings {
     where
         P: AsRef<Path>,
     {
-        Self::load_policy_file(
-            cfg_type,
-            OpenOptions::new().read(true).write(true).create(true),
-            true,
-            cfg_path,
-        )
+        Self::load_policy_file(cfg_type, &write_options(), true, cfg_path)
     }
     /// # Errors
     /// Returns an error if any of the files cannot be opened, deserialized or locked
@@ -455,9 +472,11 @@ impl FileSettings {
             })
         }) {
             // Open the new file with the new path
-            let new_root = LockedSettingsFile::open_write(path, |_, _| {
+            let mut new_root = LockedSettingsFile::open_write(path, |_, _| {
                 Ok(Versioning::new(self.root.data.data.clone()))
             })?;
+            // the file at the new path does not hold these settings yet
+            new_root.saved = None;
             debug!(
                 "Moved root settings to new path: {}",
                 new_root.path.display()
@@ -465,7 +484,11 @@ impl FileSettings {
             drop(std::mem::replace(&mut self.root, new_root));
         }
 
-        let mut has_errors = if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
+        // only the files that changed: the others are not rewritten (in the typed form of the
+        // actors, without their immutable flag for a while...)
+        let mut has_errors = if !self.root.changed() {
+            false
+        } else if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
             error!("Failed to save root settings: {e}");
             true
         } else {
@@ -473,7 +496,7 @@ impl FileSettings {
             false
         };
 
-        for config in &mut self.map {
+        for config in self.map.iter_mut().filter(|config| config.changed()) {
             if let Err(e) = config.save(self.root.data.data.storage.method, immutable) {
                 error!(
                     "Failed to save settings for {}: {}",
@@ -564,6 +587,20 @@ impl FileSettings {
     #[must_use]
     pub fn get_policies(&self) -> Vec<&Rc<RefCell<SPolicy>>> {
         self.map.iter().map(|config| &config.data.data).collect()
+    }
+
+    /// The path of the root file.
+    #[must_use]
+    pub fn root_path(&self) -> &Path {
+        &self.root.path
+    }
+
+    /// The policy files apart from the root file (those of a policy directory, or the one file
+    /// that the root file names), with their path.
+    pub fn policy_files(&self) -> impl Iterator<Item = (&Path, &Rc<RefCell<SPolicy>>)> {
+        self.map
+            .iter()
+            .map(|config| (config.path.as_path(), &config.data.data))
     }
 }
 
@@ -1339,6 +1376,56 @@ mod tests {
         assert!(!content.contains("another_old_role"));
         assert!(!content.contains("yet_another_old_role"));
         assert!(!content.contains("oldest_role"));
+    }
+
+    /// A path in the temporary directory that does not exist yet, removed when dropped.
+    fn new_temp_path(name: &str) -> (PathBuf, impl Drop) {
+        let path = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let cleanup = path.clone();
+        (
+            path,
+            defer(move || {
+                let _ = std::fs::remove_file(&cleanup);
+            }),
+        )
+    }
+
+    #[test]
+    fn test_new_policy_files_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root_file, _cleanup_root) = new_temp_path("rar_new_root_file");
+        let mut locked =
+            LockedSettingsFile::open_write(&root_file, |_, _| Ok(RootSettings::default())).unwrap();
+        locked.save(StorageMethod::JSON, false).unwrap();
+        drop(locked);
+        let (policy_file, _cleanup_policy) = new_temp_path("rar_new_policy_file");
+        // the new file is empty, so reading it fails, but the file is created
+        assert!(FileSettings::write_policy(&policy_file, StorageMethod::JSON).is_err());
+        for path in [&root_file, &policy_file] {
+            let mode = std::fs::metadata(path).unwrap().permissions().mode();
+            // never more than 0600, whatever the umask
+            assert_eq!(mode & 0o077, 0, "{}: {mode:o}", path.display());
+        }
+    }
+
+    #[test]
+    fn test_saving_keeps_the_owner_and_mode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let (path, _cleanup) = new_temp_path("rar_saved_root_file");
+        std::fs::write(&path, b"{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let before = std::fs::metadata(&path).unwrap();
+        let mut locked =
+            LockedSettingsFile::open_write(&path, |_, _| Ok(RootSettings::default())).unwrap();
+        locked.save(StorageMethod::JSON, false).unwrap();
+        drop(locked);
+        let after = std::fs::metadata(&path).unwrap();
+        // rewritten in place: the same file, with its owner and mode
+        assert_eq!(after.ino(), before.ino());
+        assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+        assert_eq!(after.permissions().mode() & 0o7777, 0o640);
+        assert!(after.len() > 2);
     }
 
     #[test]

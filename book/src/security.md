@@ -14,7 +14,11 @@ In the RaR context, it describes the security mechanisms that secures the progra
 - Capability-oriented privilege model
 - Optional timestamp/timeout behavior
 - Immutable policy file workflow
-- Hardened policy editor path in `chsr editor` (landlock/seccomp)
+- Hardened policy editor path in `chsr editor` (landlock)
+
+<blockquote class="caroot-stare">
+The hardening of the policy editor is complex to do with a generic editor tool. For now, only landlock is enforced. We need to look at seccomp protection in the editor mode.
+</blockquote>
 
 ## Operational safeguards
 

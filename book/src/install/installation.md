@@ -32,6 +32,25 @@ This is a complete process for compiling and installing `dosr` and `chsr` binari
 - Rust toolchain
 - Administrative rights (`sudo` or equivalent)
 
+## Dependencies installation
+
+Since 4.2.0, we removed the auto dependencies installation through `cargo xtask` because it takes responsibilities that are not the purpose of the project. So we now require you to install dependencies yourself: 
+
+| Distribution | Dependencies |
+|---|---|
+| Debian, Ubuntu | `apt install clang pkg-config libpam0g-dev libseccomp-dev pandoc` |
+| Fedora, RHEL family | `dnf install clang pkgconfig pam-devel libseccomp-devel pandoc` |
+| openSUSE | `zypper install clang pkg-config pam-devel libseccomp-devel pandoc` |
+| Arch Linux | `pacman -S clang pkgconf pam libseccomp pandoc-cli` |
+
+Note that `clang` is selected in the case you want to compile the capable tool. If you prefer using `gcc`, feel free to use it instead.
+
+Also, `pandoc` is only required if you want to build the man pages from source.
+
+If you are using another distribution, you can find their names on these websites [pkgs.org](https://pkgs.org/) or [repology.org](https://repology.org/).
+
+If you miss any dependency, you can use the `cargo xtask doctor` command.
+
 ### Retrieve the source code
 
 ```bash
@@ -39,7 +58,7 @@ git clone https://github.com/LeChatP/RootAsRole
 cd RootAsRole
 ```
 
-## Dependencies installation, compiling and installing
+## Compiling and installing
 
 Before installing the tool, you might want to define some default behaviors. You'll find them in this page [Build-time default configuration](build.md).
 
@@ -48,12 +67,11 @@ It might be trivial, but in order to install RootAsRole, you needs full administ
 To manage that, we developed an installation helper tool
 
 ```bash
-cargo xtask install -bip sudo
+cargo xtask install -bp sudo
 ```
 
 This command performs:
 
-- dependency installation when required (privileged)
 - project build
 - deployment of `dosr` and `chsr` in `RAR_BIN_PATH` (privileged)
 - capability/ownership setup for `dosr` (privileged)

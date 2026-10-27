@@ -239,8 +239,10 @@ impl From<u32> for SUserEither {
     }
 }
 
+/// Like the other credentials, a set of users refuses the fields it does not know, as dosr
+/// does: a typo there must not leave a privilege granted.
 #[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq)]
-
+#[serde(deny_unknown_fields)]
 pub struct SSetuidSet {
     #[serde(
         alias = "d",
@@ -346,18 +348,34 @@ impl From<u32> for SGroupsEither {
     }
 }
 
+/// Whose groups the command gets when the task does not force them and the user does not choose
+/// any with `-g`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupsFrom {
+    /// The groups of the user that the command runs as, as a login gives them: its primary group
+    /// and the groups that list it as a member
+    #[default]
+    Target,
+    /// The groups of the user who runs dosr
+    Caller,
+}
+
 #[derive(Debug, Clone, Builder, PartialEq, Eq)]
 pub struct SSetgidSet {
     #[builder(start_fn)]
     pub default_behavior: SetBehavior,
-    /// The groups when the user does not choose any with `-g`. Without it, `-g` is required,
-    /// or with the `all` default, the groups of the caller are kept.
+    /// The groups when the user does not choose any with `-g`. Without it, the groups that
+    /// `from` names; without `from` either, `-g` is required with the `none` default, and the
+    /// groups of the target user are taken with the `all` default.
     #[builder(into)]
     pub fallback: Option<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]
     pub add: Vec<SGroups>,
     #[builder(default, with = FromIterator::from_iter)]
     pub sub: Vec<SGroups>,
+    /// Whose groups the command gets without `-g` and without `fallback`
+    pub from: Option<GroupsFrom>,
 }
 
 #[derive(PartialEq, Eq, Debug, Builder, Default)]
@@ -926,6 +944,8 @@ mod tests {
         let options = binding.as_ref().borrow();
         let env = &options.env.as_ref().unwrap();
         assert_eq!(env.extra_fields.get("unknown").unwrap(), "unknown");
+        let path = options.path.as_ref().unwrap();
+        assert_eq!(path.extra_fields.get("unknown").unwrap(), "unknown");
         assert_eq!(options.extra_fields.get("unknown").unwrap(), "unknown");
         let timeout = options.timeout.as_ref().unwrap();
         assert_eq!(timeout.extra_fields.get("unknown").unwrap(), "unknown");
@@ -964,6 +984,50 @@ mod tests {
         assert_eq!(cred.extra_fields.get("unknown").unwrap(), "unknown");
         let commands = &as_borrow!(role[0]).commands;
         assert_eq!(commands.extra_fields.get("unknown").unwrap(), "unknown");
+    }
+
+    #[test]
+    fn test_credentials_refuse_unknown_fields() {
+        // a typo in what grants privileges is an error, as in dosr
+        assert!(
+            serde_json::from_str::<SSetuidSet>(
+                r#"{"default": "all", "fallback": "root", "fallbak": "x"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<SSetgidSet>(
+                r#"{"default": "all", "fallback": ["root"], "sbu": ["adm"]}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<SCapabilities>(r#"{"default": "all", "sbu": ["SYS_ADMIN"]}"#)
+                .is_err()
+        );
+        let setuid: SSetuidSet =
+            serde_json::from_str(r#"{"default": "all", "fallback": "root", "add": ["daemon"]}"#)
+                .unwrap();
+        let mut cbor = Vec::new();
+        cbor4ii::serde::to_writer(&mut cbor, &setuid).unwrap();
+        let back: SSetuidSet = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(back, setuid);
+    }
+
+    #[test]
+    fn test_unknown_fields_of_sets_survive_a_round_trip() {
+        use crate::{RemoteStorageSettings, SettingsContent, database::options::SWorkdirSet};
+        let workdir: SWorkdirSet =
+            serde_json::from_str(r#"{"default": "all", "future": 1}"#).unwrap();
+        assert_eq!(serde_json::to_value(&workdir).unwrap()["future"], 1);
+        let storage: SettingsContent = serde_json::from_str(
+            r#"{"method": "json", "settings": {"path": "/p", "future": 2}, "future": 1}"#,
+        )
+        .unwrap();
+        let storage = serde_json::to_value(&storage).unwrap();
+        assert_eq!(storage["future"], 1);
+        assert_eq!(storage["settings"]["future"], 2);
+        let _: RemoteStorageSettings = serde_json::from_value(storage["settings"].clone()).unwrap();
     }
 
     #[allow(clippy::too_many_lines)]

@@ -20,10 +20,11 @@ use nix::{
     unistd::{Gid, Group},
 };
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU8;
 
 use crate::database::options::{
     EnvBehavior, PathBehavior, SAuthentication, SBounding, SInfo, SPrivileged, SUMask,
-    TimestampType, WorkdirBehavior,
+    TimestampType, TtyOwner, WorkdirBehavior,
 };
 
 #[cfg(feature = "finder")]
@@ -58,6 +59,9 @@ pub(super) const RAR_CFG_IMMUTABLE: bool = false;
 #[cfg(not(debug_assertions))]
 pub(super) const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
 
+/// The policy file that chsr edits in a policy directory, when no file is named: the file that
+/// the installers write there.
+pub const DEFAULT_POLICY_FILE: &str = "default.json";
 pub const RAR_CFG_TYPE: StorageMethod = StorageMethod::const_parse(env!("RAR_CFG_TYPE"));
 
 pub const ENV_PATH_BEHAVIOR: PathBehavior = PathBehavior::const_parse(env!("RAR_PATH_DEFAULT"));
@@ -141,6 +145,26 @@ pub const TIMEOUT_MAX_USAGE: Option<u64> = match option_env!("RAR_TIMEOUT_MAX_US
     None => None,
 };
 
+//=== SPassword ===
+
+/// How many times the password is asked before dosr gives up (`RAR_PASSWORD_TRIES`). A value
+/// that is not a number from 1 to 255, or a missing build variable, stops the build.
+pub const PASSWORD_TRIES: NonZeroU8 = match u8::from_str_radix(env!("RAR_PASSWORD_TRIES"), 10) {
+    Ok(n) => match NonZeroU8::new(n) {
+        Some(n) => n,
+        None => panic!("RAR_PASSWORD_TRIES must be at least 1"),
+    },
+    Err(_) => panic!("RAR_PASSWORD_TRIES must be a number from 1 to 255"),
+};
+
+/// How long dosr waits after a wrong password (`RAR_PASSWORD_DELAY`, hh:mm:ss). A value that is
+/// not a duration, or a missing build variable, stops the build.
+pub const PASSWORD_DELAY: SignedDuration =
+    match convert_string_to_duration(env!("RAR_PASSWORD_DELAY")) {
+        Ok(delay) => delay,
+        Err(_) => panic!("RAR_PASSWORD_DELAY must be a duration written hh:mm:ss"),
+    };
+
 pub const WORKDIR_BEHAVIOR: WorkdirBehavior =
     assert_valid_workdir_behavior(WorkdirBehavior::const_parse(env!("RAR_WORKDIR_BEHAVIOR")));
 
@@ -182,6 +206,10 @@ pub const UMASK: SUMask = SUMask(result::unwrap_or!(
 ));
 
 pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
+
+/// Who owns the terminal of a command run as another user, when the policy does not say it
+/// (`RAR_TTY_OWNER`): `caller`, or `target` like sudo. A value that is neither stops the build.
+pub const TTY_OWNER: TtyOwner = TtyOwner::const_parse(env!("RAR_TTY_OWNER"));
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -714,8 +742,12 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
     if cmd_path == Path::new(role_path) {
         match_status.set_matching();
     } else {
+        // compiling a pattern costs about 10 µs, for each command of each task of the policy
         #[cfg(feature = "glob")]
-        if glob_matches(role_path, cmd_path) {
+        if is_glob_pattern(role_path)
+            && starts_like(role_path, cmd_path)
+            && glob_matches(role_path, cmd_path)
+        {
             use crate::database::score::CmdOrder;
             match_status.set_matching();
             match_status.union_order(CmdOrder::WildcardPath);
@@ -728,6 +760,24 @@ pub fn match_single_path(cmd_path: &Path, role_path: &str) -> CmdMin {
         );
     }
     match_status
+}
+
+/// Whether `pattern` has a character that globset reads specially. Without any, it only matches
+/// the path written the same way, which the comparison of paths already found.
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn is_glob_pattern(pattern: &str) -> bool {
+    pattern.contains(['*', '?', '[', '{', '\\'])
+}
+
+/// Whether `path` starts with the characters of `pattern` before its first special one, which
+/// globset matches as they are: otherwise the pattern cannot match, and is not compiled.
+#[cfg(all(feature = "finder", feature = "glob"))]
+fn starts_like(pattern: &str, path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let literal = pattern
+        .find(['*', '?', '[', '{', '\\'])
+        .map_or(pattern, |special| &pattern[..special]);
+    path.as_os_str().as_bytes().starts_with(literal.as_bytes())
 }
 
 #[cfg(all(feature = "finder", feature = "glob"))]
@@ -1009,6 +1059,30 @@ mod test {
         assert!(!matches("/usr/bin/./ls", "/usr/bin/*"));
         // an invalid pattern matches nothing
         assert!(!matches("/usr/bin/ls", "/usr/bin/[ls"));
+        // the characters of globset make a pattern, `\` escapes the next one
+        for pattern in [
+            "/usr/bin/*",
+            "/usr/bin/l?",
+            "/usr/bin/[lc]s",
+            "/usr/bin/{ls,cat}",
+        ] {
+            assert!(is_glob_pattern(pattern), "{pattern}");
+        }
+        assert!(is_glob_pattern("/usr/bin/a\\*"));
+        assert!(matches("/usr/bin/a*", "/usr/bin/a\\*"));
+        assert!(!matches("/usr/bin/ab", "/usr/bin/a\\*"));
+        // the characters before the first special one must start the path
+        assert!(starts_like(
+            "/usr/bin/python3.*",
+            Path::new("/usr/bin/python3.12")
+        ));
+        assert!(!starts_like("/usr/bin/true5*", Path::new("/usr/bin/true")));
+        assert!(!matches("/usr/bin/true", "/usr/bin/true5*"));
+        assert!(starts_like("/usr/bin/{ls,cat}", Path::new("/usr/bin/cat")));
+        // without them, a path is not compiled and matches only itself
+        assert!(!is_glob_pattern("/usr/bin/true1"));
+        assert!(!matches("/usr/bin/true", "/usr/bin/true1"));
+        assert!(!matches("/usr/bin/true1", "/usr/bin/true"));
     }
 
     #[test]

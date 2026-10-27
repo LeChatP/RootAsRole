@@ -1,7 +1,7 @@
 use core::panic;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::num::ParseIntError;
+use std::num::{NonZeroU8, ParseIntError};
 use std::result::Result;
 use std::str::FromStr;
 use std::{cell::RefCell, rc::Rc};
@@ -22,8 +22,8 @@ use crate::util::{
     AUTHENTICATION, BOUNDING, ENV_CHECK_LIST, ENV_DEFAULT_BEHAVIOR, ENV_DELETE_LIST, ENV_KEEP_LIST,
     ENV_OVERRIDE_BEHAVIOR, ENV_PATH_ADD_LIST_SLICE, ENV_PATH_BEHAVIOR, ENV_PATH_REMOVE_LIST_SLICE,
     ENV_SET_LIST, HARDENED_ENUM_VALUE_0, HARDENED_ENUM_VALUE_1, HARDENED_ENUM_VALUE_2,
-    HARDENED_ENUM_VALUE_3, INFO, PRIVILEGED, TIMEOUT_DURATION, TIMEOUT_MAX_USAGE, TIMEOUT_TYPE,
-    UMASK, is_valid_env_name, is_valid_env_pattern,
+    HARDENED_ENUM_VALUE_3, INFO, PASSWORD_DELAY, PASSWORD_TRIES, PRIVILEGED, TIMEOUT_DURATION,
+    TIMEOUT_MAX_USAGE, TIMEOUT_TYPE, TTY_OWNER, UMASK, is_valid_env_name, is_valid_env_pattern,
 };
 
 use super::{
@@ -57,6 +57,8 @@ pub enum OptType {
     Root,
     Bounding,
     Timeout,
+    Password,
+    Tty,
     Authentication,
     ExecInfo,
     UMask,
@@ -108,11 +110,95 @@ pub enum TimestampType {
     UID,
 }
 
+/// How many times the password is asked, and how long dosr waits after a wrong one.
+///
+/// A level that does not set a field inherits it from the upper levels, down to the build-time
+/// defaults (`RAR_PASSWORD_TRIES`, `RAR_PASSWORD_DELAY`). `tries` is at least 1: 0 would never
+/// let anyone in, or never stop asking.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct SPassword {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tries: Option<NonZeroU8>,
+    #[serde(
+        default,
+        serialize_with = "serialize_duration",
+        deserialize_with = "deserialize_duration",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub delay: Option<jiff::SignedDuration>,
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
+}
+
+/// Who owns the pseudo-terminal that dosr gives to the command.
+///
+/// Its default is the build-time one (`RAR_TTY_OWNER`).
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+#[repr(u32)]
+pub enum TtyOwner {
+    /// The user who runs dosr. The processes of the user that the command runs as cannot open
+    /// the terminal by its name: a program that does, such as pinentry through `GPG_TTY`, fails.
+    Caller = HARDENED_ENUM_VALUE_0,
+    /// The user that the command runs as, like sudo. Its other processes can then open the
+    /// terminal while the command runs, and read what is typed into it.
+    Target = HARDENED_ENUM_VALUE_1,
+}
+
+impl Default for TtyOwner {
+    fn default() -> Self {
+        TTY_OWNER
+    }
+}
+
+impl TtyOwner {
+    #[must_use]
+    /// # Panics
+    /// Panics if the input string does not match any of the valid ``TtyOwner`` variants.
+    pub const fn const_parse(input: &str) -> Self {
+        match input {
+            _ if eq_str(input, "caller") => Self::Caller,
+            _ if eq_str(input, "target") => Self::Target,
+            _ => panic!("fail to parse TtyOwner"),
+        }
+    }
+}
+
+impl FromStr for TtyOwner {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "caller" => Ok(Self::Caller),
+            "target" => Ok(Self::Target),
+            _ => Err(format!(
+                "The owner of the terminal is caller or target: {s}"
+            )),
+        }
+    }
+}
+
+/// The pseudo-terminal of the command, when dosr runs from a terminal.
+///
+/// A level that does not set `owner` inherits it from the upper levels, down to the build-time
+/// default (`RAR_TTY_OWNER`).
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+pub struct STty {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<TtyOwner>,
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct STimeout {
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_field: Option<TimestampType>,
+    // `default`: with `deserialize_with`, serde requires the field, even an `Option`
     #[serde(
+        default,
         serialize_with = "serialize_duration",
         deserialize_with = "deserialize_duration",
         skip_serializing_if = "Option::is_none"
@@ -148,6 +234,10 @@ pub struct SPathOptions {
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
@@ -362,6 +452,10 @@ pub struct SWorkdirSet {
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
+    /// The fields that this version does not know, kept when the policy is saved again
+    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[builder(default)]
+    pub extra_fields: Map<String, Value>,
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -581,6 +675,10 @@ pub struct Opt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<SPassword>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<STty>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Map<String, Value>,
@@ -599,6 +697,8 @@ impl Opt {
         execinfo: Option<SInfo>,
         workdir: Option<SWorkdirEither>,
         timeout: Option<STimeout>,
+        password: Option<SPassword>,
+        tty: Option<STty>,
         umask: Option<SUMask>,
         #[builder(default)] extra_fields: Map<String, Value>,
     ) -> Self {
@@ -612,6 +712,8 @@ impl Opt {
             execinfo,
             workdir,
             timeout,
+            password,
+            tty,
             umask,
             extra_fields,
         }
@@ -649,6 +751,13 @@ impl Opt {
                     .maybe_max_usage(TIMEOUT_MAX_USAGE)
                     .build(),
             )
+            .password(
+                SPassword::builder()
+                    .tries(PASSWORD_TRIES)
+                    .delay(PASSWORD_DELAY)
+                    .build(),
+            )
+            .tty(STty::builder().owner(TTY_OWNER).build())
             .build()
     }
 }
@@ -1091,6 +1200,38 @@ impl OptStack {
                         .clone()
                         .map(|timeout| (opt.level, timeout)))
                         .map(|(_, timeout)| timeout),
+                )
+                .password(
+                    SPassword::builder()
+                        .maybe_tries(
+                            self.find_in_options(|opt| opt
+                                .password
+                                .as_ref()
+                                .and_then(|password| password.tries)
+                                .map(|tries| (opt.level, tries)))
+                                .map(|(_, tries)| tries)
+                        )
+                        .maybe_delay(
+                            self.find_in_options(|opt| opt
+                                .password
+                                .as_ref()
+                                .and_then(|password| password.delay)
+                                .map(|delay| (opt.level, delay)))
+                                .map(|(_, delay)| delay)
+                        )
+                        .build(),
+                )
+                .tty(
+                    STty::builder()
+                        .maybe_owner(
+                            self.find_in_options(|opt| opt
+                                .tty
+                                .as_ref()
+                                .and_then(|tty| tty.owner)
+                                .map(|owner| (opt.level, owner)))
+                                .map(|(_, owner)| owner)
+                        )
+                        .build(),
                 )
                 .build()
         ))
@@ -1872,5 +2013,127 @@ mod tests {
 
         // This should serialize as just a string, not as a struct
         assert_tokens(&umask, &[Token::Str("644")]);
+    }
+
+    #[test]
+    fn test_timeout_fields_are_optional() {
+        // every field may be left to the upper levels, the duration as the others
+        let timeout: STimeout = serde_json::from_str(r#"{"type": "tty"}"#).unwrap();
+        assert_eq!(timeout.type_field, Some(TimestampType::TTY));
+        assert_eq!(timeout.duration, None);
+        let timeout: STimeout = serde_json::from_str("{}").unwrap();
+        assert_eq!(timeout, STimeout::default());
+        let opt: Opt = serde_json::from_str(r#"{"timeout": {"max_usage": 2}}"#).unwrap();
+        assert_eq!(opt.timeout.unwrap().max_usage, Some(2));
+    }
+
+    #[test]
+    fn test_password_option() {
+        let password: SPassword =
+            serde_json::from_str(r#"{"tries": 2, "delay": "00:00:01"}"#).unwrap();
+        assert_eq!(password.tries, std::num::NonZeroU8::new(2));
+        assert_eq!(password.delay, Some(SignedDuration::from_secs(1)));
+        assert_eq!(
+            serde_json::to_value(&password).unwrap(),
+            serde_json::json!({"tries": 2, "delay": "00:00:01"})
+        );
+        // 0 tries would never let anyone in, or never stop asking; a delay is never negative
+        for invalid in [
+            r#"{"tries": 0}"#,
+            r#"{"tries": 256}"#,
+            r#"{"tries": -1}"#,
+            r#"{"delay": "-00:00:01"}"#,
+            r#"{"delay": "5s"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SPassword>(invalid).is_err(),
+                "{invalid} is refused"
+            );
+        }
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &password).unwrap();
+        let from_cbor: SPassword = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(from_cbor, password);
+    }
+
+    #[test]
+    fn test_password_defaults() {
+        let defaults = Opt::level_default().password.unwrap();
+        assert_eq!(defaults.tries, Some(crate::util::PASSWORD_TRIES));
+        assert_eq!(defaults.delay, Some(crate::util::PASSWORD_DELAY));
+        assert_eq!(crate::util::PASSWORD_TRIES.get(), 3);
+        assert_eq!(crate::util::PASSWORD_DELAY, SignedDuration::from_secs(5));
+    }
+
+    #[test]
+    fn test_tty_option() {
+        let tty: STty = serde_json::from_str(r#"{"owner": "target"}"#).unwrap();
+        assert_eq!(tty.owner, Some(TtyOwner::Target));
+        assert_eq!(
+            serde_json::to_value(&tty).unwrap(),
+            serde_json::json!({"owner": "target"})
+        );
+        let tty: STty = serde_json::from_str(r#"{"owner": "caller", "future": 1}"#).unwrap();
+        assert_eq!(tty.owner, Some(TtyOwner::Caller));
+        assert_eq!(tty.extra_fields.len(), 1);
+        for invalid in [
+            r#"{"owner": "root"}"#,
+            r#"{"owner": "Target"}"#,
+            r#"{"owner": 1}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<STty>(invalid).is_err(),
+                "{invalid} is refused"
+            );
+        }
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &tty).unwrap();
+        let from_cbor: STty = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(from_cbor, tty);
+        assert_eq!("target".parse(), Ok(TtyOwner::Target));
+        assert_eq!("caller".parse(), Ok(TtyOwner::Caller));
+        assert!("unset".parse::<TtyOwner>().is_err());
+    }
+
+    // the terminal stays with the caller unless the policy or the build says otherwise
+    #[test]
+    fn test_tty_owner_default_and_inheritance() {
+        assert_eq!(crate::util::TTY_OWNER, TtyOwner::Caller);
+        assert_eq!(TtyOwner::default(), crate::util::TTY_OWNER);
+        assert_eq!(
+            Opt::level_default().tty.unwrap().owner,
+            Some(crate::util::TTY_OWNER)
+        );
+        assert_eq!(TtyOwner::const_parse("caller"), TtyOwner::Caller);
+        assert_eq!(TtyOwner::const_parse("target"), TtyOwner::Target);
+        let config = SPolicy::builder()
+            .role(
+                SRole::builder("test")
+                    .task(STask::builder(1).build())
+                    .task(
+                        STask::builder(2)
+                            .options(|opt| {
+                                opt.tty(STty::builder().owner(TtyOwner::Caller).build())
+                                    .build()
+                            })
+                            .build(),
+                    )
+                    .build(),
+            )
+            .options(|opt| {
+                opt.tty(STty::builder().owner(TtyOwner::Target).build())
+                    .build()
+            })
+            .build();
+        let owner = |task| {
+            OptStack::from_task(&config.task("test", task).unwrap())
+                .to_opt()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .tty
+                .as_ref()
+                .and_then(|tty| tty.owner)
+        };
+        assert_eq!(owner(1), Some(TtyOwner::Target));
+        assert_eq!(owner(2), Some(TtyOwner::Caller));
     }
 }

@@ -1,10 +1,10 @@
 use std::{fs, process::Command};
 
-use log::debug;
+use log::{debug, warn};
 
 use crate::{
     installer::Toolchain,
-    util::{change_dir_to_project_root, run_checked},
+    util::{change_dir_to_project_root, command_exists, run_checked},
 };
 
 use super::BuildOptions;
@@ -45,9 +45,19 @@ pub fn build(options: &BuildOptions) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// The manual pages need pandoc and gzip: without them, they are left out, and the installation
+/// installs none.
 fn build_manpages() -> Result<(), anyhow::Error> {
     debug!("Building manpages");
+    // the pages of a former build are never installed instead of these ones
     let _ = fs::remove_dir_all("target/man/");
+    if let Some(command) = ["pandoc", "gzip"]
+        .into_iter()
+        .find(|command| !command_exists(command))
+    {
+        warn!("{command} is not installed: the manual pages are not built");
+        return Ok(());
+    }
     fs::create_dir_all("target/man/")?;
     run_checked(
         Command::new("pandoc").args([

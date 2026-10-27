@@ -176,7 +176,7 @@ where
                 new_config.warn_anomalies(&mut warn_handler);
                 debug!("config: {new_config:#?}");
                 let after = serde_json::to_string_pretty(&new_config)?;
-                writeln!(output, "Resulting confguration: {after}")?;
+                writeln!(output, "Resulting configuration: {after}")?;
                 let after = serde_json::from_str::<T>(&after)?;
                 debug!("re-serialised: {after:#?}");
                 // Yes == save, No and edit again == continue loop, abort == return false
@@ -207,7 +207,7 @@ where
             Err(e) => {
                 writeln!(output, "Your modifications are invalid:\n{e}")?;
                 writeln!(output, "Do you want to continue editing?")?;
-                writeln!(output, "  [Y]ontinue editing (Recommended)")?;
+                writeln!(output, "  [Y]es to continue editing (Recommended)")?;
                 writeln!(output, "  [A]bort to exit without saving")?;
                 write!(output, "Your choice [Y/a]: ")?;
                 output.flush()?;

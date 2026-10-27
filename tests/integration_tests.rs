@@ -44,6 +44,44 @@ mod tests {
         assert_eq!(result.exit_code, 0);
     }
 
+    /// Nobody reads the output anymore (`dosr --help | true`): writing gets EPIPE, since Rust
+    /// ignores SIGPIPE, and dosr must not panic.
+    #[test]
+    fn test_dosr_output_to_a_closed_pipe() {
+        let (reader, writer) = std::io::pipe().expect("Failed to create a pipe");
+        drop(reader);
+        for arg in ["--help", "--version"] {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_dosr"))
+                .arg(arg)
+                .stdout(writer.try_clone().expect("Failed to clone the pipe"))
+                .output()
+                .expect("Failed to run dosr");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(0), "dosr {arg}: {stderr}");
+            assert!(!stderr.contains("panicked"), "dosr {arg}: {stderr}");
+        }
+    }
+
+    /// chsr prints its usage without reading the policy, so without any privilege.
+    #[test]
+    fn test_chsr_help_without_the_policy() {
+        // set even when chsr is not built (without the feature editor)
+        let Some(chsr) =
+            option_env!("CARGO_BIN_EXE_chsr").filter(|chsr| std::path::Path::new(chsr).exists())
+        else {
+            eprintln!("Skipping: chsr is not built (feature editor)");
+            return;
+        };
+        let output = std::process::Command::new(chsr)
+            .arg("--help")
+            .output()
+            .expect("Failed to run chsr");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{stderr}");
+        assert!(!stderr.contains("panicked"), "{stderr}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("chsr"));
+    }
+
     #[test]
     fn test_all_dosr() {
         if let Ok(r) = try_run_dosr(

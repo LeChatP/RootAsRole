@@ -1,3 +1,4 @@
+use rootasrole_core::println_ignore_io_error;
 use std::{
     error::Error,
     path::{Path, PathBuf},
@@ -36,7 +37,7 @@ pub fn convert(
     let config = match convertion.from {
         Some(ref from) => {
             debug!("Convert from: {}", from.display());
-            let from_type = convertion.from_type.expect("Impossible state");
+            let from_type = convertion.from_type.ok_or("--from needs a type")?;
             if from == &convertion.to {
                 error!("The source and destination paths are the same");
                 return Ok(false);
@@ -49,7 +50,7 @@ pub fn convert(
         }
         None => settings.get_root().config.clone(),
     };
-    println!(
+    println_ignore_io_error!(
         "Config : {}",
         serde_json::to_string_pretty(&Versioning::new(config.clone()))?
     );

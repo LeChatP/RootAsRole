@@ -2,13 +2,14 @@ mod convert;
 mod json;
 mod upgrade;
 
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, ffi::OsStr, path::Path, rc::Rc};
 
 use json::{
     cmd_setpolicy, cmd_whitelist_action, cred_caps, cred_set, cred_setpolicy, cred_unset,
-    env_set_policylist, env_setlist_add, env_setpolicy, env_whitelist_set, grant_revoke,
-    path_purge, path_set, path_setlist2, path_setpolicy, role_add_del, set_authentication,
-    set_bounding, set_execinfo, set_privileged, set_timeout, set_umask, task_add_del,
+    edit_role_links, edit_task_purpose, env_set_policylist, env_setlist_add, env_setpolicy,
+    env_whitelist_set, grant_revoke, path_purge, path_set, path_setlist2, path_setpolicy,
+    role_add_del, set_authentication, set_bounding, set_env_override, set_execinfo, set_password,
+    set_privileged, set_timeout, set_tty_owner, set_umask, task_add_del, unset_password,
     unset_timeout,
 };
 
@@ -16,10 +17,12 @@ use log::debug;
 
 use rootasrole_core::{
     database::{
-        options::{Opt, OptType},
-        structs::{IdTask, RoleGetter},
+        options::{Level, Opt, OptType},
+        structs::{IdTask, RoleGetter, SPolicy},
     },
     file::FileSettings,
+    println_ignore_io_error,
+    util::DEFAULT_POLICY_FILE,
 };
 
 use crate::cli::process::json::{
@@ -37,9 +40,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         debug!("chsr convert");
         return convert::convert(
             storage,
-            inputs
-                .convertion
-                .expect("Convertion data should be present"),
+            inputs.convertion.ok_or("convert needs a destination")?,
             inputs.convert_reconfigure,
         );
     }
@@ -47,7 +48,31 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         debug!("chsr upgrade");
         return upgrade::upgrade(storage, inputs.upgrade_check);
     }
-    let rconfig = &storage.get_root().config;
+    if inputs.action == InputAction::List && inputs.policy && inputs.policy_path.is_none() {
+        // chsr file list: the files of the policy, the root file last
+        for file in storage.get_files() {
+            println_ignore_io_error!("{file}");
+        }
+        return Ok(false);
+    }
+    if inputs.action == InputAction::List
+        && inputs.policy_path.is_none()
+        && inputs.role_id.is_none()
+        && !inputs.options
+        && storage.policy_files().next().is_some()
+    {
+        // chsr list: every policy file, by path
+        let mut files = serde_json::Map::new();
+        for (path, policy) in storage.policy_files() {
+            files.insert(
+                path.display().to_string(),
+                serde_json::to_value(&*policy.as_ref().borrow())?,
+            );
+        }
+        println_ignore_io_error!("{}", serde_json::to_string_pretty(&files)?);
+        return Ok(false);
+    }
+    let rconfig = &target_policy(storage, inputs.policy_path.as_deref())?;
     match inputs {
         Inputs {
             action: InputAction::Help,
@@ -86,6 +111,38 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
                 }
             }
         }
+        // before the role and task deletions below, which use the same keywords
+        Inputs {
+            // chsr role r1 ssd|parents add|del|set r2,r3, chsr role r1 ssd|parents purge
+            action,
+            role_id: Some(role_id),
+            role_link: Some(link),
+            role_links,
+            ..
+        } => edit_role_links(
+            rconfig,
+            &role_id,
+            link,
+            action,
+            role_links.unwrap_or_default(),
+        ),
+        Inputs {
+            // chsr role r1 task t1 purpose set <text>, chsr role r1 task t1 purpose unset
+            action,
+            role_id: Some(role_id),
+            task_id: Some(task_id),
+            purpose: true,
+            task_purpose,
+            ..
+        } => edit_task_purpose(rconfig, &role_id, task_id, action, task_purpose),
+        Inputs {
+            // chsr o env override allow|deny|unset
+            role_id,
+            task_id,
+            options_env_override: Some(value),
+            ..
+        } => set_env_override(rconfig, role_id.as_ref(), task_id, value),
+
         Inputs {
             // chsr role r1 add|del
             action,
@@ -118,6 +175,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             cred_caps: None,
             cred_setuid: None,
             cred_setgid: None,
+            cred_groups_from: None,
             task_type,
             cmd_policy: None,
             cred_policy: None,
@@ -132,6 +190,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             cred_caps,
             cred_setuid,
             cred_setgid,
+            cred_groups_from,
             cmd_id: None,
             cmd_policy: None,
             cred_policy: None,
@@ -144,6 +203,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             cred_caps,
             cred_setuid,
             cred_setgid,
+            cred_groups_from,
         ),
 
         Inputs {
@@ -154,6 +214,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             cred_caps,
             cred_setuid,
             cred_setgid,
+            cred_groups_from,
             cmd_id: None,
             cmd_policy: None,
             options: false,
@@ -166,6 +227,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             cred_caps,
             cred_setuid.as_ref(),
             cred_setgid.as_ref(),
+            cred_groups_from.is_some(),
         ),
 
         Inputs {
@@ -193,8 +255,17 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             task_id: Some(task_id),
             cmd_id: Some(cmd_id),
             setlist_type: Some(setlist_type),
+            cmd_checks,
             ..
-        } => cmd_whitelist_action(rconfig, &role_id, task_id, cmd_id, setlist_type, action),
+        } => cmd_whitelist_action(
+            rconfig,
+            &role_id,
+            task_id,
+            &cmd_id,
+            setlist_type,
+            action,
+            &cmd_checks,
+        ),
         Inputs {
             role_id: Some(role_id),
             task_id: Some(task_id),
@@ -272,6 +343,24 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             options_auth: Some(_),
             ..
         } => set_authentication(rconfig, role_id.as_ref(), task_id, None),
+
+        Inputs {
+            // chsr o tty owner target|caller
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options_tty_owner: Some(owner),
+            ..
+        } => set_tty_owner(rconfig, role_id.as_ref(), task_id, Some(owner)),
+
+        Inputs {
+            // chsr o tty owner unset
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options_tty_owner: Some(_),
+            ..
+        } => set_tty_owner(rconfig, role_id.as_ref(), task_id, None),
 
         Inputs {
             // chsr o execinfo hide|show
@@ -364,6 +453,36 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             &options_env,
         ),
         Inputs {
+            // chsr o password unset --tries --delay
+            action: InputAction::Del,
+            role_id,
+            task_id,
+            options: true,
+            password_arg: Some(password_arg),
+            setlist_type: None,
+            ..
+        } => unset_password(rconfig, role_id.as_ref(), task_id, password_arg),
+
+        Inputs {
+            // chsr o password set --tries 3 --delay 00:00:05
+            action: InputAction::Set,
+            role_id,
+            task_id,
+            options: true,
+            password_arg: Some(password_arg),
+            password_tries,
+            password_delay,
+            ..
+        } => set_password(
+            rconfig,
+            role_id.as_ref(),
+            task_id,
+            password_arg,
+            password_tries,
+            password_delay,
+        ),
+
+        Inputs {
             // chsr o timeout unset --type  --duration  --max-usage
             action: InputAction::Del,
             role_id,
@@ -380,7 +499,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             role_id,
             task_id,
             options: true,
-            timeout_arg: Some(_),
+            timeout_arg: Some(timeout_arg),
             timeout_type,
             timeout_duration,
             timeout_max_usage,
@@ -389,6 +508,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
             rconfig,
             role_id.as_ref(),
             task_id,
+            timeout_arg,
             timeout_type,
             timeout_duration,
             timeout_max_usage,
@@ -493,23 +613,105 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         _ => Err("Unknown Input".into()),
     }
 }
+/// The policy that a command edits: the file named with `chsr file <path>` (its path, or its
+/// name in the policy directory), else `default.json` of the policy directory, the only policy
+/// file, or the policy of the root file when there is no other file.
+fn target_policy(
+    storage: &FileSettings,
+    policy_path: Option<&str>,
+) -> Result<Rc<RefCell<SPolicy>>, Box<dyn Error>> {
+    let files: Vec<_> = storage.policy_files().collect();
+    let names = || {
+        files
+            .iter()
+            .map(|(path, _)| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if let Some(name) = policy_path {
+        let wanted = Path::new(name);
+        if let Some(policy) = storage.get(wanted) {
+            return Ok(policy.clone());
+        }
+        let named = |path: &Path| {
+            path == wanted
+                || wanted.components().count() == 1 && path.file_name() == Some(wanted.as_os_str())
+        };
+        if let Some(policy) = files.iter().find(|(path, _)| named(path)) {
+            return Ok(Rc::clone(policy.1));
+        }
+        // a file of the directory that could not be loaded: say why, it is not unknown
+        if let Some((path, error)) = storage.get_ignored().iter().find(|(path, _)| named(path)) {
+            return Err(format!("{} cannot be loaded: {error}", path.display()).into());
+        }
+        return Err(format!("{name} is not a file of the policy: {}", names()).into());
+    }
+    match files.as_slice() {
+        [] => Ok(storage.get_root().config.clone()),
+        [(_, policy)] => Ok(Rc::clone(policy)),
+        _ => files
+            .iter()
+            .find(|(path, _)| path.file_name() == Some(OsStr::new(DEFAULT_POLICY_FILE)))
+            .map(|(_, policy)| Rc::clone(policy))
+            .ok_or_else(|| {
+                format!(
+                    "The policy has several files and no {DEFAULT_POLICY_FILE}, choose one with chsr file <path>: {}",
+                    names()
+                )
+                .into()
+            }),
+    }
+}
+
+/// What `chsr editor` edits.
+pub enum EditorTarget {
+    /// The root file, which tells where the policy is stored
+    Root,
+    /// A file of the policy
+    Policy(Rc<RefCell<SPolicy>>),
+}
+
+/// What `chsr editor` edits: the root file when its path is given, else the policy file that the
+/// other commands edit, see `target_policy`.
+///
+/// # Errors
+/// When the path is not a file of the policy.
+pub fn editor_target(
+    storage: &FileSettings,
+    path: Option<&Path>,
+) -> Result<EditorTarget, Box<dyn Error>> {
+    if path.is_some_and(|path| path == storage.root_path()) {
+        return Ok(EditorTarget::Root);
+    }
+    let path = path
+        .map(|path| path.to_str().ok_or("The path is not valid UTF-8"))
+        .transpose()?;
+    target_policy(storage, path).map(EditorTarget::Policy)
+}
+
 pub fn perform_on_target_opt(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
     exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    // Helper function to execute on option or create a new one
+    /// Execute on the options of the level, created empty when the level has none: only what
+    /// the command sets is written, the other options stay inherited. `Opt::default()` would
+    /// write every built-in default at that level, which replaces the lists of the upper levels.
     fn execute_or_create_option(
         exec_on_opt: impl Fn(Rc<RefCell<Opt>>) -> Result<(), Box<dyn Error>>,
         options: &mut Option<Rc<RefCell<Opt>>>,
+        level: Level,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(opt) = options {
             exec_on_opt(opt.clone())
         } else {
-            let new_opt = Rc::new(RefCell::new(Opt::default()));
+            let new_opt = Rc::new(RefCell::new(Opt::builder(level).build()));
             let result = exec_on_opt(new_opt.clone());
-            *options = Some(new_opt);
+            // a command that removes from options that the level does not have changes nothing
+            if *new_opt.as_ref().borrow() != Opt::builder(level).build() {
+                *options = Some(new_opt);
+            }
             result
         }
     }
@@ -522,12 +724,20 @@ pub fn perform_on_target_opt(
         // If task_id is provided, find the task
         if let Some(task_id) = task_id {
             let task = role_borrowed.task(&task_id).ok_or("Task not found")?;
-            return execute_or_create_option(exec_on_opt, &mut task.as_ref().borrow_mut().options);
+            return execute_or_create_option(
+                exec_on_opt,
+                &mut task.as_ref().borrow_mut().options,
+                Level::Task,
+            );
         }
         // No task_id, use role options
-        return execute_or_create_option(exec_on_opt, &mut role_borrowed.options);
+        return execute_or_create_option(exec_on_opt, &mut role_borrowed.options, Level::Role);
     }
 
     // No role_id, use global config options
-    execute_or_create_option(exec_on_opt, &mut rconfig.as_ref().borrow_mut().options)
+    execute_or_create_option(
+        exec_on_opt,
+        &mut rconfig.as_ref().borrow_mut().options,
+        Level::Global,
+    )
 }

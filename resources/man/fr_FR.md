@@ -7,6 +7,7 @@ RootAsRole - Une alternative pour les commandes sudo/su respectant le principe d
 
 # SYNOPSIS
 - **dosr** [__OPTIONS__] [__COMMAND__]...
+- **dosr** [__OPTIONS__] -- [__COMMAND__]...
 - **chsr** [__ARGUMENTS__]
     Les arguments suivent une grammaire disponible dans le code source à l'adresse <https://github.com/LeChatP/RootAsRole/tree/main/src/chsr/cli/cli.pest>
 
@@ -27,9 +28,11 @@ La commande **chsr** sert à configurer RootAsRole et sa politique de contrôle 
 
 Il est possible de configurer le mode de stockage de la politique de contrôle d'accès. Par défaut, RootAsRole utilise un fichier JSON. Il est possible de changer le mode de stockage en modifiant manuellement le fichier **/etc/security/rootasrole.json**.
 
-Concernant l'authentification, RootAsRole utilise PAM. Il est possible de configurer le fichier **/etc/pam.d/dosr** pour changer le comportement de l'authentification.
+Concernant l'authentification, RootAsRole utilise PAM. Il est possible de configurer le fichier **/etc/pam.d/dosr** pour changer le comportement de l'authentification. Il est également possible de configurer le nombre de tentatives de mot de passe et le délai entre elles dans la politique de RootAsRole.
 
 Le coeur de RootAsRole implémente RBAC-0, une version simplifiée de RBAC. Par défaut il ajoute des fonctionnalités sous forme de plugins pour implémenter certaines fonctionnalités de RBAC-1. RBAC-0 implémente simplement les rôles, les tâches et les permissions. Les plugins ajoutent la hiérarchie de rôles et séparation des devoirs. Les plugins sont uniquement implémentable directement dans le projet. Il y a également un autre plugin qui permet de tester la somme de contrôle des fichiers exécutés.
+
+Enfin, pour observer l'utilisation de l'outil RaR sur votre système, vous pouvez utiliser la commande `journalctl -t dosr` pour voir les logs du service `dosr`. Cela vous donnera des informations sur l'exécution des commandes et les éventuelles erreurs qui ont pu se produire.
 
 # OPTIONS
 
@@ -83,7 +86,7 @@ Vous pouvez trouver l'historique de RootAsRole sur le site web <https://lechatp.
 
 # RISQUES DE SÉCURITÉ
 
-RootAsRole est un outil de sécurité qui peut donner le contrôle complet du système à un utilisateur. Un administrateur peut écrire une politique de contrôle d'accès qui donne des droits trop élevés à un utilisateur. Une expression régulière perl (pcre2) est une librairie très complexe et peut accepter des caractères spéciaux inattendus.
+RootAsRole est un outil de sécurité qui peut donner le contrôle complet du système à un utilisateur. Un administrateur peut écrire une politique de contrôle d'accès qui donne des droits trop élevés à un utilisateur. Une expression régulière (regex) est une fonctionnalité très complexe et peut accepter des caractères spéciaux inattendus.
 
 Il peut être difficile de déterminer les droits nécessaire pour une commande. Pour cela, il est possible d'utiliser l'outil "capable" disponible sur <https://github.com/LeChatP/RootAsRole-capable/> pour déterminer les capabilities nécessaires pour une commande. Cependant, il est également possible que cette commande donne trop de capabilities. Il est donc recommandé de vérifier si les capabilities sont bien nécessaires car dans la plupart des cas, les capabilities ne sont pas nécessaires. Il est fortement déconseillé d'utiliser cet outil en production.
 

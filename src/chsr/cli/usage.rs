@@ -1,3 +1,4 @@
+use rootasrole_core::println_ignore_io_error;
 use std::{error::Error, fmt::Write};
 
 use log::debug;
@@ -42,6 +43,8 @@ enum UsageSectionId {
     OptionsWorkdir,
     OptionsEnv,
     OptionsTimeout,
+    OptionsPassword,
+    OptionsTty,
     OptionsAuth,
     OptionsExecinfo,
     OptionsUmask,
@@ -76,8 +79,33 @@ const USAGE_COMMANDS: UsageSection = UsageSection {
             description: "Manage roles and related operations.",
             indent: 1,
         },
+        UsageItem {
+            name: "options, o",
+            description: "Manage the options of the whole policy.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "file, f [path|list]",
+            description: "Edit one file of a policy directory, by its path or its name, or list them.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "convert, c",
+            description: "Convert the policy between JSON and CBOR.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "upgrade",
+            description: "Save the policy files written by an older version in the current format.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "editor, e [path]",
+            description: "Edit a policy file in a text editor, and save it once it is valid.",
+            indent: 1,
+        },
     ],
-    examples: &["chsr --help", "chsr list"],
+    examples: &["chsr --help", "chsr list", "chsr file list", "chsr editor"],
 };
 
 const USAGE_ROLE: UsageSection = UsageSection {
@@ -124,8 +152,22 @@ const USAGE_ROLE: UsageSection = UsageSection {
             description: "Specify one or more group combinations for grant or revoke operations.",
             indent: 2,
         },
+        UsageItem {
+            name: "ssd [add|del|set] [roles], ssd purge",
+            description: "Roles that a member of this role must not hold (separation of duties).",
+            indent: 1,
+        },
+        UsageItem {
+            name: "parents [add|del|set] [roles], parents purge",
+            description: "Roles whose tasks this role gets (hierarchy).",
+            indent: 1,
+        },
     ],
-    examples: &["chsr role admin add", "chsr role admin grant -u alice"],
+    examples: &[
+        "chsr role admin add",
+        "chsr role admin grant -u alice",
+        "chsr role dev ssd add auditor",
+    ],
 };
 
 const USAGE_TASK: UsageSection = UsageSection {
@@ -150,6 +192,11 @@ const USAGE_TASK: UsageSection = UsageSection {
         UsageItem {
             name: "del, delete, unset, d, rm",
             description: "Remove a task.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "purpose set [text], purpose unset",
+            description: "Describe what the task is for.",
             indent: 1,
         },
     ],
@@ -183,6 +230,16 @@ const USAGE_COMMAND: UsageSection = UsageSection {
             description: "Manage the blacklist for commands.",
             indent: 1,
         },
+        UsageItem {
+            name: "--sha256 [hash], --sha224, --sha384, --sha512",
+            description: "With add: the file of the command must have this hash (hashchecker plugin, deprecated, removed in 5.0).",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--read-only, --immutable",
+            description: "With add: the file of the command must be read-only, or immutable (hashchecker plugin, deprecated).",
+            indent: 2,
+        },
     ],
     examples: &["chsr role admin task backup command setpolicy allow-all"],
 };
@@ -202,12 +259,25 @@ const USAGE_CREDENTIALS: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "--setuid [user], --setgid [groups], --caps [capabilities]",
+            description: "The user, the groups (the first one is the primary group) and the capabilities of the command.",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--setgid-from [caller|target]",
+            description: "Whose groups the command gets when --setgid does not force them: the target user's by default.",
+            indent: 2,
+        },
+        UsageItem {
             name: "caps",
             description: "Manage capabilities for credentials.",
             indent: 1,
         },
     ],
-    examples: &["chsr role admin task backup credentials show"],
+    examples: &[
+        "chsr role admin task backup credentials show",
+        "chsr role admin task backup credentials set --setuid backup --setgid-from caller",
+    ],
 };
 
 const USAGE_CREDENTIALS_CAPS: UsageSection = UsageSection {
@@ -258,12 +328,12 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
         },
         UsageItem {
             name: "root [policy]",
-            description: "Defines when root gets privileges (unset, privileged, user, inherit).",
+            description: "Defines when root gets privileges (unset, privileged, user).",
             indent: 1,
         },
         UsageItem {
             name: "bounding [policy]",
-            description: "Defines how dropped capabilities are handled (unset, strict, ignore, inherit).",
+            description: "Defines how dropped capabilities are handled (unset, strict, ignore).",
             indent: 1,
         },
         UsageItem {
@@ -272,13 +342,23 @@ const USAGE_OPTIONS_GENERAL: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "password",
+            description: "Manage the password tries and the delay after a wrong one (set, unset).",
+            indent: 1,
+        },
+        UsageItem {
+            name: "tty owner [owner]",
+            description: "Defines who owns the terminal of the command (unset, caller, target).",
+            indent: 1,
+        },
+        UsageItem {
             name: "authentication [policy]",
-            description: "Defines if user needs to authenticate (unset, skip, perform, inherit).",
+            description: "Defines if user needs to authenticate (unset, skip, perform).",
             indent: 1,
         },
         UsageItem {
             name: "execinfo [policy]",
-            description: "Defines if user can see execution settings (unset, display, hide, inherit).",
+            description: "Defines if user can see execution settings (unset, show, hide).",
             indent: 1,
         },
         UsageItem {
@@ -367,6 +447,11 @@ const USAGE_OPTIONS_ENV: UsageSection = UsageSection {
             indent: 1,
         },
         UsageItem {
+            name: "override [allow|deny|unset]",
+            description: "Whether dosr -E may change the environment behavior.",
+            indent: 1,
+        },
+        UsageItem {
             name: "keep-only [key,...]",
             description: "Set policy as delete-all and key map to keep.",
             indent: 1,
@@ -429,6 +514,55 @@ const USAGE_OPTIONS_TIMEOUT: UsageSection = UsageSection {
         },
     ],
     examples: &["chsr options timeout set --type tty --duration 00:05:00 --max-usage 3"],
+};
+
+const USAGE_OPTIONS_PASSWORD: UsageSection = UsageSection {
+    title: "Password options",
+    synopsis: &["chsr options password [operation]"],
+    items: &[
+        UsageItem {
+            name: "set, unset",
+            description: "Set or unset the password settings.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "--tries [1-255]",
+            description: "How many times the password is asked.",
+            indent: 2,
+        },
+        UsageItem {
+            name: "--delay [HH:MM:SS]",
+            description: "How long to wait after a wrong password.",
+            indent: 2,
+        },
+    ],
+    examples: &[
+        "chsr options password set --tries 3 --delay 00:00:05",
+        "chsr role admin options password unset --delay",
+    ],
+};
+
+const USAGE_OPTIONS_TTY: UsageSection = UsageSection {
+    title: "Terminal options",
+    synopsis: &["chsr options tty owner [owner]"],
+    items: &[
+        UsageItem {
+            name: "caller",
+            description: "The user who runs dosr owns the terminal (default).",
+            indent: 1,
+        },
+        UsageItem {
+            name: "target",
+            description: "The user that the command runs as owns the terminal, like sudo.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "unset",
+            description: "Reset the owner of the terminal.",
+            indent: 1,
+        },
+    ],
+    examples: &["chsr role gpg task sign options tty owner target"],
 };
 
 const USAGE_OPTIONS_AUTH: UsageSection = UsageSection {
@@ -573,6 +707,8 @@ const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
         UsageSectionId::OptionsWorkdir => &USAGE_OPTIONS_WORKDIR,
         UsageSectionId::OptionsEnv => &USAGE_OPTIONS_ENV,
         UsageSectionId::OptionsTimeout => &USAGE_OPTIONS_TIMEOUT,
+        UsageSectionId::OptionsPassword => &USAGE_OPTIONS_PASSWORD,
+        UsageSectionId::OptionsTty => &USAGE_OPTIONS_TTY,
         UsageSectionId::OptionsAuth => &USAGE_OPTIONS_AUTH,
         UsageSectionId::OptionsExecinfo => &USAGE_OPTIONS_EXECINFO,
         UsageSectionId::OptionsUmask => &USAGE_OPTIONS_UMASK,
@@ -638,8 +774,8 @@ fn render_usage(sections: &[UsageSectionId]) -> String {
 
 pub fn help() {
     debug!("chsr help");
-    println!("{LONG_ABOUT}");
-    println!(
+    println_ignore_io_error!("{LONG_ABOUT}");
+    println_ignore_io_error!(
         "{}",
         render_usage(&[UsageSectionId::Usage, UsageSectionId::Commands])
     );
@@ -653,6 +789,9 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::opt_timeout_d_arg => "--duration (hh:mm:ss)",
         Rule::opt_timeout_t_arg => "--type (tty, ppid, uid)",
         Rule::opt_timeout_m_arg => "--max-usage (\\d+)",
+        Rule::opt_password_operations => "password set/unset operations",
+        Rule::opt_password_t_arg => "--tries (1-255)",
+        Rule::opt_password_d_arg => "--delay (hh:mm:ss)",
         Rule::roles_operations => "roles list/purge/add/del operations or existing role name",
         Rule::role_type_arg => "all, actors or tasks",
         Rule::role_grant_revoke => "grant, revoke",
@@ -672,8 +811,23 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::cred_caps_operations => "caps",
         Rule::list => "show, list, l",
         Rule::opt_timeout => "timeout",
+        Rule::opt_password => "password",
+        Rule::opt_tty => "tty",
+        Rule::opt_tty_owner => "owner",
+        Rule::opt_tty_owner_args => "caller, target or unset",
         Rule::opt_path | Rule::path => "path",
         Rule::opt_env => "env",
+        Rule::role_links | Rule::role_link_kind => "ssd, parents",
+        Rule::linked_roles | Rule::linked_role => "role names, separated by commas",
+        Rule::purpose_text => "the purpose of the task",
+        Rule::cmd_hash | Rule::cmd_hash_type => {
+            "--sha224, --sha256, --sha384 or --sha512 and a hash"
+        }
+        Rule::cmd_hash_value => "a hash in hexadecimal",
+        Rule::opt_env_override => "override",
+        Rule::env_override_value => "allow, deny",
+        Rule::env_key | Rule::env_key_list => "a variable name, where * matches any characters",
+        Rule::env_key_value | Rule::env_value_list => "NAME=value",
         Rule::opt_workdir => "workdir",
         Rule::opt_root => "root",
         Rule::opt_bounding => "bounding",
@@ -701,7 +855,7 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::del => "del",
         Rule::purge => "purge",
         _ => {
-            println!("{rule:?}");
+            println_ignore_io_error!("{rule:?}");
             "unknown rule"
         }
     }
@@ -719,11 +873,15 @@ const DEFAULT_USAGE_SECTIONS: &[UsageSectionId] = &[
     UsageSectionId::Upgrade,
 ];
 
+const ROLE_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Role];
+const TASK_SECTIONS: &[UsageSectionId] = &[UsageSectionId::Task];
 const OPTIONS_GENERAL_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsGeneral];
 const OPTIONS_AUTH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsAuth];
 const OPTIONS_EXECINFO_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsExecinfo];
 const OPTIONS_UMASK_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsUmask];
 const OPTIONS_TIMEOUT_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsTimeout];
+const OPTIONS_PASSWORD_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPassword];
+const OPTIONS_TTY_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsTty];
 const OPTIONS_PATH_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsPath];
 const OPTIONS_WORKDIR_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsWorkdir];
 const OPTIONS_ENV_SECTIONS: &[UsageSectionId] = &[UsageSectionId::OptionsEnv];
@@ -756,6 +914,13 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         | Rule::opt_timeout_d_arg
         | Rule::opt_timeout_t_arg
         | Rule::opt_timeout_m_arg => Some(OPTIONS_TIMEOUT_SECTIONS),
+        Rule::opt_password
+        | Rule::opt_password_operations
+        | Rule::opt_password_t_arg
+        | Rule::opt_password_d_arg => Some(OPTIONS_PASSWORD_SECTIONS),
+        Rule::opt_tty | Rule::opt_tty_owner | Rule::opt_tty_owner_args => {
+            Some(OPTIONS_TTY_SECTIONS)
+        }
         Rule::opt_path
         | Rule::opt_path_args
         | Rule::opt_path_set
@@ -773,9 +938,20 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         | Rule::opt_env_set
         | Rule::env_key_list
         | Rule::env_value_list
-        | Rule::env_key => Some(OPTIONS_ENV_SECTIONS),
+        | Rule::env_key
+        | Rule::opt_env_override
+        | Rule::env_override_value => Some(OPTIONS_ENV_SECTIONS),
+        Rule::role_links | Rule::role_link_kind | Rule::linked_roles | Rule::linked_role => {
+            Some(ROLE_SECTIONS)
+        }
+        Rule::purpose_keyword | Rule::purpose_text => Some(TASK_SECTIONS),
         Rule::caps_listing => Some(CREDENTIALS_CAPS_SECTIONS),
-        Rule::cmd_checklisting => Some(COMMAND_LISTING_SECTIONS),
+        Rule::cmd_checklisting
+        | Rule::cmd_checks
+        | Rule::cmd_hash
+        | Rule::cmd_hash_type
+        | Rule::cmd_hash_value
+        | Rule::cmd_check_flag => Some(COMMAND_LISTING_SECTIONS),
         Rule::opt_path_listing => Some(PATH_LISTING_SECTIONS),
         Rule::opt_env_listing => Some(ENV_LISTING_SECTIONS),
         Rule::convert => Some(CONVERT_SECTIONS),
@@ -792,8 +968,8 @@ pub fn print_usage(e: pest::error::Error<Rule>) -> Result<bool, Box<dyn Error>> 
         }
         rule_to_string(*rule)
     });
-    println!("{usage}");
-    println!(
+    println_ignore_io_error!("{usage}");
+    println_ignore_io_error!(
         "{RED}{BOLD}Unrecognized command line:\n| {RST}{}{RED}{BOLD}\n| {}\n= {}{RST}",
         e.line(),
         underline(&e),
@@ -831,6 +1007,28 @@ mod tests {
             usage_sections_for_rule(Rule::opt_timeout_m_arg),
             Some(OPTIONS_TIMEOUT_SECTIONS)
         );
+    }
+
+    #[test]
+    fn maps_password_rules_to_password_section() {
+        for rule in [
+            Rule::opt_password,
+            Rule::opt_password_operations,
+            Rule::opt_password_t_arg,
+            Rule::opt_password_d_arg,
+        ] {
+            assert_eq!(
+                usage_sections_for_rule(rule),
+                Some(OPTIONS_PASSWORD_SECTIONS)
+            );
+        }
+    }
+
+    #[test]
+    fn maps_tty_rules_to_tty_section() {
+        for rule in [Rule::opt_tty, Rule::opt_tty_owner, Rule::opt_tty_owner_args] {
+            assert_eq!(usage_sections_for_rule(rule), Some(OPTIONS_TTY_SECTIONS));
+        }
     }
 
     #[test]

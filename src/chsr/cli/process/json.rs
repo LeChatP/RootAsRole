@@ -1,18 +1,24 @@
-use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
+use rootasrole_core::println_ignore_io_error;
+use std::{cell::RefCell, collections::HashMap, error::Error, num::NonZeroU8, rc::Rc};
 
 use indexmap::IndexSet;
 use jiff::SignedDuration;
 use log::{debug, warn};
 
-use crate::cli::data::{InputAction, RoleType, SetListType, TaskType, TimeoutOpt};
+use crate::cli::data::{
+    CommandChecks, EnvOverride, InputAction, PasswordOpt, RoleLink, RoleType, SetListType,
+    TaskType, TimeoutOpt,
+};
+use serde_json::Value;
 
 use rootasrole_core::database::{
     options::{
-        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SEnvOptions, SPathOptions,
-        STimeout, SUMask, SWorkdirEither, SWorkdirSet, WorkdirBehavior,
+        EnvBehavior, EnvKey, Opt, OptStack, OptType, PathBehavior, SPassword, SPathOptions,
+        STimeout, STty, SUMask, SWorkdirEither, SWorkdirSet, TtyOwner, WorkdirBehavior,
     },
     structs::{
-        IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, STask, SUserEither,
+        GroupsFrom, IdTask, RoleGetter, SCapabilities, SCommand, SGroupsEither, SRole, SSetgidSet,
+        STask, SUserEither, SetBehavior,
     },
 };
 
@@ -27,23 +33,43 @@ pub fn list_json(
     task_type: Option<TaskType>,
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
-    let config = rconfig.as_ref().borrow();
-    role_id.map_or_else(
-        || {
-            println!(
+    let Some(role_id) = role_id else {
+        if options {
+            let rcopt = OptStack::from_roles(rconfig)
+                .to_opt()
+                .map_err(std::io::Error::other)?;
+            println_ignore_io_error!(
                 "{}",
-                serde_json::to_string_pretty(&*config)
-                    .unwrap_or_else(|_| "Failed to serialize config".to_string())
+                options_to_show(&rcopt.as_ref().borrow(), options_type)?
             );
-            Ok(())
-        },
-        |role_id| {
-            rconfig.role(role_id).map_or_else(
-                || Err("Role not found".into()),
-                |role| list_task(task_id, &role, options, options_type, task_type, role_type),
-            )
-        },
-    )
+        } else {
+            println_ignore_io_error!(
+                "{}",
+                serde_json::to_string_pretty(&*rconfig.as_ref().borrow())?
+            );
+        }
+        return Ok(());
+    };
+    let role = rconfig.role(role_id).ok_or("Role not found")?;
+    list_task(task_id, &role, options, options_type, task_type, role_type)
+}
+
+/// The options of a level, resolved with the upper levels, or only the one asked for.
+fn options_to_show(opt: &Opt, options_type: Option<OptType>) -> serde_json::Result<String> {
+    match options_type {
+        None => serde_json::to_string_pretty(opt),
+        Some(OptType::Path) => serde_json::to_string_pretty(&opt.path),
+        Some(OptType::Env) => serde_json::to_string_pretty(&opt.env),
+        Some(OptType::Root) => serde_json::to_string_pretty(&opt.root),
+        Some(OptType::Bounding) => serde_json::to_string_pretty(&opt.bounding),
+        Some(OptType::Timeout) => serde_json::to_string_pretty(&opt.timeout),
+        Some(OptType::Password) => serde_json::to_string_pretty(&opt.password),
+        Some(OptType::Tty) => serde_json::to_string_pretty(&opt.tty),
+        Some(OptType::Authentication) => serde_json::to_string_pretty(&opt.authentication),
+        Some(OptType::ExecInfo) => serde_json::to_string_pretty(&opt.execinfo),
+        Some(OptType::UMask) => serde_json::to_string_pretty(&opt.umask),
+        Some(OptType::Workdir) => serde_json::to_string_pretty(&opt.workdir),
+    }
 }
 
 fn list_task(
@@ -55,57 +81,32 @@ fn list_task(
     role_type: Option<RoleType>,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(task_id) = task_id {
-        if let Some(task) = role.as_ref().borrow().task(&task_id) {
-            if options {
-                debug!("task {task:?}");
-                let rcopt = OptStack::from_task(&task.clone())
-                    .to_opt()
-                    .map_err(std::io::Error::other)?;
-                let opt = rcopt.as_ref().borrow();
-                if let Some(opttype) = options_type {
-                    match opttype {
-                        OptType::Env => {
-                            println!("{}", serde_json::to_string_pretty(&opt.env)?);
-                        }
-                        OptType::Path => {
-                            println!("{}", serde_json::to_string_pretty(&opt.path)?);
-                        }
-                        OptType::Root => {
-                            println!("{}", serde_json::to_string_pretty(&opt.root)?);
-                        }
-                        OptType::Bounding => {
-                            println!("{}", serde_json::to_string_pretty(&opt.bounding)?);
-                        }
-                        OptType::Timeout => {
-                            println!("{}", serde_json::to_string_pretty(&opt.timeout)?);
-                        }
-                        OptType::Authentication => {
-                            println!("{}", serde_json::to_string_pretty(&opt.authentication)?);
-                        }
-                        OptType::ExecInfo => {
-                            println!("{}", serde_json::to_string_pretty(&opt.execinfo)?);
-                        }
-                        OptType::UMask => {
-                            println!("{}", serde_json::to_string_pretty(&opt.umask)?);
-                        }
-                        OptType::Workdir => {
-                            println!("{}", serde_json::to_string_pretty(&opt.workdir)?);
-                        }
-                    }
-                } else {
-                    println!("{}", serde_json::to_string_pretty(&rcopt)?);
-                }
-            } else {
-                print_task(task, task_type.unwrap_or(TaskType::All))?;
-            }
+        let task = role
+            .as_ref()
+            .borrow()
+            .task(&task_id)
+            .cloned()
+            .ok_or("Task not found")?;
+        if options {
+            debug!("task {task:?}");
+            let rcopt = OptStack::from_task(&task)
+                .to_opt()
+                .map_err(std::io::Error::other)?;
+            println_ignore_io_error!(
+                "{}",
+                options_to_show(&rcopt.as_ref().borrow(), options_type)?
+            );
         } else {
-            return Err("Task not found".into());
+            print_task(&task, task_type.unwrap_or(TaskType::All))?;
         }
     } else if options {
         let rcopt = OptStack::from_role(&role.clone())
             .to_opt()
             .map_err(std::io::Error::other)?;
-        println!("{}", serde_json::to_string_pretty(&rcopt)?);
+        println_ignore_io_error!(
+            "{}",
+            options_to_show(&rcopt.as_ref().borrow(), options_type)?
+        );
     } else {
         print_role(role, role_type.unwrap_or(RoleType::All))?;
     }
@@ -118,16 +119,16 @@ fn print_task(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match task_type {
         TaskType::All => {
-            println!("{}", serde_json::to_string_pretty(&task)?);
+            println_ignore_io_error!("{}", serde_json::to_string_pretty(&task)?);
         }
         TaskType::Commands => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&task.as_ref().borrow().commands)?
             );
         }
         TaskType::Credentials => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&task.as_ref().borrow().cred)?
             );
@@ -142,16 +143,16 @@ fn print_role(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match role_type {
         RoleType::All => {
-            println!("{}", serde_json::to_string_pretty(&role)?);
+            println_ignore_io_error!("{}", serde_json::to_string_pretty(&role)?);
         }
         RoleType::Actors => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&role.as_ref().borrow().actors)?
             );
         }
         RoleType::Tasks => {
-            println!(
+            println_ignore_io_error!(
                 "{}",
                 serde_json::to_string_pretty(&role.as_ref().borrow().tasks)?
             );
@@ -259,7 +260,7 @@ pub fn task_add_del(
         }
         InputAction::Purge => {
             let borrow = &role.as_ref().borrow();
-            let task = borrow.task(&task_id).expect("Task do not exists");
+            let task = borrow.task(&task_id).ok_or("Task not found")?;
             match task_type {
                 Some(TaskType::Commands) => {
                     task.as_ref().borrow_mut().commands.add.clear();
@@ -282,7 +283,7 @@ pub fn task_add_del(
             }
             Ok(true)
         }
-        _ => unreachable!("Invalid action"),
+        _ => Err("Invalid action".into()),
     }
 }
 
@@ -300,7 +301,7 @@ pub fn grant_revoke(
             //remove already existing actors
             actors.retain(|a| {
                 if role.as_ref().borrow().actors.contains(a) {
-                    println!("Actor {a} already in role");
+                    println_ignore_io_error!("Actor {a} already in role");
                     false
                 } else {
                     true
@@ -310,9 +311,11 @@ pub fn grant_revoke(
             Ok(true)
         }
         InputAction::Del => {
-            //if actor is not in role, warns
-            if !role.as_ref().borrow().actors.contains(&actors[0]) {
-                println!("Actor {} not in role", actors[0]);
+            //if an actor is not in role, warns
+            for actor in &actors {
+                if !role.as_ref().borrow().actors.contains(actor) {
+                    println_ignore_io_error!("Actor {actor} not in role");
+                }
             }
             role.as_ref()
                 .borrow_mut()
@@ -320,7 +323,7 @@ pub fn grant_revoke(
                 .retain(|a| !actors.contains(a));
             Ok(true)
         }
-        _ => unreachable!("Invalid action"),
+        _ => Err("Invalid action".into()),
     }
 }
 
@@ -331,8 +334,12 @@ pub fn cred_set(
     cred_caps: Option<capctl::CapSet>,
     cred_setuid: Option<rootasrole_core::database::actor::SUserType>,
     cred_setgid: Option<rootasrole_core::database::actor::SGroups>,
+    groups_from: Option<GroupsFrom>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred");
+    if groups_from.is_some() && cred_setgid.is_some() {
+        return Err("--setgid-from only applies when --setgid does not force the groups".into());
+    }
     match rconfig.task(role_id, task_id) {
         Ok(task) => {
             if let Some(caps) = cred_caps {
@@ -344,6 +351,19 @@ pub fn cred_set(
             if let Some(setgid) = cred_setgid {
                 task.as_ref().borrow_mut().cred.setgid =
                     Some(SGroupsEither::MandatoryGroups(setgid));
+            }
+            if let Some(from) = groups_from {
+                let mut task = task.as_ref().borrow_mut();
+                if let Some(SGroupsEither::GroupSelector(selector)) = task.cred.setgid.as_mut() {
+                    selector.from = Some(from);
+                } else {
+                    if task.cred.setgid.is_some() {
+                        warn!("The groups that the task forced are replaced by --setgid-from");
+                    }
+                    task.cred.setgid = Some(SGroupsEither::GroupSelector(
+                        SSetgidSet::builder(SetBehavior::None).from(from).build(),
+                    ));
+                }
             }
             Ok(true)
         }
@@ -358,6 +378,7 @@ pub fn cred_unset(
     cred_caps: Option<capctl::CapSet>,
     cred_setuid: Option<&rootasrole_core::database::actor::SUserType>,
     cred_setgid: Option<&rootasrole_core::database::actor::SGroups>,
+    groups_from: bool,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 cred unset");
     match rconfig.task(role_id, task_id) {
@@ -376,6 +397,21 @@ pub fn cred_unset(
             }
             if cred_setgid.is_some() {
                 task.as_ref().borrow_mut().cred.setgid = None;
+            }
+            if groups_from {
+                let mut task = task.as_ref().borrow_mut();
+                let Some(SGroupsEither::GroupSelector(selector)) = task.cred.setgid.as_mut() else {
+                    return Err("The task has no --setgid-from to unset".into());
+                };
+                selector.from = None;
+                // a selector with nothing else is no setgid
+                if selector.default_behavior.is_none()
+                    && selector.fallback.is_none()
+                    && selector.add.is_empty()
+                    && selector.sub.is_empty()
+                {
+                    task.cred.setgid = None;
+                }
             }
             Ok(true)
         }
@@ -420,7 +456,7 @@ pub fn cred_caps(
                     .get_or_insert_default()
                     .add = cred_caps;
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
         SetListType::Black => match action {
             InputAction::Add => {
@@ -446,9 +482,9 @@ pub fn cred_caps(
                     .get_or_insert_default()
                     .sub = cred_caps;
             }
-            _ => unreachable!("Unknown action {:?}", action),
+            _ => return Err(format!("Unknown action {action:?}").into()),
         },
-        _ => unreachable!("Unknown setlist type"),
+        _ => return Err("Unknown list type".into()),
     }
     Ok(true)
 }
@@ -481,57 +517,170 @@ pub fn cmd_whitelist_action(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: &str,
     task_id: IdTask,
-    cmd_id: impl IntoIterator<Item = String>,
+    line: &str,
     setlist_type: SetListType,
     action: InputAction,
+    checks: &CommandChecks,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr role r1 task t1 command whitelist add c1");
     let task = rconfig.task(role_id, task_id)?;
-    let cmd = SCommand::Simple(shell_words::join(cmd_id));
-    match setlist_type {
-        SetListType::White => match action {
-            InputAction::Add => {
-                //verify if command exists
-                if task.as_ref().borrow().commands.add.contains(&cmd) {
-                    return Err("Command already exists".into());
-                }
-                task.as_ref().borrow_mut().commands.add.push(cmd);
+    let mut task = task.as_ref().borrow_mut();
+    let list = match setlist_type {
+        SetListType::White => &mut task.commands.add,
+        SetListType::Black => &mut task.commands.sub,
+        _ => return Err("Unknown list type".into()),
+    };
+    let listed = |command: &SCommand| command_line(command) == Some(line);
+    match action {
+        InputAction::Add => {
+            if list.iter().any(listed) {
+                return Err("Command already exists".into());
             }
-            InputAction::Del => {
-                //if command is not in task, warns
-                if !task.as_ref().borrow().commands.add.contains(&cmd) {
-                    println!("Command {cmd:?} not in task");
-                }
-                task.as_ref().borrow_mut().commands.add.retain(|c| {
-                    debug!("'{:?}' != '{:?}' : {}", c, &cmd, *c != cmd);
-                    *c != cmd
-                });
+            list.push(command_entry(line.to_string(), checks));
+        }
+        InputAction::Del => {
+            if !list.iter().any(listed) {
+                println_ignore_io_error!("Command {line:?} not in task");
             }
-            _ => unreachable!("Unknown action {:?}", action),
-        },
-        SetListType::Black => match action {
-            InputAction::Add => {
-                //verify if command exists
-                if task.as_ref().borrow().commands.sub.contains(&cmd) {
-                    return Err("Command already exists".into());
-                }
-                task.as_ref().borrow_mut().commands.sub.push(cmd);
-            }
-            InputAction::Del => {
-                //if command is not in task, warns
-                if !task.as_ref().borrow().commands.sub.contains(&cmd) {
-                    println!("Command {cmd:?} not in task");
-                }
-                task.as_ref()
-                    .borrow_mut()
-                    .commands
-                    .sub
-                    .retain(|c| c != &cmd);
-            }
-            _ => unreachable!("Unknown action {:?}", action),
-        },
-        _ => unreachable!("Unknown setlist type"),
+            // in either form, with checks or not
+            list.retain(|command| !listed(command));
+        }
+        _ => return Err(format!("Unknown action {action:?}").into()),
     }
+    Ok(true)
+}
+
+/// The command line of an entry of a command list: the string, or the `command` of an entry
+/// with the checks of the hashchecker plugin.
+fn command_line(command: &SCommand) -> Option<&str> {
+    match command {
+        SCommand::Simple(line) => Some(line),
+        SCommand::Complex(entry) => entry.get("command").and_then(Value::as_str),
+    }
+}
+
+/// The entry of a command line: the string, or an object with the checks of the hashchecker
+/// plugin.
+fn command_entry(line: String, checks: &CommandChecks) -> SCommand {
+    if *checks == CommandChecks::default() {
+        return SCommand::Simple(line);
+    }
+    warn!(
+        "The hashchecker plugin is deprecated and will be removed in RootAsRole 5.0: \
+        use the IPE LSM to restrict which files can be executed"
+    );
+    let mut entry = serde_json::Map::new();
+    entry.insert("command".into(), Value::from(line));
+    if let Some((kind, hash)) = &checks.hash {
+        entry.insert(kind.clone(), Value::from(hash.clone()));
+    }
+    if checks.read_only {
+        entry.insert("read_only".into(), Value::Bool(true));
+    }
+    if checks.immutable {
+        entry.insert("immutable".into(), Value::Bool(true));
+    }
+    SCommand::Complex(Value::Object(entry))
+}
+
+/// `chsr role R ssd|parents add|del|set R2,R3` and `... purge`: the roles that a member of R
+/// must not hold (ssd), or whose tasks R gets (parents), kept as a list of names in R.
+pub fn edit_role_links(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: &str,
+    link: RoleLink,
+    action: InputAction,
+    names: Vec<String>,
+) -> Result<bool, Box<dyn Error>> {
+    let key = link.key();
+    debug!("chsr role r1 {key} {action:?}");
+    let role = rconfig.role(role_id).ok_or("Role not found")?;
+    if names.iter().any(|name| name == role_id) {
+        return Err(format!("The {key} of {role_id} cannot name {role_id} itself").into());
+    }
+    if matches!(action, InputAction::Add | InputAction::Set) {
+        for name in names.iter().filter(|name| rconfig.role(name).is_none()) {
+            println_ignore_io_error!("Role {name} does not exist (yet)");
+        }
+    }
+    let mut role = role.as_ref().borrow_mut();
+    let mut current: Vec<String> = match role.extra_fields.get(key) {
+        None => Vec::new(),
+        Some(Value::String(name)) => vec![name.clone()],
+        Some(Value::Array(linked)) => linked
+            .iter()
+            .map(|name| name.as_str().map(str::to_string))
+            .collect::<Option<_>>()
+            .ok_or_else(|| format!("The {key} of {role_id} holds something else than names"))?,
+        Some(other) => {
+            return Err(format!("The {key} of {role_id} is not a list of roles: {other}").into());
+        }
+    };
+    match action {
+        InputAction::Add | InputAction::Set => {
+            if action == InputAction::Set {
+                current.clear();
+            }
+            for name in names {
+                if !current.contains(&name) {
+                    current.push(name);
+                }
+            }
+        }
+        InputAction::Del => current.retain(|name| !names.contains(name)),
+        InputAction::Purge => current.clear(),
+        _ => return Err(format!("Unknown action {action:?}").into()),
+    }
+    if current.is_empty() {
+        role.extra_fields.remove(key);
+    } else {
+        role.extra_fields
+            .insert(key.to_string(), Value::from(current));
+    }
+    Ok(true)
+}
+
+/// `chsr role R task T purpose set <text>` and `... purpose unset`.
+pub fn edit_task_purpose(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: &str,
+    task_id: IdTask,
+    action: InputAction,
+    purpose: Option<String>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr role r1 task t1 purpose {action:?}");
+    let task = rconfig.task(role_id, task_id)?;
+    task.as_ref().borrow_mut().purpose = match action {
+        InputAction::Set => Some(purpose.ok_or("purpose set needs a text")?),
+        InputAction::Del => None,
+        _ => return Err(format!("Unknown action {action:?}").into()),
+    };
+    Ok(true)
+}
+
+/// `chsr o env override allow|deny|unset`: whether `dosr -E` may change the env behavior.
+pub fn set_env_override(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    value: EnvOverride,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o env override {value:?}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut binding = opt.as_ref().borrow_mut();
+        match value {
+            EnvOverride::Allow | EnvOverride::Deny => {
+                binding.env.get_or_insert_default().override_behavior =
+                    Some(value == EnvOverride::Allow);
+            }
+            EnvOverride::Unset => {
+                if let Some(env) = binding.env.as_mut() {
+                    env.override_behavior = None;
+                }
+            }
+        }
+        Ok(())
+    })?;
     Ok(true)
 }
 
@@ -551,6 +700,8 @@ pub fn cmd_setpolicy(
     Ok(true)
 }
 
+/// `chsr o env keep-only|delete-only`: the behavior and its list (keep in delete mode, delete
+/// in keep mode); the other env fields of the level (check, set, override, unknown fields) stay.
 pub fn env_set_policylist(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -560,20 +711,14 @@ pub fn env_set_policylist(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o env set keep-only|delete-only {options_env:?}");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        opt.as_ref().borrow_mut().env = Some(SEnvOptions {
-            default_behavior: options_env_policy,
-            keep: if options_env_policy.is_delete() {
-                Some(options_env.clone())
-            } else {
-                None
-            },
-            delete: if options_env_policy.is_keep() {
-                Some(options_env.clone())
-            } else {
-                None
-            },
-            ..Default::default()
-        });
+        let mut binding = opt.as_ref().borrow_mut();
+        let env = binding.env.get_or_insert_default();
+        env.default_behavior = options_env_policy;
+        if options_env_policy.is_delete() {
+            env.keep = Some(options_env.clone());
+        } else if options_env_policy.is_keep() {
+            env.delete = Some(options_env.clone());
+        }
         Ok(())
     })?;
     Ok(true)
@@ -635,6 +780,30 @@ pub fn set_execinfo(
     Ok(true)
 }
 
+/// `chsr o tty owner`: sets or unsets the owner, then removes the option once nothing is left in
+/// it; the fields that this version does not know are kept.
+pub fn set_tty_owner(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    owner: Option<TtyOwner>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o tty owner {owner:?}");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(owner) = owner {
+            opt.tty.get_or_insert_with(STty::default).owner = Some(owner);
+        } else if let Some(tty) = opt.tty.as_mut() {
+            tty.owner = None;
+            if tty.extra_fields.is_empty() {
+                opt.tty = None;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
 pub fn set_umask(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -686,13 +855,16 @@ pub fn path_set(
                         .collect(),
                 );
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
     Ok(true)
 }
 
+/// `chsr o path (whitelist|blacklist) purge`: the level no longer defines the list, which is
+/// inherited again, like the env lists. An explicit empty list would also remove the inherited
+/// one: for the `sub` list, protections of the upper levels.
 pub fn path_purge(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -702,25 +874,21 @@ pub fn path_purge(
     debug!("chsr o path purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.get_or_insert_default();
+        let Some(path) = binding.path.as_mut() else {
+            return Ok(());
+        };
         match setlist_type {
-            Some(SetListType::White) => {
-                if let Some(add) = &mut path.add {
-                    add.clear();
-                }
-            }
-            Some(SetListType::Black) => {
-                if let Some(sub) = &mut path.sub {
-                    sub.clear();
-                }
-            }
-            _ => unreachable!("Unknown setlist type"),
+            Some(SetListType::White) => path.add = None,
+            Some(SetListType::Black) => path.sub = None,
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
     Ok(true)
 }
 
+/// `chsr o workdir (whitelist|blacklist) purge`: the level no longer defines the list, see
+/// [`path_purge`].
 pub fn workdir_purge(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -730,29 +898,15 @@ pub fn workdir_purge(
     debug!("chsr o workdir purge");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
         let mut binding = opt.as_ref().borrow_mut();
-        let workdir_current = binding.workdir.take();
-        let mut workdir_set = match workdir_current {
-            Some(SWorkdirEither::Struct(workdir_set)) => workdir_set,
-            Some(SWorkdirEither::Path(path)) => SWorkdirSet {
-                fallback: Some(path),
-                ..Default::default()
-            },
-            None => SWorkdirSet::default(),
+        let Some(SWorkdirEither::Struct(workdir_set)) = binding.workdir.as_mut() else {
+            // no list at this level: a bare path or nothing
+            return Ok(());
         };
         match setlist_type {
-            Some(SetListType::White) => {
-                if let Some(add) = &mut workdir_set.add {
-                    add.clear();
-                }
-            }
-            Some(SetListType::Black) => {
-                if let Some(sub) = &mut workdir_set.sub {
-                    sub.clear();
-                }
-            }
-            _ => unreachable!("Unknown setlist type"),
+            Some(SetListType::White) => workdir_set.add = None,
+            Some(SetListType::Black) => workdir_set.sub = None,
+            _ => return Err("Unknown list type".into()),
         }
-        binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
         Ok(())
     })?;
     Ok(true)
@@ -783,13 +937,76 @@ pub fn env_whitelist_set(
                 env.default_behavior = EnvBehavior::Delete;
                 env.keep = Some(options_env.clone());
             }
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
     Ok(true)
 }
 
+/// `chsr o password set`: the fields given are changed, the others and the unknown fields of the
+/// option are kept.
+pub fn set_password(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    password_arg: [bool; 2],
+    tries: Option<NonZeroU8>,
+    delay: Option<SignedDuration>,
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o password set");
+    if password_arg[PasswordOpt::Tries as usize] && tries.is_none() {
+        return Err("--tries needs a number of tries".into());
+    }
+    if password_arg[PasswordOpt::Delay as usize] && delay.is_none() {
+        return Err("--delay needs a duration".into());
+    }
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        let password = opt.password.get_or_insert_with(SPassword::default);
+        if let Some(tries) = tries {
+            password.tries = Some(tries);
+        }
+        if let Some(delay) = delay {
+            password.delay = Some(delay);
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// `chsr o password unset`: the fields named are removed, then the option once nothing is left
+/// in it.
+pub fn unset_password(
+    rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
+    role_id: Option<&String>,
+    task_id: Option<IdTask>,
+    password_arg: [bool; 2],
+) -> Result<bool, Box<dyn Error>> {
+    debug!("chsr o password unset");
+    perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(password) = opt.password.as_mut() {
+            if password_arg[PasswordOpt::Tries as usize] {
+                password.tries = None;
+            }
+            if password_arg[PasswordOpt::Delay as usize] {
+                password.delay = None;
+            }
+            if password.tries.is_none()
+                && password.delay.is_none()
+                && password.extra_fields.is_empty()
+            {
+                opt.password = None;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// `chsr o timeout unset`: the fields named are removed, then the option once nothing is left
+/// in it.
 pub fn unset_timeout(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
@@ -798,38 +1015,54 @@ pub fn unset_timeout(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o timeout unset");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut timeout = STimeout::default();
-        if timeout_arg[TimeoutOpt::Type as usize] {
-            timeout.type_field = None;
+        let mut opt = opt.as_ref().borrow_mut();
+        if let Some(timeout) = opt.timeout.as_mut() {
+            if timeout_arg[TimeoutOpt::Type as usize] {
+                timeout.type_field = None;
+            }
+            if timeout_arg[TimeoutOpt::Duration as usize] {
+                timeout.duration = None;
+            }
+            if timeout_arg[TimeoutOpt::MaxUsage as usize] {
+                timeout.max_usage = None;
+            }
+            if timeout.type_field.is_none()
+                && timeout.duration.is_none()
+                && timeout.max_usage.is_none()
+                && timeout.extra_fields.is_empty()
+            {
+                opt.timeout = None;
+            }
         }
-        if timeout_arg[TimeoutOpt::Duration as usize] {
-            timeout.duration = None;
-        }
-        if timeout_arg[TimeoutOpt::MaxUsage as usize] {
-            timeout.max_usage = None;
-        }
-        if timeout_arg.iter().all(|b| *b) {
-            opt.as_ref().borrow_mut().timeout = None;
-        } else {
-            opt.as_ref().borrow_mut().timeout = Some(timeout);
-        }
-
         Ok(())
     })?;
     Ok(true)
 }
 
+/// `chsr o timeout set`: the fields given are changed, the others and the unknown fields of the
+/// option are kept.
 pub fn set_timeout(
     rconfig: &Rc<RefCell<rootasrole_core::database::structs::SPolicy>>,
     role_id: Option<&String>,
     task_id: Option<IdTask>,
+    timeout_arg: [bool; 3],
     timeout_type: Option<rootasrole_core::database::options::TimestampType>,
     timeout_duration: Option<SignedDuration>,
     timeout_max_usage: Option<u64>,
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o timeout set");
+    if timeout_arg[TimeoutOpt::Type as usize] && timeout_type.is_none() {
+        return Err("--type needs tty, ppid or uid".into());
+    }
+    if timeout_arg[TimeoutOpt::Duration as usize] && timeout_duration.is_none() {
+        return Err("--duration needs a duration".into());
+    }
+    if timeout_arg[TimeoutOpt::MaxUsage as usize] && timeout_max_usage.is_none() {
+        return Err("--max-usage needs a number".into());
+    }
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut timeout = STimeout::default();
+        let mut opt = opt.as_ref().borrow_mut();
+        let timeout = opt.timeout.get_or_insert_with(STimeout::default);
         if let Some(timeout_type) = timeout_type {
             timeout.type_field = Some(timeout_type);
         }
@@ -839,7 +1072,6 @@ pub fn set_timeout(
         if let Some(max_usage) = timeout_max_usage {
             timeout.max_usage = Some(max_usage);
         }
-        opt.as_ref().borrow_mut().timeout = Some(timeout);
         Ok(())
     })?;
     Ok(true)
@@ -855,9 +1087,13 @@ pub fn path_setlist2(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path set whitelist|blacklist add|del|set path1:path2:path3 22222222222");
     perform_on_target_opt(rconfig, role_id, task_id, |opt: Rc<RefCell<Opt>>| {
-        let mut default_path = SPathOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let path = binding.path.as_mut().unwrap_or(&mut default_path);
+        // removing from a list that the level does not define changes nothing
+        if binding.path.is_none() && !matches!(action, InputAction::Add | InputAction::Set) {
+            warn!("No path option at this level, nothing to remove");
+            return Ok(());
+        }
+        let path = binding.path.get_or_insert_default();
         match setlist_type {
             Some(SetListType::White) => match action {
                 InputAction::Add => {
@@ -890,7 +1126,7 @@ pub fn path_setlist2(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -923,9 +1159,9 @@ pub fn path_setlist2(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         Ok(())
     })?;
@@ -998,7 +1234,7 @@ pub fn workdir_setlist(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -1031,9 +1267,9 @@ pub fn workdir_setlist(
                             .collect(),
                     );
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
-            _ => unreachable!("Unknown setlist type"),
+            _ => return Err("Unknown list type".into()),
         }
         binding.workdir = Some(SWorkdirEither::Struct(workdir_set));
         Ok(())
@@ -1074,17 +1310,14 @@ pub fn workdir_setpolicy(
             || {
                 SWorkdirEither::Struct(SWorkdirSet {
                     default_behavior: options_workdir_policy,
-                    fallback: None,
-                    add: None,
-                    sub: None,
+                    ..Default::default()
                 })
             },
             |workdir| match workdir {
                 SWorkdirEither::Path(p) => SWorkdirEither::Struct(SWorkdirSet {
                     default_behavior: options_workdir_policy,
                     fallback: Some(p.clone()),
-                    add: None,
-                    sub: None,
+                    ..Default::default()
                 }),
                 SWorkdirEither::Struct(sworkdir_set) => {
                     sworkdir_set.default_behavior = options_workdir_policy;
@@ -1110,9 +1343,13 @@ pub fn env_setlist_add(
 ) -> Result<bool, Box<dyn Error>> {
     debug!("chsr o path {setlist_type:?} {action:?} path1 path2 path3");
     perform_on_target_opt(rconfig, role_id, task_id, move |opt: Rc<RefCell<Opt>>| {
-        let mut default_env = SEnvOptions::default();
         let mut binding = opt.as_ref().borrow_mut();
-        let env = binding.env.as_mut().unwrap_or(&mut default_env);
+        // removing from a list that the level does not define changes nothing
+        if binding.env.is_none() && !matches!(action, InputAction::Add | InputAction::Set) {
+            warn!("No env option at this level, nothing to remove");
+            return Ok(());
+        }
+        let env = binding.env.get_or_insert_default();
 
         match setlist_type {
             Some(SetListType::White) => match action {
@@ -1136,7 +1373,7 @@ pub fn env_setlist_add(
                     env.keep
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Black) => match action {
                 InputAction::Add => {
@@ -1159,7 +1396,7 @@ pub fn env_setlist_add(
                     env.delete
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Check) => match action {
                 InputAction::Add => {
@@ -1181,7 +1418,7 @@ pub fn env_setlist_add(
                 InputAction::Purge => {
                     env.check = None;
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             Some(SetListType::Set) => match action {
                 InputAction::Add => {
@@ -1211,14 +1448,14 @@ pub fn env_setlist_add(
                     env.set
                         .replace(options_env_values.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
             None => match action {
                 InputAction::Set => {
                     env.keep
                         .replace(options_key_env.as_ref().ok_or("Empty list")?.clone());
                 }
-                _ => unreachable!("Unknown action {:?}", action),
+                _ => return Err(format!("Unknown action {action:?}").into()),
             },
         }
         Ok(())
@@ -1240,4 +1477,28 @@ pub fn env_setpolicy(
         Ok(())
     })?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use rootasrole_core::database::options::{Level, Opt, OptType, SBounding, STimeout};
+
+    use super::options_to_show;
+
+    #[test]
+    fn test_options_to_show_only_the_option_asked_for() {
+        let opt = Opt::builder(Level::Role)
+            .bounding(SBounding::Strict)
+            .timeout(STimeout::default())
+            .build();
+        assert_eq!(
+            options_to_show(&opt, Some(OptType::Bounding)).unwrap(),
+            "\"strict\""
+        );
+        assert_eq!(options_to_show(&opt, Some(OptType::Root)).unwrap(), "null");
+        let all: serde_json::Value =
+            serde_json::from_str(&options_to_show(&opt, None).unwrap()).unwrap();
+        assert_eq!(all["bounding"], "strict");
+        assert!(all.get("timeout").is_some());
+    }
 }

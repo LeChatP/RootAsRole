@@ -11,17 +11,41 @@ pub mod usage;
 use std::{error::Error, path::PathBuf};
 
 use bon::builder;
-use data::{Cli, Inputs, Rule};
+use data::{Cli, InputAction, Inputs, Rule};
 
 use landlock::RulesetStatus;
-use log::debug;
+use log::{debug, warn};
 use pair::recurse_pair;
 use pest::Parser;
-use process::process_input;
+use process::{EditorTarget, editor_target, process_input};
 use rootasrole_core::file::FileSettings;
 use usage::print_usage;
 
 use crate::{cli::editor::start_editing, util::escape_parser_string_vec};
+
+/// What chsr does without the policy: print the usage for `--help`, or when the arguments
+/// cannot be parsed. `None` when the arguments need the policy, which chsr then reads.
+pub fn usage_without_policy<I, S>(args: I) -> Option<Result<bool, Box<dyn Error>>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args = escape_parser_string_vec(args);
+    let pairs = match Cli::parse(Rule::cli, &args) {
+        Ok(pairs) => pairs,
+        Err(e) => return Some(print_usage(e)),
+    };
+    let mut inputs = Inputs::default();
+    for pair in pairs {
+        if let Err(e) = recurse_pair(pair, &mut inputs) {
+            return Some(Err(e));
+        }
+    }
+    (inputs.action == InputAction::Help).then(|| {
+        usage::help();
+        Ok(false)
+    })
+}
 
 #[builder]
 pub fn main<I, S>(
@@ -51,17 +75,15 @@ where
         if ruleset == &RulesetStatus::NotEnforced {
             return Err("Editor mode requires landlock to be enforced.".into());
         }
-        if let Some(path) = inputs.editor_path {
-            if let Some(storage) = storage.get(&path) {
-                return start_editing(&path, &mut *storage.as_ref().borrow_mut());
-            }
-            let file = FileSettings::read_policy(&path, inputs.editor_type.unwrap_or_default())?;
-            return start_editing(&path, &mut *file.data.data.as_ref().borrow_mut());
+        // the copy that the editor opens is always in the temporary folder, which Landlock allows
+        let folder = folder.ok_or("the editor needs a temporary folder")?;
+        if inputs.editor_type.is_some() {
+            warn!("--type is ignored: chsr editor edits a file of the policy, in its format");
         }
-        return start_editing(
-            folder.expect("implementation error"),
-            &mut *storage.get_root_mut(),
-        );
+        return match editor_target(storage, inputs.editor_path.as_deref())? {
+            EditorTarget::Root => start_editing(folder, &mut *storage.get_root_mut()),
+            EditorTarget::Policy(policy) => start_editing(folder, &mut *policy.borrow_mut()),
+        };
     }
     process_input(storage, inputs)
 }
@@ -955,6 +977,921 @@ mod tests {
     // chsr o workdir (whitelist|blacklist) (add|del|set|purge) /home/user/**
 
     #[test]
+    fn test_usage_without_policy() {
+        // printed without the policy
+        assert!(matches!(usage_without_policy(["--help"]), Some(Ok(false))));
+        assert!(matches!(usage_without_policy(["-h"]), Some(Ok(false))));
+        assert!(matches!(
+            usage_without_policy(["not-a-command"]),
+            Some(Err(_))
+        ));
+        // these need the policy
+        assert!(usage_without_policy(["list"]).is_none());
+        assert!(usage_without_policy(["role", "r", "add"]).is_none());
+        assert!(usage_without_policy(["upgrade"]).is_none());
+    }
+
+    /// The policy as saved in the file of the test `name`, which must load again (parsed, not
+    /// opened: the test still holds the lock of the file).
+    fn saved_policy(ctx: &mut TestContext, name: &str) -> Value {
+        ctx.settings.save_all().unwrap();
+        let content = fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap();
+        serde_json::from_str::<RootSettings>(&content).expect("the saved policy loads again");
+        serde_json::from_str(&content).unwrap()
+    }
+
+    fn saved_role<'v>(saved: &'v Value, role: &str) -> &'v Value {
+        saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == role)
+            .unwrap()
+    }
+
+    fn saved_task<'v>(saved: &'v Value, role: &str, task: &str) -> &'v Value {
+        saved_role(saved, role)["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == task)
+            .unwrap()
+    }
+
+    #[test]
+    fn test_new_options_hold_only_what_is_set() {
+        let name = "new_options_hold_only_what_is_set";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.settings.get_root().config.as_ref().borrow_mut().options = None;
+        ctx.assert_command_success("o bounding strict");
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o root user");
+        ctx.assert_command_success("r fresh t t1 add");
+        ctx.assert_command_success("r fresh t t1 o path whitelist add /opt/bin");
+        let saved = saved_policy(&mut ctx, name);
+        // the other options stay inherited, not written with the built-in defaults
+        assert_eq!(saved["options"], serde_json::json!({"bounding": "strict"}));
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"root": "user"})
+        );
+        assert_eq!(
+            saved_task(&saved, "fresh", "t1")["options"],
+            serde_json::json!({"path": {"add": ["/opt/bin"]}})
+        );
+    }
+
+    #[test]
+    fn test_list_edits_on_a_level_without_the_option() {
+        let name = "list_edits_on_a_level_without_the_option";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh t t1 add");
+        ctx.assert_command_success("r fresh t t1 o env whitelist add MYVAR");
+        ctx.assert_command_success("r fresh t t1 o env checklist add TZ");
+        ctx.assert_command_success("r fresh o path blacklist add /tmp");
+        // removing from a list that the level does not define changes nothing
+        ctx.assert_command_success("r fresh o env blacklist del LD_PRELOAD");
+        ctx.assert_command_success("r fresh t t1 o path whitelist del /usr/bin");
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(
+            saved_task(&saved, "fresh", "t1")["options"],
+            serde_json::json!({"env": {"keep": ["MYVAR"], "check": ["TZ"]}})
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"path": {"sub": ["/tmp"]}})
+        );
+    }
+
+    #[test]
+    fn test_options_timeout() {
+        let name = "options_timeout";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // set changes the fields given and keeps the others
+        ctx.assert_command_success("o timeout set --type tty");
+        ctx.assert_command_success("o timeout set -d 5:00");
+        assert_eq!(
+            saved_policy(&mut ctx, name)["options"]["timeout"],
+            serde_json::json!({"type": "tty", "duration": "00:05:00", "max_usage": 1})
+        );
+        // unset removes the fields named, then the option once nothing is left
+        ctx.assert_command_success("o timeout unset --max-usage");
+        assert_eq!(
+            saved_policy(&mut ctx, name)["options"]["timeout"],
+            serde_json::json!({"type": "tty", "duration": "00:05:00"})
+        );
+        ctx.assert_command_success("o timeout unset --type --duration");
+        assert!(
+            saved_policy(&mut ctx, name)["options"]
+                .get("timeout")
+                .is_none()
+        );
+        // a field that this version does not know is kept
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .timeout
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o timeout unset --type --duration --max-usage");
+        ctx.assert_command_success("r complete o timeout set --max-usage 3");
+        // a level without the option
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o timeout set --type uid");
+        // refused, without a change
+        for command in [
+            "o timeout set --type",
+            "o timeout set --duration",
+            "o timeout set --max-usage",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        ctx.assert_command_no_change("r complete t t_complete o show timeout");
+        let saved = saved_policy(&mut ctx, name);
+        assert!(saved["options"].get("timeout").is_none());
+        assert_eq!(
+            saved_role(&saved, "complete")["options"]["timeout"],
+            serde_json::json!({"max_usage": 3, "future": 1})
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"timeout": {"type": "uid"}})
+        );
+    }
+
+    #[test]
+    fn test_options_env_names() {
+        let name = "options_env_names";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // one letter and patterns, like the policy accepts
+        ctx.assert_command_success("o env whitelist add A");
+        ctx.assert_command_success("o env whitelist add LC_*,*_PROXY");
+        ctx.assert_command_success("o env setlist add Z=1");
+        // a name that the policy refuses is an error, not a panic
+        for command in [
+            "o env whitelist add MY-VAR",
+            "o env whitelist add 1VAR",
+            "o env setlist add BAD*=1",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(
+            saved["options"]["env"]["keep"],
+            serde_json::json!(["env1", "env2", "A", "LC_*", "*_PROXY"])
+        );
+        assert_eq!(saved["options"]["env"]["set"]["Z"], "1");
+        assert!(saved["options"]["env"]["set"].get("BAD*").is_none());
+    }
+
+    #[test]
+    fn test_options_show_every_option_at_every_level() {
+        let (mut ctx, _defer) = TestContext::new("options_show_every_option_at_every_level");
+        for level in ["", "r complete ", "r complete t t_complete "] {
+            for option in [
+                "",
+                "all",
+                "path",
+                "env",
+                "root",
+                "bounding",
+                "timeout",
+                "password",
+                "authentication",
+                "auth",
+                "execinfo",
+                "info",
+                "umask",
+                "mask",
+                "workdir",
+            ] {
+                ctx.assert_command_no_change(format!("{level}o show {option}").trim_end());
+            }
+            // not options: refused, never a panic
+            for option in ["cmd", "cred"] {
+                assert!(ctx.run_command(&format!("{level}o show {option}")).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_missing_targets_are_errors() {
+        let (mut ctx, _defer) = TestContext::new("missing_targets_are_errors");
+        for command in [
+            "r complete t nope purge",
+            "r complete t nope show",
+            "r nope t t1 purge",
+            "r nope o root user",
+            "r complete t nope o root user",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        // purges that the grammar accepts, whatever they do, never panic
+        for command in [
+            "r complete t t_complete cmd whitelist purge",
+            "r complete t t_complete cred caps whitelist purge",
+            "o workdir blacklist purge",
+            "o env setlist purge",
+        ] {
+            let _ = ctx.run_command(command);
+        }
+    }
+
+    /// The paths of the fields named `future` in `value`.
+    fn future_fields(value: &Value, prefix: &str, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    let path = format!("{prefix}/{key}");
+                    if key == "future" {
+                        out.push(path.clone());
+                    }
+                    future_fields(value, &path, out);
+                }
+            }
+            Value::Array(items) => {
+                for (i, value) in items.iter().enumerate() {
+                    future_fields(value, &format!("{prefix}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_unknown_fields_survive_a_save() {
+        let path = format!("{RAR_CFG_PATH}.unknown_fields_survive_a_save");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.unknown_fields_survive_a_save"));
+        });
+        // the credential sets (setuid, setgid, capabilities) refuse unknown fields, as dosr does
+        let policy = serde_json::json!({
+            "version": rootasrole_core::PACKAGE_VERSION.to_string(),
+            "future": 1,
+            "storage": {"method": "json", "settings": {"path": path, "future": 1}, "future": 1},
+            "options": {"future": 1,
+                "path": {"default": "delete", "add": ["/usr/bin"], "future": 1},
+                "env": {"default": "delete", "keep": ["A"], "future": 1},
+                "timeout": {"type": "tty", "future": 1},
+                "password": {"tries": 3, "future": 1},
+                "workdir": {"default": "all", "fallback": "/", "future": 1}},
+            "roles": [{"name": "r", "future": 1,
+                "actors": [{"type": "user", "id": 0, "future": 1},
+                    {"type": "group", "groups": ["root"], "future": 1}],
+                "options": {"future": 1, "path": {"default": "keep-safe", "future": 1}},
+                "tasks": [{"name": "t", "future": 1,
+                    "cred": {"future": 1,
+                        "setuid": {"default": "all", "fallback": "root"},
+                        "setgid": {"default": "all", "fallback": ["root"]},
+                        "capabilities": {"default": "none", "add": ["CAP_NET_RAW"]}},
+                    "commands": {"default": "none", "add": ["/usr/bin/ls"], "future": 1},
+                    "options": {"future": 1}}]}]
+        });
+        fs::write(&path, serde_json::to_string_pretty(&policy).unwrap()).unwrap();
+        let mut settings =
+            FileSettings::write_all(path.clone(), path.clone(), StorageMethod::JSON).unwrap();
+        assert!(
+            main(&mut settings, "o bounding strict".split(' '))
+                .call()
+                .unwrap()
+        );
+        settings.save_all().unwrap();
+        drop(settings);
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+        future_fields(&policy, "", &mut before);
+        future_fields(&saved, "", &mut after);
+        assert_eq!(before.len(), 18);
+        let lost: Vec<_> = before
+            .iter()
+            .filter(|field| !after.contains(field))
+            .collect();
+        assert!(lost.is_empty(), "lost: {lost:?}");
+    }
+
+    #[test]
+    fn test_purge_returns_to_inheritance() {
+        let name = "purge_returns_to_inheritance";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o workdir whitelist add /srv");
+        ctx.assert_command_success("o workdir blacklist add /tmp");
+        // the level no longer defines the list, the upper ones apply again
+        for command in [
+            "o path whitelist purge",
+            "o path blacklist purge",
+            "o workdir whitelist purge",
+            "o env checklist purge",
+            "o env blacklist purge",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let policy = saved_policy(&mut ctx, name);
+        let options = &policy["options"];
+        assert!(options["path"].get("add").is_none(), "{options}");
+        assert!(options["path"].get("sub").is_none(), "{options}");
+        assert!(options["workdir"].get("add").is_none(), "{options}");
+        assert_eq!(options["workdir"]["sub"], serde_json::json!(["/tmp"]));
+        assert!(options["env"].get("check").is_none(), "{options}");
+        assert!(options["env"].get("delete").is_none(), "{options}");
+        // on a level without the option, nothing changes
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o path blacklist purge");
+        ctx.assert_command_success("r fresh o workdir whitelist purge");
+        let policy = saved_policy(&mut ctx, name);
+        assert!(saved_role(&policy, "fresh").get("options").is_none());
+    }
+
+    #[test]
+    fn test_env_keep_only_keeps_the_other_fields() {
+        let name = "env_keep_only_keeps_the_other_fields";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o env keep-only A,B");
+        let env = saved_policy(&mut ctx, name)["options"]["env"].clone();
+        assert_eq!(
+            env,
+            serde_json::json!({
+                "default": "delete",
+                "keep": ["A", "B"],
+                "check": ["env3", "env4"],
+                "delete": ["env5", "env6"],
+                "set": {"env7": "val7", "env8": "val8"}
+            })
+        );
+        ctx.assert_command_success("o env delete-only C");
+        let env = saved_policy(&mut ctx, name)["options"]["env"].clone();
+        assert_eq!(env["default"], "keep");
+        assert_eq!(env["delete"], serde_json::json!(["C"]));
+        assert_eq!(env["keep"], serde_json::json!(["A", "B"]));
+        assert_eq!(env["check"], serde_json::json!(["env3", "env4"]));
+    }
+
+    #[test]
+    fn test_simple_edits_are_saved() {
+        let name = "simple_edits_are_saved";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for command in [
+            "o root user",
+            "o bounding strict",
+            "o auth skip",
+            "o info hide",
+            "o umask 077",
+            "r complete o root user",
+            "r complete o umask 027",
+            "r complete t t_complete o workdir set /srv",
+            "r complete t t_complete o auth perform",
+            "r complete grant -u alice -g staff&wheel",
+            "r complete t t_complete cred set --setuid root --setgid root,adm",
+            "r complete t t_complete cred caps whitelist add cap_net_raw",
+            "r complete t t_complete cmd whitelist add /usr/bin/id -u",
+            "r complete t t_complete cmd setpolicy deny-all",
+            "r complete t t2 add",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        let global = &saved["options"];
+        assert_eq!(global["root"], "user");
+        assert_eq!(global["bounding"], "strict");
+        assert_eq!(global["authentication"], "skip");
+        assert_eq!(global["execinfo"], "hide");
+        assert_eq!(global["umask"], "077");
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["options"]["root"], "user");
+        assert_eq!(role["options"]["umask"], "027");
+        let actors = role["actors"].as_array().unwrap();
+        assert!(actors.contains(&serde_json::json!({"type": "user", "id": "alice"})));
+        assert!(
+            actors.contains(&serde_json::json!({"type": "group", "groups": ["staff", "wheel"]}))
+        );
+        let task = saved_task(&saved, "complete", "t_complete");
+        assert_eq!(task["options"]["workdir"], "/srv");
+        assert_eq!(task["options"]["authentication"], "perform");
+        assert_eq!(task["cred"]["setuid"], "root");
+        assert_eq!(task["cred"]["setgid"], serde_json::json!(["root", "adm"]));
+        assert!(
+            task["cred"]["capabilities"]["add"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::from("NET_RAW"))
+        );
+        assert_eq!(task["commands"]["default"], "none");
+        assert!(
+            task["commands"]["add"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::from("/usr/bin/id -u"))
+        );
+        assert_eq!(saved_task(&saved, "complete", "t2")["name"], "t2");
+        // deletions
+        for command in ["o root del", "o umask del", "r complete t t2 del"] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        assert!(saved["options"].get("root").is_none());
+        assert!(saved["options"].get("umask").is_none());
+        assert!(
+            saved_role(&saved, "complete")["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|task| task["name"] != "t2")
+        );
+    }
+
+    #[test]
+    fn test_cred_setuid_and_setgid_forms() {
+        let name = "cred_setuid_and_setgid_forms";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for (command, setuid, setgid) in [
+            (
+                "r complete t t_complete cred set -u root -g adm",
+                "root",
+                serde_json::json!("adm"),
+            ),
+            (
+                "r complete t t_complete cred set --setuid=nobody --setgid=root&adm",
+                "nobody",
+                serde_json::json!(["root", "adm"]),
+            ),
+            (
+                "r complete t t_complete cred set --setuid daemon --setgid root,adm,staff",
+                "daemon",
+                serde_json::json!(["root", "adm", "staff"]),
+            ),
+        ] {
+            ctx.assert_command_success(command);
+            let saved = saved_policy(&mut ctx, name);
+            let cred = &saved_task(&saved, "complete", "t_complete")["cred"];
+            assert_eq!(cred["setuid"], setuid, "{command}");
+            assert_eq!(cred["setgid"], setgid, "{command}");
+        }
+    }
+
+    #[test]
+    fn test_umask_is_octal() {
+        let (mut ctx, _defer) = TestContext::new("umask_is_octal");
+        for command in ["o umask 999", "o umask 1000", "o umask 7777"] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert!(ctx.opt(Level::Global).as_ref().borrow().umask.is_none());
+    }
+
+    /// A root file pointing to a policy directory holding `files`, as the Debian package and
+    /// `cargo xtask install` lay them out. Returns the root file and the directory.
+    fn policy_directory(
+        name: &str,
+        files: &[(&str, Value)],
+    ) -> (String, String, impl Drop + use<>) {
+        let root = format!("{RAR_CFG_PATH}.{name}");
+        let dir = format!("{RAR_CFG_PATH}.{name}.d");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &root,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"path": dir, "immutable": false}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        for (file, policy) in files {
+            let mut policy = policy.clone();
+            policy["version"] = Value::from(version.clone());
+            fs::write(
+                format!("{dir}/{file}"),
+                serde_json::to_string_pretty(&policy).unwrap(),
+            )
+            .unwrap();
+        }
+        let (root_cleanup, dir_cleanup) = (root.clone(), dir.clone());
+        let cleanup = defer(move || {
+            let _ = fs::remove_file(&root_cleanup);
+            let _ = fs::remove_dir_all(&dir_cleanup);
+        });
+        (root, dir, cleanup)
+    }
+
+    /// Run `command` with chsr on the policy of `root`, and save it like chsr does.
+    fn chsr_on(root: &str, command: &str) -> Result<bool, Box<dyn Error>> {
+        let mut settings =
+            FileSettings::write_all(root.to_string(), root.to_string(), StorageMethod::JSON)?;
+        let changed = main(&mut settings, command.split(' ')).call()?;
+        if changed {
+            settings.save_all()?;
+        }
+        Ok(changed)
+    }
+
+    fn role_names(path: &str) -> Vec<String> {
+        let policy: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        policy["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|role| role["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_policy_directory_targets_one_file() {
+        let (root, dir, _cleanup) = policy_directory(
+            "policy_directory_targets_one_file",
+            &[
+                ("default.json", serde_json::json!({"roles": []})),
+                (
+                    "extra.json",
+                    serde_json::json!({"roles": [{"name": "x", "actors": [{"user": "root"}]}]}),
+                ),
+            ],
+        );
+        let (default, extra) = (format!("{dir}/default.json"), format!("{dir}/extra.json"));
+        let root_before = fs::read_to_string(&root).unwrap();
+        let extra_before = fs::read_to_string(&extra).unwrap();
+        // without a file named, the role goes to default.json, the files that did not change
+        // are not written again (extra.json keeps its short form)
+        assert!(chsr_on(&root, "r newrole create").unwrap());
+        assert_eq!(role_names(&default), ["newrole"]);
+        assert_eq!(fs::read_to_string(&root).unwrap(), root_before);
+        assert_eq!(fs::read_to_string(&extra).unwrap(), extra_before);
+        // a file named by its name in the directory, or by its path
+        let default_before = fs::read_to_string(&default).unwrap();
+        assert!(chsr_on(&root, "file extra.json r other create").unwrap());
+        assert!(chsr_on(&root, &format!("file {extra} r another create")).unwrap());
+        assert_eq!(role_names(&extra), ["x", "other", "another"]);
+        assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+        assert!(chsr_on(&root, "file extra.json r x grant -u daemon").unwrap());
+        // a file that is not one of the policy
+        assert!(chsr_on(&root, "file nope.json r y create").is_err());
+        assert!(chsr_on(&root, "file /etc/passwd r y create").is_err());
+        // listings change nothing
+        assert!(!chsr_on(&root, "list").unwrap());
+        assert!(!chsr_on(&root, "file list").unwrap());
+        assert!(!chsr_on(&root, "file extra.json list").unwrap());
+        assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+    }
+
+    #[test]
+    fn test_a_file_that_cannot_be_loaded_says_why() {
+        let (root, dir, _cleanup) = policy_directory(
+            "a_file_that_cannot_be_loaded_says_why",
+            &[("default.json", serde_json::json!({"roles": []}))],
+        );
+        // written by hand without its version: dosr reads it, chsr does not edit it
+        fs::write(format!("{dir}/broken.json"), r#"{"roles": []}"#).unwrap();
+        for name in ["broken.json".to_string(), format!("{dir}/broken.json")] {
+            let error = chsr_on(&root, &format!("file {name} r y create"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("cannot be loaded") && error.contains("version"),
+                "{error}"
+            );
+        }
+        let error = chsr_on(&root, "file nope.json r y create")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is not a file of the policy"), "{error}");
+    }
+
+    #[test]
+    fn test_editor_edits_the_file_of_the_other_commands() {
+        let (root, dir, _cleanup) = policy_directory(
+            "editor_edits_the_file_of_the_other_commands",
+            &[
+                ("default.json", serde_json::json!({"roles": []})),
+                ("extra.json", serde_json::json!({"roles": []})),
+            ],
+        );
+        let settings =
+            FileSettings::write_all(root.clone(), root.clone(), StorageMethod::JSON).unwrap();
+        let file = |name: &str| {
+            Rc::clone(
+                settings
+                    .get(std::path::Path::new(&format!("{dir}/{name}")))
+                    .unwrap(),
+            )
+        };
+        let edits = |path: Option<&str>, expected: &Rc<RefCell<SPolicy>>| match editor_target(
+            &settings,
+            path.map(std::path::Path::new),
+        )
+        .unwrap()
+        {
+            EditorTarget::Policy(policy) => assert!(Rc::ptr_eq(&policy, expected), "{path:?}"),
+            EditorTarget::Root => panic!("{path:?} opened the root file"),
+        };
+        // without a path, default.json of the directory, like chsr r newrole create
+        edits(None, &file("default.json"));
+        // another file, by its name or by its path
+        edits(Some("extra.json"), &file("extra.json"));
+        edits(Some(&format!("{dir}/extra.json")), &file("extra.json"));
+        // the root file, by its path
+        assert!(matches!(
+            editor_target(&settings, Some(std::path::Path::new(&root))).unwrap(),
+            EditorTarget::Root
+        ));
+        // a file that is not one of the policy is refused, instead of edited and never saved
+        assert!(editor_target(&settings, Some(std::path::Path::new("nope.json"))).is_err());
+        assert!(editor_target(&settings, Some(std::path::Path::new("/etc/passwd"))).is_err());
+    }
+
+    #[test]
+    fn test_policy_directory_without_default_file() {
+        let (root, dir, _cleanup) = policy_directory(
+            "policy_directory_without_default_file",
+            &[
+                ("a.json", serde_json::json!({"roles": []})),
+                ("b.json", serde_json::json!({"roles": []})),
+            ],
+        );
+        // which file a role belongs to is not guessed
+        let error = chsr_on(&root, "r y create").unwrap_err().to_string();
+        assert!(error.contains("chsr file"), "{error}");
+        assert!(chsr_on(&root, "file b.json r y create").unwrap());
+        assert_eq!(role_names(&format!("{dir}/b.json")), ["y"]);
+        assert!(role_names(&format!("{dir}/a.json")).is_empty());
+    }
+
+    #[test]
+    fn test_role_links() {
+        let name = "role_links";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r auditor create");
+        ctx.assert_command_success("r junior create");
+        ctx.assert_command_success("r complete ssd add auditor");
+        ctx.assert_command_success("r complete ssd add auditor,other");
+        ctx.assert_command_success("r complete parents set junior");
+        let saved = saved_policy(&mut ctx, name);
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["ssd"], serde_json::json!(["auditor", "other"]));
+        assert_eq!(role["parents"], serde_json::json!(["junior"]));
+        // del and purge change the links, never the role (del also deletes a role)
+        ctx.assert_command_success("r complete ssd del other");
+        ctx.assert_command_success("r complete parents purge");
+        let saved = saved_policy(&mut ctx, name);
+        let role = saved_role(&saved, "complete");
+        assert_eq!(role["ssd"], serde_json::json!(["auditor"]));
+        assert!(role.get("parents").is_none());
+        // a role cannot exclude itself or be its own parent
+        assert!(ctx.run_command("r complete ssd add complete").is_err());
+        assert!(
+            ctx.run_command("r complete parents add junior,complete")
+                .is_err()
+        );
+        assert!(ctx.run_command("r nope ssd add auditor").is_err());
+    }
+
+    #[test]
+    fn test_task_purpose() {
+        let name = "task_purpose";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("r complete t t_complete purpose set Back up the \"databases\"");
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(
+            saved_task(&saved, "complete", "t_complete")["purpose"],
+            "Back up the databases"
+        );
+        // unset removes the purpose, never the task (unset also deletes a task)
+        ctx.assert_command_success("r complete t t_complete purpose unset");
+        let saved = saved_policy(&mut ctx, name);
+        assert!(
+            saved_task(&saved, "complete", "t_complete")
+                .get("purpose")
+                .is_none()
+        );
+        assert!(ctx.run_command("r complete t nope purpose set x").is_err());
+    }
+
+    #[test]
+    fn test_options_env_override() {
+        let name = "options_env_override";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o env override allow");
+        ctx.assert_command_success("r complete t t_complete o env override deny");
+        ctx.assert_command_success("r fresh create");
+        ctx.assert_command_success("r fresh o env override allow");
+        let saved = saved_policy(&mut ctx, name);
+        assert_eq!(saved["options"]["env"]["override_behavior"], true);
+        assert_eq!(
+            saved_task(&saved, "complete", "t_complete")["options"]["env"]["override_behavior"],
+            false
+        );
+        assert_eq!(
+            saved_role(&saved, "fresh")["options"],
+            serde_json::json!({"env": {"override_behavior": true}})
+        );
+        ctx.assert_command_success("o env override unset");
+        assert!(
+            saved_policy(&mut ctx, name)["options"]["env"]
+                .get("override_behavior")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_commands_with_checks() {
+        let name = "commands_with_checks";
+        let (mut ctx, _defer) = TestContext::new(name);
+        let hash = "a".repeat(64);
+        ctx.assert_command_success(&format!(
+            "r complete t t_complete cmd whitelist add --sha256 {hash} --read-only /usr/bin/id -u"
+        ));
+        ctx.assert_command_success(
+            "r complete t t_complete cmd blacklist add --immutable /usr/bin/rm",
+        );
+        let saved = saved_policy(&mut ctx, name);
+        let commands = &saved_task(&saved, "complete", "t_complete")["commands"];
+        assert!(commands["add"].as_array().unwrap().contains(
+            &serde_json::json!({"command": "/usr/bin/id -u", "sha256": hash, "read_only": true})
+        ));
+        assert!(
+            commands["del"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!({"command": "/usr/bin/rm", "immutable": true}))
+        );
+        // the same command line in either form is the same command
+        assert!(
+            ctx.run_command("r complete t t_complete cmd whitelist add /usr/bin/id -u")
+                .is_err()
+        );
+        ctx.assert_command_success("r complete t t_complete cmd whitelist del /usr/bin/id -u");
+        let saved = saved_policy(&mut ctx, name);
+        let add = &saved_task(&saved, "complete", "t_complete")["commands"]["add"];
+        assert!(!add.to_string().contains("/usr/bin/id -u"), "{add}");
+        // a hash of the wrong length, or not hexadecimal
+        for command in [
+            "r complete t t_complete cmd whitelist add --sha256 abcd /usr/bin/ls",
+            "r complete t t_complete cmd whitelist add --sha512 zz /usr/bin/ls",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+    }
+
+    /// The password option of `level`, as (tries, delay in seconds, unknown fields).
+    fn password(ctx: &TestContext, level: Level) -> Option<(Option<u8>, Option<i64>, usize)> {
+        ctx.opt(level)
+            .as_ref()
+            .borrow()
+            .password
+            .as_ref()
+            .map(|password| {
+                (
+                    password.tries.map(std::num::NonZeroU8::get),
+                    password.delay.map(|delay| delay.as_secs()),
+                    password.extra_fields.len(),
+                )
+            })
+    }
+
+    #[test]
+    fn test_options_password() {
+        let name = "options_password";
+        let (mut ctx, _defer) = TestContext::new(name);
+        // at each level; set changes the fields given and keeps the others
+        ctx.assert_command_success("o password set --tries 5 --delay 00:00:10");
+        ctx.assert_command_success("r complete o password set --tries=4");
+        ctx.assert_command_success("r complete t t_complete o password set -d 2");
+        assert_eq!(password(&ctx, Level::Global), Some((Some(5), Some(10), 0)));
+        assert_eq!(password(&ctx, Level::Role), Some((Some(4), None, 0)));
+        assert_eq!(password(&ctx, Level::Task), Some((None, Some(2), 0)));
+        ctx.assert_command_success("o password set --delay 1:00");
+        assert_eq!(password(&ctx, Level::Global), Some((Some(5), Some(60), 0)));
+        // unset removes the fields named, then the option once nothing is left
+        ctx.assert_command_success("o password unset --tries");
+        assert_eq!(password(&ctx, Level::Global), Some((None, Some(60), 0)));
+        ctx.assert_command_success("o password unset -d");
+        assert_eq!(password(&ctx, Level::Global), None);
+        // a field that this version does not know is kept
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .password
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o password unset --tries");
+        assert_eq!(password(&ctx, Level::Role), Some((None, None, 1)));
+        ctx.assert_command_success("r complete o password set --tries 4");
+        assert_eq!(password(&ctx, Level::Role), Some((Some(4), None, 1)));
+        // refused, without a change
+        for command in [
+            "o password set --tries 0",
+            "o password set --tries 256",
+            "o password set --tries",
+            "o password set --delay",
+            "o password set --delay 153722867280912930:59:59",
+        ] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert_eq!(password(&ctx, Level::Global), None);
+        ctx.assert_command_no_change("r complete t t_complete o show password");
+        // what is saved is what dosr reads
+        ctx.settings.save_all().unwrap();
+        let saved: Value =
+            serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
+                .unwrap();
+        let role = saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|role| role["name"] == "complete")
+            .unwrap();
+        assert_eq!(
+            role["options"]["password"],
+            serde_json::json!({"tries": 4, "future": 1})
+        );
+        let task = role["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["name"] == "t_complete")
+            .unwrap();
+        assert_eq!(
+            task["options"]["password"],
+            serde_json::json!({"delay": "00:00:02"})
+        );
+        assert!(saved["options"].get("password").is_none());
+    }
+
+    /// The tty option of `level`, as (owner, unknown fields).
+    fn tty(ctx: &TestContext, level: Level) -> Option<(Option<TtyOwner>, usize)> {
+        ctx.opt(level)
+            .as_ref()
+            .borrow()
+            .tty
+            .as_ref()
+            .map(|tty| (tty.owner, tty.extra_fields.len()))
+    }
+
+    #[test]
+    fn test_options_tty() {
+        let name = "options_tty";
+        let (mut ctx, _defer) = TestContext::new(name);
+        ctx.assert_command_success("o tty owner target");
+        ctx.assert_command_success("r complete o tty owner caller");
+        ctx.assert_command_success("r complete t t_complete o tty owner target");
+        assert_eq!(tty(&ctx, Level::Global), Some((Some(TtyOwner::Target), 0)));
+        assert_eq!(tty(&ctx, Level::Role), Some((Some(TtyOwner::Caller), 0)));
+        assert_eq!(tty(&ctx, Level::Task), Some((Some(TtyOwner::Target), 0)));
+        // unset removes the option, unless it has fields that this version does not know
+        ctx.assert_command_success("o tty owner unset");
+        assert_eq!(tty(&ctx, Level::Global), None);
+        ctx.opt(Level::Role)
+            .as_ref()
+            .borrow_mut()
+            .tty
+            .as_mut()
+            .unwrap()
+            .extra_fields
+            .insert("future".into(), Value::from(1));
+        ctx.assert_command_success("r complete o tty owner unset");
+        assert_eq!(tty(&ctx, Level::Role), Some((None, 1)));
+        ctx.assert_command_success("r complete o tty owner target");
+        assert_eq!(tty(&ctx, Level::Role), Some((Some(TtyOwner::Target), 1)));
+        // refused, without a change; "t" stays the alias of timeout
+        for command in ["o tty owner root", "o tty owner", "o tty target", "o tty"] {
+            assert!(ctx.run_command(command).is_err(), "{command}");
+        }
+        assert_eq!(tty(&ctx, Level::Global), None);
+        ctx.assert_command_success("o t set --type tty");
+        ctx.assert_command_no_change("r complete t t_complete o show tty");
+        // what is saved is what dosr reads
+        ctx.settings.save_all().unwrap();
+        let saved: Value =
+            serde_json::from_str(&fs::read_to_string(format!("{RAR_CFG_PATH}.{name}")).unwrap())
+                .unwrap();
+        let role = saved["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|role| role["name"] == "complete")
+            .unwrap();
+        assert_eq!(
+            role["options"]["tty"],
+            serde_json::json!({"owner": "target", "future": 1})
+        );
+        let task = role["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|task| task["name"] == "t_complete")
+            .unwrap();
+        assert_eq!(
+            task["options"]["tty"],
+            serde_json::json!({"owner": "target"})
+        );
+        assert!(saved["options"].get("tty").is_none());
+        assert_eq!(saved["options"]["timeout"]["type"], "tty");
+    }
+
+    #[test]
     fn test_all_main() {
         let (mut ctx, _defer) = TestContext::new("all_main");
 
@@ -1086,6 +2023,93 @@ mod tests {
             "r complete t t_complete cmd whitelist del super command with spaces",
         );
         ctx.assert_command_not_contains(&command);
+    }
+    #[test]
+    fn test_cred_setgid_from() {
+        let (mut ctx, _defer) = TestContext::new("cred_setgid_from");
+        let setgid = |ctx: &TestContext| {
+            serde_json::to_value(&ctx.task().as_ref().borrow().cred.setgid).unwrap()
+        };
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid group1");
+        // a task without setgid gets a selector with from
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from caller");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "from": "caller"})
+        );
+        // forcing groups and taking them from someone cannot go together
+        assert!(
+            ctx.run_command(
+                "r complete t t_complete cred set --setgid group1 --setgid-from caller"
+            )
+            .is_err()
+        );
+        // a selector keeps its fields, only from changes
+        ctx.task().as_ref().borrow_mut().cred.setgid = Some(SGroupsEither::GroupSelector(
+            SSetgidSet::builder(SetBehavior::None)
+                .add([SGroups::from(vec![
+                    rootasrole_core::database::actor::SGroupType::from("adm"),
+                ])])
+                .build(),
+        ));
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from=target");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "add": ["adm"], "from": "target"})
+        );
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid-from target");
+        assert_eq!(
+            setgid(&ctx),
+            serde_json::json!({"default": "none", "add": ["adm"]})
+        );
+        // a selector with nothing else than from is removed with it
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid group1");
+        ctx.assert_command_success("r complete t t_complete cred set --setgid-from caller");
+        ctx.assert_command_success("r complete t t_complete cred unset --setgid-from caller");
+        ctx.assert_setgid_is_none();
+        assert!(
+            ctx.run_command("r complete t t_complete cred unset --setgid-from caller")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_cmd_whitelist_keeps_a_regular_expression_as_typed() {
+        let (mut ctx, _defer) =
+            TestContext::new("cmd_whitelist_keeps_a_regular_expression_as_typed");
+        let prefix = ["r", "complete", "t", "t_complete", "cmd", "whitelist"];
+        let typed = "/usr/bin/tail ^(-n [0-9]+|-f) /var/log/caddy/[^/ ]+$";
+        let command = SCommand::Simple(typed.to_string());
+
+        // quoted as one argument by the shell
+        ctx.assert_command_vec_success([&prefix[..], &["add", typed]].concat());
+        ctx.assert_command_contains(&command);
+        // dosr reads it as a regular expression, with the same rule of rootasrole-core
+        let (_, args) = rootasrole_core::database::command::split_command(typed).unwrap();
+        assert_eq!(
+            rootasrole_core::database::command::regex_arguments(args),
+            Some("^(-n [0-9]+|-f) /var/log/caddy/[^/ ]+$")
+        );
+
+        // del finds it, typed as several arguments
+        ctx.assert_command_vec_success(
+            [
+                &prefix[..],
+                &[
+                    "del",
+                    "/usr/bin/tail",
+                    "^(-n [0-9]+|-f)",
+                    "/var/log/caddy/[^/ ]+$",
+                ],
+            ]
+            .concat(),
+        );
+        ctx.assert_command_not_contains(&command);
+
+        // a backslash is kept, where shell splitting removes it
+        let escaped = r"/usr/bin/tail ^-f /var/log/caddy/access\.log$";
+        ctx.assert_command_vec_success([&prefix[..], &["add", escaped]].concat());
+        ctx.assert_command_contains(&SCommand::Simple(escaped.to_string()));
     }
     #[test]
     fn test_r_complete_t_t_complete_cmd_blacklist_del_super_command_with_spaces() {

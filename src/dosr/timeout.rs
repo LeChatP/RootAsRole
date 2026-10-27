@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use rootasrole_core::{
     Cred,
-    database::options::{STimeout, TimestampType},
+    database::options::{SAuthentication, STimeout, TimestampType},
     util::with_privileges,
 };
 
@@ -49,6 +49,10 @@ enum ParentRecord {
     Ppid {
         ppid: pid_t,
         ppid_start: u64,
+        /// The session of dosr: a child of the same parent in another session (after
+        /// `setsid(2)`) does not reuse the cookie. Only the id is kept: the session leader may be
+        /// gone while the session lives on, without a start time to read.
+        session: pid_t,
     },
     None,
 }
@@ -69,6 +73,7 @@ impl ParentRecord {
             (TimestampType::TTY | TimestampType::PPID, _) => Some(Self::Ppid {
                 ppid: user.ppid.as_raw(),
                 ppid_start: procfs::start_time(user.ppid).ok()?,
+                session: getsid(None).ok()?.as_raw(),
             }),
             (TimestampType::UID, _) => Some(Self::None),
         }
@@ -377,6 +382,25 @@ pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
     res.is_some()
 }
 
+/// Keep the cookie of `user` once its session is open: an authentication, or the cookie that
+/// spared it, creates or extends it. A task that skips the authentication proves nothing about
+/// who is at the terminal: its cookie would spare the password to a later task that requires it.
+/// sudo-rs records an authentication only after it (`src/sudo/pipeline.rs`,
+/// `auth_and_update_record_file`).
+///
+/// # Errors
+/// The errors of [`update_cookie`].
+pub fn record_authentication(
+    authentication: SAuthentication,
+    user: &Cred,
+    constraint: &STimeout,
+) -> Result<(), Box<dyn Error>> {
+    if authentication.is_skip() {
+        return Ok(());
+    }
+    update_cookie(user, user, constraint)
+}
+
 /// Add a cookie to the user's cookie file
 pub fn update_cookie(
     from: &Cred,
@@ -487,6 +511,36 @@ mod test {
         clear_cookies(&cred).unwrap();
     }
 
+    // a task that skips the authentication neither creates nor extends a cookie
+    #[test]
+    fn test_skipped_authentication_gives_no_cookie() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        };
+        clear_cookies(&cred).unwrap();
+        let constraint = STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(SignedDuration::from_secs(10)),
+            max_usage: Some(2),
+            extra_fields: Map::default(),
+        };
+        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
+        assert!(!is_valid(&cred, &cred, &constraint));
+        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
+        // a skipped authentication does not use the cookie either
+        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
+        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
+        clear_cookies(&cred).unwrap();
+    }
+
     #[test]
     fn test_cookie_requires_matching_ppid() {
         let _guard = MUTEX.lock().unwrap();
@@ -563,6 +617,128 @@ mod test {
     }
 
     #[test]
+    fn test_cookie_requires_matching_session() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        // same parent process, but dosr runs in another session
+        assert!(!is_valid_after(|cookie| {
+            if let ParentRecord::Ppid { session, .. } = &mut cookie.parent_record {
+                *session += 1;
+            }
+        }));
+    }
+
+    /// The cookie types of 4.1.0, whose PPID scope has no session.
+    mod v4_1_0 {
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Serialize, Deserialize, Debug)]
+        pub enum CookieVersion {
+            V2(Cookiev2),
+        }
+
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+        #[serde(rename_all = "UPPERCASE")]
+        pub enum ParentRecord {
+            Tty {
+                tty: u64,
+                session: i32,
+                session_start: u64,
+            },
+            Ppid {
+                ppid: i32,
+                ppid_start: u64,
+            },
+            None,
+        }
+
+        #[derive(Serialize, Deserialize, Debug)]
+        pub struct Cookiev2 {
+            pub timestamp_type: rootasrole_core::database::options::TimestampType,
+            pub start_time: i64,
+            pub timestamp: i64,
+            pub usage: u64,
+            pub parent_record: ParentRecord,
+            pub auth_uid: u32,
+        }
+    }
+
+    fn ppid_constraint() -> STimeout {
+        STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(SignedDuration::from_secs(10)),
+            max_usage: None,
+            extra_fields: Map::default(),
+        }
+    }
+
+    fn root_cred() -> Cred {
+        Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        }
+    }
+
+    #[test]
+    fn test_cookie_of_4_1_0_is_not_reused() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = root_cred();
+        let constraint = ppid_constraint();
+        clear_cookies(&cred).unwrap();
+        let old = v4_1_0::CookieVersion::V2(v4_1_0::Cookiev2 {
+            timestamp_type: TimestampType::PPID,
+            start_time: boottime().unwrap(),
+            timestamp: boottime().unwrap(),
+            usage: 0,
+            parent_record: v4_1_0::ParentRecord::Ppid {
+                ppid: cred.ppid.as_raw(),
+                ppid_start: procfs::start_time(cred.ppid).unwrap(),
+            },
+            auth_uid: 0,
+        });
+        {
+            let mut file = CookieFile::open(&cred).unwrap();
+            file.0.set_len(0).unwrap();
+            cbor4ii::serde::to_writer(&mut *file.0, &[old]).unwrap();
+        }
+        // a cookie without the session asks for the password again, then a new one is saved
+        assert!(!is_valid(&cred, &cred, &constraint));
+        update_cookie(&cred, &cred, &constraint).unwrap();
+        assert!(is_valid(&cred, &cred, &constraint));
+        clear_cookies(&cred).unwrap();
+    }
+
+    #[test]
+    fn test_cookie_is_read_by_4_1_0() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = root_cred();
+        let constraint = ppid_constraint();
+        clear_cookies(&cred).unwrap();
+        update_cookie(&cred, &cred, &constraint).unwrap();
+        let cookies: Vec<v4_1_0::CookieVersion> = {
+            let file = CookieFile::open(&cred).unwrap();
+            cbor4ii::serde::from_reader(BufReader::new(&*file.0)).unwrap()
+        };
+        clear_cookies(&cred).unwrap();
+        // after a downgrade, 4.1.0 ignores the session and keeps its own scope
+        let [v4_1_0::CookieVersion::V2(cookie)] = cookies.as_slice() else {
+            panic!("one cookie expected: {cookies:?}");
+        };
+        assert_eq!(
+            cookie.parent_record,
+            v4_1_0::ParentRecord::Ppid {
+                ppid: cred.ppid.as_raw(),
+                ppid_start: procfs::start_time(cred.ppid).unwrap(),
+            }
+        );
+    }
+
+    #[test]
     fn test_cookie_from_the_future_is_rejected() {
         let _guard = MUTEX.lock().unwrap();
         setup();
@@ -581,6 +757,10 @@ mod test {
             ppid: Pid::parent(),
         };
         let ppid_record = ParentRecord::new(TimestampType::PPID, &cred).unwrap();
+        assert!(matches!(
+            ppid_record,
+            ParentRecord::Ppid { session, .. } if session == getsid(None).unwrap().as_raw()
+        ));
         assert_eq!(
             ParentRecord::new(TimestampType::TTY, &cred).unwrap(),
             ppid_record
