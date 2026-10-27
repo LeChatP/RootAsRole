@@ -2218,6 +2218,89 @@ mod tests {
         }
     }
 
+    // the hierarchy is transitive: a role inherits the tasks of its parents, of their parents,
+    // and so on, each once even when the parents form a cycle (decided by the maintainer on
+    // 2026-10-28)
+    #[cfg(feature = "hierarchy")]
+    #[test]
+    fn test_hierarchy_is_transitive() {
+        let parents = |names: &[&str]| serde_json::json!({ "parents": names });
+        let roles = serde_json::json!([
+            role_json("senior", true, None, &parents(&["middle"])),
+            role_json("middle", false, Some("/usr/bin/cat"), &parents(&["junior"])),
+            role_json("junior", false, Some("/usr/bin/ls"), &serde_json::json!({})),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "junior");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "middle");
+        // a cycle of parents ends
+        let roles = serde_json::json!([
+            role_json("a", true, None, &parents(&["b"])),
+            role_json("b", false, Some("/usr/bin/ls"), &parents(&["c"])),
+            role_json("c", false, Some("/usr/bin/cat"), &parents(&["a", "b"])),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "b");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "c");
+    }
+
+    // an ancestor that the separation of duty excludes gives no task, and neither do the
+    // ancestors reached through it; the user holds every ancestor of the roles it holds
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_ssd_through_a_transitive_hierarchy() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"], "ssd": ["auditor"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json("auditor", true, Some("/usr/bin/id"), &none),
+        ]);
+        for cmd in ["/usr/bin/cat", "/usr/bin/ls", "/usr/bin/id"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+        }
+        // auditor names junior, which the user holds through senior and middle
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json(
+                "auditor",
+                true,
+                Some("/usr/bin/id"),
+                &serde_json::json!({"ssd": ["junior"]})
+            ),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "middle");
+        for cmd in ["/usr/bin/ls", "/usr/bin/id"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+        }
+    }
+
     // a conflict holds both ways: the user who holds dev and auditor, dev naming auditor, can
     // use neither, as the book says (decided by the maintainer on 2026-10-28)
     #[cfg(feature = "ssd")]

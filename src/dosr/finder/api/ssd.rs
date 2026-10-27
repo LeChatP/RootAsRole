@@ -1,3 +1,6 @@
+#[cfg(feature = "hierarchy")]
+use std::collections::HashSet;
+
 use log::{debug, warn};
 use serde_json::Value;
 
@@ -9,7 +12,9 @@ use crate::{
 use super::{Api, ApiEvent};
 
 /// Whether the user holds `role`: as one of its actors, or through a role that it holds as an
-/// actor and that names `role` in its parents, whose tasks the hierarchy plugin grants.
+/// actor and of which `role` is an ancestor (a parent, a parent of a parent...), whose tasks the
+/// hierarchy plugin grants. An invalid `parents` value counts as no parent here: the role that
+/// has it fails when it is used.
 fn holds(role: &DLinkedRole) -> bool {
     if role.role().user_min.matching() {
         return true;
@@ -17,23 +22,38 @@ fn holds(role: &DLinkedRole) -> bool {
     #[cfg(feature = "hierarchy")]
     {
         let name = role.role().role.as_ref();
-        role.config().roles().any(|senior| {
-            senior.role().user_min.matching() && parents(senior.role()).any(|parent| parent == name)
-        })
+        role.config()
+            .roles()
+            .any(|senior| senior.role().user_min.matching() && is_ancestor(name, &senior))
     }
     #[cfg(not(feature = "hierarchy"))]
     false
 }
 
-/// The parents that `role` names, one or a list.
+/// Whether `name` is an ancestor of `role`, through the parents of the roles, each visited once.
 #[cfg(feature = "hierarchy")]
-fn parents<'r>(role: &'r DRoleFinder<'_>) -> impl Iterator<Item = &'r str> {
-    let parents: &[Value] = match role.extra_values.get("parents") {
-        Some(Value::Array(parents)) => parents,
-        Some(parent @ Value::String(_)) => std::slice::from_ref(parent),
-        _ => &[],
+fn is_ancestor(name: &str, role: &DLinkedRole) -> bool {
+    let parents = |role: &DLinkedRole<'_, '_>| -> Vec<String> {
+        super::hierarchy::parents(role.role())
+            .unwrap_or_default()
+            .into_iter()
+            .map(ToString::to_string)
+            .collect()
     };
-    parents.iter().filter_map(Value::as_str)
+    let mut visited: HashSet<String> = HashSet::from([role.role().role.to_string()]);
+    let mut pending = parents(role);
+    while let Some(parent) = pending.pop() {
+        if parent == name {
+            return true;
+        }
+        if !visited.insert(parent.clone()) {
+            continue;
+        }
+        if let Some(parent) = role.config().role(&parent) {
+            pending.extend(parents(&parent));
+        }
+    }
+    false
 }
 
 /// The roles that `role` names in its `ssd`, one or a list; another value is a configuration

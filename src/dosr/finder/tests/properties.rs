@@ -432,32 +432,44 @@ fn listed<'p>(role: &'p Value, field: &str) -> Vec<&'p str> {
         .unwrap_or_default()
 }
 
+/// The roles that `from` reaches through `parents`, each once, entering only the roles that
+/// `enter` accepts; `from` itself is not counted unless a cycle comes back to it.
+fn reachable(roles: &[Value], from: usize, enter: &dyn Fn(usize) -> bool) -> Vec<usize> {
+    let index = |name: &str| roles.iter().position(|role| role["name"] == name);
+    let mut seen = vec![false; roles.len()];
+    let mut pending: Vec<usize> = listed(&roles[from], "parents")
+        .into_iter()
+        .filter_map(index)
+        .collect();
+    while let Some(i) = pending.pop() {
+        if seen[i] || !enter(i) {
+            continue;
+        }
+        seen[i] = true;
+        pending.extend(listed(&roles[i], "parents").into_iter().filter_map(index));
+    }
+    (0..roles.len()).filter(|&i| seen[i]).collect()
+}
+
 /// Whether dosr should allow the command of the role `r{target}`, written as the rules decided
-/// on 2026-10-28: the user holds a role as its actor, or through a role it holds whose parents
-/// name it; a role is excluded when the user holds a role in conflict with it, whichever of the
-/// two names the other in `ssd`; the tasks of a parent come through a held role that is not
-/// excluded.
+/// on 2026-10-28: the user holds a role as its actor, or as an ancestor (parent, parent of a
+/// parent...) of a role it is an actor of; a role is excluded when the user holds a role in
+/// conflict with it, whichever of the two names the other in `ssd`; the tasks of an ancestor
+/// come from a held role that is not excluded, through ancestors that are not excluded.
 fn reference_allows(policy: &Value, held: &[bool], target: usize) -> bool {
     let roles = policy["roles"].as_array().unwrap();
-    let index = |name: &str| roles.iter().position(|role| role["name"] == name).unwrap();
+    let name = |k: usize| roles[k]["name"].as_str().unwrap();
     let holds = |i: usize| {
-        held[i]
-            || (0..roles.len()).any(|s| {
-                held[s]
-                    && listed(&roles[s], "parents").contains(&roles[i]["name"].as_str().unwrap())
-            })
+        held[i] || (0..roles.len()).any(|s| held[s] && reachable(roles, s, &|_| true).contains(&i))
     };
     let in_conflict = |i: usize, j: usize| {
-        let name = |k: usize| roles[k]["name"].as_str().unwrap();
         listed(&roles[i], "ssd").contains(&name(j)) || listed(&roles[j], "ssd").contains(&name(i))
     };
     let excluded = |i: usize| (0..roles.len()).any(|j| j != i && in_conflict(i, j) && holds(j));
-    let name = roles[target]["name"].as_str().unwrap();
     !excluded(target)
         && (held[target]
-            || roles.iter().any(|senior| {
-                let s = index(senior["name"].as_str().unwrap());
-                held[s] && !excluded(s) && listed(senior, "parents").contains(&name)
+            || (0..roles.len()).any(|s| {
+                held[s] && !excluded(s) && reachable(roles, s, &|i| !excluded(i)).contains(&target)
             }))
 }
 
