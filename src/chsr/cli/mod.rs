@@ -1538,6 +1538,107 @@ mod tests {
         assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
     }
 
+    /// The names of the roles of the CBOR policy file `path`; the file is closed, and unlocked,
+    /// before this returns.
+    fn cbor_role_names(path: &str) -> Vec<String> {
+        let policy = FileSettings::read_policy(path, StorageMethod::CBOR).unwrap();
+        policy
+            .data
+            .data
+            .borrow()
+            .roles
+            .iter()
+            .map(|role| role.as_ref().borrow().name.clone())
+            .collect()
+    }
+
+    /// The names of the roles of the root file `path`, the policy inside it.
+    fn root_role_names(path: &str) -> Vec<String> {
+        let root: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        root["roles"]
+            .as_array()
+            .map(|roles| {
+                roles
+                    .iter()
+                    .map(|role| role["name"].as_str().unwrap().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    // convert -r writes the policy where the root file then says, in the format asked, and the
+    // root file stays where dosr reads it; -r back to the root file puts the policy inside it
+    #[test]
+    fn test_convert_reconfigure_moves_the_policy_not_the_root_file() {
+        let name = "convert_reconfigure_moves_the_policy";
+        let (ctx, _defer) = TestContext::new(name);
+        let root = format!("{RAR_CFG_PATH}.{name}");
+        let data = format!("{RAR_CFG_PATH}.{name}.bin");
+        let _data_cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.{name}.bin"));
+        });
+        // the settings of the context are closed: chsr_on opens the policy like chsr does
+        drop(ctx);
+        let roles = root_role_names(&root);
+        assert!(!roles.is_empty());
+        assert!(chsr_on(&root, &format!("convert -r cbor {data}")).unwrap());
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&root).unwrap()).unwrap();
+        assert_eq!(saved["storage"]["method"], "cbor");
+        assert_eq!(saved["storage"]["settings"]["path"], data.as_str());
+        assert!(saved.get("roles").is_none(), "{saved}");
+        let bytes = fs::read(&data).unwrap();
+        assert!(
+            serde_json::from_slice::<Value>(&bytes).is_err(),
+            "written in CBOR"
+        );
+        assert_eq!(cbor_role_names(&data), roles);
+        // an edit lands in the converted file, without waiting for its own lock
+        assert!(chsr_on(&root, "r newrole create").unwrap());
+        assert!(cbor_role_names(&data).contains(&"newrole".to_string()));
+        // back into the root file, in the format of the root file
+        assert!(chsr_on(&root, &format!("convert -r json {root}")).unwrap());
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&root).unwrap()).unwrap();
+        assert_eq!(saved["storage"]["method"], "json");
+        assert_eq!(saved["storage"]["settings"]["path"], root.as_str());
+        let mut expected = roles;
+        expected.push("newrole".to_string());
+        assert_eq!(root_role_names(&root), expected);
+        // a file of the current policy is not overwritten
+        assert!(chsr_on(&root, &format!("convert -r cbor {data}")).unwrap());
+        assert!(!chsr_on(&root, &format!("convert cbor {data}")).unwrap());
+    }
+
+    // a policy directory is converted one file at a time, never into an empty policy
+    #[test]
+    fn test_convert_a_policy_directory() {
+        let (root, dir, _cleanup) = policy_directory(
+            "convert_a_policy_directory",
+            &[(
+                "default.json",
+                serde_json::json!({"roles": [{"name": "a", "actors": []}]}),
+            )],
+        );
+        let out = format!("{dir}.out.json");
+        let _out_cleanup = defer(|| {
+            let _ = fs::remove_file(format!(
+                "{RAR_CFG_PATH}.convert_a_policy_directory.d.out.json"
+            ));
+        });
+        let root_before = fs::read_to_string(&root).unwrap();
+        assert!(chsr_on(&root, &format!("convert json {out}")).is_err());
+        assert!(chsr_on(&root, &format!("convert -r json {out}")).is_err());
+        assert!(fs::metadata(&out).is_err());
+        assert!(
+            chsr_on(
+                &root,
+                &format!("convert --from json {dir}/default.json json {out}")
+            )
+            .unwrap()
+        );
+        assert_eq!(role_names(&out), ["a"]);
+        assert_eq!(fs::read_to_string(&root).unwrap(), root_before);
+    }
+
     #[test]
     fn test_a_file_that_cannot_be_loaded_says_why() {
         let (root, dir, _cleanup) = policy_directory(

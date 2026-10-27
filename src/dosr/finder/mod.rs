@@ -1723,6 +1723,23 @@ mod tests {
         ));
     }
 
+    // the layout that chsr convert -r cbor writes: a root file in JSON that names a policy file
+    // in CBOR, read in the format that the root file gives
+    #[test]
+    fn test_find_best_exec_settings_root_names_a_cbor_policy_file() {
+        let dir = PolicyDir::new("cbor-policy-file");
+        let root = dir.0.join("rootasrole.json");
+        let data = dir.0.join("rootasrole.bin");
+        let settings = root_settings(StorageMethod::CBOR, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let roles = policy(user_role("t", "/usr/bin/ls", &[]));
+        write_file(&data, &roles, StorageMethod::CBOR, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+    }
+
     #[test]
     fn test_find_best_exec_settings_invalid_files() {
         let dir = PolicyDir::new("invalid");
