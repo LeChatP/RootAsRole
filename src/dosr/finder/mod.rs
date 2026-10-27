@@ -600,50 +600,54 @@ impl BestExecSettings {
             cli, data, opt_stack, self, &mut score,
         ))?;
         let task_address = std::ptr::from_ref(data.task).addr();
-        if task_final_path.is_some()
+        let Some(final_path) = task_final_path else {
+            return Ok(true);
+        };
+        let better = score.better_fully(&self.score);
+        // as good as the best task, which is fully matching since this one is not better
+        let tie = !better
             && score.fully_matching()
-            && !score.better_fully(&self.score)
             && score.cmp(&self.score) == Ordering::Equal
-            && self.best_task != Some(task_address)
-        {
-            // as good as the best task, which is fully matching since this one is not better
+            && self.best_task != Some(task_address);
+        if !better && !tie {
+            return Ok(true);
+        }
+        // a task whose user or groups do not exist cannot run as written: it is left out like a
+        // task that does not match, so that it tells nothing more before the authentication, and
+        // is no tie for a task as good as it, whatever the order of the tasks
+        let (setuid, setgroups) = match resolve_cred(&data.cred) {
+            Ok(cred) => cred,
+            Err(missing) => {
+                error!(
+                    "The task {}/{} cannot run: {missing} does not exist or cannot be read",
+                    data.role().role().role,
+                    data.id
+                );
+                return Ok(true);
+            }
+        };
+        if tie {
             debug!("task {:?} is as good as the best task", data.id);
             self.tie
                 .get_or_insert_with(|| format!("{}/{}", data.role().role().role, data.id));
+            return Ok(true);
         }
-        if let Some(final_path) = task_final_path
-            && score.better_fully(&self.score)
-        {
-            // a task whose user or groups do not exist cannot run as written: it is left out like
-            // a task that does not match, so that it tells nothing more before the authentication
-            let (setuid, setgroups) = match resolve_cred(&data.cred) {
-                Ok(cred) => cred,
-                Err(missing) => {
-                    error!(
-                        "The task {}/{} cannot run: {missing} does not exist or cannot be read",
-                        data.role().role().role,
-                        data.id
-                    );
-                    return Ok(true);
-                }
-            };
-            debug!("found better task settings");
-            self.best_task = Some(task_address);
-            // a tie with the previous best task does not matter anymore
-            self.tie = None;
-            self.final_path = final_path;
-            self.role = data.role().role().role.to_string();
-            self.task = Some(data.id.to_string());
-            self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
-            self.score = score;
-            self.cred.setuid = setuid;
-            self.cred.setgroups = setgroups;
-            self.cred.groups_from = data.cred.groups_from;
-            self.cred.caps = data.cred.caps;
-            opt_stack.set_role(data);
-            opt_stack.set_task(data);
-            debug!("resulting settings: {self:?}");
-        }
+        debug!("found better task settings");
+        self.best_task = Some(task_address);
+        // a tie with the previous best task does not matter anymore
+        self.tie = None;
+        self.final_path = final_path;
+        self.role = data.role().role().role.to_string();
+        self.task = Some(data.id.to_string());
+        self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
+        self.score = score;
+        self.cred.setuid = setuid;
+        self.cred.setgroups = setgroups;
+        self.cred.groups_from = data.cred.groups_from;
+        self.cred.caps = data.cred.caps;
+        opt_stack.set_role(data);
+        opt_stack.set_task(data);
+        debug!("resulting settings: {self:?}");
 
         Ok(true)
     }
@@ -1134,6 +1138,26 @@ mod tests {
             let (task, _, _, kept) = best_task(&tasks, "/usr/bin/ls").unwrap();
             assert_eq!(task, "c", "{tasks:?}");
             assert_eq!(kept, ["C_VAR"], "{tasks:?}");
+        }
+    }
+
+    // a task whose user does not exist is left out like a task that does not match: it is no
+    // tie for a task as good as it, in any order
+    #[test]
+    fn test_task_left_out_is_no_tie_in_any_order() {
+        let task = |name: &str, user: &str| {
+            format!(
+                r#"{{"name":"{name}","cred":{{"setuid":"{user}"}},"commands":["/usr/bin/ls"]}}"#
+            )
+        };
+        let valid = task("valid", "nobody");
+        let broken = task("broken", "rar-no-such-user");
+        for tasks in orders(&[&valid, &broken]) {
+            assert_eq!(
+                best_task(&tasks, "/usr/bin/ls").map(|(task, ..)| task).ok(),
+                Some("valid".to_string()),
+                "{tasks:?}"
+            );
         }
     }
 
