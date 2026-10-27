@@ -457,33 +457,10 @@ impl FileSettings {
     pub fn save_all(&mut self) -> Result<(), Box<dyn Error>> {
         let immutable = self.immutable();
 
-        if let Some(path) = self.root.data.data.storage.settings.as_ref().and_then(|s| {
-            s.path.as_ref().and_then(|p| {
-                debug!(
-                    "Checking if root settings path needs to be updated: current {}, new {}",
-                    p.display(),
-                    p.display()
-                );
-                if p.is_dir() || *p == self.root.path {
-                    None
-                } else {
-                    Some(p.clone())
-                }
-            })
-        }) {
-            // Open the new file with the new path
-            let mut new_root = LockedSettingsFile::open_write(path, |_, _| {
-                Ok(Versioning::new(self.root.data.data.clone()))
-            })?;
-            // the file at the new path does not hold these settings yet
-            new_root.saved = None;
-            debug!(
-                "Moved root settings to new path: {}",
-                new_root.path.display()
-            );
-            drop(std::mem::replace(&mut self.root, new_root));
-        }
-
+        // the root settings stay in their own file, which dosr reads, and the policy that they
+        // name in its own files below: the root settings used to be moved into a separate policy
+        // file, and waited forever for the lock that the loaded policy file holds
+        //
         // only the files that changed: the others are not rewritten (in the typed form of the
         // actors, without their immutable flag for a while...)
         let mut has_errors = if !self.root.changed() {
@@ -921,6 +898,54 @@ mod tests {
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         assert!(!content.contains("/usr/bin/true"));
+    }
+
+    // a root file that names a separate policy file: saving an edit of the policy writes it in
+    // that file, keeps the root file as it is, and does not wait for the lock of the loaded file
+    #[test]
+    fn test_save_all_with_a_separate_policy_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let dir = std::env::temp_dir().join(format!("rar-separate-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let root = dir.join("rootasrole.json");
+            let data = dir.join("policy.json");
+            let version = crate::PACKAGE_VERSION.to_string();
+            std::fs::write(
+                &root,
+                serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"path": data, "immutable": false}}}).to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                &data,
+                serde_json::json!({"version": version, "roles": [{"name": "r0", "actors": []}]})
+                    .to_string(),
+            )
+            .unwrap();
+            for file in [&root, &data] {
+                std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let root_before = std::fs::read_to_string(&root).unwrap();
+            let mut settings =
+                FileSettings::write_all(root.clone(), root.clone(), StorageMethod::JSON).unwrap();
+            settings.get_policies()[0]
+                .borrow_mut()
+                .roles
+                .push(SRole::builder("r1").build());
+            settings.save_all().unwrap();
+            drop(settings);
+            let data_after = std::fs::read_to_string(&data).unwrap();
+            let root_after = std::fs::read_to_string(&root).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            done.send((root_before, root_after, data_after)).unwrap();
+        });
+        let (root_before, root_after, data_after) = finished
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("save_all finishes, without waiting for a lock that this process holds");
+        assert_eq!(root_after, root_before);
+        assert!(data_after.contains("r1"), "{data_after}");
+        assert!(!data_after.contains("storage"), "{data_after}");
     }
 
     #[test]
