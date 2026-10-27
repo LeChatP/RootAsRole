@@ -454,9 +454,17 @@ fn reachable(roles: &[Value], from: usize, enter: &dyn Fn(usize) -> bool) -> Vec
 /// Whether dosr should allow the command of the role `r{target}`, written as the rules decided
 /// on 2026-10-28: the user holds a role as its actor, or as an ancestor (parent, parent of a
 /// parent...) of a role it is an actor of; a role is excluded when the user holds a role in
-/// conflict with it, whichever of the two names the other in `ssd`; the tasks of an ancestor
-/// come from a held role that is not excluded, through ancestors that are not excluded.
-fn reference_allows(policy: &Value, held: &[bool], target: usize) -> bool {
+/// conflict with it, whichever of the two names the other in `ssd`, and, after a failed lookup
+/// of an actor, when it takes part in any conflict; the tasks of an ancestor come from a held
+/// role that is not excluded, through ancestors that are not excluded; `dosr -r r{filter}`
+/// only takes the tasks of that role, which the user must be an actor of, and of its ancestors.
+fn reference_allows(
+    policy: &Value,
+    held: &[bool],
+    target: usize,
+    filter: Option<usize>,
+    lookup_failed: bool,
+) -> bool {
     let roles = policy["roles"].as_array().unwrap();
     let name = |k: usize| roles[k]["name"].as_str().unwrap();
     let holds = |i: usize| {
@@ -465,16 +473,64 @@ fn reference_allows(policy: &Value, held: &[bool], target: usize) -> bool {
     let in_conflict = |i: usize, j: usize| {
         listed(&roles[i], "ssd").contains(&name(j)) || listed(&roles[j], "ssd").contains(&name(i))
     };
-    let excluded = |i: usize| (0..roles.len()).any(|j| j != i && in_conflict(i, j) && holds(j));
-    !excluded(target)
-        && (held[target]
-            || (0..roles.len()).any(|s| {
-                held[s] && !excluded(s) && reachable(roles, s, &|i| !excluded(i)).contains(&target)
-            }))
+    let takes_part = |i: usize| {
+        roles[i].get("ssd").is_some()
+            || roles
+                .iter()
+                .any(|other| listed(other, "ssd").contains(&name(i)))
+    };
+    let excluded = |i: usize| {
+        (lookup_failed && takes_part(i))
+            || (0..roles.len()).any(|j| j != i && in_conflict(i, j) && holds(j))
+    };
+    let through = |s: usize| {
+        held[s]
+            && !excluded(s)
+            && (s == target || reachable(roles, s, &|i| !excluded(i)).contains(&target))
+    };
+    !excluded(target) && filter.map_or_else(|| (0..roles.len()).any(through), through)
+}
+
+/// The role whose task dosr chooses for `cmd` with `policy`, with `dosr -r filter`, after the
+/// lookup of the actors of the roles `failed` failed; `None` when dosr refuses.
+fn chosen_role(
+    policy: &Value,
+    cmd: &str,
+    filter: Option<&str>,
+    failed: &[String],
+) -> Option<String> {
+    let cli = Cli::builder()
+        .cmd_path(cmd.to_string())
+        .maybe_opt_filter(
+            filter.map(|role| FilterMatcher::builder().role(role.to_string()).build()),
+        )
+        .build();
+    let cred = dummy_cred();
+    let text = policy.to_string();
+    let mut data = crate::finder::de::ConfigFinderDeserializer {
+        cli: &cli,
+        cred: &cred,
+    }
+    .deserialize(&mut serde_json::Deserializer::from_str(&text))
+    .expect("a generated policy is valid");
+    for role in &mut data.roles {
+        role.lookup_failed = failed.iter().any(|name| *name == role.role);
+    }
+    match outcome(BestExecSettings::retrieve_settings(
+        &cli,
+        &cred,
+        &data,
+        USER_ENV,
+        &["/usr/bin"],
+    )) {
+        Outcome::Allowed { role, .. } => Some(role),
+        Outcome::Refused => None,
+    }
 }
 
 // the separation of duties holds through the hierarchy: dosr allows the command of a role
-// exactly when the reference rules do, for random actors, parents and conflicts
+// exactly when the reference rules do, for random actors, parents and conflicts, without and
+// with a failed lookup of an actor and a role named with dosr -r
 #[cfg(all(feature = "hierarchy", feature = "ssd"))]
 #[test]
 fn test_separation_of_duties_through_the_hierarchy() {
@@ -482,17 +538,24 @@ fn test_separation_of_duties_through_the_hierarchy() {
     for seed in 0..CASES {
         let mut rng = Rng::new(seed);
         let (policy, held) = hierarchy_policy(&mut rng);
-        for target in 0..held.len() {
-            let cmd = format!("/usr/bin/rar-prop-{target}");
-            let allowed = matches!(
-                outcome(decide(&policy, &cmd, &[], None)),
-                Outcome::Allowed { ref role, .. } if *role == format!("r{target}")
-            );
-            assert_eq!(
-                allowed,
-                reference_allows(&policy, &held, target),
-                "seed {seed}, r{target}, held {held:?}\n{policy}"
-            );
+        let count = held.len();
+        let variant = (
+            (rng.below(2) == 0).then(|| rng.below(count)),
+            (rng.below(3) == 0).then(|| format!("r{}", rng.below(count))),
+        );
+        for (filter, failed) in [(None, None), variant] {
+            let failed: Vec<String> = failed.into_iter().collect();
+            let filter_name = filter.map(|f| format!("r{f}"));
+            for target in 0..count {
+                let cmd = format!("/usr/bin/rar-prop-{target}");
+                let allowed = chosen_role(&policy, &cmd, filter_name.as_deref(), &failed)
+                    == Some(format!("r{target}"));
+                assert_eq!(
+                    allowed,
+                    reference_allows(&policy, &held, target, filter, !failed.is_empty()),
+                    "seed {seed}, r{target}, held {held:?}, -r {filter_name:?}, failed {failed:?}\n{policy}"
+                );
+            }
         }
     }
 }
