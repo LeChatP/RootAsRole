@@ -1,0 +1,382 @@
+//! Properties of the decision, checked on generated policies (#73): each property is a
+//! hypothesis on how dosr decides, written as a test so that it never becomes a bug. The policies
+//! come from a small generator with a fixed seed: the same cases run each time, without any
+//! dependency, and a failure names its seed.
+
+use std::path::PathBuf;
+
+use serde::de::DeserializeSeed;
+use serde_json::{Value, json};
+
+use super::*;
+use test_log::test;
+
+/// The policies generated for each property.
+const CASES: u64 = 200;
+
+/// A generator of numbers (xorshift64*): enough to pick among a few choices, and reproducible.
+struct Rng(u64);
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        Self(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+    }
+
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % n as u64).unwrap()
+    }
+
+    fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        &items[self.below(items.len())]
+    }
+
+    fn shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (1..items.len()).rev() {
+            items.swap(i, self.below(i + 1));
+        }
+    }
+}
+
+/// The commands that a generated task may allow: paths, arguments, patterns, and any command.
+const COMMANDS: [&str; 7] = [
+    "/usr/bin/ls",
+    "/usr/bin/ls -l",
+    "/usr/bin/ls ^.*$",
+    "/usr/bin/*",
+    "**",
+    "/usr/bin/cat",
+    "/usr/bin/l?",
+];
+
+/// The users that a generated task may run as: none written (root), root by name or by id, a
+/// user that exists, and one that does not.
+const USERS: [Option<&str>; 5] = [
+    None,
+    Some("\"root\""),
+    Some("0"),
+    Some("\"nobody\""),
+    Some("\"rar-no-such-user\""),
+];
+
+const CAPS: [&str; 3] = ["CAP_NET_RAW", "CAP_NET_BIND_SERVICE", "CAP_SYS_ADMIN"];
+
+/// The command lines that each property asks for.
+const ASKED: [(&str, &[&str]); 4] = [
+    ("/usr/bin/ls", &[]),
+    ("/usr/bin/ls", &["-l"]),
+    ("ls", &[]),
+    ("/usr/bin/cat", &[]),
+];
+
+fn task(rng: &mut Rng, name: &str) -> Value {
+    let commands = match rng.below(6) {
+        // every command, sometimes but one
+        0 => json!({"default": "all"}),
+        1 => json!({"default": "all", "del": [rng.pick(&COMMANDS)]}),
+        _ => json!([rng.pick(&COMMANDS), rng.pick(&COMMANDS)]),
+    };
+    let caps: Vec<&str> = CAPS.iter().copied().filter(|_| rng.below(3) == 0).collect();
+    let mut cred = json!({ "caps": caps });
+    if let Some(user) = rng.pick(&USERS) {
+        cred["setuid"] = serde_json::from_str(user).unwrap();
+    }
+    json!({"name": name, "cred": cred, "commands": commands})
+}
+
+/// A policy of 1 to 3 roles of 1 to 3 tasks. A role is held by the current user, by one of its
+/// groups, or by another user.
+fn generated_policy(rng: &mut Rng) -> Value {
+    let uid = nix::unistd::getuid().as_raw();
+    let gid = nix::unistd::getgid().as_raw();
+    let roles: Vec<Value> = (0..=rng.below(3))
+        .map(|r| {
+            let actor = match rng.below(4) {
+                0 => json!({"type": "group", "id": gid}),
+                1 => json!({"type": "user", "id": uid.wrapping_add(1)}),
+                _ => json!({"type": "user", "id": uid}),
+            };
+            let tasks: Vec<Value> = (0..=rng.below(3))
+                .map(|t| task(rng, &format!("t{r}{t}")))
+                .collect();
+            json!({"name": format!("r{r}"), "actors": [actor], "tasks": tasks})
+        })
+        .collect();
+    json!({ "roles": roles })
+}
+
+/// What dosr decides: the role and the task chosen, with what the command runs as, or the
+/// refusal.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Allowed {
+        role: String,
+        task: String,
+        path: PathBuf,
+        setuid: Option<u32>,
+        caps: String,
+    },
+    Refused,
+}
+
+/// The decision of dosr for `cmd args` with `policy`, read from memory like a policy file,
+/// and, with `only`, for that role and task (`dosr -r role -t task`).
+fn decide(
+    policy: &Value,
+    cmd: &str,
+    args: &[&str],
+    only: Option<(&str, &str)>,
+) -> SrResult<BestExecSettings> {
+    let cli = Cli::builder()
+        .cmd_path(cmd.to_string())
+        .cmd_args(args.iter().copied())
+        .maybe_opt_filter(only.map(|(role, task)| {
+            FilterMatcher::builder()
+                .role(role.to_string())
+                .task(task.to_string())
+                .build()
+        }))
+        .build();
+    let cred = dummy_cred();
+    let text = policy.to_string();
+    let data = crate::finder::de::ConfigFinderDeserializer {
+        cli: &cli,
+        cred: &cred,
+    }
+    .deserialize(&mut serde_json::Deserializer::from_str(&text))
+    .expect("a generated policy is valid");
+    BestExecSettings::retrieve_settings(&cli, &cred, &data, vec![("A", "B")], &["/usr/bin"])
+}
+
+fn outcome(settings: SrResult<BestExecSettings>) -> Outcome {
+    match settings {
+        Ok(settings) if settings.task.is_some() && settings.score.fully_matching() => {
+            Outcome::Allowed {
+                role: settings.role,
+                task: settings.task.unwrap_or_default(),
+                path: settings.final_path,
+                setuid: settings.cred.setuid.map(|user| user.uid.as_raw()),
+                caps: format!("{:?}", settings.cred.caps),
+            }
+        }
+        _ => Outcome::Refused,
+    }
+}
+
+/// Every role and task of `policy`, as names.
+fn tasks_of(policy: &Value) -> Vec<(String, String)> {
+    policy["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|role| {
+            role["tasks"].as_array().unwrap().iter().map(|task| {
+                (
+                    role["name"].as_str().unwrap().to_string(),
+                    task["name"].as_str().unwrap().to_string(),
+                )
+            })
+        })
+        .collect()
+}
+
+/// `policy` with its roles, and the tasks of each role, in another order.
+fn shuffled(rng: &mut Rng, policy: &Value) -> Value {
+    let mut policy = policy.clone();
+    let roles = policy["roles"].as_array_mut().unwrap();
+    for role in roles.iter_mut() {
+        rng.shuffle(role["tasks"].as_array_mut().unwrap());
+    }
+    rng.shuffle(roles);
+    policy
+}
+
+// the decision does not depend on the order of the roles, nor of the tasks of a role: two tasks
+// as good as each other are refused whatever their order (5d3dc01 was found here)
+#[test]
+fn test_decision_does_not_depend_on_the_order() {
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let policy = generated_policy(&mut rng);
+        for (cmd, args) in ASKED {
+            let expected = outcome(decide(&policy, cmd, args, None));
+            for _ in 0..3 {
+                let other = shuffled(&mut rng, &policy);
+                assert_eq!(
+                    outcome(decide(&other, cmd, args, None)),
+                    expected,
+                    "seed {seed}, {cmd} {args:?}\n{policy}\n{other}"
+                );
+            }
+        }
+    }
+}
+
+// the chosen task is the best one: no other task of the policy, asked for by name, matches the
+// command with a better score; and a task asked for by name is chosen only if it matches
+#[test]
+fn test_chosen_task_is_the_best() {
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let policy = generated_policy(&mut rng);
+        for (cmd, args) in ASKED {
+            let Ok(best) = decide(&policy, cmd, args, None) else {
+                continue;
+            };
+            if outcome(Ok(best.clone())) == Outcome::Refused {
+                continue;
+            }
+            for (role, task) in tasks_of(&policy) {
+                let Ok(other) = decide(&policy, cmd, args, Some((&role, &task))) else {
+                    continue;
+                };
+                if other.task.as_deref() != Some(task.as_str()) || !other.score.fully_matching() {
+                    continue;
+                }
+                assert!(
+                    !other.score.better_fully(&best.score),
+                    "seed {seed}, {cmd} {args:?}: {role}/{task} is better than {}/{:?}\n{policy}",
+                    best.role,
+                    best.task
+                );
+            }
+        }
+    }
+}
+
+/// `policy` with fewer rights: an actor, a task or a command less, or a command denied.
+fn restricted(rng: &mut Rng, policy: &Value) -> Value {
+    let mut policy = policy.clone();
+    let roles = policy["roles"].as_array_mut().unwrap();
+    let role = rng.below(roles.len());
+    let role = &mut roles[role];
+    match rng.below(3) {
+        // nobody holds the role anymore
+        0 => role["actors"] = json!([]),
+        // a task less
+        1 => {
+            let tasks = role["tasks"].as_array_mut().unwrap();
+            let task = rng.below(tasks.len());
+            tasks.remove(task);
+        }
+        // a command denied in a task
+        _ => {
+            let tasks = role["tasks"].as_array_mut().unwrap();
+            let task = rng.below(tasks.len());
+            let denied = rng.pick(&COMMANDS);
+            let commands = &mut tasks[task]["commands"];
+            *commands = match commands.take() {
+                Value::Array(allowed) => {
+                    json!({"default": "none", "add": allowed, "del": [denied]})
+                }
+                // the commands already denied stay denied
+                mut set => {
+                    match set["del"].as_array_mut() {
+                        Some(del) => del.push(json!(denied)),
+                        None => set["del"] = json!([denied]),
+                    }
+                    set
+                }
+            };
+        }
+    }
+    policy
+}
+
+// a restriction never allows what the policy did not: a task that the restricted policy chooses
+// is one that the whole policy allows when it is asked for by name (fewer tasks can only lift a
+// tie between two of them)
+#[test]
+fn test_restriction_never_allows_more() {
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let policy = generated_policy(&mut rng);
+        for _ in 0..3 {
+            let less = restricted(&mut rng, &policy);
+            for (cmd, args) in ASKED {
+                let Outcome::Allowed { role, task, .. } = outcome(decide(&less, cmd, args, None))
+                else {
+                    continue;
+                };
+                let whole = outcome(decide(&policy, cmd, args, Some((&role, &task))));
+                assert!(
+                    matches!(&whole, Outcome::Allowed { role: r, task: t, .. } if *r == role && *t == task),
+                    "seed {seed}, {cmd} {args:?}: {role}/{task} allowed by\n{less}\nbut not by\n{policy}\n({whole:?})"
+                );
+            }
+        }
+    }
+}
+
+// JSON and CBOR policies give the same decision, read from their files like dosr does
+#[test]
+fn test_json_and_cbor_decide_the_same() {
+    let dir = PolicyDir::new("properties-formats");
+    for seed in 0..CASES / 4 {
+        let mut rng = Rng::new(seed);
+        let policy = generated_policy(&mut rng);
+        for (cmd, args) in ASKED {
+            let outcomes: Vec<Outcome> = [StorageMethod::JSON, StorageMethod::CBOR]
+                .into_iter()
+                .map(|method| {
+                    let root = dir.0.join(format!("rootasrole-{method}"));
+                    let settings = root_settings(method, &root, policy["roles"].clone());
+                    write_file(&root, &settings, method, 0o600);
+                    let cli = Cli::builder()
+                        .cmd_path(cmd.to_string())
+                        .cmd_args(args.iter().copied())
+                        .build();
+                    outcome(find_best_exec_settings(
+                        &cli,
+                        &dummy_cred(),
+                        &root,
+                        &root,
+                        method,
+                        vec![("A", "B")],
+                        &["/usr/bin"],
+                    ))
+                })
+                .collect();
+            assert_eq!(
+                outcomes[0], outcomes[1],
+                "seed {seed}, {cmd} {args:?}\n{policy}"
+            );
+        }
+    }
+}
+
+// a task whose user does not exist is never chosen, whatever the rest of the policy
+#[test]
+fn test_task_of_an_unknown_user_is_never_chosen() {
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let policy = generated_policy(&mut rng);
+        for (cmd, args) in ASKED {
+            if let Outcome::Allowed { role, task, .. } = outcome(decide(&policy, cmd, args, None)) {
+                let chosen = policy["roles"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["name"] == role.as_str())
+                    .and_then(|r| {
+                        r["tasks"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|t| t["name"] == task.as_str())
+                    })
+                    .unwrap();
+                assert_ne!(
+                    chosen["cred"]["setuid"], "rar-no-such-user",
+                    "seed {seed}, {cmd} {args:?}\n{policy}"
+                );
+            }
+        }
+    }
+}

@@ -725,6 +725,7 @@ mod tests {
     use test_log::test;
 
     mod perf;
+    mod properties;
 
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
