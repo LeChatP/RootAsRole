@@ -489,7 +489,10 @@ pub enum UnreadableVersion {
 impl std::fmt::Display for UnreadableVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Missing => write!(f, "the policy has no version"),
+            Self::Missing => write!(
+                f,
+                "the policy has no version: write the one that it is written for, like \"version\": \"{PACKAGE_VERSION}\""
+            ),
             Self::Invalid(version) => write!(f, "the policy version \"{version}\" is not valid"),
             Self::Older(version) => write!(
                 f,
@@ -620,6 +623,12 @@ mod tests {
             assert_eq!(read_as_is(Some(version)), Ok(()), "{version}");
         }
         assert_eq!(read_as_is(None), Err(UnreadableVersion::Missing));
+        // what to write, for a policy written by hand
+        assert!(
+            UnreadableVersion::Missing
+                .to_string()
+                .ends_with(&format!(r#""version": "{PACKAGE_VERSION}""#))
+        );
         assert_eq!(
             read_as_is(Some("4.1\n")),
             Err(UnreadableVersion::Invalid("4.1\\n".into()))

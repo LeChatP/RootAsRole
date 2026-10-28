@@ -242,6 +242,8 @@ where
 /// gives it the same meaning (`read_as_is`). Another one is refused rather than read with another
 /// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one,
 /// `chsr upgrade --to` of a newer version writes a newer one for this version.
+///
+/// The reason is only in the log: dosr shows nothing of the policy to the user who runs it.
 fn readable<'a, E: std::fmt::Display>(
     path: &Path,
     data: Result<DConfigFinder<'a>, E>,

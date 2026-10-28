@@ -249,16 +249,29 @@ planted_policy_is_refused() {
 # a policy file of a version that gives it another meaning is refused, the immutable flag
 # included: 4.0.3, which chsr upgrade did not migrate, or none
 old_policy_is_refused() {
-    local version out allowed=0
+    local version out since terminal logged=1 allowed=0
     for version in 4.0.3 ""; do
         write_policy "$PLANTED_POLICY" "$(planted_policy "$version" | sed '/"version": ""/d')"
         out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
         [ -z "$out" ] || allowed=1
     done
+    # the reason is in the log only: dosr shows nothing of the policy to the user who runs it
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    terminal=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
+    for _ in 1 2 3 4 5; do
+        if journalctl -t dosr --since "$since" -o cat |
+            grep -qF "$PLANTED_POLICY: the policy has no version"; then
+            logged=0
+            break
+        fi
+        sleep 1
+    done
     write_policy "$PLANTED_POLICY" "$(planted_policy "$(installed_version)")"
     out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     remove_policy "$PLANTED_POLICY"
-    [ "$allowed" -eq 0 ] && [ "$out" = 0 ]
+    [ "$allowed" -eq 0 ] && [ "$out" = 0 ] && [ "$logged" -eq 0 ] &&
+        ! grep -q "version" <<<"$terminal"
 }
 
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
@@ -546,7 +559,7 @@ setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
 check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused" planted_policy_is_refused
-check "a policy file of an older version, or without one, is refused" old_policy_is_refused
+check "a policy file of an older version, or without one, is refused, the reason in the log" old_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "a regular expression without quotes" unquoted_regex
 check "a command written without arguments allows none" command_without_arguments_allows_none
