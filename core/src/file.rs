@@ -372,10 +372,12 @@ impl FileSettings {
         let mut root = LockedSettingsFile::open(path, options, write, |path, file| {
             debug!("Loading root settings from {}", path.display());
             let mut document = read_document(file_type, file)?;
+            let mut no_path = None;
             match migrate_document(&mut document) {
                 Ok(applied) => migration.set(applied),
-                Err(MigrationError::NoMigrationPath(from, to)) => {
-                    debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                Err(e @ MigrationError::NoMigrationPath(..)) => {
+                    debug!("\x1b[31m{e}\x1b[0m");
+                    no_path = Some(e);
                 }
                 Err(MigrationError::MigrationFailed(e)) => return Err(io::Error::other(e)),
             }
@@ -384,6 +386,14 @@ impl FileSettings {
                     debug!("Failed to deserialize root settings: {e}");
                     io::Error::new(io::ErrorKind::InvalidData, e)
                 })?;
+            // the storage settings are read at any version, a policy only at a version that
+            // this version knows the meaning of, like in a policy file: an older version, or a
+            // newer one, may mean something else with the same words
+            if let Some(e) = no_path
+                && !settings.data.config.as_ref().borrow().is_empty()
+            {
+                return Err(io::Error::other(e.to_string()));
+            }
             Self::make_weak_config(&settings.data.config);
             settings
                 .upgrade_version(ROOT_MIGRATIONS)
@@ -637,6 +647,61 @@ mod tests {
             ["LC_*"]
         );
         std::fs::remove_file(&path).unwrap();
+    }
+
+    // a root file at a version without a migration path, older or newer: its storage settings
+    // are read, a policy that it holds is refused, like the same policy in a policy file (it was
+    // edited, and saved with that version, as if this version knew what it means)
+    #[test]
+    fn test_root_file_without_a_migration_path() {
+        let dir = std::env::temp_dir().join(format!("rar-root-no-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-root-no-path-{}", std::process::id())),
+            );
+        });
+        let root = dir.join("rootasrole.json");
+        let data = dir.join("policy.json");
+        let policy = serde_json::json!({"version": PACKAGE_VERSION.to_string(), "roles": []});
+        std::fs::write(&data, policy.to_string()).unwrap();
+        for version in ["3.0.0", "99.0.0"] {
+            let storage = serde_json::json!({"method": "json", "settings": {"path": data, "immutable": false}});
+            std::fs::write(
+                &root,
+                serde_json::json!({"version": version, "storage": storage}).to_string(),
+            )
+            .unwrap();
+            let settings = FileSettings::read_all(&root, &root, StorageMethod::JSON).unwrap();
+            assert_eq!(settings.get_versions()[0].version.to_string(), version);
+            assert_eq!(settings.policy_files().count(), 1);
+            drop(settings);
+
+            let storage = serde_json::json!({"method": "json", "settings": {"path": root, "immutable": false}});
+            for policy in [
+                serde_json::json!({"roles": [{"name": "r", "actors": []}]}),
+                serde_json::json!({"options": {"bounding": "ignore"}}),
+            ] {
+                let mut document = serde_json::json!({"version": version, "storage": storage});
+                document
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(policy.as_object().unwrap().clone());
+                std::fs::write(&root, document.to_string()).unwrap();
+                let error = FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                    .err()
+                    .unwrap_or_else(|| panic!("{document} is refused"));
+                assert_eq!(
+                    error.to_string(),
+                    format!("No migration path found from {version} to {PACKAGE_VERSION}")
+                );
+                // nothing is written
+                assert_eq!(
+                    std::fs::read_to_string(&root).unwrap(),
+                    document.to_string()
+                );
+            }
+        }
     }
 
     #[test]
