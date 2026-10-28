@@ -110,6 +110,8 @@ where
     let data = crate::finder::de::ConfigFinderDeserializer { cli: &cli, cred }
         .deserialize(&mut serde_json::Deserializer::from_slice(policy))
         .ok()?;
+    // dosr refuses a policy that it would read with another meaning
+    rootasrole_core::database::migrations::read_as_is(data.version.as_deref()).ok()?;
     let settings =
         crate::finder::BestExecSettings::retrieve_settings(&cli, cred, &data, env_vars, env_path)
             .ok()?;

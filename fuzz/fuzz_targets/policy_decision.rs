@@ -86,6 +86,23 @@ impl Input<'_> {
     }
 }
 
+/// The policies, with the version of the template written like the installer does: dosr
+/// refuses a policy without a version that it reads as it is.
+fn policies() -> &'static [(&'static str, Vec<u8>, &'static [&'static str])] {
+    static FILLED: OnceLock<Vec<(&str, Vec<u8>, &[&str])>> = OnceLock::new();
+    FILLED.get_or_init(|| {
+        POLICIES
+            .iter()
+            .map(|&((name, policy), granted)| {
+                let version = format!("\"{}\"", rootasrole_core::PACKAGE_VERSION);
+                let policy =
+                    String::from_utf8_lossy(policy).replace("\"PACKAGE_VERSION\"", &version);
+                (name, policy.into_bytes(), granted)
+            })
+            .collect()
+    })
+}
+
 fn users() -> &'static [Cred] {
     static USERS: OnceLock<Vec<Cred>> = OnceLock::new();
     USERS.get_or_init(|| {
@@ -109,7 +126,7 @@ fuzz_target!(|data: &[u8]| {
     else {
         return;
     };
-    let ((name, policy), granted) = POLICIES[usize::from(policy) % POLICIES.len()];
+    let (name, policy, granted) = &policies()[usize::from(policy) % POLICIES.len()];
     let cred = &users()[usize::from(user) % users().len()];
 
     let mut args = vec!["dosr".to_owned()];

@@ -34,6 +34,9 @@ pub mod tasks;
 #[cfg_attr(test, derive(Builder))]
 #[derive(PartialEq, Eq, Debug, Default)]
 pub struct DConfigFinder<'a> {
+    /// The version that wrote the policy, which dosr checks before deciding (see
+    /// `rootasrole_core::database::migrations::read_as_is`).
+    pub version: Option<String>,
     pub options: Option<Opt<'a>>,
     pub roles: Vec<DRoleFinder<'a>>,
 }
@@ -294,6 +297,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field<'a> {
+            #[serde(alias = "v")]
+            Version,
             #[serde(alias = "o")]
             Options,
             #[serde(alias = "r")]
@@ -317,10 +322,18 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
             where
                 V: serde::de::MapAccess<'de>,
             {
+                let mut version = None;
                 let mut options = None;
                 let mut roles = Vec::new();
                 while let Some(key) = map.next_key()? {
                     match key {
+                        Field::Version => {
+                            // the second one of a JSON file would be the one checked
+                            if version.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version = Some(map.next_value()?);
+                        }
                         Field::Options => {
                             debug!("ConfigFinderVisitor: options");
                             options = Some(map.next_value()?);
@@ -338,7 +351,11 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for ConfigFinderDeserializer<'a> {
                         }
                     }
                 }
-                Ok(DConfigFinder { options, roles })
+                Ok(DConfigFinder {
+                    version,
+                    options,
+                    roles,
+                })
             }
         }
         deserializer.deserialize_map(ConfigFinderVisitor {

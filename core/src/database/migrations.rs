@@ -434,6 +434,67 @@ pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration
     }))
 }
 
+/// The oldest version whose documents the current version reads as they are.
+///
+/// From it to the current version, every migration leaves the documents unchanged on the way
+/// up, and the current version gives them the same meaning, or allows less (#41, #47). A
+/// migration that rewrites the documents on the way up raises it to its `to`.
+pub const UNCHANGED_SINCE: Version = Version::new(4, 1, 0);
+
+/// Why the current version does not read a policy document as it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreadableVersion {
+    /// The document has no version.
+    Missing,
+    /// The version of the document is not a version, escaped for display.
+    Invalid(String),
+    /// Written before [`UNCHANGED_SINCE`]: the same words meant something else.
+    Older(Version),
+    /// Written by a newer version, whose meaning this version does not know.
+    Newer(Version),
+}
+
+impl std::fmt::Display for UnreadableVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => write!(f, "the policy has no version"),
+            Self::Invalid(version) => write!(f, "the policy version \"{version}\" is not valid"),
+            Self::Older(version) => write!(
+                f,
+                "the policy was written by RootAsRole {version}, whose words meant something else: upgrade it with chsr upgrade"
+            ),
+            Self::Newer(version) => write!(
+                f,
+                "the policy was written by RootAsRole {version}, newer than {PACKAGE_VERSION}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnreadableVersion {}
+
+/// Whether the current version reads a policy document of `version` as it is, without a
+/// migration.
+///
+/// These versions go from [`UNCHANGED_SINCE`] to the current version. dosr reads the documents
+/// as they are, so that it refuses the other ones instead of giving them another meaning.
+/// # Errors
+/// Returns why the document is not read as it is.
+pub fn read_as_is(version: Option<&str>) -> Result<(), UnreadableVersion> {
+    let text = version.ok_or(UnreadableVersion::Missing)?;
+    let mut version = Version::parse(text)
+        .map_err(|_| UnreadableVersion::Invalid(text.escape_debug().to_string()))?;
+    // the build metadata does not change the format
+    version.build = semver::BuildMetadata::EMPTY;
+    if version < UNCHANGED_SINCE {
+        Err(UnreadableVersion::Older(version))
+    } else if version > PACKAGE_VERSION {
+        Err(UnreadableVersion::Newer(version))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -518,6 +579,64 @@ mod tests {
             migrate_document(&mut document),
             Err(MigrationError::NoMigrationPath(_, _))
         ));
+    }
+
+    #[test]
+    fn test_read_as_is() {
+        let current = PACKAGE_VERSION.to_string();
+        for version in ["4.1.0", current.as_str(), &format!("{current}+debian")] {
+            assert_eq!(read_as_is(Some(version)), Ok(()), "{version}");
+        }
+        assert_eq!(read_as_is(None), Err(UnreadableVersion::Missing));
+        assert_eq!(
+            read_as_is(Some("4.1\n")),
+            Err(UnreadableVersion::Invalid("4.1\\n".into()))
+        );
+        for version in ["3.2.0", "4.0.0", "4.0.3", "4.1.0-rc.1"] {
+            assert_eq!(
+                read_as_is(Some(version)),
+                Err(UnreadableVersion::Older(Version::parse(version).unwrap())),
+                "{version}"
+            );
+        }
+        let newer = Version::new(PACKAGE_VERSION.major, PACKAGE_VERSION.minor + 1, 0);
+        assert_eq!(
+            read_as_is(Some(&newer.to_string())),
+            Err(UnreadableVersion::Newer(newer))
+        );
+    }
+
+    // the documents that dosr reads as they are, from UNCHANGED_SINCE, are the ones that no
+    // migration rewrites on the way up: a migration that rewrites a document must raise it
+    #[test]
+    fn test_no_migration_rewrites_a_document_since_unchanged_since() {
+        // every rewrite of the migrations up to now
+        let document = json!({
+            "options": {"env": {"check": ["LC_.*"], "delete": DELETE_LIST_4_0_3}, "path": {"default": "keepsafe"}},
+            "roles": [{
+                "name": "r",
+                "tasks": [{
+                    "name": "t",
+                    "options": {"env": {"default": "delete"}},
+                    "commands": ["/usr/bin/systemctl ^start|stop$"]
+                }]
+            }]
+        });
+        for migration in DOCUMENT_MIGRATIONS {
+            let mut migrated = document.clone();
+            (migration.up)(migration, &mut migrated).unwrap();
+            if migration.from() >= UNCHANGED_SINCE {
+                assert_eq!(
+                    migrated,
+                    document,
+                    "the migration from {} to {} rewrites the document: raise UNCHANGED_SINCE",
+                    migration.from(),
+                    migration.to()
+                );
+            } else if migration.to() == UNCHANGED_SINCE {
+                assert_ne!(migrated, document, "the document covers the rewrites");
+            }
+        }
     }
 
     #[test]

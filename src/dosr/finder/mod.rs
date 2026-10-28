@@ -19,6 +19,7 @@ use nix::{
     unistd::{Group, User, getgrouplist},
 };
 use options::BorrowedOptStack;
+use rootasrole_core::database::migrations::read_as_is;
 use rootasrole_core::{
     Cred,
     database::{
@@ -158,12 +159,11 @@ where
                 Ok(BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &config_finder_deserializer
-                        .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                        .map_err(|e| {
-                            debug!("Error deserializing CBOR: {e}");
-                            SrError::ConfigurationError
-                        })?,
+                    &readable(
+                        file_path,
+                        config_finder_deserializer
+                            .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader)),
+                    )?,
                     env_vars.iter().cloned(),
                     env_path,
                 )?)
@@ -173,12 +173,11 @@ where
                 Ok(BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &config_finder_deserializer
-                        .deserialize(&mut serde_json::Deserializer::new(io_reader))
-                        .map_err(|e| {
-                            debug!("Error deserializing JSON: {e}");
-                            SrError::ConfigurationError
-                        })?,
+                    &readable(
+                        file_path,
+                        config_finder_deserializer
+                            .deserialize(&mut serde_json::Deserializer::new(io_reader)),
+                    )?,
                     env_vars.iter().cloned(),
                     env_path,
                 )?)
@@ -237,6 +236,24 @@ where
     parse_file(&file_path)
         .and_then(BestExecSettings::refuse_tie)
         .and_then(BestExecSettings::with_target_groups)
+}
+
+/// The policy of `path`, when it is valid and dosr reads it as it is: written by a version that
+/// gives it the same meaning (`read_as_is`). Another one is refused rather than read with another
+/// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one.
+fn readable<'a, E: std::fmt::Display>(
+    path: &Path,
+    data: Result<DConfigFinder<'a>, E>,
+) -> SrResult<DConfigFinder<'a>> {
+    let data = data.map_err(|e| {
+        debug!("Error deserializing {}: {e}", path.display());
+        SrError::ConfigurationError
+    })?;
+    read_as_is(data.version.as_deref()).map_err(|e| {
+        error!("{}: {e}", path.display());
+        SrError::ConfigurationError
+    })?;
+    Ok(data)
 }
 
 /// The user and the groups of the credentials of a task, or what does not resolve: a name that
@@ -1738,6 +1755,105 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
             "t"
         );
+    }
+
+    // dosr reads a policy as it is, only from the version since which it means the same: a 4.0.3
+    // policy that chsr upgrade did not migrate (it could not load it, or did not run) gave the
+    // keep list of the global options to a task in delete mode, which 4.0.3 did not, and a newer
+    // policy may mean more than what this version reads in it
+    #[test]
+    fn test_find_best_exec_settings_reads_a_policy_only_at_a_known_version() {
+        let dir = PolicyDir::new("versions");
+        let root = dir.0.join("rootasrole.json");
+        let data = dir.0.join("policy.json");
+        let at = |version: Option<&str>| {
+            let mut document = policy(user_role("t", "/usr/bin/ls", &[]));
+            match version {
+                Some(version) => document["version"] = Value::from(version),
+                None => drop(document.as_object_mut().unwrap().remove("version")),
+            }
+            document
+        };
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        let refused = [None, Some("4.0.3"), Some("3.2.0"), Some("x"), Some(&newer)];
+        // a policy file named by the root file
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        for version in refused {
+            write_file(&data, &at(version), StorageMethod::JSON, 0o600);
+            assert!(
+                matches!(
+                    find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+                    Err(SrError::ConfigurationError)
+                ),
+                "{version:?}"
+            );
+        }
+        for version in ["4.1.0", &rootasrole_core::PACKAGE_VERSION.to_string()] {
+            write_file(&data, &at(Some(version)), StorageMethod::JSON, 0o600);
+            assert_eq!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+                "t",
+                "{version}"
+            );
+        }
+        // the storage settings of the root file are read at any version, not its policy
+        let mut settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        settings["version"] = Value::from("3.2.0");
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        let settings = root_settings(
+            StorageMethod::JSON,
+            &root,
+            user_role("t", "/usr/bin/ls", &[]),
+        );
+        let mut old = settings.clone();
+        old["version"] = Value::from("4.0.3");
+        write_file(&root, &old, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        // in a directory, only the file that is not read as it is is skipped, in CBOR too
+        let directory = dir.0.join("rootasrole.d");
+        std::fs::create_dir(&directory).unwrap();
+        let settings = root_settings(StorageMethod::CBOR, &directory, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let mut current = policy(user_role("t", "/usr/bin/ls", &[]));
+        current["roles"][0]["name"] = Value::from("current");
+        write_file(
+            &directory.join("current.bin"),
+            &current,
+            StorageMethod::CBOR,
+            0o600,
+        );
+        let mut old = at(Some("4.0.3"));
+        old["roles"][0]["tasks"][0]["commands"] = serde_json::json!(["/usr/bin/cat"]);
+        write_file(&directory.join("old.bin"), &old, StorageMethod::CBOR, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/cat"),
+            Err(SrError::PermissionDenied)
+        ));
+        // the version once: the second one of a JSON file would be the one checked
+        std::fs::write(&data, r#"{"version":"4.0.3","version":"4.1.0","roles":[]}"#).unwrap();
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
     }
 
     #[test]
