@@ -235,6 +235,19 @@ pub struct FileVersion<'a> {
     pub migration: Option<&'a DocumentMigration>,
 }
 
+/// The policy that the storage settings of the root file `root_path` name, when it is not the
+/// root file itself: the path that they give, else the data path, like dosr reads it. A root file
+/// that names itself holds the policy (`chsr convert -r json <root file>`): the data path was
+/// loaded instead, and edited while dosr read the root file.
+fn named_policy(root_path: &Path, data_path: &Path, storage: &SettingsContent) -> Option<PathBuf> {
+    let path = storage
+        .settings
+        .as_ref()
+        .and_then(|settings| settings.path.as_deref())
+        .unwrap_or(data_path);
+    (path != root_path).then(|| path.to_path_buf())
+}
+
 pub type ConfigMap = Vec<LockedPolicy>;
 pub type LockedPolicy = LockedSettingsFile<Versioning<Rc<RefCell<SPolicy>>>>;
 pub type LockedRootSettings = LockedSettingsFile<Versioning<RootSettings>>;
@@ -334,27 +347,11 @@ impl FileSettings {
         let mut map = ConfigMap::new();
         let mut ignored = Vec::new();
 
-        let policy_path = root
-            .data
-            .data
-            .storage
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.path.as_ref())
-            .and_then(|path| {
-                if path.as_path() == rar_cfg_path.as_ref() {
-                    None
-                } else {
-                    Some(path.clone())
-                }
-            })
-            .or_else(|| {
-                if rar_cfg_path.as_ref() == rar_cfg_data_path {
-                    None
-                } else {
-                    Some(rar_cfg_data_path)
-                }
-            });
+        let policy_path = named_policy(
+            rar_cfg_path.as_ref(),
+            &rar_cfg_data_path,
+            &root.data.data.storage,
+        );
         if let Some(path) = &policy_path {
             if !root.data.data.config.as_ref().borrow().is_empty() {
                 warn!(
@@ -812,6 +809,51 @@ mod tests {
                 );
             }
         }
+    }
+
+    // the root file that names itself holds the policy, like for dosr, which reads the path that
+    // the root file names, else the data path: chsr loaded the policy of the data path instead
+    // (a directory like /etc/security/rootasrole.d/), and edited it while dosr read the root file,
+    // the layout that chsr convert -r json <root file> writes
+    #[test]
+    fn test_root_file_that_names_itself_holds_the_policy() {
+        let dir = std::env::temp_dir().join(format!("rar-names-itself-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("rootasrole.d")).unwrap();
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-names-itself-{}", std::process::id())),
+            );
+        });
+        let root = dir.join("rootasrole.json");
+        let data = dir.join("rootasrole.d");
+        let version = PACKAGE_VERSION.to_string();
+        std::fs::write(
+            data.join("default.json"),
+            serde_json::json!({"version": version, "roles": [{"name": "in_the_directory"}]})
+                .to_string(),
+        )
+        .unwrap();
+        let storage = |path: Option<&Path>| {
+            let mut root = serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"immutable": false}},
+                "roles": [{"name": "in_the_root_file"}]
+            });
+            if let Some(path) = path {
+                root["storage"]["settings"]["path"] = serde_json::json!(path);
+            }
+            root.to_string()
+        };
+        std::fs::write(&root, storage(Some(&root))).unwrap();
+        let settings = FileSettings::read_all(&root, &data, StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_path(), None);
+        assert_eq!(settings.policy_files().count(), 0);
+        drop(settings);
+        // without a path, the policy is at the data path
+        std::fs::write(&root, storage(None)).unwrap();
+        let settings = FileSettings::read_all(&root, &data, StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_path(), Some(data.as_path()));
+        assert_eq!(settings.policy_files().count(), 1);
     }
 
     #[test]
