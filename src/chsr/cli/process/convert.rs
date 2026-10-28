@@ -42,15 +42,10 @@ fn current_policy(settings: &FileSettings) -> Result<PolicyAndFile, Box<dyn Erro
     }
 }
 
-/// Whether the root file names a directory of policy files.
+/// Whether the policy is a directory of files: named by the root file, or the data path when the
+/// root file names none (it took the first file of the data path).
 fn in_a_directory(settings: &FileSettings) -> bool {
-    settings
-        .get_root()
-        .storage
-        .settings
-        .as_ref()
-        .and_then(|storage| storage.path.as_ref())
-        .is_some_and(|path| path.is_dir())
+    settings.policy_path().is_some_and(Path::is_dir)
 }
 
 /// Write `config` in a new file `to`, in the format `to_type`.

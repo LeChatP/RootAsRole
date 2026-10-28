@@ -3018,6 +3018,44 @@ mod tests {
         assert!(upgrade(&path, "r probe add").unwrap());
     }
 
+    // a root file without a path: the policy is the data path, here a directory, which convert
+    // refuses like a directory that the root file names; it took the first file of it
+    #[test]
+    fn test_convert_a_policy_directory_at_the_data_path() {
+        let path = format!("{RAR_CFG_PATH}.convert_data_dir");
+        let dir = format!("{path}.d");
+        let _cleanup = defer(|| {
+            let path = format!("{RAR_CFG_PATH}.convert_data_dir");
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(format!("{path}.d"));
+            let _ = fs::remove_file(format!("{path}.out.json"));
+        });
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &path,
+            serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"immutable": false}}}).to_string(),
+        )
+        .unwrap();
+        for name in ["a", "b"] {
+            fs::write(
+                format!("{dir}/{name}.json"),
+                serde_json::json!({"version": version, "roles": [{"name": name}]}).to_string(),
+            )
+            .unwrap();
+        }
+        let mut settings =
+            FileSettings::write_all(path.as_str(), dir.as_str(), StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_files().count(), 2);
+        let out = format!("{path}.out.json");
+        let error = main(&mut settings, ["convert", "json", out.as_str()])
+            .call()
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("directory"), "{error}");
+        assert!(!std::path::Path::new(&out).exists());
+    }
+
     #[test]
     fn test_convert() {
         let _ = env_logger::builder()
