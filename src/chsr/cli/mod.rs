@@ -2965,6 +2965,59 @@ mod tests {
         );
     }
 
+    // the root file names a policy where chsr loads no file: a file that does not exist, an empty
+    // directory, or one whose files cannot be loaded; chsr edited the policy of the root file,
+    // which dosr does not read (it reads none there, and refuses every command), and said it
+    // succeeded
+    #[test]
+    fn test_no_edit_of_the_root_policy_when_the_root_file_names_another_one() {
+        let path = format!("{RAR_CFG_PATH}.names_nothing");
+        let dir = format!("{path}.d");
+        let missing = format!("{path}.missing.json");
+        let _cleanup = defer(|| {
+            let path = format!("{RAR_CFG_PATH}.names_nothing");
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(format!("{path}.d"));
+            let _ = fs::remove_file(format!("{path}.missing.json"));
+        });
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root_naming = |named: &str| {
+            serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"path": named, "immutable": false}}
+            })
+            .to_string()
+        };
+        for (named, expected) in [
+            (missing.as_str(), "which is not a policy file"),
+            (dir.as_str(), "where chsr loads no policy file"),
+        ] {
+            fs::write(&path, root_naming(named)).unwrap();
+            for command in ["r probe add", "show"] {
+                let error = upgrade(&path, command).unwrap_err().to_string();
+                assert!(error.contains(expected), "{command}: {error}");
+                assert_eq!(fs::read_to_string(&path).unwrap(), root_naming(named));
+            }
+            // nor converted: a directory is refused anyway
+            assert!(upgrade(&path, "convert json target/names_nothing.json").is_err());
+            assert!(!std::path::Path::new("target/names_nothing.json").exists());
+        }
+        // a file that cannot be loaded: chsr upgrade --check tells why
+        fs::write(
+            format!("{dir}/old.json"),
+            r#"{"version":"3.0.0","roles":[]}"#,
+        )
+        .unwrap();
+        fs::write(&path, root_naming(&dir)).unwrap();
+        assert!(upgrade(&path, "r probe add").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), root_naming(&dir));
+        // the root file names itself: its policy is the one that dosr reads
+        let itself = root_naming(&path);
+        fs::write(&path, &itself).unwrap();
+        assert!(upgrade(&path, "r probe add").unwrap());
+    }
+
     #[test]
     fn test_convert() {
         let _ = env_logger::builder()

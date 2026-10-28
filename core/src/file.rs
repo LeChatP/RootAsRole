@@ -258,6 +258,9 @@ pub struct FileSettings {
     /// Policy files of a directory that could not be loaded, with the reason.
     #[builder(skip)]
     ignored: Vec<(PathBuf, String)>,
+    /// The policy that the root file names, when it is not the root file itself.
+    #[builder(skip)]
+    policy_path: Option<PathBuf>,
 }
 
 impl FileSettings {
@@ -331,7 +334,7 @@ impl FileSettings {
         let mut map = ConfigMap::new();
         let mut ignored = Vec::new();
 
-        if let Some(path) = root
+        let policy_path = root
             .data
             .data
             .storage
@@ -351,8 +354,8 @@ impl FileSettings {
                 } else {
                     Some(rar_cfg_data_path)
                 }
-            })
-        {
+            });
+        if let Some(path) = &policy_path {
             if !root.data.data.config.as_ref().borrow().is_empty() {
                 warn!(
                     "A policy has been detected in {}, but a different path is specified. 
@@ -394,13 +397,18 @@ impl FileSettings {
             } else if path.is_file() {
                 debug!("Loading settings from file {}", path.display());
                 let config =
-                    Self::load_policy_file(root.data.data.storage.method, options, write, &path)?;
+                    Self::load_policy_file(root.data.data.storage.method, options, write, path)?;
                 debug!("Loaded settings from file {}", path.display());
                 map.push(config);
             }
         }
 
-        Ok(Self { map, root, ignored })
+        Ok(Self {
+            map,
+            root,
+            ignored,
+            policy_path,
+        })
     }
 
     /// # Errors
@@ -674,6 +682,14 @@ impl FileSettings {
     #[must_use]
     pub fn root_path(&self) -> &Path {
         &self.root.path
+    }
+
+    /// The policy that the root file names, a file or a directory, when it is not the root file
+    /// itself: dosr reads the policy there, and not the policy of the root file, even when chsr
+    /// could load no policy file there.
+    #[must_use]
+    pub fn policy_path(&self) -> Option<&Path> {
+        self.policy_path.as_deref()
     }
 
     /// The policy files apart from the root file (those of a policy directory, or the one file

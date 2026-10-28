@@ -13,7 +13,10 @@ use rootasrole_core::{
     util::{RAR_CFG_TYPE, StorageMethod, with_mutable_dir},
 };
 
-use crate::{cli::data::Convertion, util::RAR_CFG_IMMUTABLE};
+use crate::{
+    cli::{data::Convertion, process::no_policy_at},
+    util::RAR_CFG_IMMUTABLE,
+};
 
 /// A policy, with the file that holds it.
 type PolicyAndFile = (Rc<RefCell<SPolicy>>, PathBuf);
@@ -28,13 +31,15 @@ fn current_policy(settings: &FileSettings) -> Result<PolicyAndFile, Box<dyn Erro
                 .into(),
         );
     }
-    Ok(match settings.policy_files().next() {
-        Some((path, policy)) => (policy.clone(), path.to_path_buf()),
-        None => (
+    match (settings.policy_files().next(), settings.policy_path()) {
+        (Some((path, policy)), _) => Ok((policy.clone(), path.to_path_buf())),
+        (None, None) => Ok((
             settings.get_root().config.clone(),
             settings.root_path().to_path_buf(),
-        ),
-    })
+        )),
+        // the policy of the root file is not the one that dosr reads
+        (None, Some(path)) => Err(no_policy_at(settings, path).into()),
+    }
 }
 
 /// Whether the root file names a directory of policy files.
