@@ -1,14 +1,23 @@
 use std::{
     error::Error,
     fmt::Debug,
-    io::{BufRead, Seek, Write},
+    io::{BufRead, Read, Seek, Write},
     os::unix::process::CommandExt,
     path::Path,
 };
 
 use log::{debug, warn};
-use rootasrole_core::database::warn::Warn;
+use rootasrole_core::{
+    PACKAGE_VERSION,
+    database::{
+        migrations::{DocumentMigration, UnreadableVersion, migrate_document, read_as_is},
+        structs::SPolicy,
+        warn::Warn,
+    },
+    file::RootSettings,
+};
 use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use std::os::unix::fs::PermissionsExt;
 use std::{fs::File, io::stdin, process::Command};
 
@@ -32,6 +41,56 @@ impl<F: FnOnce()> Drop for Defer<F> {
 
 pub const fn defer<F: FnOnce()>(f: F) -> Defer<F> {
     Defer::new(f)
+}
+
+/// A configuration edited without its version, which chsr writes when it saves the file.
+pub trait WithoutVersion {
+    /// Forget a version typed in the configuration, kept with the unknown fields.
+    fn forget_version(&mut self);
+}
+
+impl WithoutVersion for SPolicy {
+    fn forget_version(&mut self) {
+        self.extra_fields.remove("version");
+        self.extra_fields.remove("v");
+    }
+}
+
+impl WithoutVersion for RootSettings {
+    fn forget_version(&mut self) {
+        self.config.borrow_mut().forget_version();
+    }
+}
+
+/// The configuration typed in the editor, and its migration. chsr writes the version when it
+/// saves the file: a version typed in the editor was saved next to it, and dosr refuses a policy
+/// with two. A typed version is read like the version of a file: the content of an older one is
+/// migrated from it, an unknown one is refused, and it is not kept.
+fn edited<T: DeserializeOwned + WithoutVersion>(
+    text: &str,
+) -> Result<(T, Option<DocumentMigration>), String> {
+    let mut document: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    match document.get("version").or_else(|| document.get("v")) {
+        Some(Value::String(version)) if *version != PACKAGE_VERSION.to_string() => {
+            if let Err(UnreadableVersion::Invalid(version)) = read_as_is(Some(version)) {
+                return Err(format!("the version \"{version}\" is not valid"));
+            }
+            let migration = migrate_document(&mut document).map_err(|e| e.to_string())?;
+            if let Value::Object(map) = &mut document {
+                map.remove("version");
+                map.remove("v");
+            }
+            let config = serde_json::from_value(document).map_err(|e| e.to_string())?;
+            Ok((config, migration))
+        }
+        // read from the text, whose errors tell the line and the column
+        Some(Value::String(_)) | None => {
+            let mut config: T = serde_json::from_str(text).map_err(|e| e.to_string())?;
+            config.forget_version();
+            Ok((config, None))
+        }
+        Some(version) => Err(format!("the version {version} is not valid")),
+    }
 }
 
 pub const SYSTEM_EDITOR_LIST: &[&str] = &konst::iter::collect_const!(&str =>
@@ -58,7 +117,7 @@ fn is_executable_file(path: &str) -> bool {
 
 /// Edit `config` in an editor, until `check` accepts it or the user aborts.
 #[cfg_attr(tarpaulin, ignore)]
-pub fn start_editing<P, T: Serialize + DeserializeOwned + Warn + Debug>(
+pub fn start_editing<P, T: Serialize + DeserializeOwned + Warn + Debug + WithoutVersion>(
     folder: &P,
     config: &mut T,
     check: impl Fn(&T) -> Result<(), String>,
@@ -126,7 +185,29 @@ fn answer<R: BufRead>(input: &mut R) -> std::io::Result<Option<String>> {
     Ok(Some(line.trim().to_lowercase()))
 }
 
-fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug>(
+/// The command that opens `path` in `editor`, without the configuration of vim.
+fn editor_command(editor: &str, path: &Path) -> Command {
+    let mut cmd = Command::new(editor);
+    if is_vim(editor) {
+        cmd.arg("-u")
+            .arg("NONE")
+            .arg("-U")
+            .arg("NONE")
+            .arg("-N")
+            .arg("-i")
+            .arg("NONE")
+            .arg("--noplugin")
+            .arg("-c")
+            .arg("syntax on")
+            .arg("-c")
+            .arg("set ft=json")
+            .arg("--");
+    }
+    cmd.arg(path);
+    cmd
+}
+
+fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug + WithoutVersion>(
     folder: &P,
     config: &mut T,
     editor: &str,
@@ -158,23 +239,7 @@ where
     debug!("Rewound temporary file");
 
     loop {
-        let mut cmd = Command::new(editor);
-        if is_vim(editor) {
-            cmd.arg("-u")
-                .arg("NONE")
-                .arg("-U")
-                .arg("NONE")
-                .arg("-N")
-                .arg("-i")
-                .arg("NONE")
-                .arg("--noplugin")
-                .arg("-c")
-                .arg("syntax on")
-                .arg("-c")
-                .arg("set ft=json")
-                .arg("--");
-        }
-        cmd.arg(&path);
+        let mut cmd = editor_command(editor, &path);
         debug!("Launching editor: {cmd:?}");
         // SAFETY: chsr is single-threaded when it launches the editor, so the forked child cannot inherit
         // a lock held by another thread. `seccomp_lock` only installs a filter on the child.
@@ -192,12 +257,24 @@ where
         debug!("Current file position: {seek_pos}");
         file.rewind()?;
         debug!("Rewound temporary file for reading");
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
         // a configuration that does not pass the check is invalid like one that does not parse
-        match serde_json::from_reader::<_, T>(&mut file)
-            .map_err(|e| e.to_string())
-            .and_then(|new_config| check(&new_config).map(|()| new_config))
-        {
-            Ok(new_config) => {
+        match edited::<T>(&text).and_then(|(new_config, migration)| {
+            check(&new_config).map(|()| (new_config, migration))
+        }) {
+            Ok((new_config, migration)) => {
+                if let Some(migration) = migration {
+                    writeln!(
+                        output,
+                        "Written for RootAsRole {}, migrated to {PACKAGE_VERSION}:",
+                        migration.from
+                    )?;
+                    // the values are JSON, and the keys escaped
+                    for change in &migration.changes {
+                        writeln!(output, "  {change}")?;
+                    }
+                }
                 new_config.warn_anomalies(&mut warn_handler);
                 debug!("config: {new_config:#?}");
                 let after = serde_json::to_string_pretty(&new_config)?;
@@ -407,7 +484,7 @@ echo '{}' > "$file"
         let script = r#"#!/bin/sh
 for last; do true; done
 file="$last"
-echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$file"
+echo '{ "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$file"
 "#;
         fs::write(&mock_editor_path, script).unwrap();
         fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -535,6 +612,112 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
         assert_eq!(settings.get_root().storage.method, StorageMethod::JSON);
     }
 
+    // chsr writes the version when it saves the file: a version typed in the editor (the policy
+    // of the book has one) was saved next to it, which dosr refuses, and on the next load chsr
+    // took the typed one; it is now read like the version of a file
+    #[test]
+    fn test_edit_typed_version() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_version");
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root = temp_dir_path.join("rootasrole.json");
+        let policy = temp_dir_path.join("policy.json");
+        fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"path": policy, "immutable": false}}}).to_string(),
+        )
+        .unwrap();
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let edit = |typed: &serde_json::Value, answers: &'static [u8]| {
+            let before = serde_json::json!({"version": version, "roles": []}).to_string();
+            fs::write(&policy, &before).unwrap();
+            let script =
+                format!("#!/bin/sh\nfor last; do true; done\necho '{typed}' > \"$last\"\n");
+            fs::write(&mock_editor_path, script).unwrap();
+            fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+            let mut settings =
+                rootasrole_core::file::FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                    .unwrap();
+            let target = settings.get_policies()[0].clone();
+            let mut output = Vec::new();
+            let saved = edit_internal(
+                &temp_dir_path,
+                &mut *target.borrow_mut(),
+                mock_editor_path.to_str().unwrap(),
+                &mut Cursor::new(answers),
+                &mut output,
+                |_| {},
+                |_| Ok(()),
+            )
+            .unwrap();
+            if saved {
+                settings.save_all().unwrap();
+            }
+            (
+                String::from_utf8(output).unwrap(),
+                fs::read_to_string(&policy).unwrap(),
+            )
+        };
+        let roles = serde_json::json!([{"name": "r"}]);
+        for typed in [
+            serde_json::json!({"roles": roles}),
+            serde_json::json!({"version": version, "roles": roles}),
+            serde_json::json!({"v": version, "roles": roles}),
+        ] {
+            let (output, saved) = edit(&typed, b"y\n");
+            assert_eq!(saved.matches("\"version\"").count(), 1, "{typed}: {saved}");
+            assert!(!saved.contains("\"v\""), "{typed}: {saved}");
+            assert_eq!(
+                serde_json::from_str::<Value>(&saved).unwrap()["roles"],
+                roles
+            );
+            assert!(!output.contains("migrated"), "{output}");
+        }
+        // an older version: the content is migrated from it, and the migration shown
+        let (output, saved) = edit(
+            &serde_json::json!({"version": "4.0.3", "options": {"env": {"check": ["LC_.*"]}}}),
+            b"y\n",
+        );
+        assert!(
+            output.contains(&format!(
+                "Written for RootAsRole 4.0.3, migrated to {version}:"
+            )),
+            "{output}"
+        );
+        assert!(
+            output.contains(r#"/options/env/check/0: "LC_.*" -> "LC_*""#),
+            "{output}"
+        );
+        let saved: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved["version"], version.as_str());
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_*"])
+        );
+        // unknown or invalid: edited again, here aborted
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        for (typed, reason) in [
+            ("3.0.0".into(), "No migration path"),
+            (serde_json::json!(newer), "No migration path"),
+            ("x".into(), "is not valid"),
+            (serde_json::json!(4.2), "is not valid"),
+        ] {
+            let (output, saved) = edit(
+                &serde_json::json!({"version": typed, "roles": roles}),
+                b"a\n",
+            );
+            assert!(output.contains(reason), "{typed}: {output}");
+            assert_eq!(
+                saved,
+                serde_json::json!({"version": version, "roles": []}).to_string()
+            );
+        }
+    }
+
     #[test]
     fn test_edit_config_err() {
         let _lock = LOCK.lock().unwrap();
@@ -634,7 +817,6 @@ echo '{ "storage": { "method": "json" } }' > "$file"
         let mock_editor_path = temp_dir_path.join("mock_editor.sh");
         // We construct a JSON with many unknown fields to trigger warnings
         let json_content = r#"{
-    "version": "1.0.0",
     "storage": { "method": "json" },
     "unknown_config_field": "foo",
     "options": {
