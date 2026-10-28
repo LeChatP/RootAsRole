@@ -106,6 +106,16 @@ where
     })
 }
 
+/// The answer of the user, in lowercase, or `None` at the end of the input: nobody answers, which
+/// is no yes (an empty line is the default answer).
+fn answer<R: BufRead>(input: &mut R) -> std::io::Result<Option<String>> {
+    let mut line = String::new();
+    if input.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_lowercase()))
+}
+
 fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug>(
     folder: &P,
     config: &mut T,
@@ -190,9 +200,11 @@ where
                 write!(output, "Your choice [Y/n/a]: ")?;
                 output.flush()?;
 
-                let mut line = String::new();
-                input.read_line(&mut line)?;
-                let choice = line.trim().to_lowercase();
+                // the end of the input saved the configuration, without a yes
+                let Some(choice) = answer(input)? else {
+                    writeln!(output, "\nNo answer: nothing is saved.")?;
+                    return Ok(false);
+                };
                 if choice == "n" || choice == "no" {
                     // Replace the cursor position to the last position before reading
                     file.seek(std::io::SeekFrom::Start(seek_pos))?;
@@ -212,9 +224,11 @@ where
                 write!(output, "Your choice [Y/a]: ")?;
                 output.flush()?;
 
-                let mut line = String::new();
-                input.read_line(&mut line)?;
-                let choice = line.trim().to_lowercase();
+                // the end of the input started the editor again, forever
+                let Some(choice) = answer(input)? else {
+                    writeln!(output, "\nNo answer: nothing is saved.")?;
+                    return Ok(false);
+                };
                 if choice == "a" || choice == "abort" {
                     return Ok(false);
                 }
@@ -397,6 +411,57 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
 
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    // nobody answers, like `chsr editor < /dev/null`: a valid edit was saved without a yes, and an
+    // invalid one started the editor again forever
+    #[test]
+    fn test_edit_config_end_of_input_saves_nothing() {
+        let _lock = LOCK.lock().unwrap();
+        for content in [r#"{"roles": [{"name": "r"}]}"#, r#"{"roles": 1}"#] {
+            let temp_dir_path = test_temp_dir("rar_test_eof");
+            let temp_dir_path_clone = temp_dir_path.clone();
+            let _defer = defer(move || {
+                let _ = fs::remove_dir_all(&temp_dir_path_clone);
+            });
+            let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+            let runs = temp_dir_path.join("runs");
+            let script = format!(
+                "#!/bin/sh\nfor last; do true; done\necho '{content}' > \"$last\"\necho run >> '{}'\n",
+                runs.display()
+            );
+            fs::write(&mock_editor_path, script).unwrap();
+            fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+            let (done, finished) = std::sync::mpsc::channel();
+            let folder = temp_dir_path.clone();
+            std::thread::spawn(move || {
+                let mut config = SPolicy::default();
+                let mut output = Vec::new();
+                let result = edit_internal(
+                    &folder,
+                    &mut config,
+                    mock_editor_path.to_str().unwrap(),
+                    &mut Cursor::new(b""),
+                    &mut output,
+                    |_| {},
+                )
+                .map_err(|e| e.to_string());
+                let unchanged = config == SPolicy::default();
+                done.send((result, unchanged, String::from_utf8(output).unwrap()))
+                    .unwrap();
+            });
+            let (result, unchanged, output) = finished
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the editor is not started again without an answer");
+            assert_eq!(result, Ok(false), "{content}");
+            assert!(unchanged, "{content}");
+            assert!(
+                output.ends_with("No answer: nothing is saved.\n"),
+                "{output}"
+            );
+            assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 1);
+        }
     }
 
     #[test]
