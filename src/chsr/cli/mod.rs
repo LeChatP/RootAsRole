@@ -81,8 +81,16 @@ where
             warn!("--type is ignored: chsr editor edits a file of the policy, in its format");
         }
         return match editor_target(storage, inputs.editor_path.as_deref())? {
-            EditorTarget::Root => start_editing(folder, &mut *storage.get_root_mut()),
-            EditorTarget::Policy(policy) => start_editing(folder, &mut *policy.borrow_mut()),
+            EditorTarget::Root => {
+                // other storage settings must name a policy that loads, in their format
+                let storage_check = storage.storage_check();
+                start_editing(folder, &mut *storage.get_root_mut(), |root| {
+                    storage_check.check(&root.storage)
+                })
+            }
+            EditorTarget::Policy(policy) => {
+                start_editing(folder, &mut *policy.borrow_mut(), |_| Ok(()))
+            }
         };
     }
     process_input(storage, inputs)

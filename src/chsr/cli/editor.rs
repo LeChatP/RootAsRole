@@ -56,10 +56,12 @@ fn is_executable_file(path: &str) -> bool {
     meta.permissions().mode() & 0o111 != 0
 }
 
+/// Edit `config` in an editor, until `check` accepts it or the user aborts.
 #[cfg_attr(tarpaulin, ignore)]
 pub fn start_editing<P, T: Serialize + DeserializeOwned + Warn + Debug>(
     folder: &P,
     config: &mut T,
+    check: impl Fn(&T) -> Result<(), String>,
 ) -> Result<bool, Box<dyn Error>>
 where
     P: AsRef<Path>,
@@ -101,9 +103,17 @@ where
         editor
     };
 
-    edit_internal(folder, config, &editor, &mut input, &mut stdout, |msg| {
-        warn!("{msg}");
-    })
+    edit_internal(
+        folder,
+        config,
+        &editor,
+        &mut input,
+        &mut stdout,
+        |msg| {
+            warn!("{msg}");
+        },
+        check,
+    )
 }
 
 /// The answer of the user, in lowercase, or `None` at the end of the input: nobody answers, which
@@ -123,6 +133,7 @@ fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug>(
     input: &mut R,
     output: &mut W,
     mut warn_handler: F,
+    check: impl Fn(&T) -> Result<(), String>,
 ) -> Result<bool, Box<dyn Error>>
 where
     R: BufRead,
@@ -181,7 +192,11 @@ where
         debug!("Current file position: {seek_pos}");
         file.rewind()?;
         debug!("Rewound temporary file for reading");
-        match serde_json::from_reader::<_, T>(&mut file) {
+        // a configuration that does not pass the check is invalid like one that does not parse
+        match serde_json::from_reader::<_, T>(&mut file)
+            .map_err(|e| e.to_string())
+            .and_then(|new_config| check(&new_config).map(|()| new_config))
+        {
             Ok(new_config) => {
                 new_config.warn_anomalies(&mut warn_handler);
                 debug!("config: {new_config:#?}");
@@ -355,6 +370,7 @@ echo '{}' > "$file"
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         if let Err(e) = &result {
@@ -407,6 +423,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
             &mut input,
             &mut output,
             |_| {},
+            |_| Ok(()),
         );
 
         assert!(result.is_ok());
@@ -445,6 +462,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
                     &mut Cursor::new(b""),
                     &mut output,
                     |_| {},
+                    |_| Ok(()),
                 )
                 .map_err(|e| e.to_string());
                 let unchanged = config == SPolicy::default();
@@ -462,6 +480,59 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
             );
             assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 1);
         }
+    }
+
+    // the root file edited to name its JSON policy file in CBOR: saved, neither chsr nor dosr
+    // read the policy anymore; the check of the storage settings asks to edit again
+    #[test]
+    fn test_edit_root_storage_is_checked() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_storage");
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root = temp_dir_path.join("rootasrole.json");
+        let policy = temp_dir_path.join("policy.json");
+        fs::write(
+            &policy,
+            serde_json::json!({"version": version, "roles": []}).to_string(),
+        )
+        .unwrap();
+        let storage = |method: &str| serde_json::json!({"method": method, "settings": {"path": policy, "immutable": false}});
+        fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": storage("json")}).to_string(),
+        )
+        .unwrap();
+        let mut settings =
+            rootasrole_core::file::FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                .unwrap();
+        let check = settings.storage_check();
+
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = format!(
+            "#!/bin/sh\nfor last; do true; done\necho '{}' > \"$last\"\n",
+            serde_json::json!({"storage": storage("cbor")})
+        );
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            settings.get_root_mut(),
+            mock_editor_path.to_str().unwrap(),
+            &mut Cursor::new(b"a\n"),
+            &mut output,
+            |_| {},
+            |root: &RootSettings| check.check(&root.storage),
+        );
+        let output = String::from_utf8(output).unwrap();
+        assert!(!result.unwrap(), "{output}");
+        assert!(output.contains("is not a policy in cbor"), "{output}");
+        assert!(!output.contains("Resulting configuration"), "{output}");
+        assert_eq!(settings.get_root().storage.method, StorageMethod::JSON);
     }
 
     #[test]
@@ -496,6 +567,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$fil
             &mut input,
             &mut output,
             |_| {},
+            |_| Ok(()),
         );
 
         assert!(result.is_ok());
@@ -535,6 +607,7 @@ echo '{ "storage": { "method": "json" } }' > "$file"
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         assert!(result.unwrap());
@@ -666,6 +739,7 @@ EOF
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         if let Err(e) = &result {

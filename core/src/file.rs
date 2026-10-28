@@ -248,6 +248,69 @@ fn named_policy(root_path: &Path, data_path: &Path, storage: &SettingsContent) -
     (path != root_path).then(|| path.to_path_buf())
 }
 
+/// Whether the policy at `path` loads in the format `method`, without locking it (this process
+/// may hold the lock): the file, or every file of the directory, which holds one at least.
+fn check_policy_at(path: &Path, method: StorageMethod) -> Result<(), String> {
+    let files = if path.is_dir() {
+        let files: Vec<PathBuf> = std::fs::read_dir(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .map(|entry| entry.path())
+            .collect();
+        if files.is_empty() {
+            return Err(format!("{} holds no policy file", path.display()));
+        }
+        files
+    } else if path.is_file() {
+        vec![path.to_path_buf()]
+    } else {
+        return Err(format!("{} is not a policy file", path.display()));
+    };
+    for file in files {
+        let read = || -> Result<(), Box<dyn Error>> {
+            let mut document = read_document(method, &read_with_privileges(&file)?)?;
+            migrate_document(&mut document)?;
+            serde_json::from_value::<Versioning<Rc<RefCell<SPolicy>>>>(document)?;
+            Ok(())
+        };
+        read().map_err(|e| format!("{} is not a policy in {method}: {e}", file.display()))?;
+    }
+    Ok(())
+}
+
+/// Other storage settings for the root file, checked before it is saved with them (chsr editor).
+#[derive(Debug)]
+pub struct StorageCheck {
+    root_path: PathBuf,
+    data_path: PathBuf,
+    loaded: SettingsContent,
+}
+
+impl StorageCheck {
+    /// Whether the root file can be saved with `storage`: the policy that it names loads, in its
+    /// format. Otherwise neither chsr nor dosr reads the policy anymore, and the root file must
+    /// be repaired by hand: a policy file named in another format, or a path that is not a
+    /// policy. A change of `immutable` only is not checked.
+    /// # Errors
+    /// Returns why the policy that `storage` names does not load.
+    pub fn check(&self, storage: &SettingsContent) -> Result<(), String> {
+        let named = |storage| named_policy(&self.root_path, &self.data_path, storage);
+        let path = named(storage);
+        if storage.method == self.loaded.method && path == named(&self.loaded) {
+            return Ok(());
+        }
+        match path {
+            Some(path) => check_policy_at(&path, storage.method),
+            // dosr reads the policy of the root file in the format of the storage settings
+            None if storage.method != RAR_CFG_TYPE => Err(format!(
+                "the root file holds the policy, in {RAR_CFG_TYPE}: its method must be {RAR_CFG_TYPE}"
+            )),
+            None => Ok(()),
+        }
+    }
+}
+
 pub type ConfigMap = Vec<LockedPolicy>;
 pub type LockedPolicy = LockedSettingsFile<Versioning<Rc<RefCell<SPolicy>>>>;
 pub type LockedRootSettings = LockedSettingsFile<Versioning<RootSettings>>;
@@ -274,6 +337,9 @@ pub struct FileSettings {
     /// The policy that the root file names, when it is not the root file itself.
     #[builder(skip)]
     policy_path: Option<PathBuf>,
+    /// The policy when the root file names none, if it is not the root file itself.
+    #[builder(skip)]
+    data_path: Option<PathBuf>,
 }
 
 impl FileSettings {
@@ -352,6 +418,7 @@ impl FileSettings {
             &rar_cfg_data_path,
             &root.data.data.storage,
         );
+        let data_path = Some(rar_cfg_data_path);
         if let Some(path) = &policy_path {
             if !root.data.data.config.as_ref().borrow().is_empty() {
                 warn!(
@@ -405,6 +472,7 @@ impl FileSettings {
             root,
             ignored,
             policy_path,
+            data_path,
         })
     }
 
@@ -681,6 +749,19 @@ impl FileSettings {
         &self.root.path
     }
 
+    /// A check of other storage settings for the root file, before it is saved with them.
+    #[must_use]
+    pub fn storage_check(&self) -> StorageCheck {
+        StorageCheck {
+            root_path: self.root.path.clone(),
+            data_path: self
+                .data_path
+                .clone()
+                .unwrap_or_else(|| self.root.path.clone()),
+            loaded: self.root.data.data.storage.clone(),
+        }
+    }
+
     /// The policy that the root file names, a file or a directory, when it is not the root file
     /// itself: dosr reads the policy there, and not the policy of the root file, even when chsr
     /// could load no policy file there.
@@ -854,6 +935,74 @@ mod tests {
         let settings = FileSettings::read_all(&root, &data, StorageMethod::JSON).unwrap();
         assert_eq!(settings.policy_path(), Some(data.as_path()));
         assert_eq!(settings.policy_files().count(), 1);
+    }
+
+    // other storage settings for the root file (chsr editor): the policy that they name must load
+    // in their format, otherwise neither chsr nor dosr reads it anymore
+    #[test]
+    fn test_storage_check() {
+        let dir = std::env::temp_dir().join(format!("rar-storage-check-{}", std::process::id()));
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-storage-check-{}", std::process::id())),
+            );
+        });
+        for sub in ["empty.d", "json.d"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        let version = PACKAGE_VERSION.to_string();
+        let policy = serde_json::json!({"version": version, "roles": [{"name": "r"}]});
+        let root = dir.join("rootasrole.json");
+        let json = dir.join("policy.json");
+        let cbor = dir.join("policy.bin");
+        std::fs::write(&json, policy.to_string()).unwrap();
+        std::fs::write(dir.join("json.d/a.json"), policy.to_string()).unwrap();
+        std::fs::write(&cbor, cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap()).unwrap();
+        let storage = |method: &str, path: &Path, immutable: bool| -> SettingsContent {
+            serde_json::from_value(serde_json::json!({
+                "method": method,
+                "settings": {"path": path, "immutable": immutable}
+            }))
+            .unwrap()
+        };
+        std::fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": storage("json", &json, false)})
+                .to_string(),
+        )
+        .unwrap();
+        let settings = FileSettings::read_all(&root, &root, StorageMethod::JSON).unwrap();
+        let check = settings.storage_check();
+        for accepted in [
+            storage("json", &json, false),
+            // only immutable changes
+            storage("json", &json, true),
+            storage("cbor", &cbor, false),
+            storage("json", &dir.join("json.d"), false),
+            storage("json", &root, false),
+        ] {
+            assert_eq!(check.check(&accepted), Ok(()), "{accepted:?}");
+        }
+        for (refused, reason) in [
+            (storage("cbor", &json, false), "is not a policy in cbor"),
+            (storage("json", &cbor, false), "is not a policy in json"),
+            (
+                storage("json", &dir.join("missing.json"), false),
+                "is not a policy file",
+            ),
+            (
+                storage("json", &dir.join("empty.d"), false),
+                "holds no policy file",
+            ),
+            (
+                storage("cbor", &dir.join("json.d"), false),
+                "is not a policy in cbor",
+            ),
+            (storage("cbor", &root, false), "its method must be json"),
+        ] {
+            let error = check.check(&refused).unwrap_err();
+            assert!(error.contains(reason), "{refused:?}: {error}");
+        }
     }
 
     #[test]
