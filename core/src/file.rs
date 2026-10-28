@@ -18,10 +18,10 @@ use semver::Version;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    SettingsContent,
+    PACKAGE_VERSION, SettingsContent,
     database::{
         migration::{Migration, MigrationError},
-        migrations::{DocumentMigration, migrate_document},
+        migrations::{DocumentMigration, migrate_document, migrate_document_to, writable_version},
         structs::SPolicy,
         versionning::Versioning,
     },
@@ -145,33 +145,68 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     /// Returns an error if the file cannot be written
     /// due to a lock, permission error or writing error
     pub fn save(&mut self, method: StorageMethod, immutable: bool) -> Result<(), Box<dyn Error>> {
-        let immuable = immutable && has_privileges(&[Cap::LINUX_IMMUTABLE])?;
-        debug!("Settings file immutable: {immuable}");
-        if immuable {
-            debug!("Toggling immutable off for config file");
-            with_mutable_config(&mut self.fd, |file| {
-                debug!("Toggled immutable off for config file");
-                file.rewind()?;
-                file.set_len(0)?;
-                write_config(&self.data, file, method)
-            })
-            .map_err(|e| format!("Failed to write config file: {e}"))?;
-        } else {
-            let file = &mut *self.fd;
-            debug!("Writing config file");
-            file.rewind()?;
-            debug!("Rewound config file for writing");
-            file.set_len(0)?;
-            debug!("Truncated config file");
-            write_config(&self.data, file, method)?;
-            // clear the rest of the file if any
-            debug!("Wrote config file");
-        }
+        write_locked(&mut self.fd, &self.data, method, immutable)?;
         self.migration = None;
         self.saved = serde_json::to_value(&self.data).ok();
 
         Ok(())
     }
+
+    /// The document of the data, as the file holds it in the format `method`: with the short keys
+    /// and the compact values of CBOR, which the migrations read like in a loaded file.
+    fn document(&self, method: StorageMethod) -> Result<serde_json::Value, Box<dyn Error>> {
+        Ok(match method {
+            StorageMethod::JSON => serde_json::to_value(&self.data)?,
+            StorageMethod::CBOR => {
+                cbor4ii::serde::from_slice(&cbor4ii::serde::to_vec(Vec::new(), &self.data)?)?
+            }
+        })
+    }
+
+    /// Write `document` in the file instead of the data: the file then holds another version than
+    /// the data, which the next save writes again.
+    fn save_document(
+        &mut self,
+        document: &serde_json::Value,
+        method: StorageMethod,
+        immutable: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        write_locked(&mut self.fd, document, method, immutable)?;
+        self.migration = None;
+        self.saved = None;
+        Ok(())
+    }
+}
+
+/// Replace the content of the locked file `fd` by `data`, in the format `method`.
+fn write_locked(
+    fd: &mut Flock<File>,
+    data: &impl Serialize,
+    method: StorageMethod,
+    immutable: bool,
+) -> Result<(), Box<dyn Error>> {
+    let immuable = immutable && has_privileges(&[Cap::LINUX_IMMUTABLE])?;
+    debug!("Settings file immutable: {immuable}");
+    if immuable {
+        debug!("Toggling immutable off for config file");
+        with_mutable_config(fd, |file| {
+            debug!("Toggled immutable off for config file");
+            file.rewind()?;
+            file.set_len(0)?;
+            write_config(data, file, method)
+        })
+        .map_err(|e| format!("Failed to write config file: {e}"))?;
+    } else {
+        let file = &mut **fd;
+        debug!("Writing config file");
+        file.rewind()?;
+        debug!("Rewound config file for writing");
+        file.set_len(0)?;
+        debug!("Truncated config file");
+        write_config(data, file, method)?;
+        debug!("Wrote config file");
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
@@ -180,6 +215,14 @@ pub struct RootSettings {
     #[serde(flatten)]
     #[builder(default)]
     pub config: Rc<RefCell<SPolicy>>,
+}
+
+/// A loaded file written for an older version by [`FileSettings::write_for`].
+#[derive(Debug)]
+pub struct FileDowngrade {
+    pub path: PathBuf,
+    /// What changes from the loaded version, or why the file cannot be written for that version.
+    pub result: Result<DocumentMigration, String>,
 }
 
 /// The version of a loaded file.
@@ -518,6 +561,57 @@ impl FileSettings {
                 .map_err(|e| format!("Failed to save {}: {e}", config.path.display()))?;
         }
         Ok(())
+    }
+
+    /// Write every loaded file for the older version `to`, root file first, before that version
+    /// is installed, or with `check` only tell what would change. Each file is written whatever
+    /// happens to the others, and is then loaded again with the current version: the data is
+    /// not saved again, a later `save_all` would write it for the current version.
+    /// # Errors
+    /// Returns an error if the policy cannot be written for `to` (see `writable_version`), or if
+    /// `to` is the current version: `save_migrated` writes the policy for it.
+    pub fn write_for(&mut self, to: &str, check: bool) -> Result<Vec<FileDowngrade>, String> {
+        let to = writable_version(to)?;
+        if to == PACKAGE_VERSION {
+            return Err(format!("{to} is the current version"));
+        }
+        let immutable = self.immutable();
+        let method = self.root.data.data.storage.method;
+        let mut files = vec![Self::write_file_for(
+            &mut self.root,
+            &to,
+            RAR_CFG_TYPE,
+            immutable,
+            check,
+        )];
+        for config in &mut self.map {
+            files.push(Self::write_file_for(config, &to, method, immutable, check));
+        }
+        Ok(files)
+    }
+
+    fn write_file_for<T: Serialize + DeserializeOwned + Debug + Default>(
+        file: &mut LockedSettingsFile<T>,
+        to: &Version,
+        method: StorageMethod,
+        immutable: bool,
+        check: bool,
+    ) -> FileDowngrade {
+        let mut write = || -> Result<DocumentMigration, Box<dyn Error>> {
+            let mut document = file.document(method)?;
+            let Some(migration) = migrate_document_to(&mut document, to)? else {
+                return Err(format!("its version is not known, or is already {to}").into());
+            };
+            if !check {
+                file.save_document(&document, method, immutable)?;
+            }
+            Ok(migration)
+        };
+        let result = write().map_err(|e| e.to_string());
+        FileDowngrade {
+            path: file.path.clone(),
+            result,
+        }
     }
 
     /// The version of each loaded file, root settings first.

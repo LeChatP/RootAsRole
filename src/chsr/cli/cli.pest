@@ -42,8 +42,10 @@ convert_reconfigure = { "--reconfigure" | "-r" }
 // ========================
 // upgrade
 // ========================
-upgrade_op = { upgrade ~ upgrade_check? }
+upgrade_op = { upgrade ~ ((upgrade_check ~ upgrade_to?) | (upgrade_to ~ upgrade_check?))? }
 upgrade_check = { "--check" }
+upgrade_to = { "--to" ~ upgrade_version }
+upgrade_version = @{ name }
 
 // ========================
 // file

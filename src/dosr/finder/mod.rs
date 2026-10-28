@@ -240,7 +240,8 @@ where
 
 /// The policy of `path`, when it is valid and dosr reads it as it is: written by a version that
 /// gives it the same meaning (`read_as_is`). Another one is refused rather than read with another
-/// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one.
+/// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one,
+/// `chsr upgrade --to` of a newer version writes a newer one for this version.
 fn readable<'a, E: std::fmt::Display>(
     path: &Path,
     data: Result<DConfigFinder<'a>, E>,

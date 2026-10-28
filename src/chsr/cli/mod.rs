@@ -2845,6 +2845,126 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), root);
     }
 
+    // chsr upgrade --to writes every file for an older version, with the migrations down that
+    // only this version knows: no command did, the policy of a downgraded RootAsRole kept the
+    // words of this version, which 4.1.0 reads with another meaning (`^start|stop$`)
+    #[test]
+    fn test_upgrade_to_an_older_version() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_to");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_to"));
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let written = serde_json::json!({
+            "version": version,
+            "storage": {"method": "json", "settings": {"path": path, "immutable": false}},
+            "options": {"password": {"tries": 2}, "tty": {"owner": "target"}, "env": {"check": ["LC_*"]}},
+            "roles": [{"name": "r", "tasks": [{
+                "name": "t",
+                "cred": {"setuid": "nobody", "setgid": {"from": "caller"}},
+                "commands": ["/usr/bin/systemctl ^start|stop$"]
+            }]}]
+        });
+        fs::write(&path, written.to_string()).unwrap();
+        let unchanged = |command: &str| {
+            let before = fs::read_to_string(&path).unwrap();
+            let result = upgrade(&path, command);
+            assert_eq!(fs::read_to_string(&path).unwrap(), before, "{command}");
+            result
+        };
+        // a newer version, one without a migration path, not a version, --check
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        for to in [newer.as_str(), "3.0.0", "4.1", "4.1.0 --check"] {
+            assert!(unchanged(&format!("upgrade --to {to}")).is_err(), "{to}");
+        }
+        assert!(unchanged("upgrade --check --to 4.1.0").is_err());
+        // the current version: chsr upgrade, nothing to do
+        assert!(!unchanged(&format!("upgrade --to {version}")).unwrap());
+
+        assert!(!upgrade(&path, "upgrade --to 4.1.0").unwrap());
+        let saved = read_json(&path);
+        assert_eq!(saved["version"], "4.1.0");
+        assert_eq!(
+            saved["options"],
+            serde_json::json!({"env": {"check": ["LC_*"]}})
+        );
+        let task = &saved["roles"][0]["tasks"][0];
+        assert_eq!(task["cred"], serde_json::json!({"setuid": "nobody"}));
+        assert_eq!(
+            task["commands"],
+            serde_json::json!(["/usr/bin/systemctl ^(?:start|stop)$"])
+        );
+        // this version reads it again, and upgrades it: what 4.1.0 does not know is lost
+        assert!(upgrade(&path, "upgrade --check").is_err());
+        assert!(!upgrade(&path, "upgrade").unwrap());
+        assert_eq!(read_json(&path)["version"], version);
+        assert_eq!(read_json(&path)["options"], saved["options"]);
+
+        // below 4.1.0, the words change: dosr of this version refuses the policy until the
+        // older version is installed
+        assert!(!upgrade(&path, "upgrade --to 4.0.3").unwrap());
+        let saved = read_json(&path);
+        assert_eq!(saved["version"], "4.0.3");
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_.*"])
+        );
+    }
+
+    // a policy directory in CBOR, whose short keys the migrations down must know too
+    #[test]
+    fn test_upgrade_to_an_older_version_of_a_cbor_directory() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_to_dir");
+        let dir = format!("{path}.d");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_to_dir"));
+            let _ = fs::remove_dir_all(format!("{RAR_CFG_PATH}.upgrade_to_dir.d"));
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &path,
+            serde_json::json!({
+                "version": version,
+                "storage": {"method": "cbor", "settings": {"path": dir, "immutable": false}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let file = format!("{dir}/policy.bin");
+        let policy = serde_json::json!({
+            "version": version,
+            "options": {"umask": "077"},
+            "roles": [{"name": "r", "options": {"tty": {"owner": "target"}}, "tasks": [{
+                "name": "t",
+                "options": {"password": {"tries": 1}},
+                "commands": ["/usr/bin/id"]
+            }]}]
+        });
+        fs::write(&file, cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap()).unwrap();
+        let root = fs::read_to_string(&path).unwrap();
+
+        assert!(!upgrade(&path, "upgrade --to 4.1.0").unwrap());
+        let saved: Value = cbor4ii::serde::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(saved["version"], "4.1.0");
+        let text = saved.to_string();
+        assert!(
+            !text.contains("password") && !text.contains("tty"),
+            "{text}"
+        );
+        assert!(
+            text.contains("077") && text.contains("/usr/bin/id"),
+            "{text}"
+        );
+        // the root file holds no policy: only its version changes
+        let mut expected: Value = serde_json::from_str(&root).unwrap();
+        expected["version"] = Value::from("4.1.0");
+        assert_eq!(
+            normalize_json_object(read_json(&path)),
+            normalize_json_object(expected)
+        );
+    }
+
     #[test]
     fn test_convert() {
         let _ = env_logger::builder()

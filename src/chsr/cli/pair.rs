@@ -173,6 +173,9 @@ fn match_pair(pair: &Pair<Rule>, inputs: &mut Inputs) -> Result<(), Box<dyn Erro
         Rule::upgrade_check => {
             inputs.upgrade_check = true;
         }
+        Rule::upgrade_version => {
+            inputs.upgrade_to = Some(pair.as_str().to_string());
+        }
         // === setpolicies ===
         Rule::cmd_policy => {
             inputs.action = InputAction::Set;

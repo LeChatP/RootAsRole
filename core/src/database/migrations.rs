@@ -182,11 +182,16 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
 }
 
 /// 4.1.0 has neither the `password` nor the `tty` option: they are removed from the options of
-/// every level. Without `tty`, 4.1.0 leaves the terminal to the caller, as `"owner": "caller"`.
+/// every level, whatever their key (the CBOR format writes `o`). Without `tty`, 4.1.0 leaves the
+/// terminal to the caller, as `"owner": "caller"`.
 fn remove_options_of_4_2(document: &mut Value) {
     match document {
         Value::Object(map) => {
-            if let Some(Value::Object(options)) = map.get_mut("options") {
+            for key in ["options", "o"] {
+                // `o` is also the `from` of a setgid selector, a string
+                let Some(Value::Object(options)) = map.get_mut(key) else {
+                    continue;
+                };
                 for name in ["password", "tty"] {
                     if options.remove(name).is_some() {
                         info!("Removing the {name} option, unknown before 4.2.0");
@@ -403,6 +408,19 @@ fn describe_changes(before: &Value, after: &Value, pointer: &str, changes: &mut 
 /// # Errors
 /// Returns an error if a migration fails or if there is no migration path to the current version.
 pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration>, MigrationError> {
+    migrate_document_to(document, &PACKAGE_VERSION)
+}
+
+/// Migrate a raw policy document to the version `to`, newer or older than its own.
+///
+/// A document without a parsable version, or already at `to`, is left unchanged. Returns what the
+/// migration changed, if the document was migrated.
+/// # Errors
+/// Returns an error if a migration fails or if there is no migration path to `to`.
+pub fn migrate_document_to(
+    document: &mut Value,
+    to: &Version,
+) -> Result<Option<DocumentMigration>, MigrationError> {
     let Some(version) = document
         .get("version")
         .or_else(|| document.get("v"))
@@ -411,27 +429,41 @@ pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration
     else {
         return Ok(None);
     };
-    if version == PACKAGE_VERSION {
+    if version == *to {
         return Ok(None);
     }
     let before = document.clone();
-    if !Migration::migrate(&version, document, DOCUMENT_MIGRATIONS)? {
+    if !Migration::migrate_from(&version, to, document, DOCUMENT_MIGRATIONS)? {
         return Ok(None);
     }
     let mut changes = Vec::new();
     describe_changes(&before, document, "", &mut changes);
     if let Value::Object(map) = document {
-        debug!("Policy document migrated from {version} to {PACKAGE_VERSION}");
+        debug!("Policy document migrated from {version} to {to}");
         map.remove("v");
-        map.insert(
-            "version".to_string(),
-            Value::String(PACKAGE_VERSION.to_string()),
-        );
+        map.insert("version".to_string(), Value::String(to.to_string()));
     }
     Ok(Some(DocumentMigration {
         from: version,
         changes,
     }))
+}
+
+/// The version `text`, when chsr can write the policy for it: the current version, or an older
+/// one that has a migration path. A newer version knows what its policy means, not this one.
+/// # Errors
+/// Returns why the policy cannot be written for `text`.
+pub fn writable_version(text: &str) -> Result<Version, String> {
+    let to = Version::parse(text).map_err(|e| format!("\"{}\": {e}", text.escape_debug()))?;
+    if to > PACKAGE_VERSION {
+        return Err(format!(
+            "{to} is newer than {PACKAGE_VERSION}: only RootAsRole {to} writes its policy"
+        ));
+    }
+    // the down migrations change nothing in an empty document: only the path is checked
+    Migration::migrate_from(&PACKAGE_VERSION, &to, &mut Value::Null, DOCUMENT_MIGRATIONS)
+        .map_err(|e| e.to_string())?;
+    Ok(to)
 }
 
 /// The oldest version whose documents the current version reads as they are.
@@ -465,7 +497,7 @@ impl std::fmt::Display for UnreadableVersion {
             ),
             Self::Newer(version) => write!(
                 f,
-                "the policy was written by RootAsRole {version}, newer than {PACKAGE_VERSION}"
+                "the policy was written by RootAsRole {version}, newer than {PACKAGE_VERSION}: write it for {PACKAGE_VERSION} with chsr upgrade --to {PACKAGE_VERSION} of that version"
             ),
         }
     }
@@ -865,6 +897,85 @@ mod tests {
         assert_eq!(
             document["roles"][0]["tasks"][0]["options"],
             json!({"umask": "022"})
+        );
+    }
+
+    // the CBOR format writes `o` for the options of the policy, of a role and of a task, and for
+    // the `from` of a setgid selector: the downgrade kept the options of 4.2 in a CBOR policy
+    #[test]
+    fn test_options_of_4_2_are_removed_down_with_the_short_keys() {
+        let mut document = json!({
+            "o": {"password": {"tries": 5}, "umask": "022"},
+            "r": [{
+                "n": "r",
+                "o": {"tty": {"owner": "target"}},
+                "t": [{"n": "t", "o": {"password": {"tries": 1}}, "i": {"g": {"d": "none", "a": ["adm"], "o": "caller"}}}]
+            }]
+        });
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["o"], json!({"umask": "022"}));
+        assert_eq!(document["r"][0]["o"], json!({}));
+        assert_eq!(document["r"][0]["t"][0]["o"], json!({}));
+        assert_eq!(
+            document["r"][0]["t"][0]["i"],
+            json!({"g": {"d": "none", "a": ["adm"]}})
+        );
+    }
+
+    #[test]
+    fn test_migrate_document_to_an_older_version() {
+        let mut document = json!({
+            "version": PACKAGE_VERSION.to_string(),
+            "options": {"password": {"tries": 5}},
+            "roles": []
+        });
+        let migration = migrate_document_to(&mut document, &Version::new(4, 1, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(migration.from, PACKAGE_VERSION);
+        // the version is not one of the changes, like on the way up
+        assert_eq!(
+            migration.changes,
+            [r#"/options/password: {"tries":5} removed"#]
+        );
+        assert_eq!(document["version"], "4.1.0");
+        // already there
+        assert_eq!(
+            migrate_document_to(&mut document, &Version::new(4, 1, 0)).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_writable_version() {
+        assert_eq!(writable_version("4.1.0"), Ok(Version::new(4, 1, 0)));
+        assert_eq!(writable_version("4.0.0"), Ok(Version::new(4, 0, 0)));
+        assert_eq!(
+            writable_version(&PACKAGE_VERSION.to_string()),
+            Ok(PACKAGE_VERSION)
+        );
+        let newer = Version::new(PACKAGE_VERSION.major + 1, 0, 0);
+        assert!(writable_version(&newer.to_string()).is_err());
+        // no migration path, from the version where it stops
+        for version in ["3.2.0", "4.1.0-rc.1", "4.1.5"] {
+            let error = writable_version(version).unwrap_err();
+            assert!(
+                error.starts_with("No migration path found from ")
+                    && error.ends_with(&format!(" to {version}")),
+                "{error}"
+            );
+        }
+        assert!(writable_version("4.1").is_err());
+        assert!(
+            writable_version("\u{1b}[2J")
+                .unwrap_err()
+                .contains("\\u{1b}")
         );
     }
 

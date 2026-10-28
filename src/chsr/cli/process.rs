@@ -46,7 +46,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
     }
     if inputs.action == InputAction::Upgrade {
         debug!("chsr upgrade");
-        return upgrade::upgrade(storage, inputs.upgrade_check);
+        return upgrade::upgrade(storage, inputs.upgrade_check, inputs.upgrade_to.as_deref());
     }
     if inputs.action == InputAction::List && inputs.policy && inputs.policy_path.is_none() {
         // chsr file list: the files of the policy, the root file last

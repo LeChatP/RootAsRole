@@ -682,15 +682,22 @@ const USAGE_CONVERT: UsageSection = UsageSection {
 const USAGE_UPGRADE: UsageSection = UsageSection {
     title: "Upgrade policy files",
     synopsis: &[
-        "chsr upgrade (--check)",
+        "chsr upgrade (--check) (--to <version>)",
         "Save the policy files written by an older version in the current format.",
     ],
-    items: &[UsageItem {
-        name: "--check",
-        description: "Only show what would be upgraded, and fail if anything needs to be.",
-        indent: 1,
-    }],
-    examples: &["chsr upgrade --check"],
+    items: &[
+        UsageItem {
+            name: "--check",
+            description: "Only show what would be written, and fail if anything needs to be.",
+            indent: 1,
+        },
+        UsageItem {
+            name: "--to <version>",
+            description: "Write them for an older version instead, before installing it: dosr refuses a policy of a version that gives it another meaning.",
+            indent: 1,
+        },
+    ],
+    examples: &["chsr upgrade --check", "chsr upgrade --to 4.1.0"],
 };
 
 const fn usage_section(id: UsageSectionId) -> &'static UsageSection {
@@ -847,6 +854,8 @@ fn rule_to_string(rule: Rule) -> String {
         Rule::from => "[from_type] [from_file]",
         Rule::upgrade => "upgrade",
         Rule::upgrade_check => "--check",
+        Rule::upgrade_to => "--to",
+        Rule::upgrade_version => "[version]",
         Rule::workdir_policy => "all, none, inherit",
         Rule::env_policy => "delete-all, keep-all, inherit",
         Rule::path_policy => "delete-all, keep-safe, keep-unsafe, inherit",
@@ -955,7 +964,9 @@ const fn usage_sections_for_rule(rule: Rule) -> Option<&'static [UsageSectionId]
         Rule::opt_path_listing => Some(PATH_LISTING_SECTIONS),
         Rule::opt_env_listing => Some(ENV_LISTING_SECTIONS),
         Rule::convert => Some(CONVERT_SECTIONS),
-        Rule::upgrade | Rule::upgrade_check => Some(UPGRADE_SECTIONS),
+        Rule::upgrade | Rule::upgrade_check | Rule::upgrade_to | Rule::upgrade_version => {
+            Some(UPGRADE_SECTIONS)
+        }
         _ => None,
     }
 }
