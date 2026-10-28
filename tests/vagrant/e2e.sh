@@ -67,14 +67,19 @@ remove_policy() {
     fi
 }
 
+# the version of the installed policy, without which chsr does not edit a file, and dosr does
+# not read it
+installed_version() {
+    sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$ROOT_FILE" | head -n 1
+}
+
 setup() {
     id "$TEST_USER" >/dev/null 2>&1 || useradd -m "$TEST_USER"
     printf '%s\n' "[Unit]" "Description=RootAsRole end-to-end test unit" \
         "[Service]" "ExecStart=/bin/sleep infinity" >"/etc/systemd/system/$UNIT.service"
     systemctl daemon-reload
-    # the version of the installed policy, without which chsr does not edit the file
     local version
-    version=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$ROOT_FILE" | head -n 1)
+    version=$(installed_version)
     write_policy "$E2E_POLICY" "$(
         cat <<EOF
 {
@@ -211,12 +216,11 @@ policy_is_immutable() {
         has_immutable_flag "$E2E_POLICY"
 }
 
-# a policy file added without the immutable flag is refused, the same file with it is used
-planted_policy_is_refused() {
-    immutable_policy || return 77
-    chattr -i "$POLICY_DIR"
-    cat >"$PLANTED_POLICY" <<EOF
+# a policy file of the version $1, which lets the test user run id -u as root
+planted_policy() {
+    cat <<EOF
 {
+  "version": "$1",
   "options": { "authentication": "skip" },
   "roles": [{
     "name": "planted",
@@ -225,6 +229,13 @@ planted_policy_is_refused() {
   }]
 }
 EOF
+}
+
+# a policy file added without the immutable flag is refused, the same file with it is used
+planted_policy_is_refused() {
+    immutable_policy || return 77
+    chattr -i "$POLICY_DIR"
+    planted_policy "$(installed_version)" >"$PLANTED_POLICY"
     chmod 600 "$PLANTED_POLICY"
     chattr +i "$POLICY_DIR"
     local without_flag with_flag
@@ -233,6 +244,21 @@ EOF
     with_flag=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     remove_policy "$PLANTED_POLICY"
     [ -z "$without_flag" ] && [ "$with_flag" = 0 ]
+}
+
+# a policy file of a version that gives it another meaning is refused, the immutable flag
+# included: 4.0.3, which chsr upgrade did not migrate, or none
+old_policy_is_refused() {
+    local version out allowed=0
+    for version in 4.0.3 ""; do
+        write_policy "$PLANTED_POLICY" "$(planted_policy "$version" | sed '/"version": ""/d')"
+        out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
+        [ -z "$out" ] || allowed=1
+    done
+    write_policy "$PLANTED_POLICY" "$(planted_policy "$(installed_version)")"
+    out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
+    remove_policy "$PLANTED_POLICY"
+    [ "$allowed" -eq 0 ] && [ "$out" = 0 ]
 }
 
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
@@ -520,6 +546,7 @@ setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
 check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused" planted_policy_is_refused
+check "a policy file of an older version, or without one, is refused" old_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "a regular expression without quotes" unquoted_regex
 check "a command written without arguments allows none" command_without_arguments_allows_none
