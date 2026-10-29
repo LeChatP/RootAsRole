@@ -1481,9 +1481,36 @@ pub fn env_setpolicy(
 
 #[cfg(test)]
 mod tests {
-    use rootasrole_core::database::options::{Level, Opt, OptType, SBounding, STimeout};
+    use rootasrole_core::database::{
+        options::{Level, Opt, OptStack, OptType, SBounding, STimeout},
+        structs::{SPolicy, SRole, STask},
+    };
 
     use super::options_to_show;
+
+    #[test]
+    fn test_options_to_show_of_a_level_without_options() {
+        // a role and a task that set no option show the options that they inherit
+        let config = SPolicy::builder()
+            .role(
+                SRole::builder("r")
+                    .task(STask::builder("t").build())
+                    .build(),
+            )
+            .options(|opt| opt.bounding(SBounding::Ignore).build())
+            .build();
+        let role = config.as_ref().borrow().roles[0].clone();
+        let task = role.as_ref().borrow().tasks[0].clone();
+        assert!(role.as_ref().borrow().options.is_none());
+        assert!(task.as_ref().borrow().options.is_none());
+        for stack in [OptStack::from_role(&role), OptStack::from_task(&task)] {
+            let opt = stack.to_opt().unwrap();
+            assert_eq!(
+                options_to_show(&opt.as_ref().borrow(), Some(OptType::Bounding)).unwrap(),
+                "\"ignore\""
+            );
+        }
+    }
 
     #[test]
     fn test_options_to_show_only_the_option_asked_for() {
