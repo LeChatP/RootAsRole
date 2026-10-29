@@ -842,6 +842,81 @@ keystrokes_go_to_the_end_of_the_pipeline() {
     }
 }
 
+# the password prompt under ^Z and fg, and under ^C, in an interactive shell of the test user on a
+# pseudo-terminal: after fg the prompt shows again and the password is not echoed (bash gives the
+# terminal its echo back while dosr is stopped); ^C ends dosr by SIGINT, so that the shell drops
+# the rest of the line, with the echo of the terminal back (dash leaves the terminal as dosr left
+# it; sh is bash on Arch)
+prompt_gives_the_echo_back_on_signals() {
+    local rc
+    command -v python3 >/dev/null || return 77
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
+    forget_authentications
+    TEST_USER=$TEST_USER TEST_PASSWORD=$TEST_PASSWORD python3 - <<'EOF'
+import os, pty, select, sys, time
+user, password = os.environ["TEST_USER"], os.environ["TEST_PASSWORD"].encode()
+
+def read_until(fd, needle, timeout=8):
+    buf, end = b"", time.time() + timeout
+    while time.time() < end:
+        if select.select([fd], [], [], 0.1)[0]:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            buf += data
+            if needle in buf:
+                break
+    return buf
+
+def shell(argv):
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvp("runuser", ["runuser", "-u", user, "--"] + argv)
+    os.write(fd, b"PS1='READY> '\n")
+    read_until(fd, b"READY> ")
+    read_until(fd, b"READY> ", 1)
+    return fd
+
+failed = False
+for name, argv in (("bash", ["bash", "--norc", "--noprofile", "-i"]), ("sh", ["sh", "-i"])):
+    fd = shell(argv)
+    os.write(fd, b"dosr -K; dosr -r e2e -t password /usr/bin/true\n")
+    read_until(fd, b"Password:")
+    time.sleep(0.3)
+    os.write(fd, b"\x1a")
+    read_until(fd, b"READY> ")
+    os.write(fd, b"fg; echo FG=$?\n")
+    prompt = read_until(fd, b"Password:")
+    time.sleep(0.3)
+    os.write(fd, password + b"\n")
+    out = read_until(fd, b"READY> ")
+    if b"Password:" not in prompt or password in prompt + out or b"FG=0" not in out:
+        print(f"{name}, ^Z and fg: {prompt + out!r}", file=sys.stderr)
+        failed = True
+    os.write(fd, b"exit\n")
+
+    fd = shell(argv)
+    os.write(fd, b"dosr -K; dosr -r e2e -t password /usr/bin/true; echo RC=$?\n")
+    read_until(fd, b"Password:")
+    time.sleep(0.3)
+    os.write(fd, b"\x03")
+    out = read_until(fd, b"READY> ")
+    os.write(fd, b"stty -a | grep -o -- ' -\\?echo ' | head -1\n")
+    out += read_until(fd, b"READY> ")
+    if b"RC=" in out or b" -echo " in out or b" echo " not in out:
+        print(f"{name}, ^C: {out!r}", file=sys.stderr)
+        failed = True
+    os.write(fd, b"exit\n")
+sys.exit(1 if failed else 0)
+EOF
+    rc=$?
+    forget_authentications
+    return $rc
+}
+
 # by default, the terminal stays with the caller: nobody cannot reopen it
 terminal_stays_with_the_caller() {
     local out
@@ -902,4 +977,5 @@ check "tty owner target gives the terminal to the user of the command" terminal_
 check "the command gets the terminal settings and the signals of the user" command_gets_the_terminal_and_the_signals_of_the_user
 check "with its output into a pipe, dosr leaves the user's terminal as it is" terminal_of_a_pipeline_is_left_alone
 check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
+check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 exit "$FAILED"

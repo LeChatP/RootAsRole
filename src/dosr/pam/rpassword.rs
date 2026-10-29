@@ -14,11 +14,21 @@
 /// - the general idea of a "``SafeString``" type that clears its memory
 ///   (although much more robust than in the original code)
 ///
-use std::io::{self, Error, ErrorKind, Read};
+/// The signals at the prompt follow sudo-rs 532ede4d ("Clear feedback on signals"), written
+/// with nix, with two differences: a signal that the process ignores stays ignored, and the
+/// prompt signals are blocked while the terminal gets its echo back, so that it gets it from
+/// the background too. A signal stops the read itself (`read_unbuffered` does not read again
+/// after EINTR), where sudo-rs polls the terminal.
+///
+use std::io::{self, Error, ErrorKind};
 use std::os::fd::{AsRawFd, RawFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs, mem};
 
 use libc::{ECHO, ECHONL, TCSANOW, tcsetattr, termios};
+use nix::sys::signal::{
+    SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal, raise, sigaction,
+};
 
 use super::cutils::cerr;
 
@@ -87,26 +97,151 @@ fn safe_tcgetattr(fd: RawFd) -> io::Result<termios> {
 
 const EOL: u8 = 0x0A;
 
-/// Reads a password from the given file descriptor
-pub fn read_unbuffered(source: &mut impl io::Read) -> io::Result<PamBuffer> {
+/// Reads a password from the given file descriptor, one byte at a time into the buffer. A
+/// signal stops the read (`ErrorKind::Interrupted`): `Read::bytes` would read again.
+pub fn read_unbuffered(source: &mut (impl io::Read + ?Sized)) -> io::Result<PamBuffer> {
     let mut password = PamBuffer::default();
-    let mut pwd_iter = password.iter_mut();
+    let mut len = 0;
+    // the byte after a full buffer: the end of the password, or one too many, which is refused
+    let mut overflow = 0;
 
-    #[allow(clippy::unbuffered_bytes)] // we want unbuffered reading for passwords
-    let input = source.bytes().take_while(|x| x.as_ref().ok() != Some(&EOL));
-
-    for read_byte in input {
-        if let Some(dest) = pwd_iter.next() {
-            *dest = read_byte?;
+    loop {
+        let byte = if len < password.len() {
+            &mut password[len]
         } else {
+            &mut overflow
+        };
+        if source.read(std::slice::from_mut(byte))? == 0 {
+            break;
+        }
+        if *byte == EOL {
+            *byte = 0;
+            break;
+        }
+        if len == password.len() {
             return Err(Error::new(
                 ErrorKind::OutOfMemory,
                 "incorrect password attempt",
             ));
         }
+        len += 1;
     }
 
     Ok(password)
+}
+
+/// The signals that end or stop dosr at the password prompt, those that end it first. They are
+/// kept pending while the password is read, and acted on once the terminal has its echo back:
+/// ^C does not leave the terminal without echo, and after ^Z and `fg` the echo is hidden again
+/// before the rest of the password is typed.
+const PROMPT_SIGNALS: [Signal; 8] = [
+    Signal::SIGALRM,
+    Signal::SIGINT,
+    Signal::SIGHUP,
+    Signal::SIGQUIT,
+    Signal::SIGTERM,
+    Signal::SIGTSTP,
+    Signal::SIGTTIN,
+    Signal::SIGTTOU,
+];
+
+static PENDING: [AtomicBool; PROMPT_SIGNALS.len()] =
+    [const { AtomicBool::new(false) }; PROMPT_SIGNALS.len()];
+
+extern "C" fn keep_pending(signal: libc::c_int) {
+    // no allocation, no lock: an atomic store only, which is async-signal-safe
+    if let Ok(signal) = Signal::try_from(signal)
+        && let Some(index) = PROMPT_SIGNALS.iter().position(|s| *s == signal)
+    {
+        PENDING[index].store(true, Ordering::SeqCst);
+    }
+}
+
+/// The prompt signals blocked in this thread, until dropped.
+struct BlockedSignals(Option<SigSet>);
+
+impl BlockedSignals {
+    fn block() -> Self {
+        let signals: SigSet = PROMPT_SIGNALS.into_iter().collect();
+        Self(signals.thread_swap_mask(SigmaskHow::SIG_BLOCK).ok())
+    }
+}
+
+impl Drop for BlockedSignals {
+    fn drop(&mut self) {
+        if let Some(mask) = &self.0 {
+            let _ = mask.thread_set_mask();
+        }
+    }
+}
+
+/// The prompt signals kept pending, until dropped: the dispositions of the process are given
+/// back then. A signal that the process ignores stays ignored.
+struct CaughtSignals(Vec<(Signal, SigAction)>);
+
+impl CaughtSignals {
+    fn catch() -> Self {
+        // a signal sent while the handlers change waits, and goes to the final disposition
+        let _blocked = BlockedSignals::block();
+        // without SA_RESTART: the signal stops the read of the password
+        let action = SigAction::new(
+            SigHandler::Handler(keep_pending),
+            SaFlags::empty(),
+            SigSet::empty(),
+        );
+        let caught = PROMPT_SIGNALS
+            .into_iter()
+            .filter_map(|signal| {
+                // SAFETY: the handler only stores into an atomic, which is async-signal-safe
+                let previous = unsafe { sigaction(signal, &action) }.ok()?;
+                if matches!(previous.handler(), SigHandler::SigIgn) {
+                    // SAFETY: the disposition that the process had
+                    let _ = unsafe { sigaction(signal, &previous) };
+                    return None;
+                }
+                Some((signal, previous))
+            })
+            .collect();
+        for pending in &PENDING {
+            pending.store(false, Ordering::SeqCst);
+        }
+        Self(caught)
+    }
+}
+
+impl Drop for CaughtSignals {
+    fn drop(&mut self) {
+        for (signal, previous) in &self.0 {
+            // SAFETY: the disposition that the process had
+            let _ = unsafe { sigaction(*signal, previous) };
+        }
+    }
+}
+
+/// The first prompt signal kept pending, in the order of `PROMPT_SIGNALS`; the others are
+/// forgotten.
+fn take_pending() -> Option<Signal> {
+    let mut first = None;
+    for (signal, pending) in PROMPT_SIGNALS.into_iter().zip(&PENDING) {
+        if pending.swap(false, Ordering::SeqCst) && first.is_none() {
+            first = Some(signal);
+        }
+    }
+    first
+}
+
+const fn stops(signal: Signal) -> bool {
+    matches!(signal, Signal::SIGTSTP | Signal::SIGTTIN | Signal::SIGTTOU)
+}
+
+/// End dosr by `signal`, as it would have ended without the prompt.
+fn end_with(signal: Signal) -> ! {
+    // SAFETY: SIG_DFL installs no handler
+    let _ = unsafe { nix::sys::signal::signal(signal, SigHandler::SigDfl) };
+    let _ = SigSet::from(signal).thread_unblock();
+    let _ = raise(signal);
+    // the signal did not end dosr: the status that a shell reports for it
+    std::process::exit(128 + signal as i32)
 }
 
 /// Write something and immediately flush
@@ -138,12 +273,30 @@ impl Terminal<'_> {
         Terminal::StdIE(io::stdin().lock(), io::stderr().lock())
     }
 
-    /// Reads input with TTY echo disabled
+    /// Writes `prompt` and reads input with TTY echo disabled. A prompt signal is acted on once
+    /// the echo is back: ^C, SIGTERM, SIGHUP... end dosr by the same signal; ^Z stops it, and
+    /// when it continues, the echo is hidden and the prompt written again.
     #[cfg_attr(tarpaulin, ignore)]
-    pub fn read_password(&mut self) -> io::Result<PamBuffer> {
-        let mut input = self.source();
-        let _hide_input = HiddenInput::new()?;
-        read_unbuffered(&mut input)
+    pub fn read_password(&mut self, prompt: &str) -> io::Result<PamBuffer> {
+        loop {
+            let hidden = HiddenInput::new()?;
+            // after the echo is hidden, so that the prompt shows again when dosr continues
+            self.prompt(&prompt)?;
+            let caught = CaughtSignals::catch();
+            let password = read_unbuffered(self.source());
+            let blocked = BlockedSignals::block();
+            drop(caught);
+            // the echo is back, from the background too: SIGTTOU is blocked
+            drop(hidden);
+            drop(blocked);
+            match take_pending() {
+                Some(signal) if stops(signal) => {
+                    let _ = raise(signal);
+                }
+                Some(signal) => end_with(signal),
+                None => return password,
+            }
+        }
     }
 
     /// Reads input with TTY echo enabled
@@ -174,7 +327,11 @@ impl Terminal<'_> {
 
 #[cfg(test)]
 mod test {
-    use super::{Terminal, read_unbuffered, write_unbuffered};
+    use super::{
+        BlockedSignals, CaughtSignals, Ordering, PENDING, PROMPT_SIGNALS, SaFlags, SigAction,
+        SigHandler, SigSet, Signal, Terminal, raise, read_unbuffered, sigaction, stops,
+        take_pending, write_unbuffered,
+    };
     use std::io::{self, Read, Write};
 
     #[test]
@@ -198,6 +355,50 @@ mod test {
     fn miri_test_longpwd() {
         assert!(read_unbuffered(&mut "a".repeat(511).as_bytes()).is_ok());
         assert!(read_unbuffered(&mut "a".repeat(512).as_bytes()).is_err());
+    }
+
+    /// A source that gives `parts` one after the other, and stops with `ErrorKind::Interrupted`
+    /// between them, as a read that a signal stops.
+    struct Interrupted<'a> {
+        parts: std::slice::Iter<'a, &'a [u8]>,
+        current: &'a [u8],
+    }
+
+    impl Read for Interrupted<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.current.is_empty() {
+                let Some(next) = self.parts.next() else {
+                    return Ok(0);
+                };
+                self.current = next;
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            let n = buf.len().min(self.current.len());
+            buf[..n].copy_from_slice(&self.current[..n]);
+            self.current = &self.current[n..];
+            Ok(n)
+        }
+    }
+
+    // a signal stops the read: the prompt acts on it, where Read::bytes would read again
+    #[test]
+    fn miri_test_read_stops_on_a_signal() {
+        let parts: &[&[u8]] = &[b"cd\n"];
+        let mut source = Interrupted {
+            parts: parts.iter(),
+            current: b"ab",
+        };
+        let error = read_unbuffered(&mut source).err().map(|e| e.kind());
+        assert_eq!(error, Some(io::ErrorKind::Interrupted));
+    }
+
+    #[test]
+    fn miri_test_end_of_a_full_buffer() {
+        let mut data = format!("{}\nnext", "a".repeat(511));
+        let buf = read_unbuffered(&mut data.as_bytes()).unwrap();
+        assert!(buf.iter().all(|&b| b == b'a'));
+        data = "a".repeat(512) + "\n";
+        assert!(read_unbuffered(&mut data.as_bytes()).is_err());
     }
 
     #[test]
@@ -248,6 +449,81 @@ mod test {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    // the prompt signals are process-wide: one test at a time changes them
+    static SIGNALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The disposition of `signal`, given back as it was.
+    fn disposition(signal: Signal) -> SigHandler {
+        let probe = SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty());
+        let _blocked = SigSet::from(signal).thread_block();
+        // SAFETY: the disposition is given back at once, the signal is blocked meanwhile
+        let previous = unsafe { sigaction(signal, &probe) }.unwrap();
+        // SAFETY: the disposition that the process had
+        unsafe { sigaction(signal, &previous) }.unwrap();
+        let _ = SigSet::from(signal).thread_unblock();
+        previous.handler()
+    }
+
+    // while the password is read, a prompt signal is only kept; the dispositions are given
+    // back after it; a signal that ends dosr comes before one that stops it
+    #[test]
+    fn test_prompt_signals_are_kept_pending() {
+        let _guard = SIGNALS.lock().unwrap();
+        let before = disposition(Signal::SIGALRM);
+        let caught = CaughtSignals::catch();
+        raise(Signal::SIGTSTP).unwrap();
+        raise(Signal::SIGALRM).unwrap();
+        raise(Signal::SIGINT).unwrap();
+        drop(caught);
+        assert_eq!(take_pending(), Some(Signal::SIGALRM));
+        assert_eq!(take_pending(), None, "the other signals are forgotten");
+        assert!(matches!(
+            (before, disposition(Signal::SIGALRM)),
+            (SigHandler::SigDfl, SigHandler::SigDfl)
+        ));
+
+        let caught = CaughtSignals::catch();
+        raise(Signal::SIGTSTP).unwrap();
+        drop(caught);
+        assert_eq!(take_pending(), Some(Signal::SIGTSTP));
+        assert!(stops(Signal::SIGTSTP) && !stops(Signal::SIGINT));
+
+        // a signal kept by an earlier prompt is not acted on at the next one
+        PENDING[1].store(true, Ordering::SeqCst);
+        drop(CaughtSignals::catch());
+        assert_eq!(take_pending(), None);
+    }
+
+    // a signal that the caller ignores, as a command started with nohup, stays ignored
+    #[test]
+    fn test_an_ignored_signal_stays_ignored() {
+        let _guard = SIGNALS.lock().unwrap();
+        // SAFETY: SIG_IGN installs no handler
+        let previous = unsafe { nix::sys::signal::signal(Signal::SIGHUP, SigHandler::SigIgn) };
+        let caught = CaughtSignals::catch();
+        assert!(matches!(disposition(Signal::SIGHUP), SigHandler::SigIgn));
+        raise(Signal::SIGHUP).unwrap();
+        drop(caught);
+        assert_eq!(take_pending(), None);
+        // SAFETY: the disposition that the process had
+        unsafe { nix::sys::signal::signal(Signal::SIGHUP, previous.unwrap()) }.unwrap();
+    }
+
+    #[test]
+    fn test_blocked_signals_are_unblocked_after() {
+        let _guard = SIGNALS.lock().unwrap();
+        let before = SigSet::thread_get_mask().unwrap();
+        let blocked = BlockedSignals::block();
+        let inside = SigSet::thread_get_mask().unwrap();
+        assert!(
+            PROMPT_SIGNALS
+                .into_iter()
+                .all(|signal| inside.contains(signal))
+        );
+        drop(blocked);
+        assert_eq!(SigSet::thread_get_mask().unwrap(), before);
     }
 
     #[test]

@@ -113,9 +113,9 @@ impl ConversationAdapter for SrConversationHandler<'_> {
             prompt.as_ref().to_string_lossy()
         };
         let mut term = self.open().map_err(|_| ErrorCode::ConversationError)?;
-        term.prompt(&pam_prompt)
-            .map_err(|_| ErrorCode::ConversationError)?;
-        let read = term.read_password().map_err(|_| ErrorCode::BufferError)?;
+        let read = term
+            .read_password(&pam_prompt)
+            .map_err(|_| ErrorCode::BufferError)?;
         drop(term);
         let os_str = CStr::from_bytes_until_nul(&read)
             .map_err(|_| ErrorCode::BufferError)?
