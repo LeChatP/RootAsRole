@@ -85,6 +85,12 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             Ok(())
         },
     },
+    Migration {
+        from: || Version::new(4, 2, 0),
+        to: || Version::new(4, 3, 0),
+        up: unchanged,
+        down: unchanged,
+    },
 ];
 
 /// `LC_.*` -> `LC_*`: the simple regexes used before 4.1.0 become wildcards.
@@ -1135,6 +1141,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        document["version"] = original["version"].clone();
+        assert_eq!(document, original);
+    }
+
+    #[test]
+    fn test_4_2_0_documents_up_and_down() {
+        let original = json!({
+            "version": "4.2.0",
+            "options": {"password": {"tries": 2}, "tty": {"owner": "target"}},
+            "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls ^a|b$"]}]}]
+        });
+        let mut document = original.clone();
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migration.from, Version::new(4, 2, 0));
+        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        let mut unchanged = original.clone();
+        unchanged["version"] = document["version"].clone();
+        assert_eq!(
+            document, unchanged,
+            "4.2.0 to 4.3.0 changes nothing but the version"
+        );
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 2, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
         document["version"] = original["version"].clone();
         assert_eq!(document, original);
     }
