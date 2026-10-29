@@ -355,6 +355,19 @@ pub const PAM_CONFIGS: &[&str] = &[
     include_str!("../../resources/arch/arch_sr_pam.conf"),
 ];
 
+/// The PAM services that an older installer deployed. The Debian one included `common-session`,
+/// whose modules for interactive logins (`pam_systemd`, `pam_wtmpdb`) fail at each run, since dosr
+/// runs PAM as the caller; sudo includes `common-session-noninteractive`.
+const PREVIOUS_PAM_CONFIGS: &[&str] =
+    &["#%PAM-1.0\n@include common-auth\n@include common-account\n@include common-session\n"];
+
+/// Whether `content` is a PAM service that the installer deploys, or that an older one deployed:
+/// the administrator did not change it.
+#[must_use]
+pub fn is_deployed_pam_config(content: &str) -> bool {
+    PAM_CONFIGS.contains(&content) || PREVIOUS_PAM_CONFIGS.contains(&content)
+}
+
 #[must_use]
 pub const fn pam_config(os: &OsTarget) -> &'static str {
     match os {
@@ -365,11 +378,15 @@ pub const fn pam_config(os: &OsTarget) -> &'static str {
     }
 }
 
-/// Deploy the PAM service of dosr when it is missing, or empty: an empty file is what a failed
-/// installation left, it is not a configuration of the administrator.
+/// Deploy the PAM service of dosr when it is missing, empty, or the one that an older installer
+/// deployed: an empty file is what a failed installation left, it is not a configuration of the
+/// administrator.
 fn deploy_pam_config(os: &OsTarget) -> io::Result<u64> {
     let path = Path::new("/etc/pam.d").join(PAM_CONFIG_SERVICE);
-    if fs::metadata(&path).is_ok_and(|meta| meta.len() > 0) {
+    if fs::metadata(&path).is_ok_and(|meta| meta.len() > 0)
+        && !fs::read_to_string(&path)
+            .is_ok_and(|content| PREVIOUS_PAM_CONFIGS.contains(&content.as_str()))
+    {
         return Ok(0);
     }
     info!("Deploying PAM configuration file");
@@ -465,6 +482,26 @@ mod tests {
         for config in PAM_CONFIGS {
             assert!(config.ends_with('\n'), "{config:?}");
         }
+    }
+
+    #[test]
+    fn test_debian_service_opens_no_login_session() {
+        // pam_systemd and pam_wtmpdb are only in common-session (Session-Interactive-Only)
+        let debian = pam_config(&OsTarget::Debian);
+        assert!(
+            debian
+                .lines()
+                .any(|l| l == "@include common-session-noninteractive")
+        );
+        assert!(!debian.lines().any(|l| l == "@include common-session"));
+        // the service that an older installer deployed is replaced, and removed by uninstall
+        for previous in PREVIOUS_PAM_CONFIGS {
+            assert!(!PAM_CONFIGS.contains(previous));
+            assert!(is_deployed_pam_config(previous));
+        }
+        assert!(!is_deployed_pam_config(&format!(
+            "{debian}session required pam_limits.so\n"
+        )));
     }
 
     #[test]

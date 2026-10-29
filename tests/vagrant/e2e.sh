@@ -528,6 +528,24 @@ log_command_shows_the_lines_of_dosr() {
         ! grep -q 'setuid failed' <<<"$view" && ! grep -q 'match_path' <<<"$all"
 }
 
+# dosr is not a login: its PAM service opens no logind session and writes no wtmp entry, like the
+# one of sudo, whose modules fail for a caller that is not root (pam_systemd: Access denied,
+# pam_wtmpdb: SQLITE_READONLY) and were shown by the command of the hint at each run (Debian)
+pam_opens_no_login_session() {
+    local since view
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    as_user dosr /usr/bin/date >/dev/null || return 1
+    for _ in 1 2 3 4 5; do
+        view=$(as_user "${LOG_COMMAND[@]}" --since "$since" -o cat)
+        grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" && break
+        sleep 1
+    done
+    grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" &&
+        ! grep -qE 'pam_(systemd|wtmpdb|mkhomedir)\(dosr' <<<"$view" &&
+        ! grep -qx '@include common-session' "$PAM_SERVICE"
+}
+
 # chsr is confined by Landlock, even without vim: one missing optional path made the whole ruleset
 # fail; root itself cannot make chsr read a file outside the policy
 chsr_is_confined_by_landlock() {
@@ -729,6 +747,7 @@ check "chsr edits default.json of the policy directory" chsr_edits_the_default_f
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
 check "the executions are logged under the name dosr" dosr_logs_under_its_name
 check "the command that dosr names shows its lines, without the debug lines of PAM" log_command_shows_the_lines_of_dosr
+check "the PAM service of dosr opens no login session" pam_opens_no_login_session
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
