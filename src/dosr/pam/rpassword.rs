@@ -177,6 +177,14 @@ impl Drop for BlockedSignals {
 
 /// The prompt signals kept pending, until dropped: the dispositions of the process are given
 /// back then. A signal that the process ignores stays ignored.
+///
+/// This relies on dosr having one thread while PAM runs, the one that reads the password:
+/// dispositions are per process, masks per thread, and a signal sent to the process goes to any
+/// thread that does not block it. If a PAM module started a thread, a signal could go to it: it
+/// would still be kept pending, but the read would not stop before the end of the line, so ^C
+/// and ^Z would act only then, and the echo stays hidden until then; and a signal that comes
+/// while `BlockedSignals` blocks this thread could go to that thread with its own disposition,
+/// before the echo is back.
 struct CaughtSignals(Vec<(Signal, SigAction)>);
 
 impl CaughtSignals {
