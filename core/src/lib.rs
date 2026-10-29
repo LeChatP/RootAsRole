@@ -59,7 +59,7 @@ use bon::Builder;
 use konst::result;
 use libc::dev_t;
 use nix::unistd::{Gid, Group, Pid, Uid, User, getgroups};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeMap};
 use serde_json::{Map, Value};
 
 /// [`println!`] that ignores write errors: a privileged program must not panic because its
@@ -130,6 +130,7 @@ pub mod ldap;
 pub mod log;
 pub mod util;
 
+use crate::database::versionning::VersionedData;
 #[cfg(feature = "ldap")]
 use crate::ldap::LdapSettings;
 use crate::util::{Either, RAR_CFG_TYPE, StorageMethod};
@@ -211,6 +212,17 @@ pub struct SettingsContent {
     #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
+}
+
+/// The storage settings of a root file next to its version, as dosr reads them.
+impl VersionedData for SettingsContent {
+    fn serialize_entries<M: SerializeMap>(
+        &self,
+        map: &mut M,
+        _human_readable: bool,
+    ) -> Result<(), M::Error> {
+        map.serialize_entry("storage", self)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

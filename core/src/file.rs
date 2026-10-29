@@ -15,7 +15,7 @@ use capctl::Cap;
 use log::{debug, error, warn};
 use nix::fcntl::Flock;
 use semver::Version;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned, ser::SerializeMap};
 
 use crate::{
     PACKAGE_VERSION, SettingsContent,
@@ -23,7 +23,7 @@ use crate::{
         migration::{Migration, MigrationError},
         migrations::{DocumentMigration, migrate_document, migrate_document_to, writable_version},
         structs::SPolicy,
-        versionning::Versioning,
+        versionning::{VersionedData, Versioning},
     },
     util::{
         RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, has_privileges, is_immutable,
@@ -209,12 +209,32 @@ fn write_locked(
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
 pub struct RootSettings {
     pub storage: SettingsContent,
     #[serde(flatten)]
     #[builder(default)]
     pub config: Rc<RefCell<SPolicy>>,
+}
+
+impl VersionedData for RootSettings {
+    fn serialize_entries<M: SerializeMap>(
+        &self,
+        map: &mut M,
+        human_readable: bool,
+    ) -> Result<(), M::Error> {
+        map.serialize_entry("storage", &self.storage)?;
+        self.config.serialize_entries(map, human_readable)
+    }
+}
+
+impl Serialize for RootSettings {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        self.serialize_entries(&mut map, human_readable)?;
+        map.end()
+    }
 }
 
 /// A loaded file written for an older version by [`FileSettings::write_for`].

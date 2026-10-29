@@ -3,8 +3,17 @@
 //! come from a small generator with a fixed seed: the same cases run each time, without any
 //! dependency, and a failure names its seed.
 
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
+use rootasrole_core::{
+    RemoteStorageSettings, SettingsContent,
+    database::{
+        structs::SPolicy,
+        versionning::{VersionedData, Versioning},
+    },
+    file::RootSettings,
+    util::write_config,
+};
 use serde::de::DeserializeSeed;
 use serde_json::{Value, json};
 
@@ -832,9 +841,8 @@ fn test_core_round_trip_keeps_the_decision() {
     for seed in 0..CASES {
         let mut rng = Rng::new(seed);
         let policy = full_policy(&mut rng);
-        let core: rootasrole_core::database::structs::SPolicy =
-            serde_json::from_value(policy.clone())
-                .unwrap_or_else(|e| panic!("seed {seed}: core refuses the policy: {e}\n{policy}"));
+        let core: SPolicy = serde_json::from_value(policy.clone())
+            .unwrap_or_else(|e| panic!("seed {seed}: core refuses the policy: {e}\n{policy}"));
         let written = serde_json::to_value(&core).unwrap();
         for (cmd, args) in ASKED {
             let before = decide(&policy, cmd, args, None);
@@ -846,6 +854,95 @@ fn test_core_round_trip_keeps_the_decision() {
             );
         }
     }
+}
+
+/// Write `data` in `path` like chsr, with rootasrole-core.
+fn write_versioned<T: VersionedData>(path: &Path, data: &Versioning<T>, method: StorageMethod) {
+    write_config(data, &mut std::fs::File::create(path).unwrap(), method).unwrap();
+    set_mode(path, 0o600);
+}
+
+// chsr writes the policy with rootasrole-core, in CBOR with its short keys: dosr reads the files
+// that core writes in either format, a root file that holds the policy or that names a policy
+// file, with the same decision
+#[test]
+fn test_files_written_by_core_decide_the_same() {
+    crate::finder::api::register_plugins();
+    let dir = PolicyDir::new("properties-core-files");
+    let mut allowed = 0;
+    let storage = |method, path: &Path| SettingsContent {
+        method,
+        settings: Some(
+            RemoteStorageSettings::builder()
+                .not_immutable()
+                .path(path)
+                .build(),
+        ),
+        extra_fields: serde_json::Map::new(),
+    };
+    for seed in 0..CASES / 4 {
+        let mut rng = Rng::new(seed);
+        let policy = full_policy(&mut rng);
+        let core: Rc<RefCell<SPolicy>> = serde_json::from_value(policy.clone())
+            .unwrap_or_else(|e| panic!("seed {seed}: core refuses the policy: {e}\n{policy}"));
+        let mut roots = Vec::new();
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let inline = dir.0.join(format!("inline-{method}"));
+            let settings = RootSettings::builder()
+                .storage(storage(method, &inline))
+                .config(core.clone())
+                .build();
+            write_versioned(&inline, &Versioning::new(settings), method);
+            let root = dir.0.join(format!("root-{method}"));
+            let named = dir.0.join(format!("policy-{method}"));
+            let settings = RootSettings::builder()
+                .storage(storage(method, &named))
+                .build();
+            write_versioned(&root, &Versioning::new(settings), method);
+            write_versioned(&named, &Versioning::new(core.clone()), method);
+            roots.push((inline, method));
+            roots.push((root, method));
+        }
+        for (cmd, args) in ASKED {
+            let cli = Cli::builder()
+                .cmd_path(cmd.to_string())
+                .cmd_args(args.iter().copied())
+                .build();
+            let decisions: Vec<String> = roots
+                .iter()
+                .map(|(root, method)| {
+                    summary(
+                        &find_best_exec_settings(
+                            &cli,
+                            &dummy_cred(),
+                            root,
+                            root,
+                            *method,
+                            USER_ENV,
+                            &["/usr/bin"],
+                        )
+                        .map_err(|failure| failure.error),
+                    )
+                })
+                .collect();
+            for (decision, (root, _)) in decisions.iter().zip(&roots) {
+                assert_eq!(
+                    decision,
+                    &decisions[0],
+                    "seed {seed}, {cmd} {args:?}, {}\npolicy {policy}",
+                    root.display()
+                );
+            }
+            // the files are read: a refused file gives ConfigurationError
+            assert!(
+                !decisions[0].starts_with("ConfigurationError"),
+                "seed {seed}, {cmd} {args:?}: {}\npolicy {policy}",
+                decisions[0]
+            );
+            allowed += u64::from(!decisions[0].starts_with("PermissionDenied"));
+        }
+    }
+    assert!(allowed > CASES / 4, "{allowed} decisions allow the command");
 }
 
 /// The variables of `vars`, and the variables `extra` that the policy may set, that the command

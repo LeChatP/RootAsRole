@@ -11,38 +11,47 @@ use super::{
         SCapabilities, SCommands, SCredentials, SPolicy, SRole, SSetgidSet, SSetuidSet, STask,
         SetBehavior, cmds_is_default,
     },
+    versionning::VersionedData,
 };
+
+/// The key of a field: `long` in a human-readable format (JSON), `short` in the binary one (CBOR),
+/// which keeps the policy small to read.
+pub(crate) const fn field(
+    human_readable: bool,
+    long: &'static str,
+    short: &'static str,
+) -> &'static str {
+    if human_readable { long } else { short }
+}
+
+impl VersionedData for SPolicy {
+    fn serialize_entries<M: SerializeMap>(
+        &self,
+        map: &mut M,
+        human_readable: bool,
+    ) -> Result<(), M::Error> {
+        if let Some(options) = &self.options {
+            map.serialize_entry(field(human_readable, "options", "o"), options)?;
+        }
+        if !self.roles.is_empty() {
+            map.serialize_entry(field(human_readable, "roles", "r"), &self.roles)?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        Ok(())
+    }
+}
 
 impl Serialize for SPolicy {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        if serializer.is_human_readable() {
-            let mut map = serializer.serialize_map(None)?;
-            if let Some(options) = &self.options {
-                map.serialize_entry("options", options)?;
-            }
-            if !self.roles.is_empty() {
-                map.serialize_entry("roles", &self.roles)?;
-            }
-            for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        } else {
-            let mut map = serializer.serialize_map(None)?;
-            if let Some(options) = &self.options {
-                map.serialize_entry("o", options)?;
-            }
-            if !self.roles.is_empty() {
-                map.serialize_entry("r", &self.roles)?;
-            }
-            for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        self.serialize_entries(&mut map, human_readable)?;
+        map.end()
     }
 }
 
@@ -388,9 +397,14 @@ mod tests {
     use capctl::Cap;
     use serde_json::{Map, json, to_value};
 
-    use crate::database::{
-        actor::{SActor, SGroups},
-        structs::SGroupsEither,
+    use crate::{
+        SettingsContent,
+        database::{
+            actor::{SActor, SGroups},
+            structs::SGroupsEither,
+            versionning::Versioning,
+        },
+        file::RootSettings,
     };
 
     use super::*;
@@ -404,6 +418,43 @@ mod tests {
         };
         let value = to_value(&config).unwrap();
         assert!(value.get("options").is_some());
+    }
+
+    /// The keys of the top level of `versioned`, written in CBOR and in JSON.
+    fn top_level_keys(versioned: &impl Serialize) -> [std::collections::BTreeSet<String>; 2] {
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), versioned).unwrap();
+        let cbor: serde_json::Value = cbor4ii::serde::from_slice(&cbor).unwrap();
+        [cbor, to_value(versioned).unwrap()]
+            .map(|document| document.as_object().unwrap().keys().cloned().collect())
+    }
+
+    #[test]
+    fn test_versioned_top_level_binary() {
+        // with serde flatten, the data got a human-readable serializer: the top level of a CBOR
+        // file had the long keys
+        let policy = Rc::new(std::cell::RefCell::new(SPolicy {
+            options: Some(Rc::default()),
+            roles: vec![SRole::builder("r").build()],
+            extra_fields: Map::default(),
+        }));
+        let [cbor, json] = top_level_keys(&Versioning::new(policy.clone()));
+        assert_eq!(cbor, ["o", "r", "v"].map(String::from).into());
+        assert_eq!(
+            json,
+            ["options", "roles", "version"].map(String::from).into()
+        );
+        let root = RootSettings::builder()
+            .storage(SettingsContent::default())
+            .config(policy)
+            .build();
+        let [cbor, json] = top_level_keys(&Versioning::new(root));
+        assert_eq!(cbor, ["o", "r", "storage", "v"].map(String::from).into());
+        assert_eq!(
+            json,
+            ["options", "roles", "storage", "version"]
+                .map(String::from)
+                .into()
+        );
     }
 
     #[test]
