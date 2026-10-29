@@ -147,6 +147,8 @@ where
         let prev_uid = setfsuid(owner);
         let prev_gid = setfsgid(group);
         // setfsuid and setfsgid do not report errors, they return the previous value
+        // the change of the filesystem ids made dosr dumpable as fs.suid_dumpable says
+        crate::coredump::keep_undumpable();
         let res = if setfsuid(owner) == owner && setfsgid(group) == group {
             f()
         } else {
@@ -161,6 +163,7 @@ where
             error!("Failed to restore filesystem ids, aborting");
             std::process::abort();
         }
+        crate::coredump::keep_undumpable();
         res
     })
 }

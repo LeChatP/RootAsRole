@@ -890,6 +890,60 @@ keystrokes_go_to_the_end_of_the_pipeline() {
     }
 }
 
+# dosr dumps no core while it holds the policy and the PAM handle, whatever fs.suid_dumpable and
+# kernel.core_pattern say: killed by SIGQUIT at its prompt (with the effective uid of root, #105),
+# it leaves no core, through a file (RLIMIT_CORE) or a pipe (not dumpable), even with
+# fs.suid_dumpable = 1 and the core limit of the caller unlimited (raised by root first: the
+# hard limit of root is 0 on the Arch box); SIGQUIT is given its default action, which a job in
+# the background of a script ignores, and dosr must end by it
+dosr_dumps_no_core() {
+    local suid pattern core=/tmp/rar-e2e-core rc=0 job status
+    suid=$(cat /proc/sys/fs/suid_dumpable)
+    pattern=$(cat /proc/sys/kernel/core_pattern)
+    echo 1 >/proc/sys/fs/suid_dumpable
+    forget_authentications
+    for to in "$core.%p" "|/usr/bin/dd of=$core.pipe.%p"; do
+        rm -f "$core".*
+        printf '%s' "$to" >/proc/sys/kernel/core_pattern
+        (ulimit -c unlimited && sleep 4 | runuser -u "$TEST_USER" -- env --default-signal=QUIT \
+            sh -c 'ulimit -c unlimited; exec dosr -S -r e2e -t password /usr/bin/true') >/dev/null 2>&1 &
+        job=$!
+        sleep 1.5
+        pkill -QUIT -n -x dosr
+        wait "$job"
+        status=$?
+        sleep 1
+        if [ "$status" != 131 ]; then
+            echo "dosr did not end by SIGQUIT through $to: $status" >&2
+            rc=1
+        fi
+        if ls "$core".* >/dev/null 2>&1; then
+            echo "a core of dosr through $to: $(ls "$core".*)" >&2
+            rc=1
+        fi
+    done
+    rm -f "$core".*
+    printf '%s' "$pattern" >/proc/sys/kernel/core_pattern
+    echo "$suid" >/proc/sys/fs/suid_dumpable
+    return $rc
+}
+
+# the command gets the core limit of the caller, soft and hard, while dosr runs with 0 (the limit
+# of the caller raised by root first, as above)
+command_gets_the_core_limit_of_the_caller() {
+    local with without dosr_limit
+    without=$(ulimit -c unlimited && as_user sh -c 'ulimit -S -c 12345; sh -c "ulimit -S -c; ulimit -H -c"')
+    with=$(ulimit -c unlimited && as_user sh -c 'ulimit -S -c 12345; dosr -r e2e -t shell /usr/bin/sh -c "ulimit -S -c; ulimit -H -c"')
+    (ulimit -c unlimited && as_user dosr -r e2e -t shell /usr/bin/sh -c 'sleep 2') &
+    sleep 1
+    dosr_limit=$(grep 'Max core file size' "/proc/$(pgrep -n -x dosr)/limits" | awk '{print $5, $6}')
+    wait
+    if [ -z "$with" ] || [ "$with" != "$without" ] || [ "$dosr_limit" != "0 0" ]; then
+        echo "with dosr: $with; without: $without; dosr: $dosr_limit" >&2
+        return 1
+    fi
+}
+
 # the password prompt under ^Z and fg, and under ^C, in an interactive shell of the test user on a
 # pseudo-terminal: after fg the prompt shows again and the password is not echoed (bash gives the
 # terminal its echo back while dosr is stopped); ^C ends dosr by SIGINT, so that the shell drops
@@ -1028,4 +1082,6 @@ check "the command gets the terminal settings and the signals of the user" comma
 check "with its output into a pipe, dosr leaves the user's terminal as it is" terminal_of_a_pipeline_is_left_alone
 check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
+check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
+check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"

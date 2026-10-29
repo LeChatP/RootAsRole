@@ -113,6 +113,8 @@ impl RootWithoutCapabilities {
         // from here, an error gives the caller back when the window is dropped
         let window = Self { caller, securebits };
         set_uids(caller.real, Uid::from_raw(0), Uid::from_raw(0)).map_err(failed)?;
+        // the change of the uids made dosr dumpable as fs.suid_dumpable says
+        crate::coredump::keep_undumpable();
         raise_audit_write();
         Ok(window)
     }
@@ -120,6 +122,7 @@ impl RootWithoutCapabilities {
     /// The uids first: `NO_SETUID_FIXUP` keeps the permitted set when no uid is root anymore.
     fn leave(&self) -> io::Result<()> {
         set_uids(self.caller.real, self.caller.effective, self.caller.saved)?;
+        crate::coredump::keep_undumpable();
         set_securebits(self.securebits)?;
         drop_effective().map_err(io::Error::from)
     }

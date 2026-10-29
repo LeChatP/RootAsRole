@@ -1,12 +1,21 @@
 use std::{cell::RefCell, ffi::CString, io};
 
-use nix::sys::stat::{Mode, umask};
-use rootasrole_core::{database::options::SBounding, util::activates_no_new_privs};
+use capctl::Cap;
+use nix::sys::{
+    resource::{Resource, setrlimit},
+    stat::{Mode, umask},
+};
+use rootasrole_core::{
+    database::options::SBounding,
+    util::{activates_no_new_privs, with_privileges},
+};
 use rootasrole_exec::orchestrator::{Orchestrator, PreExecContext, PreExecStep, Stage};
 
-use crate::finder::de::cred::CredOwnedData;
+use crate::{coredump::CoreLimit, finder::de::cred::CredOwnedData};
 
 struct PreExecConfig {
+    /// The core limit of the caller, for the command: dosr runs without core dumps.
+    core_limit: Option<CoreLimit>,
     umask: u16,
     cred: CredOwnedData,
     bounding: SBounding,
@@ -20,6 +29,7 @@ thread_local! {
 }
 
 pub fn configure_pre_exec(
+    core_limit: Option<CoreLimit>,
     umask: u16,
     cred: CredOwnedData,
     bounding: SBounding,
@@ -28,6 +38,7 @@ pub fn configure_pre_exec(
 ) {
     PRE_EXEC_CONFIG.with(|cfg| {
         *cfg.borrow_mut() = Some(PreExecConfig {
+            core_limit,
             umask,
             cred,
             bounding,
@@ -35,6 +46,20 @@ pub fn configure_pre_exec(
             workdir,
         });
     });
+}
+
+/// The core limit of the caller, given back to the command before the credentials change.
+/// Raising the hard limit back takes `CAP_SYS_RESOURCE`: without it, the command dumps no core
+/// either.
+pub unsafe fn restore_core_limit_step(_: PreExecContext) -> io::Result<()> {
+    PRE_EXEC_CONFIG.with(|cfg| {
+        if let Some((soft, hard)) = cfg.borrow().as_ref().and_then(|cfg| cfg.core_limit) {
+            let _ = with_privileges(&[Cap::SYS_RESOURCE], || {
+                setrlimit(Resource::RLIMIT_CORE, soft, hard).map_err(io::Error::from)
+            });
+        }
+        Ok(())
+    })
 }
 
 pub unsafe fn set_umask_step(_: PreExecContext) -> io::Result<()> {
@@ -95,6 +120,11 @@ pub unsafe fn close_fds_step(_: PreExecContext) -> io::Result<()> {
     crate::close_restrictive_fds()
 }
 
+pub const RESTORE_CORE_LIMIT_STEP: PreExecStep = PreExecStep {
+    stage: Stage::LIMITS,
+    run: restore_core_limit_step,
+};
+
 pub const SET_UMASK_STEP: PreExecStep = PreExecStep {
     stage: Stage::UMASK,
     run: set_umask_step,
@@ -126,6 +156,7 @@ pub const SET_NO_NEW_PRIVS_STEP: PreExecStep = PreExecStep {
 };
 
 pub static PRE_EXEC_STEPS: &[PreExecStep] = &[
+    RESTORE_CORE_LIMIT_STEP,
     SET_UMASK_STEP,
     SET_CREDENTIALS_STEP,
     SET_CAPABILITIES_STEP,
@@ -147,6 +178,7 @@ mod tests {
     #[test]
     fn pre_exec_steps_are_ordered_and_stable() {
         configure_pre_exec(
+            None,
             0o022,
             CredOwnedData::default(),
             SBounding::Ignore,
@@ -154,6 +186,9 @@ mod tests {
             None,
         );
 
+        // the core limit of the caller is given back while the child can still raise it
+        assert_eq!(RESTORE_CORE_LIMIT_STEP.stage, Stage::LIMITS);
+        assert!(Stage::LIMITS < Stage::PRIV_DROP);
         assert_eq!(SET_UMASK_STEP.stage, Stage::UMASK);
         assert_eq!(SET_CREDENTIALS_STEP.stage, Stage::PRIV_DROP);
         assert_eq!(SET_CAPABILITIES_STEP.stage, Stage::CAPS);
@@ -173,6 +208,6 @@ mod tests {
         assert_eq!(stages.last().copied(), Some(Stage::LOCKDOWN.order()));
 
         #[cfg(not(feature = "landlock"))]
-        assert_eq!(stages, vec![45, 50, 55, 60, 65, 70]);
+        assert_eq!(stages, vec![40, 45, 50, 55, 60, 65, 70]);
     }
 }

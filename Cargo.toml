@@ -105,7 +105,7 @@ rootasrole-core = { workspace = true }
 rootasrole-exec = { workspace = true }
 log = { version = "0.4", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["std"]}
-nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs", "time"] }
+nix = { version = ">=0.30, <0.32", features = ["user", "process", "signal", "fs", "time", "resource"] }
 capctl = { version = "0.2", default-features = false, features = ["serde"] }
 serde = { version = "1.0", default-features = false, features=["std", "rc", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }

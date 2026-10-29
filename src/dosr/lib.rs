@@ -33,6 +33,7 @@ macro_rules! eprint {
     };
 }
 
+mod coredump;
 mod error;
 mod finder;
 #[cfg(feature = "fuzzing")]
@@ -426,6 +427,8 @@ fn main_inner() -> Result<(), Failure> {
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
 
+    // before anything of the policy or of PAM is in memory
+    let core_limit = coredump::disable();
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
     let args = utf8_args(std::env::args_os())?;
@@ -513,6 +516,7 @@ fn main_inner() -> Result<(), Failure> {
     // Build the command
     let mut command_builder = Command::new(&execcfg.final_path);
     configure_pre_exec(
+        core_limit,
         execcfg.umask.0,
         execcfg.cred.clone(),
         execcfg.bounding,
