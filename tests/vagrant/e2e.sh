@@ -163,6 +163,15 @@ setup() {
           "password": { "tries": 3, "delay": "00:00:01" }
         },
         "commands": ["/usr/bin/true"]
+      },
+      {
+        "name": "once",
+        "options": {
+          "authentication": "perform",
+          "password": { "tries": 1 },
+          "timeout": { "type": "ppid", "duration": "00:01:00", "max_usage": 1 }
+        },
+        "commands": ["/usr/bin/id ^-un$"]
       }
     ]
   }, {
@@ -416,6 +425,45 @@ cookie_is_written_by_root() {
     forget_authentications
     [ "$out" = "first=0 second=0 " ] && [ "$dir" = "0:0 700" ] && [ "$file" = "0:0 600 1" ] || {
         echo "$out, directory $dir, cookie $file" >&2
+        return 1
+    }
+}
+
+# a cookie is used when it is checked, under the lock of the cookie file: of two runs at once (no
+# terminal lock with -S), each checked the cookie before the other counted its use, and a cookie
+# that serves once spared both
+cookie_that_serves_once_spares_one_run() {
+    local out
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    out=$(as_user sh -c "printf '%s\\n' '$TEST_PASSWORD' | dosr -S -r e2e -t once /usr/bin/id -un >/dev/null 2>&1
+        echo first=\$?
+        dosr -S -r e2e -t once /usr/bin/id -un </dev/null >/dev/null 2>&1 & a=\$!
+        dosr -S -r e2e -t once /usr/bin/id -un </dev/null >/dev/null 2>&1 & b=\$!
+        wait \$a; ra=\$?; wait \$b; rb=\$?
+        echo spared=\$(( (ra == 0) + (rb == 0) ))" | tr '\n' ' ')
+    forget_authentications
+    [ "$out" = "first=0 spared=1 " ] || {
+        echo "$out" >&2
+        return 1
+    }
+}
+
+# a cookie whose use cannot be written does not spare the password: the caller ignores SIGXFSZ and
+# sets RLIMIT_FSIZE to 0, which dosr inherits, so that the write of the cookie fails (EFBIG); in
+# the shell of the first run, not in a subshell: the cookie is for the parent process (bash forks
+# for a subshell, dash does not for the last command)
+unwritten_use_of_a_cookie_does_not_spare_the_password() {
+    local out
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    out=$(as_user sh -c "printf '%s\\n' '$TEST_PASSWORD' | dosr -S -r e2e -t once /usr/bin/id -un >/dev/null 2>&1
+        echo first=\$?
+        trap '' XFSZ; ulimit -f 0; dosr -S -r e2e -t once /usr/bin/id -un </dev/null >/dev/null 2>&1
+        echo second=\$?" | tr '\n' ' ')
+    forget_authentications
+    [ "$out" = "first=0 second=1 " ] || {
+        echo "$out" >&2
         return 1
     }
 }
@@ -1056,6 +1104,8 @@ check "a wrong password is asked again, up to the tries of the policy" password_
 check "a task that skips the authentication gives no cookie" skipped_authentication_gives_no_cookie
 check "the cookie of an authentication is written by root and spares the next password" cookie_is_written_by_root
 check "a directory of cookies that the user owns is not trusted" cookie_directory_of_the_user_is_refused
+check "a cookie that serves once spares one of two runs at once" cookie_that_serves_once_spares_one_run
+check "a cookie whose use cannot be written does not spare the password" unwritten_use_of_a_cookie_does_not_spare_the_password
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
