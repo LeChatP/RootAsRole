@@ -130,7 +130,10 @@ pub mod ldap;
 pub mod log;
 pub mod util;
 
-use crate::database::{ser::field, versionning::VersionedData};
+use crate::database::{
+    ser::{Unknown, field},
+    versionning::VersionedData,
+};
 #[cfg(feature = "ldap")]
 use crate::ldap::LdapSettings;
 use crate::util::{Either, RAR_CFG_TYPE, StorageMethod};
@@ -230,7 +233,7 @@ impl Serialize for RemoteStorageSettings {
             }
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -274,7 +277,7 @@ impl Serialize for SettingsContent {
             map.serialize_entry(field(human_readable, "ldap", "l"), ldap)?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }

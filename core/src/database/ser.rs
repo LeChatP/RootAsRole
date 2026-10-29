@@ -19,6 +19,26 @@ use super::{
     versionning::VersionedData,
 };
 
+/// A value of a field that rootasrole-core does not know (a plugin's, or a newer version's),
+/// written so that a null stays a null in CBOR: `Value` writes null as a unit, which cbor4ii
+/// encodes as an empty array, so `"x": null` was read back as `"x": []`. serde does not tell
+/// a flattened field whether the format is human-readable: null is always written as `none`,
+/// which is `null` in JSON too.
+pub(crate) struct Unknown<'a>(pub(crate) &'a serde_json::Value);
+
+impl Serialize for Unknown<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            serde_json::Value::Null => serializer.serialize_none(),
+            serde_json::Value::Array(values) => serializer.collect_seq(values.iter().map(Unknown)),
+            serde_json::Value::Object(fields) => {
+                serializer.collect_map(fields.iter().map(|(key, value)| (key, Unknown(value))))
+            }
+            value => value.serialize(serializer),
+        }
+    }
+}
+
 /// The key of a field: `long` in a human-readable format (JSON), `short` in the binary one (CBOR),
 /// which keeps the policy small to read.
 pub(crate) const fn field(
@@ -42,7 +62,7 @@ impl VersionedData for SPolicy {
             map.serialize_entry(field(human_readable, "roles", "r"), &self.roles)?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         Ok(())
     }
@@ -78,7 +98,7 @@ impl Serialize for SRole {
                 map.serialize_entry("tasks", &self.tasks)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         } else {
@@ -94,7 +114,7 @@ impl Serialize for SRole {
                 map.serialize_entry("t", &self.tasks)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         }
@@ -264,7 +284,7 @@ impl Serialize for SCredentials {
                 map.serialize_entry("capabilities", &self.capabilities)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         } else {
@@ -279,7 +299,7 @@ impl Serialize for SCredentials {
                 map.serialize_entry("c", &self.capabilities)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         }
@@ -307,7 +327,7 @@ impl Serialize for STask {
                 map.serialize_entry("commands", &self.commands)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         } else {
@@ -326,7 +346,7 @@ impl Serialize for STask {
                 map.serialize_entry("c", &self.commands)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         }
@@ -373,7 +393,7 @@ impl Serialize for SCommands {
                 map.serialize_entry("del", &self.sub)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         } else {
@@ -388,7 +408,7 @@ impl Serialize for SCommands {
                 map.serialize_entry("s", &self.sub)?;
             }
             for (key, value) in &self.extra_fields {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Unknown(value))?;
             }
             map.end()
         }
@@ -440,7 +460,7 @@ impl Serialize for SActor {
                     map.serialize_entry("id", id)?;
                 }
                 for (key, value) in extra_fields {
-                    map.serialize_entry(key, value)?;
+                    map.serialize_entry(key, &Unknown(value))?;
                 }
                 map.end()
             }
@@ -454,11 +474,11 @@ impl Serialize for SActor {
                     map.serialize_entry("groups", groups)?;
                 }
                 for (key, value) in extra_fields {
-                    map.serialize_entry(key, value)?;
+                    map.serialize_entry(key, &Unknown(value))?;
                 }
                 map.end()
             }
-            Self::Unknown(value) => value.serialize(serializer),
+            Self::Unknown(value) => Unknown(value).serialize(serializer),
         }
     }
 }
@@ -501,7 +521,7 @@ impl Serialize for Opt {
             map.serialize_entry(field(human_readable, "umask", "u"), umask)?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -524,7 +544,7 @@ impl Serialize for SPathOptions {
             map.serialize_entry(field(human_readable, "sub", "s"), &List(sub))?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -559,7 +579,7 @@ impl Serialize for SEnvOptions {
             }
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -585,7 +605,7 @@ impl Serialize for SWorkdirSet {
             map.serialize_entry(field(human_readable, "sub", "s"), &List(sub))?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -605,7 +625,7 @@ impl Serialize for STimeout {
             map.serialize_entry(field(human_readable, "max_usage", "m"), max_usage)?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -622,7 +642,7 @@ impl Serialize for SPassword {
             map.serialize_entry(field(human_readable, "delay", "d"), &Duration(delay))?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -636,7 +656,7 @@ impl Serialize for STty {
             map.serialize_entry(field(human_readable, "owner", "o"), owner)?;
         }
         for (key, value) in &self.extra_fields {
-            map.serialize_entry(key, value)?;
+            map.serialize_entry(key, &Unknown(value))?;
         }
         map.end()
     }
@@ -788,6 +808,59 @@ mod tests {
             policy
         );
         assert_eq!(serde_json::from_value::<SPolicy>(document).unwrap(), policy);
+    }
+
+    // a null in a field that rootasrole-core does not know stays a null in CBOR, at each level,
+    // in an array and in an object: cbor4ii writes a unit as an empty array (fuzz target
+    // config_parse)
+    #[test]
+    fn test_unknown_null_stays_null_in_cbor() {
+        let unknown = json!({"x": null, "list": [1, null, [null]], "map": {"y": null}});
+        let mut written = json!({
+            "options": {
+                "path": {"default": "delete"},
+                "env": {"default": "delete"},
+                "workdir": {"default": "none"},
+                "timeout": {"type": "ppid"},
+                "password": {"tries": 3},
+                "tty": {"owner": "caller"}
+            },
+            "roles": [{
+                "name": "r",
+                "actors": [{"type": "user", "id": 0}, {"kind": "unknown"}],
+                "tasks": [{
+                    "name": "t",
+                    "cred": {"setuid": "root"},
+                    "commands": {"default": "none", "add": ["/usr/bin/true"]}
+                }]
+            }]
+        });
+        let add = |object: &mut serde_json::Value| {
+            object
+                .as_object_mut()
+                .unwrap()
+                .extend(unknown.as_object().unwrap().clone());
+        };
+        add(&mut written);
+        for option in ["path", "env", "workdir", "timeout", "password", "tty"] {
+            add(&mut written["options"][option]);
+        }
+        add(&mut written["options"]);
+        add(&mut written["roles"][0]);
+        add(&mut written["roles"][0]["actors"][0]);
+        add(&mut written["roles"][0]["actors"][1]);
+        add(&mut written["roles"][0]["tasks"][0]);
+        add(&mut written["roles"][0]["tasks"][0]["cred"]);
+        add(&mut written["roles"][0]["tasks"][0]["commands"]);
+        let policy: SPolicy = serde_json::from_value(written).unwrap();
+        let json = to_value(&policy).unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        let from_cbor: SPolicy = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(to_value(&from_cbor).unwrap(), json);
+        assert_eq!(
+            json["roles"][0]["tasks"][0]["cred"]["list"],
+            json!([1, null, [null]])
+        );
     }
 
     #[test]
