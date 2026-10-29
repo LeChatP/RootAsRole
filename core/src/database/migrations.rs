@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use log::{debug, info};
 use semver::Version;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use crate::{
     PACKAGE_VERSION,
@@ -89,9 +89,138 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
         from: || Version::new(4, 2, 0),
         to: || Version::new(4, 3, 0),
         up: unchanged,
-        down: unchanged,
+        down: |_, document| {
+            long_keys_of_4_2(document);
+            Ok(())
+        },
     },
 ];
+
+/// The keys that CBOR writes with one character since 4.3.0, with the names that 4.2.0 reads.
+const STORAGE_KEYS: &[(&str, &str)] = &[("m", "method"), ("s", "settings"), ("l", "ldap")];
+const STORAGE_SETTINGS_KEYS: &[(&str, &str)] = &[("i", "immutable"), ("p", "path")];
+const OPTION_KEYS: &[(&str, &str)] = &[
+    ("p", "path"),
+    ("e", "env"),
+    ("r", "root"),
+    ("b", "bounding"),
+    ("a", "authentication"),
+    ("i", "execinfo"),
+    ("w", "workdir"),
+    ("t", "timeout"),
+    ("k", "password"),
+    ("y", "tty"),
+    ("u", "umask"),
+];
+/// The fields of each option, once the option has its name.
+const OPTION_FIELD_KEYS: &[(&str, &[(&str, &str)])] = &[
+    ("path", &[("d", "default"), ("a", "add"), ("s", "sub")]),
+    (
+        "env",
+        &[
+            ("d", "default"),
+            ("o", "override_behavior"),
+            ("v", "set"),
+            ("k", "keep"),
+            ("c", "check"),
+            ("s", "delete"),
+        ],
+    ),
+    (
+        "workdir",
+        &[
+            ("d", "default"),
+            ("f", "fallback"),
+            ("a", "add"),
+            ("s", "sub"),
+        ],
+    ),
+    (
+        "timeout",
+        &[("t", "type"), ("d", "duration"), ("m", "max_usage")],
+    ),
+    ("password", &[("t", "tries"), ("d", "delay")]),
+    ("tty", &[("o", "owner")]),
+];
+
+/// Gives the keys `short` of `map` their name `long`, unless the name is there too.
+fn rename_keys(map: &mut Map<String, Value>, keys: &[(&str, &str)]) {
+    for (short, long) in keys {
+        if !map.contains_key(*long)
+            && let Some(value) = map.remove(*short)
+        {
+            map.insert((*long).to_string(), value);
+        }
+    }
+}
+
+/// The options of `level`, and the fields of each option, under their names.
+fn long_option_keys(level: &mut Map<String, Value>) {
+    for key in ["options", "o"] {
+        let Some(Value::Object(options)) = level.get_mut(key) else {
+            continue;
+        };
+        rename_keys(options, OPTION_KEYS);
+        for (name, keys) in OPTION_FIELD_KEYS {
+            if let Some(Value::Object(option)) = options.get_mut(*name) {
+                rename_keys(option, keys);
+            }
+        }
+    }
+}
+
+/// `{"u": user}` or `{"g": groups}` alone, in the typed form that every 4.x version reads.
+fn typed_actor(actor: &mut Value) {
+    let Value::Object(map) = actor else {
+        return;
+    };
+    if map.len() != 1 {
+        return;
+    }
+    if let Some(user) = map.remove("u") {
+        *actor = json!({"type": "user", "id": user});
+    } else if let Some(groups) = map.remove("g") {
+        *actor = json!({"type": "group", "groups": groups});
+    }
+}
+
+/// 4.2.0 reads the storage settings, the options and the actors only under their names, which
+/// CBOR writes with one character since 4.3.0. The other short keys are older, and 4.2.0 reads
+/// them. The levels are walked one by one: `o` is also the `from` of a setgid selector.
+fn long_keys_of_4_2(document: &mut Value) {
+    let Value::Object(document) = document else {
+        return;
+    };
+    rename_keys(document, &[("s", "storage")]);
+    if let Some(Value::Object(storage)) = document.get_mut("storage") {
+        rename_keys(storage, STORAGE_KEYS);
+        if let Some(Value::Object(settings)) = storage.get_mut("settings") {
+            rename_keys(settings, STORAGE_SETTINGS_KEYS);
+        }
+    }
+    long_option_keys(document);
+    for roles in ["roles", "r"] {
+        let Some(Value::Array(roles)) = document.get_mut(roles) else {
+            continue;
+        };
+        for role in roles.iter_mut().filter_map(Value::as_object_mut) {
+            long_option_keys(role);
+            for actors in ["actors", "a"] {
+                if let Some(Value::Array(actors)) = role.get_mut(actors) {
+                    actors.iter_mut().for_each(typed_actor);
+                }
+            }
+            for tasks in ["tasks", "t"] {
+                if let Some(Value::Array(tasks)) = role.get_mut(tasks) {
+                    tasks
+                        .iter_mut()
+                        .filter_map(Value::as_object_mut)
+                        .for_each(long_option_keys);
+                }
+            }
+        }
+    }
+}
 
 /// `LC_.*` -> `LC_*`: the simple regexes used before 4.1.0 become wildcards.
 /// Anything else is left unchanged, and rejected with an explicit error when parsed.
@@ -1172,6 +1301,87 @@ mod tests {
         .unwrap();
         document["version"] = original["version"].clone();
         assert_eq!(document, original);
+    }
+
+    #[test]
+    fn test_4_3_0_short_keys_written_for_4_2_0() {
+        // what chsr writes in CBOR, then chsr upgrade --to 4.2.0
+        let policy: SPolicy = serde_json::from_value(json!({
+            "options": {
+                "path": {"default": "delete", "add": ["/usr/bin"], "sub": ["/tmp"]},
+                "env": {"default": "delete", "override_behavior": false, "set": {"s": "v"}, "keep": ["HOME"], "check": ["TZ"], "delete": ["LD_*"]},
+                "root": "user", "bounding": "strict", "authentication": "perform", "execinfo": "hide",
+                "workdir": {"default": "none", "fallback": "/", "add": ["/home"], "sub": ["/root"]},
+                "timeout": {"type": "tty", "duration": "00:05:00", "max_usage": 1},
+                "password": {"tries": 3, "delay": "00:00:02"}, "tty": {"owner": "target"}, "umask": "022"
+            },
+            "roles": [{
+                "name": "r",
+                "options": {"workdir": "/srv"},
+                "actors": [{"type": "user", "id": "alice"}, {"type": "group", "groups": ["adm", "wheel"]}],
+                "tasks": [{"name": "t", "options": {"env": {"keep": ["A"]}}, "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls"]}]
+            }]
+        }))
+        .unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &Versioning::new(policy.clone())).unwrap();
+        let mut document: Value = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(document["o"]["e"]["s"], json!(["LD_*"]), "{document}");
+        migrate_document_to(&mut document, &Version::new(4, 2, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            document,
+            json!({
+                "version": "4.2.0",
+                "o": {
+                    "path": {"default": "delete", "add": ["/usr/bin"], "sub": ["/tmp"]},
+                    "env": {"default": "delete", "override_behavior": false, "set": {"s": "v"}, "keep": ["HOME"], "check": ["TZ"], "delete": ["LD_*"]},
+                    "root": "user", "bounding": "strict", "authentication": "perform", "execinfo": "hide",
+                    "workdir": {"default": "none", "fallback": "/", "add": ["/home"], "sub": ["/root"]},
+                    "timeout": {"type": "tty", "duration": "00:05:00", "max_usage": 1},
+                    "password": {"tries": 3, "delay": "00:00:02"}, "tty": {"owner": "target"}, "umask": "022"
+                },
+                "r": [{
+                    "n": "r",
+                    "o": {"workdir": "/srv"},
+                    "a": [{"type": "user", "id": "alice"}, {"type": "group", "groups": ["adm", "wheel"]}],
+                    "t": [{
+                        "n": "t",
+                        "o": {"env": {"keep": ["A"]}},
+                        "i": {"g": {"d": crate::database::structs::SetBehavior::None as u32, "o": "caller"}},
+                        "c": ["/usr/bin/ls"]
+                    }]
+                }]
+            })
+        );
+        let read: Versioning<SPolicy> = serde_json::from_value(document).unwrap();
+        assert_eq!(read.data, policy);
+
+        let root = crate::file::RootSettings::builder()
+            .storage(
+                crate::SettingsContent::builder()
+                    .method(crate::util::StorageMethod::CBOR)
+                    .settings(
+                        crate::RemoteStorageSettings::builder()
+                            .not_immutable()
+                            .path("/etc/security/rootasrole.d")
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &Versioning::new(root)).unwrap();
+        let mut document: Value = cbor4ii::serde::from_slice(&cbor).unwrap();
+        migrate_document_to(&mut document, &Version::new(4, 2, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            document,
+            json!({
+                "version": "4.2.0",
+                "storage": {"method": "cbor", "settings": {"immutable": false, "path": "/etc/security/rootasrole.d"}}
+            })
+        );
     }
 
     #[test]

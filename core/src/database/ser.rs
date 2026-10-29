@@ -1,12 +1,17 @@
+use indexmap::IndexSet;
+use jiff::SignedDuration;
 use serde::{
-    Serialize,
+    Serialize, Serializer,
     ser::{SerializeMap, SerializeSeq},
 };
 
 use crate::util::optimized_serialize_capset;
 
 use super::{
+    actor::SActor,
     is_default,
+    options::{Opt, SEnvOptions, SPassword, SPathOptions, STimeout, STty, SWorkdirSet},
+    serialize_duration,
     structs::{
         SCapabilities, SCommands, SCredentials, SPolicy, SRole, SSetgidSet, SSetuidSet, STask,
         SetBehavior, cmds_is_default,
@@ -390,6 +395,253 @@ impl Serialize for SCommands {
     }
 }
 
+/// A list of the policy, written as a sequence (indexmap is built without serde).
+struct List<'a, T>(&'a IndexSet<T>);
+
+impl<T: Serialize> Serialize for List<'_, T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0)
+    }
+}
+
+/// A duration of the policy, written `hh:mm:ss`.
+struct Duration<'a>(&'a SignedDuration);
+
+impl Serialize for Duration<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_duration(&Some(*self.0), serializer)
+    }
+}
+
+impl Serialize for SActor {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        match self {
+            Self::User {
+                id: Some(id),
+                extra_fields,
+            } if !human_readable && extra_fields.is_empty() => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("u", id)?;
+                map.end()
+            }
+            Self::Group {
+                groups: Some(groups),
+                extra_fields,
+            } if !human_readable && extra_fields.is_empty() => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("g", groups)?;
+                map.end()
+            }
+            Self::User { id, extra_fields } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "user")?;
+                if let Some(id) = id {
+                    map.serialize_entry("id", id)?;
+                }
+                for (key, value) in extra_fields {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+            Self::Group {
+                groups,
+                extra_fields,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "group")?;
+                if let Some(groups) = groups {
+                    map.serialize_entry("groups", groups)?;
+                }
+                for (key, value) in extra_fields {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+            Self::Unknown(value) => value.serialize(serializer),
+        }
+    }
+}
+
+impl Serialize for Opt {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(path) = &self.path {
+            map.serialize_entry(field(human_readable, "path", "p"), path)?;
+        }
+        if let Some(env) = &self.env {
+            map.serialize_entry(field(human_readable, "env", "e"), env)?;
+        }
+        if let Some(root) = &self.root {
+            map.serialize_entry(field(human_readable, "root", "r"), root)?;
+        }
+        if let Some(bounding) = &self.bounding {
+            map.serialize_entry(field(human_readable, "bounding", "b"), bounding)?;
+        }
+        if let Some(authentication) = &self.authentication {
+            map.serialize_entry(field(human_readable, "authentication", "a"), authentication)?;
+        }
+        if let Some(execinfo) = &self.execinfo {
+            map.serialize_entry(field(human_readable, "execinfo", "i"), execinfo)?;
+        }
+        if let Some(workdir) = &self.workdir {
+            map.serialize_entry(field(human_readable, "workdir", "w"), workdir)?;
+        }
+        if let Some(timeout) = &self.timeout {
+            map.serialize_entry(field(human_readable, "timeout", "t"), timeout)?;
+        }
+        if let Some(password) = &self.password {
+            map.serialize_entry(field(human_readable, "password", "k"), password)?;
+        }
+        if let Some(tty) = &self.tty {
+            map.serialize_entry(field(human_readable, "tty", "y"), tty)?;
+        }
+        if let Some(umask) = &self.umask {
+            map.serialize_entry(field(human_readable, "umask", "u"), umask)?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for SPathOptions {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if !is_default(&self.default_behavior) {
+            map.serialize_entry(
+                field(human_readable, "default", "d"),
+                &self.default_behavior,
+            )?;
+        }
+        if let Some(add) = &self.add {
+            map.serialize_entry(field(human_readable, "add", "a"), &List(add))?;
+        }
+        if let Some(sub) = &self.sub {
+            map.serialize_entry(field(human_readable, "sub", "s"), &List(sub))?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for SEnvOptions {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if !is_default(&self.default_behavior) {
+            map.serialize_entry(
+                field(human_readable, "default", "d"),
+                &self.default_behavior,
+            )?;
+        }
+        if let Some(override_behavior) = &self.override_behavior {
+            map.serialize_entry(
+                field(human_readable, "override_behavior", "o"),
+                override_behavior,
+            )?;
+        }
+        if let Some(set) = &self.set {
+            map.serialize_entry(field(human_readable, "set", "v"), set)?;
+        }
+        for (list, long, short) in [
+            (&self.keep, "keep", "k"),
+            (&self.check, "check", "c"),
+            (&self.delete, "delete", "s"),
+        ] {
+            if let Some(list) = list {
+                map.serialize_entry(field(human_readable, long, short), &List(list))?;
+            }
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for SWorkdirSet {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if !is_default(&self.default_behavior) {
+            map.serialize_entry(
+                field(human_readable, "default", "d"),
+                &self.default_behavior,
+            )?;
+        }
+        if let Some(fallback) = &self.fallback {
+            map.serialize_entry(field(human_readable, "fallback", "f"), fallback)?;
+        }
+        if let Some(add) = &self.add {
+            map.serialize_entry(field(human_readable, "add", "a"), &List(add))?;
+        }
+        if let Some(sub) = &self.sub {
+            map.serialize_entry(field(human_readable, "sub", "s"), &List(sub))?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for STimeout {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(type_field) = &self.type_field {
+            map.serialize_entry(field(human_readable, "type", "t"), type_field)?;
+        }
+        if let Some(duration) = &self.duration {
+            map.serialize_entry(field(human_readable, "duration", "d"), &Duration(duration))?;
+        }
+        if let Some(max_usage) = &self.max_usage {
+            map.serialize_entry(field(human_readable, "max_usage", "m"), max_usage)?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for SPassword {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(tries) = &self.tries {
+            map.serialize_entry(field(human_readable, "tries", "t"), tries)?;
+        }
+        if let Some(delay) = &self.delay {
+            map.serialize_entry(field(human_readable, "delay", "d"), &Duration(delay))?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for STty {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(owner) = &self.owner {
+            map.serialize_entry(field(human_readable, "owner", "o"), owner)?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -448,12 +700,123 @@ mod tests {
             .config(policy)
             .build();
         let [cbor, json] = top_level_keys(&Versioning::new(root));
-        assert_eq!(cbor, ["o", "r", "storage", "v"].map(String::from).into());
+        assert_eq!(cbor, ["o", "r", "s", "v"].map(String::from).into());
         assert_eq!(
             json,
             ["options", "roles", "storage", "version"]
                 .map(String::from)
                 .into()
+        );
+    }
+
+    /// `value` written in CBOR, read back as a document.
+    fn binary_document(value: &impl Serialize) -> serde_json::Value {
+        cbor4ii::serde::from_slice(&cbor4ii::serde::to_vec(Vec::new(), value).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn test_options_and_actors_binary() {
+        // every option and every field of an option, at a level, and the actors of a role
+        let written = json!({
+            "options": {
+                "path": {"default": "delete", "add": ["/usr/bin"], "sub": ["/tmp"]},
+                "env": {
+                    "default": "delete", "override_behavior": false, "set": {"LANG": "C"},
+                    "keep": ["HOME"], "check": ["TZ"], "delete": ["LD_*"]
+                },
+                "root": "user",
+                "bounding": "strict",
+                "authentication": "perform",
+                "execinfo": "hide",
+                "workdir": {"default": "none", "fallback": "/", "add": ["/home"], "sub": ["/root"]},
+                "timeout": {"type": "ppid", "duration": "00:05:00", "max_usage": 1},
+                "password": {"tries": 3, "delay": "00:00:02"},
+                "tty": {"owner": "caller"},
+                "umask": "022",
+                "future": 1
+            },
+            "roles": [{
+                "name": "r",
+                "actors": [
+                    {"type": "user", "id": "alice"},
+                    {"type": "group", "groups": ["adm", "wheel"]},
+                    {"type": "user", "id": 0, "future": 1},
+                    {"kind": "unknown"}
+                ]
+            }]
+        });
+        let policy: SPolicy = serde_json::from_value(written.clone()).unwrap();
+        // JSON keeps the names, and the typed actors that 4.0 reads
+        assert_eq!(to_value(&policy).unwrap(), written);
+        let document = binary_document(&policy);
+        assert_eq!(
+            document,
+            json!({
+                "o": {
+                    "p": {"d": "delete", "a": ["/usr/bin"], "s": ["/tmp"]},
+                    "e": {
+                        "d": "delete", "o": false, "v": {"LANG": "C"},
+                        "k": ["HOME"], "c": ["TZ"], "s": ["LD_*"]
+                    },
+                    "r": "user",
+                    "b": "strict",
+                    "a": "perform",
+                    "i": "hide",
+                    "w": {"d": "none", "f": "/", "a": ["/home"], "s": ["/root"]},
+                    "t": {"t": "ppid", "d": "00:05:00", "m": 1},
+                    "k": {"t": 3, "d": "00:00:02"},
+                    "y": {"o": "caller"},
+                    "u": "022",
+                    "future": 1
+                },
+                "r": [{
+                    "n": "r",
+                    "a": [
+                        {"u": "alice"},
+                        {"g": ["adm", "wheel"]},
+                        // an actor with an unknown field keeps the typed form
+                        {"type": "user", "id": 0, "future": 1},
+                        {"kind": "unknown"}
+                    ]
+                }]
+            })
+        );
+        // and the short keys are read back, in CBOR and in JSON
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap();
+        assert_eq!(
+            cbor4ii::serde::from_slice::<SPolicy>(&cbor).unwrap(),
+            policy
+        );
+        assert_eq!(serde_json::from_value::<SPolicy>(document).unwrap(), policy);
+    }
+
+    #[test]
+    fn test_root_file_binary() {
+        let written = json!({
+            "version": "4.3.0",
+            "storage": {"method": "cbor", "settings": {"immutable": true, "path": "/etc/security/rootasrole.d"}}
+        });
+        let root: Versioning<RootSettings> = serde_json::from_value(written.clone()).unwrap();
+        assert_eq!(to_value(&root).unwrap(), written);
+        let document = binary_document(&root);
+        assert_eq!(
+            document,
+            json!({
+                "v": "4.3.0",
+                "s": {"m": "cbor", "s": {"i": true, "p": "/etc/security/rootasrole.d"}}
+            })
+        );
+        let read: Versioning<RootSettings> = serde_json::from_value(document).unwrap();
+        assert_eq!(read.data, root.data);
+    }
+
+    #[test]
+    fn test_list_keeps_the_order() {
+        let list: IndexSet<String> = ["b", "a", "c"].map(String::from).into_iter().collect();
+        assert_eq!(to_value(List(&list)).unwrap(), json!(["b", "a", "c"]));
+        assert_eq!(
+            to_value(List(&IndexSet::<String>::new())).unwrap(),
+            json!([])
         );
     }
 

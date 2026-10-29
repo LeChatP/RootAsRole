@@ -816,7 +816,7 @@ fn summary(settings: &SrResult<BestExecSettings>) -> String {
                 .as_ref()
                 .map(|groups| groups.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>());
             format!(
-                "{} {:?} {:?} {:?} {groups:?} {:?} {:?} {:?} {:?} {:?} {env:?}",
+                "{} {:?} {:?} {:?} {groups:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {env:?}",
                 s.role,
                 s.task,
                 s.final_path,
@@ -825,6 +825,10 @@ fn summary(settings: &SrResult<BestExecSettings>) -> String {
                 s.bounding,
                 s.root,
                 s.timeout,
+                s.password,
+                s.tty_owner,
+                s.umask,
+                s.workdir,
                 s.env_path
             )
         }

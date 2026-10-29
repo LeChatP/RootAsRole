@@ -4,7 +4,7 @@ use actor::{SGroups, SUserType};
 use bon::Builder;
 use indexmap::IndexSet;
 use options::EnvBehavior;
-use serde::{Serialize, de::Deserialize, de::Deserializer};
+use serde::{de::Deserialize, de::Deserializer};
 
 use self::options::EnvKey;
 
@@ -47,43 +47,12 @@ where
     Ok(Option::<Vec<EnvKey>>::deserialize(deserializer)?.map(|v| v.into_iter().collect()))
 }
 
-// serialize the linked hash set
-#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
-fn lhs_serialize_envkey<S>(
-    value: &Option<IndexSet<EnvKey>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    if let Some(v) = value {
-        let v: Vec<EnvKey> = v.iter().cloned().collect();
-        v.serialize(serializer)
-    } else {
-        serializer.serialize_none()
-    }
-}
-
 // deserialize the linked hash set, an invalid entry is an error
 fn lhs_deserialize<'de, D>(deserializer: D) -> Result<Option<IndexSet<String>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     Ok(Option::<Vec<String>>::deserialize(deserializer)?.map(|v| v.into_iter().collect()))
-}
-
-// serialize the linked hash set
-#[allow(clippy::unnecessary_wraps, clippy::ref_option)] // Function used by serde, must return a Result
-fn lhs_serialize<S>(value: &Option<IndexSet<String>>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    if let Some(v) = value {
-        let v: Vec<String> = v.iter().cloned().collect();
-        v.serialize(serializer)
-    } else {
-        serializer.serialize_none()
-    }
 }
 
 pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
@@ -152,6 +121,7 @@ fn convert_string_to_duration(s: &str) -> Result<Option<jiff::SignedDuration>, B
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Serialize;
 
     #[test]
     fn test_duration_of_the_policy() {
@@ -196,30 +166,12 @@ mod tests {
         }
     }
 
-    impl Serialize for IndexSetTester<EnvKey> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            lhs_serialize_envkey(&self.0, serializer)
-        }
-    }
-
     impl<'de> Deserialize<'de> for IndexSetTester<String> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
             Ok(Self(lhs_deserialize(deserializer)?))
-        }
-    }
-
-    impl Serialize for IndexSetTester<String> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            lhs_serialize(&self.0, serializer)
         }
     }
 
@@ -281,16 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lhs_serialize() {
-        let mut set = IndexSetTester(Some(IndexSet::new()));
-        set.0.as_mut().unwrap().insert("value1".to_string());
-        set.0.as_mut().unwrap().insert("value2".to_string());
-        set.0.as_mut().unwrap().insert("value3".to_string());
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r#"["value1","value2","value3"]"#);
-    }
-
-    #[test]
     fn test_serialize_duration() {
         let duration = DurationTester(Some(jiff::SignedDuration::from_secs(3661)));
         let serialized = serde_json::to_string(&duration).unwrap();
@@ -314,13 +256,7 @@ mod tests {
         assert!(!is_default(&"non-default".to_string()));
     }
     #[test]
-    fn test_lhs_serialize_empty() {
-        let set: IndexSetTester<EnvKey> = IndexSetTester(None);
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r"null");
-        let set: IndexSetTester<String> = IndexSetTester(None);
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r"null");
+    fn test_serialize_duration_none() {
         let duration = DurationTester(None);
         let serialized = serde_json::to_string(&duration).unwrap();
         assert_eq!(serialized, r"null");
@@ -337,13 +273,6 @@ mod tests {
         let json = r"{}";
         let deserialized: Result<Option<IndexSetTester<String>>, _> = serde_json::from_str(json);
         assert!(deserialized.is_err());
-    }
-
-    #[test]
-    fn test_lhs_serialize_empty_set() {
-        let set = IndexSetTester(Some(IndexSet::<EnvKey>::new()));
-        let serialized = serde_json::to_string(&Some(set)).unwrap();
-        assert_eq!(serialized, r"[]");
     }
 
     #[test]

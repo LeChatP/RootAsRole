@@ -29,13 +29,11 @@ use crate::util::{
 use super::{
     FilterMatcher, deserialize_duration,
     env::{EnvLevel, ResolvedEnv},
-    is_default,
     path::{PathLevel, ResolvedPath},
-    serialize_duration,
 };
 
 use super::{
-    lhs_deserialize, lhs_deserialize_envkey, lhs_serialize, lhs_serialize_envkey,
+    lhs_deserialize, lhs_deserialize_envkey,
     structs::{SPolicy, SRole, STask},
 };
 
@@ -115,18 +113,13 @@ pub enum TimestampType {
 /// A level that does not set a field inherits it from the upper levels, down to the build-time
 /// defaults (`RAR_PASSWORD_TRIES`, `RAR_PASSWORD_DELAY`). `tries` is at least 1: 0 would never
 /// let anyone in, or never stop asking.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SPassword {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "t")]
     pub tries: Option<NonZeroU8>,
-    #[serde(
-        default,
-        serialize_with = "serialize_duration",
-        deserialize_with = "deserialize_duration",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, alias = "d", deserialize_with = "deserialize_duration")]
     pub delay: Option<jiff::SignedDuration>,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
 }
@@ -183,59 +176,47 @@ impl FromStr for TtyOwner {
 ///
 /// A level that does not set `owner` inherits it from the upper levels, down to the build-time
 /// default (`RAR_TTY_OWNER`).
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct STty {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "o")]
     pub owner: Option<TtyOwner>,
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct STimeout {
-    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "type", alias = "t")]
     pub type_field: Option<TimestampType>,
     // `default`: with `deserialize_with`, serde requires the field, even an `Option`
-    #[serde(
-        default,
-        serialize_with = "serialize_duration",
-        deserialize_with = "deserialize_duration",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, alias = "d", deserialize_with = "deserialize_duration")]
     pub duration: Option<jiff::SignedDuration>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "m")]
     pub max_usage: Option<u64>,
-    #[serde(default)]
-    #[serde(flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct SPathOptions {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(rename = "default", alias = "d", default)]
     #[builder(start_fn)]
     pub default_behavior: PathBehavior,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize",
-        serialize_with = "lhs_serialize"
-    )]
+    #[serde(default, alias = "a", deserialize_with = "lhs_deserialize")]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub add: Option<IndexSet<String>>,
     #[serde(
         default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize",
-        serialize_with = "lhs_serialize",
-        alias = "del"
+        alias = "del",
+        alias = "s",
+        deserialize_with = "lhs_deserialize"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
     /// The fields that this version does not know, kept when the policy is saved again
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
 }
@@ -323,42 +304,27 @@ impl std::fmt::Display for EnvKey {
 /// - In delete mode, an inherited `keep` or `check` list only passes variables that an upper level
 ///   already allows, and the variables of the `check` list are still validated.
 #[allow(clippy::missing_errors_doc)]
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SEnvOptions {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(rename = "default", alias = "d", default)]
     #[builder(start_fn)]
     pub default_behavior: EnvBehavior,
-    #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "override", alias = "o", default)]
     pub override_behavior: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "v")]
     #[builder(with = |iter: impl IntoIterator<Item = (impl ToString, impl ToString)>| {
         let mut map = HashMap::with_hasher(Default::default());
         map.extend(iter.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         map
     })]
     pub set: Option<HashMap<String, String>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize_envkey",
-        serialize_with = "lhs_serialize_envkey"
-    )]
+    #[serde(default, alias = "k", deserialize_with = "lhs_deserialize_envkey")]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub keep: Option<IndexSet<EnvKey>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize_envkey",
-        serialize_with = "lhs_serialize_envkey"
-    )]
+    #[serde(default, alias = "c", deserialize_with = "lhs_deserialize_envkey")]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub check: Option<IndexSet<EnvKey>>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize_envkey",
-        serialize_with = "lhs_serialize_envkey"
-    )]
+    #[serde(default, alias = "s", deserialize_with = "lhs_deserialize_envkey")]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| -> Result<_,String> { let mut res = IndexSet::new(); for s in v { res.insert(EnvKey::new(s.to_string())?); } Ok(res)})]
     pub delete: Option<IndexSet<EnvKey>>,
     #[serde(default, flatten)]
@@ -413,7 +379,7 @@ impl WorkdirBehavior {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct SWorkdirSet {
     /// The default behavior for workdir handling. This determines how the "add" and "sub" lists are interpreted.
     /// - If set to `Allowlist`, only the paths in the "add" list (minus those in the "sub" list) will be allowed as workdirs.
@@ -422,7 +388,7 @@ pub struct SWorkdirSet {
     ///
     /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
     /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(rename = "default", alias = "d", default)]
     #[builder(start_fn)]
     pub default_behavior: WorkdirBehavior,
 
@@ -432,28 +398,22 @@ pub struct SWorkdirSet {
     /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`,
     /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
     /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "f")]
     pub fallback: Option<String>,
 
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize",
-        serialize_with = "lhs_serialize"
-    )]
+    #[serde(default, alias = "a", deserialize_with = "lhs_deserialize")]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub add: Option<IndexSet<String>>,
     #[serde(
         default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "lhs_deserialize",
-        serialize_with = "lhs_serialize",
-        alias = "del"
+        alias = "del",
+        alias = "s",
+        deserialize_with = "lhs_deserialize"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl ToString>| { v.into_iter().map(|s| s.to_string()).collect() })]
     pub sub: Option<IndexSet<String>>,
     /// The fields that this version does not know, kept when the policy is saved again
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
 }
@@ -653,32 +613,34 @@ impl FromStr for SInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+/// The options of a level. CBOR writes them, and the fields of each one, under one character
+/// (see `ser.rs`), which is also read in JSON.
+#[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt {
     #[serde(skip)]
     pub level: Level,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "p")]
     pub path: Option<SPathOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "e")]
     pub env: Option<SEnvOptions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "r")]
     pub root: Option<SPrivileged>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "b")]
     pub bounding: Option<SBounding>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "a")]
     pub authentication: Option<SAuthentication>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "i")]
     pub execinfo: Option<SInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "w")]
     pub workdir: Option<SWorkdirEither>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "t")]
     pub timeout: Option<STimeout>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "k")]
     pub password: Option<SPassword>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "y")]
     pub tty: Option<STty>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "u")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Map<String, Value>,

@@ -22,6 +22,7 @@ use crate::{
     database::{
         migration::{Migration, MigrationError},
         migrations::{DocumentMigration, migrate_document, migrate_document_to, writable_version},
+        ser::field,
         structs::SPolicy,
         versionning::{VersionedData, Versioning},
     },
@@ -211,6 +212,7 @@ fn write_locked(
 
 #[derive(Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
 pub struct RootSettings {
+    #[serde(alias = "s")]
     pub storage: SettingsContent,
     #[serde(flatten)]
     #[builder(default)]
@@ -223,7 +225,7 @@ impl VersionedData for RootSettings {
         map: &mut M,
         human_readable: bool,
     ) -> Result<(), M::Error> {
-        map.serialize_entry("storage", &self.storage)?;
+        map.serialize_entry(field(human_readable, "storage", "s"), &self.storage)?;
         self.config.serialize_entries(map, human_readable)
     }
 }

@@ -808,30 +808,22 @@ impl PartialEq<Vec<SGroupType>> for SGroups {
     }
 }
 
-/// An actor of a role. Policies write it `{"type": "user", "name": …}`, or for short
-/// `{"user": …}`; the typed form is the one written back.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(tag = "type", rename_all = "lowercase", from = "SActorRepr")]
+/// An actor of a role.
+///
+/// Policies write it `{"type": "user", "name": …}`, or for short `{"user": …}`, `{"u": …}` in
+/// CBOR. JSON writes the typed form, which 4.0 reads too; CBOR the short one, when the actor has
+/// no other field (see `ser.rs`).
+#[derive(Deserialize, PartialEq, Eq, Debug)]
+#[serde(from = "SActorRepr")]
 pub enum SActor {
-    #[serde(rename = "user")]
     User {
-        #[serde(alias = "name", skip_serializing_if = "Option::is_none")]
         id: Option<SUserType>,
-        #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
         extra_fields: Map<String, Value>,
     },
-    #[serde(rename = "group")]
     Group {
-        #[serde(
-            alias = "names",
-            alias = "name",
-            skip_serializing_if = "Option::is_none"
-        )]
         groups: Option<SGroups>,
-        #[serde(default, flatten)]
         extra_fields: Map<String, Value>,
     },
-    #[serde(untagged)]
     Unknown(Value),
 }
 
@@ -848,12 +840,14 @@ enum SActorRepr {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UserShorthand<T> {
+    #[serde(alias = "u")]
     user: T,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GroupShorthand<T> {
+    #[serde(alias = "g")]
     group: T,
 }
 
