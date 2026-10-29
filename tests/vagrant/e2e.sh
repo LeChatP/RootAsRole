@@ -669,6 +669,27 @@ pam_session_only_for_a_command_that_is_started() {
     return 1
 }
 
+# a line of dosr longer than a datagram of /dev/log (212992 bytes) is cut into lines that fit,
+# not lost: a refused attempt with long arguments is in the journal, and nothing but dosr
+# records it (no task allows the command, no PAM)
+long_refused_attempt_is_logged() {
+    local pad marker since lines=0
+    pad=$(head -c 120000 /dev/zero | tr '\0' a)
+    marker="rar-e2e-refused-$RANDOM"
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    as_user dosr /usr/bin/rar-e2e-not-allowed "$marker" "$pad" "$pad" >/dev/null 2>&1 && return 1
+    for _ in 1 2 3 4 5; do
+        lines=$(journalctl -t dosr --since "$since" -o cat | grep -c 'aaaaaaaaaa')
+        if [ "$lines" -ge 250 ] && journalctl -t dosr --since "$since" -o cat | grep -q "$marker"; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "lines of the attempt in the journal: $lines" >&2
+    return 1
+}
+
 # after the PAM calls, the command starts with the identity that its task gives: a task without
 # setuid nor capabilities gives the uids, the capabilities and the securebits of the caller
 command_starts_with_the_identity_of_its_task() {
@@ -964,6 +985,7 @@ check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_fai
 check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
 check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
 check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
+check "a refused attempt with long arguments is logged, cut into lines" long_refused_attempt_is_logged
 check "the command starts with the identity that its task gives" command_starts_with_the_identity_of_its_task
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options
