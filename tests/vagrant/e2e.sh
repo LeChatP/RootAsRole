@@ -18,6 +18,8 @@ BIG_GROUP=rar-e2e-big
 GROUP_BACKUP=/etc/.group.rar-e2e
 GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
 TTY_SCRIPT=/tmp/rar-e2e-tty.sh
+TERMINAL_SCRIPT=/tmp/rar-e2e-terminal.sh
+OUTER_TTY=/tmp/rar-e2e-outer-tty
 # the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
 LOG_COMMAND=(journalctl -t dosr -p info)
 # where dosr keeps the cookies of the authentications (RAR_TIMEOUT_STORAGE)
@@ -597,15 +599,92 @@ info_shows_no_capabilities_as_none() {
         grep -qx 'With capabilities: None'
 }
 
+# no input for script, which would copy into the terminal what is left on the input of the
+# provisioner; an empty pipe, open longer than the command: at the end of its input, script
+# writes a NUL in the terminal, which the terminal of the command echoes (^@)
+no_input() {
+    sleep 2
+}
+
 # the owner of the terminal of a task run as nobody through a terminal, and whether the command
 # can reopen it by its name, as pinentry does through GPG_TTY
 terminal_seen_by() {
     printf '%s\n' 't=$(tty)' 'stat -c %U "$t"' \
         'if { true <>"$t"; } 2>/dev/null; then echo reopened; else echo refused; fi' >"$TTY_SCRIPT"
     chmod 644 "$TTY_SCRIPT"
-    # no input: script would copy into the terminal what is left on the input of the provisioner
-    as_user script -qec "dosr -r e2e -t $1 /usr/bin/sh $TTY_SCRIPT" /dev/null </dev/null |
+    no_input | as_user script -qec "dosr -r e2e -t $1 /usr/bin/sh $TTY_SCRIPT" /dev/null |
         tr -d '\r'
+}
+
+# the settings of a terminal that matter to a command: line editing, echo, signals, line ends
+terminal_script() {
+    printf '%s\n' \
+        'flags() { stty -a "$@" | tr " " "\n" | grep -xE -- "-?(icanon|echo|isig|opost|onlcr|icrnl|ixon)" | tr "\n" " "; }' \
+        'echo "terminal: $(flags </dev/tty)$(grep -E "^Sig(Blk|Ign):" /proc/self/status | tr -s "\t\n" "  ")"' \
+        '[ ! -s /tmp/rar-e2e-outer-tty ] || echo "user: $(flags -F "$(cat /tmp/rar-e2e-outer-tty)")"' \
+        >"$TERMINAL_SCRIPT"
+    chmod 644 "$TERMINAL_SCRIPT"
+}
+
+# $1 run in a terminal, as the user; the terminal of the user is written in OUTER_TTY
+in_a_terminal() {
+    no_input | as_user script -qec "tty >$OUTER_TTY; $1" /dev/null | tr -d '\r'
+}
+
+# the command gets the settings of the user's terminal, which dosr copies before it makes its own
+# terminal raw (it copied the raw settings: no echo, no line editing), and starts with the signals
+# of the caller (sudo-rs #1462): alone, with its input from a pipe, with its output into a pipe,
+# and without a terminal
+command_gets_the_terminal_and_the_signals_of_the_user() {
+    local alone plain piped_in piped_out signals no_tty
+    terminal_script
+    : >"$OUTER_TTY"
+    chmod 666 "$OUTER_TTY"
+    alone=$(in_a_terminal "/usr/bin/sh $TERMINAL_SCRIPT" | grep '^terminal:')
+    plain=$(in_a_terminal "dosr -r e2e -t shell /usr/bin/sh $TERMINAL_SCRIPT" | grep '^terminal:')
+    piped_in=$(in_a_terminal "echo x | dosr -r e2e -t shell /usr/bin/sh $TERMINAL_SCRIPT" | grep '^terminal:')
+    piped_out=$(in_a_terminal "dosr -r e2e -t shell /usr/bin/sh $TERMINAL_SCRIPT | cat" | grep '^terminal:')
+    signals='grep -E "^Sig(Blk|Ign):" /proc/self/status | tr -s "\t\n" "  "'
+    no_tty=$(as_user dosr -r e2e -t shell /usr/bin/sh -c "$signals" </dev/null)
+    rm -f "$TERMINAL_SCRIPT" "$OUTER_TTY"
+    [ -n "$alone" ] && grep -q ' icanon echo ' <<<"$alone" && [ "$plain" = "$alone" ] &&
+        [ "$piped_in" = "$alone" ] && [ "$piped_out" = "$alone" ] &&
+        [ "$no_tty" = "$(as_user /usr/bin/sh -c "$signals" </dev/null)" ] || {
+        printf '%s\n' "alone: $alone" "dosr: $plain" "input from a pipe: $piped_in" \
+            "output into a pipe: $piped_out" "without a terminal: $no_tty" >&2
+        return 1
+    }
+}
+
+# with its output into a pipe, dosr leaves the user's terminal as it is: another program of the
+# pipeline uses it (sudo-rs #1390, the output flags)
+terminal_of_a_pipeline_is_left_alone() {
+    local alone piped_out
+    terminal_script
+    : >"$OUTER_TTY"
+    chmod 666 "$OUTER_TTY"
+    alone=$(in_a_terminal "/usr/bin/sh $TERMINAL_SCRIPT" | grep '^user:')
+    piped_out=$(in_a_terminal "dosr -r e2e -t shell /usr/bin/sh $TERMINAL_SCRIPT | cat" | grep '^user:')
+    rm -f "$TERMINAL_SCRIPT" "$OUTER_TTY"
+    [ -n "$alone" ] && grep -q ' opost onlcr ' <<<"$alone" && [ "$piped_out" = "$alone" ] || {
+        printf '%s\n' "alone: $alone" "output into a pipe: $piped_out" >&2
+        return 1
+    }
+}
+
+# with its output into a pipe, dosr reads nothing of the user's terminal: what the user types goes
+# to the next program of the pipeline (sudo-rs #1260, keystrokes lost in `sudo dmesg | less`)
+keystrokes_go_to_the_end_of_the_pipeline() {
+    local out
+    out=$({
+        sleep 1
+        printf 'hello\n'
+        sleep 3
+    } | as_user script -qec "dosr -r e2e -t shell /usr/bin/sh -c 'sleep 2' | { read -r line </dev/tty; echo \"got=\$line\"; }" /dev/null | tr -d '\r')
+    grep -qx 'got=hello' <<<"$out" || {
+        echo "$out" >&2
+        return 1
+    }
 }
 
 # by default, the terminal stays with the caller: nobody cannot reopen it
@@ -659,4 +738,7 @@ check "a task whose group does not exist is left out" missing_group_leaves_the_t
 check "a top-level alternation is anchored on both sides" alternation_is_anchored
 check "the terminal of a command run as another user stays with the caller" terminal_stays_with_the_caller
 check "tty owner target gives the terminal to the user of the command" terminal_given_to_the_target
+check "the command gets the terminal settings and the signals of the user" command_gets_the_terminal_and_the_signals_of_the_user
+check "with its output into a pipe, dosr leaves the user's terminal as it is" terminal_of_a_pipeline_is_left_alone
+check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
 exit "$FAILED"

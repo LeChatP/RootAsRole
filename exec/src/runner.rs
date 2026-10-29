@@ -626,6 +626,10 @@ fn run_in_pty(
         command.stderr(Stdio::from(pty.follower.try_clone()?));
     }
 
+    // The settings of the user's terminal, before it is raw: the command reads and echoes its
+    // input, and writes its lines, like on the user's terminal (sudo-rs exec/use_pty/parent.rs)
+    user_term.copy_to(&pty.follower)?;
+
     if foreground {
         // Preserve oflag for interactive terminals (keeps ONLCR for proper CR/LF mapping)
         let preserve = !exec_bg || preserve_oflag;
@@ -633,9 +637,6 @@ fn run_in_pty(
         user_term.set_raw_mode(true, preserve)?;
         term_raw = true;
     }
-
-    // Copy terminal settings from user terminal to PTY follower to ensure interactive I/O works
-    user_term.copy_to(&pty.follower)?;
 
     // Create backchannel
     let (mut parent_channel, monitor_channel) = Backchannel::pair()?;
@@ -1015,6 +1016,50 @@ mod tests {
         (1..libc::SIGRTMIN())
             .map(|signal| unsafe { libc::sigismember(&raw const set, signal) } == 1)
             .collect()
+    }
+
+    /// The masks `SigBlk` and `SigIgn` of `/proc/<pid>/status` (`self` or a process id).
+    fn signal_masks(status: &str) -> (u64, u64) {
+        let mask = |name: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .map(|hex| u64::from_str_radix(hex.trim(), 16).expect("a hexadecimal mask"))
+                .expect("the mask is in the status")
+        };
+        (mask("SigBlk:"), mask("SigIgn:"))
+    }
+
+    // sudo-rs #1462: the command starts with the signal mask of the caller, and ignores no other
+    // signal than the caller, although the runner blocks every signal while it waits for it
+    #[test]
+    fn run_no_pty_starts_the_command_with_the_signals_of_the_caller() {
+        let _guard = MUTEX.lock().unwrap();
+        let out = std::env::temp_dir().join(format!("rar-exec-signals-{}", std::process::id()));
+        // no shell between: a shell changes its own mask
+        let mut command = Command::new("/usr/bin/cat");
+        command
+            .arg("/proc/self/status")
+            .stdout(fs::File::create(&out).expect("the output of the command"));
+        let caller = signal_masks(
+            &fs::read_to_string("/proc/thread-self/status").expect("the status of this thread"),
+        );
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        let command = signal_masks(&fs::read_to_string(&out).expect("the status of the command"));
+        let _ = fs::remove_file(&out);
+        assert!(status.success());
+        assert_eq!(
+            command.0, caller.0,
+            "blocked: {:x} instead of {:x}",
+            command.0, caller.0
+        );
+        assert_eq!(
+            command.1 & !caller.1,
+            0,
+            "ignored: {:x}, the caller {:x}",
+            command.1,
+            caller.1
+        );
     }
 
     // with a terminal, a failed setup of the pty stops before the command starts; without one,
