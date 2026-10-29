@@ -421,7 +421,7 @@ fn main_inner() -> Result<(), Failure> {
     use crate::{
         RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
-        pam::{session_env, start_session},
+        pam::{end_session, session_env, start_session},
     };
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
@@ -624,8 +624,8 @@ fn main_inner() -> Result<(), Failure> {
             std::process::exit(1);
         }
     };
-    // drop PAM session here for underlining to the compiler that the session ends here.
-    drop(session);
+    // the PAM session ends here, after the command
+    end_session(session);
     exit_like(status)
 }
 

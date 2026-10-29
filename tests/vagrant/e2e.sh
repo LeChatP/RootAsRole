@@ -510,9 +510,9 @@ dosr_logs_under_its_name() {
     return 1
 }
 
-# what the user reads with the command that dosr names: the lines of dosr, without the debug
-# lines of the PAM modules (pam_unix logs that it cannot setuid(0) as the user), and dosr logs no
-# debug line in release
+# what the user reads with the command that dosr names: the lines of dosr, and dosr logs no debug
+# line in release; pam_unix no longer logs that it cannot setuid(0), at any priority, since PAM
+# checks the account with the effective uid of root
 log_command_shows_the_lines_of_dosr() {
     local since view all
     since=$(date '+%Y-%m-%d %H:%M:%S')
@@ -525,7 +525,7 @@ log_command_shows_the_lines_of_dosr() {
     done
     all=$(journalctl -t dosr --since "$since" -o cat)
     grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" &&
-        ! grep -q 'setuid failed' <<<"$view" && ! grep -q 'match_path' <<<"$all"
+        ! grep -q 'setuid failed' <<<"$all" && ! grep -q 'match_path' <<<"$all"
 }
 
 # dosr is not a login: its PAM service opens no logind session and writes no wtmp entry, like the
@@ -544,6 +544,86 @@ pam_opens_no_login_session() {
     grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" &&
         ! grep -qE 'pam_(systemd|wtmpdb|mkhomedir)\(dosr' <<<"$view" &&
         ! grep -qx '@include common-session' "$PAM_SERVICE"
+}
+
+# the failures of dosr are counted by pam_faillock, even for a user without a tally file yet:
+# PAM checks the password with the effective uid of root, as under sudo; as the caller, it could
+# not create /run/faillock/<user>, and its audit record was refused (Arch)
+failures_are_counted_by_pam_faillock() {
+    local since failures
+    grep -qs pam_faillock /etc/pam.d/system-auth /etc/pam.d/common-auth || return 77
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    rm -f "/run/faillock/$TEST_USER"
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    printf '%s\n' wrong wrong wrong |
+        as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1
+    failures=$(faillock --user "$TEST_USER" | grep -c ' dosr ')
+    forget_authentications
+    [ "$failures" -eq 3 ] &&
+        ! journalctl -t dosr --since "$since" -o cat | grep -q 'Error sending audit message'
+}
+
+# pam_rootok lets in a caller whose real uid is root: PAM runs with the effective uid of root
+# only, so a service that starts with pam_rootok still asks the password of the caller
+pam_rootok_does_not_let_the_caller_in() {
+    cp -p "$PAM_SERVICE" "$PAM_SERVICE_BACKUP" || return 1
+    sed -i '1a auth sufficient pam_rootok.so' "$PAM_SERVICE"
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
+    forget_authentications
+    if printf '%s\n' wrong wrong wrong |
+        as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1; then
+        restore_pam_service
+        forget_authentications
+        return 1
+    fi
+    restore_pam_service
+    forget_authentications
+}
+
+# the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
+# which dosr only has in the effective set during the PAM calls (Arch, whose auditd is started
+# for the check)
+audit_records_name_dosr() {
+    local started='' lines records
+    command -v auditctl >/dev/null && systemctl cat auditd.service >/dev/null 2>&1 || return 77
+    if ! systemctl is-active -q auditd; then
+        systemctl start auditd || return 1
+        started=1
+        sleep 1
+    fi
+    lines=$(wc -l </var/log/audit/audit.log)
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
+    forget_authentications
+    printf '%s\n' "$TEST_PASSWORD" |
+        as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1
+    sleep 1
+    records=$(tail -n +"$((lines + 1))" /var/log/audit/audit.log | grep 'exe="/usr/bin/dosr"' |
+        grep -o '^type=[A-Z_]*' | sort -u | tr '\n' ' ')
+    forget_authentications
+    if [ -n "$started" ]; then
+        auditctl --signal stop >/dev/null
+        auditctl -e 0 >/dev/null
+    fi
+    [ "$records" = "type=CRED_ACQ type=CRED_DISP type=USER_ACCT type=USER_AUTH type=USER_END type=USER_START " ] || {
+        echo "audit records of dosr: $records" >&2
+        return 1
+    }
+}
+
+# after the PAM calls, the command starts with the identity that its task gives: a task without
+# setuid nor capabilities gives the uids, the capabilities and the securebits of the caller
+command_starts_with_the_identity_of_its_task() {
+    local probe with without
+    probe='grep -E "^(Uid|Gid|CapInh|CapPrm|CapEff|CapAmb):" /proc/self/status
+python3 -c "import ctypes; print(\"Securebits:\", ctypes.CDLL(None).prctl(27, 0, 0, 0, 0))"'
+    with=$(as_user dosr -r e2e -t shell /usr/bin/sh -c "$probe") || return 1
+    without=$(as_user /usr/bin/sh -c "$probe") || return 1
+    [ "$with" = "$without" ] || {
+        printf 'with dosr:\n%s\nwithout:\n%s\n' "$with" "$without" >&2
+        return 1
+    }
 }
 
 # chsr is confined by Landlock, even without vim: one missing optional path made the whole ruleset
@@ -748,6 +828,10 @@ check "a regular expression written with chsr is matched by dosr" chsr_regex_is_
 check "the executions are logged under the name dosr" dosr_logs_under_its_name
 check "the command that dosr names shows its lines, without the debug lines of PAM" log_command_shows_the_lines_of_dosr
 check "the PAM service of dosr opens no login session" pam_opens_no_login_session
+check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_faillock
+check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
+check "the audit records of PAM name dosr" audit_records_name_dosr
+check "the command starts with the identity that its task gives" command_starts_with_the_identity_of_its_task
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none

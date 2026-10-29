@@ -32,6 +32,7 @@ use self::rpassword::Terminal;
 
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod cutils;
+mod privileges;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 pub mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
@@ -291,37 +292,42 @@ pub fn start_session<'a>(
         SrError::SystemError
     })?;
 
-    let txn = if need_password_auth {
-        retry_authentication(txn, password, |txn| txn.authenticate(AuthnFlags::SILENT))
-            .map_err(|e| {
-                error!("Authentication failed: {e}");
-                SrError::AuthenticationFailed
-            })?
-            .account_management(AuthnFlags::SILENT)
-            .map_err(|e| {
-                error!("Authentication failed: {}", e.1);
-                SrError::AuthenticationFailed
-            })?
-    } else {
-        txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
-            .map_err(|e| {
-                error!("Account management failed: {}", e.1);
-                SrError::AuthenticationFailed
-            })?
-    };
+    // the password and the account are checked with the effective uid of root, without its
+    // capabilities: pam_faillock counts the failures, as under sudo
+    let txn = privileges::as_root_without_capabilities(|| {
+        if need_password_auth {
+            retry_authentication(txn, password, |txn| txn.authenticate(AuthnFlags::SILENT))
+                .map_err(|e| {
+                    error!("Authentication failed: {e}");
+                    SrError::AuthenticationFailed
+                })?
+                .account_management(AuthnFlags::SILENT)
+                .map_err(|e| {
+                    error!("Authentication failed: {}", e.1);
+                    SrError::AuthenticationFailed
+                })
+        } else {
+            txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
+                .map_err(|e| {
+                    error!("Account management failed: {}", e.1);
+                    SrError::AuthenticationFailed
+                })
+        }
+    })?;
     check_pam_user(&txn, user)?;
 
-    let txn = txn
-        .establish_credentials()
-        .map_err(|e| {
-            error!("Failed to establish credentials: {}", e.1);
-            SrError::SystemError
-        })?
-        .open_session()
-        .map_err(|e| {
-            error!("Failed to open session: {}", e.1);
-            SrError::SystemError
-        })?;
+    let txn = privileges::with_audit_write(|| {
+        txn.establish_credentials()
+            .map_err(|e| {
+                error!("Failed to establish credentials: {}", e.1);
+                SrError::SystemError
+            })?
+            .open_session()
+            .map_err(|e| {
+                error!("Failed to open session: {}", e.1);
+                SrError::SystemError
+            })
+    })?;
     check_pam_user(&txn, user)?;
 
     // Failing to save the cookie only means that the user will be asked to authenticate again;
@@ -332,6 +338,12 @@ pub fn start_session<'a>(
     }
 
     Ok(txn)
+}
+
+/// The end of the PAM session: closed as the caller, with `CAP_AUDIT_WRITE` only for the audit
+/// records of libpam.
+pub fn end_session<C: nonstick2::Conversation>(session: LibPamTransaction<C, SessionActive>) {
+    privileges::with_audit_write(|| drop(session));
 }
 
 #[cfg(test)]
@@ -372,6 +384,17 @@ mod tests {
             duration: Some(SignedDuration::from_secs(300)), // 5 minutes
             max_usage: Some(3),
             extra_fields: Map::default(),
+        }
+    }
+
+    /// The error of `start_session`: none with the capabilities to check the account as root,
+    /// else the refusal before any PAM call.
+    fn assert_session_or_refusal(error: Option<&SrError>) {
+        let permitted = capctl::CapState::get_current().unwrap().permitted;
+        if permitted.has(capctl::Cap::SETUID) && permitted.has(capctl::Cap::SETPCAP) {
+            assert_eq!(error, None);
+        } else {
+            assert_eq!(error, Some(&SrError::InsufficientPrivileges));
         }
     }
 
@@ -503,7 +526,7 @@ mod tests {
             &user,
             &cli,
         );
-        assert!(result.is_ok());
+        assert_session_or_refusal(result.err().as_ref());
     }
 
     #[test]
@@ -615,18 +638,21 @@ mod tests {
 
         let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(
+        assert_session_or_refusal(
             start_session(
                 auth,
                 &timeout_ppid,
                 PasswordSettings::default(),
                 &user,
-                &cli
+                &cli,
             )
-            .is_ok()
+            .err()
+            .as_ref(),
         );
-        assert!(
-            start_session(auth, &timeout_tty, PasswordSettings::default(), &user, &cli).is_ok()
+        assert_session_or_refusal(
+            start_session(auth, &timeout_tty, PasswordSettings::default(), &user, &cli)
+                .err()
+                .as_ref(),
         );
     }
 
