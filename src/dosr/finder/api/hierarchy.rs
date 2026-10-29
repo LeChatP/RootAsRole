@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use log::debug;
+use log::{debug, error};
 use serde_json::Value;
 
 use crate::{
@@ -18,7 +18,10 @@ pub(super) fn parents<'r>(role: &'r DRoleFinder<'_>) -> SrResult<Vec<&'r str>> {
         Some(Value::String(parent)) => Ok(vec![parent.as_str()]),
         Some(Value::Array(parents)) => Ok(parents.iter().filter_map(Value::as_str).collect()),
         Some(value) => {
-            debug!("Invalid parent value: {value:?}");
+            error!(
+                "The parents of the role {} are neither a role nor a list of roles: {value}",
+                role.role
+            );
             Err(SrError::ConfigurationError)
         }
     }

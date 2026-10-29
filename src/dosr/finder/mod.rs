@@ -36,7 +36,7 @@ use serde::de::DeserializeSeed;
 
 use crate::{
     Cli,
-    error::{SrError, SrResult},
+    error::{Failure, SrError, SrResult},
     finder::de::{
         cred::{CredData, CredOwnedData},
         settings::read_storage,
@@ -118,7 +118,8 @@ pub struct BestExecSettings {
 /// It efficiently check the policy based on the user args, skips unnecessary policy info etc.
 /// The main focus here is to avoid at maximum any allocation.
 /// # Returns
-/// When a policy match was found, it returns all needed information, otherwise, it returns an ``SrError``.
+/// When a policy match was found, it returns all needed information, otherwise a [`Failure`]: the
+/// error, and whether the log says why dosr refused the policy, or a file of it.
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
@@ -127,7 +128,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     rar_cfg_type: StorageMethod,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     env_path: &[&str],
-) -> SrResult<BestExecSettings>
+) -> Result<BestExecSettings, Failure>
 where
     P: AsRef<Path>,
 {
@@ -138,104 +139,156 @@ where
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
         .collect();
-    let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
+    let rar_cfg_path = rar_cfg_path.as_ref();
+    let settings_file = read_storage(rar_cfg_path, rar_cfg_type).map_err(|e| {
+        // the check of its permissions logs why it refuses the root file, and an open refused
+        // means that dosr lacks its capabilities, which dosr_main says
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            error!("{}: {e}", rar_cfg_path.display());
+        }
+        Failure::logged(e.into())
+    })?;
     let storage_settings = settings_file.data.data.settings.unwrap_or_default();
     let immutable = storage_settings.immutable.unwrap_or(false);
     let file_path = storage_settings
         .path
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
-    let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
+    let parse_file = |file_path: &Path| -> Result<BestExecSettings, FileError> {
         let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
-        let file = read_with_privileges(file_path)?;
-        check_others_permissions(file_path, &file)?;
+        let file = read_with_privileges(file_path).map_err(|e| {
+            error!("{}: {e}", file_path.display());
+            FileError::Refused(e.into())
+        })?;
+        // both checks log why they refuse the file
+        check_others_permissions(file_path, &file).map_err(|e| FileError::Refused(e.into()))?;
         if immutable {
             // a file added to the policy without CAP_LINUX_IMMUTABLE is not trusted
-            check_immutable(file_path, &file)?;
+            check_immutable(file_path, &file).map_err(|e| FileError::Refused(e.into()))?;
         }
         let reader = BufReader::new(file);
-        match settings_file.data.data.method {
+        let settings = match settings_file.data.data.method {
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
-                Ok(BestExecSettings::evaluate(
+                BestExecSettings::evaluate(
                     cli,
                     cred,
                     &readable(
                         file_path,
                         config_finder_deserializer
                             .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader)),
-                    )?,
+                    )
+                    .map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
-                )?)
+                )
             }
             StorageMethod::JSON => {
                 let io_reader = serde_json::de::IoRead::new(reader);
-                Ok(BestExecSettings::evaluate(
+                BestExecSettings::evaluate(
                     cli,
                     cred,
                     &readable(
                         file_path,
                         config_finder_deserializer
                             .deserialize(&mut serde_json::Deserializer::new(io_reader)),
-                    )?,
+                    )
+                    .map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
-                )?)
+                )
             }
-        }
+        };
+        settings.map_err(|e| match e {
+            SrError::PermissionDenied => FileError::Denied,
+            e => {
+                error!(
+                    "{}: the policy cannot be evaluated: {e}",
+                    file_path.display()
+                );
+                FileError::Refused(e)
+            }
+        })
     };
 
     if file_path.is_dir() {
-        let mut entries: Vec<PathBuf> = fs::read_dir(&file_path)
-            .map_err(|e| {
-                debug!(
-                    "Failed to read policy directory {}: {e}",
-                    file_path.display()
-                );
-                SrError::ConfigurationError
-            })?
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .collect();
-        entries.sort();
-
-        let mut best: Option<BestExecSettings> = None;
-        let mut parsed_any = false;
-
-        for entry in entries {
-            let result = parse_file(&entry);
-            match result {
-                Ok(settings) => {
-                    parsed_any = true;
-                    BestExecSettings::keep_best(&mut best, settings);
-                }
-                Err(SrError::PermissionDenied) => {
-                    parsed_any = true;
-                }
-                Err(err) => {
-                    debug!("Skipping policy file {}: {err}", entry.display());
-                }
-            }
-        }
-
-        // a tie is only refused once the best tasks of every file are compared: another file
-        // can have a better task
-        return best
-            .ok_or({
-                if parsed_any {
-                    SrError::PermissionDenied
-                } else {
-                    SrError::ConfigurationError
-                }
-            })
-            .and_then(BestExecSettings::refuse_tie)
-            .and_then(BestExecSettings::with_target_groups);
+        return best_of_directory(&file_path, parse_file);
     }
 
-    parse_file(&file_path)
-        .and_then(BestExecSettings::refuse_tie)
-        .and_then(BestExecSettings::with_target_groups)
+    let settings = parse_file(&file_path).map_err(|e| match e {
+        FileError::Denied => Failure::from(SrError::PermissionDenied),
+        FileError::Refused(error) => Failure::logged(error),
+    })?;
+    Ok(BestExecSettings::refuse_tie(settings).and_then(BestExecSettings::with_target_groups)?)
+}
+
+/// The best task of the files of the policy directory `dir`, compared in the order of their
+/// names: a file that dosr refuses is skipped, the others still apply.
+fn best_of_directory(
+    dir: &Path,
+    parse_file: impl Fn(&Path) -> Result<BestExecSettings, FileError>,
+) -> Result<BestExecSettings, Failure> {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .map_err(|e| {
+            error!("{}: {e}", dir.display());
+            Failure::logged(SrError::ConfigurationError)
+        })?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+    entries.sort();
+
+    let mut best: Option<BestExecSettings> = None;
+    let mut parsed_any = false;
+    let mut refused = false;
+
+    for entry in entries {
+        let result = parse_file(&entry);
+        match result {
+            Ok(settings) => {
+                parsed_any = true;
+                BestExecSettings::keep_best(&mut best, settings);
+            }
+            Err(FileError::Denied) => {
+                parsed_any = true;
+            }
+            // not trusted, it counts as read, like a file that denies the command
+            Err(FileError::Refused(SrError::PermissionDenied)) => {
+                parsed_any = true;
+                refused = true;
+            }
+            Err(FileError::Refused(err)) => {
+                warn!("Skipping policy file {}: {err}", entry.display());
+                refused = true;
+            }
+        }
+    }
+
+    // a tie is only refused once the best tasks of every file are compared: another file
+    // can have a better task
+    best.ok_or({
+        if parsed_any {
+            SrError::PermissionDenied
+        } else {
+            SrError::ConfigurationError
+        }
+    })
+    .and_then(BestExecSettings::refuse_tie)
+    .and_then(BestExecSettings::with_target_groups)
+    .map_err(|error| Failure {
+        error,
+        reason_logged: refused,
+    })
+}
+
+/// Why a file of the policy gives no task.
+enum FileError {
+    /// It allows nothing of the command.
+    Denied,
+    /// dosr refused it, and the log says why: it cannot be opened, other users can write it, it
+    /// lacks the immutable flag, it is invalid, of another version (see [`readable`]), or its
+    /// evaluation failed.
+    Refused(SrError),
 }
 
 /// The policy of `path`, when it is valid and dosr reads it as it is: written by a version that
@@ -249,7 +302,7 @@ fn readable<'a, E: std::fmt::Display>(
     data: Result<DConfigFinder<'a>, E>,
 ) -> SrResult<DConfigFinder<'a>> {
     let data = data.map_err(|e| {
-        debug!("Error deserializing {}: {e}", path.display());
+        error!("{}: the policy is invalid: {e}", path.display());
         SrError::ConfigurationError
     })?;
     read_as_is(data.version.as_deref()).map_err(|e| {
@@ -1367,8 +1420,9 @@ mod tests {
         }])
     }
 
-    /// The task that dosr chooses for `cmd`, from the root settings file `root`.
-    fn find(root: &Path, method: StorageMethod, cmd: &str) -> SrResult<String> {
+    /// The task that dosr chooses for `cmd`, from the root settings file `root`, or why it
+    /// chooses none, and whether the log says why.
+    fn decide(root: &Path, method: StorageMethod, cmd: &str) -> Result<String, Failure> {
         let cli = Cli::builder().cmd_path(cmd.to_string()).build();
         find_best_exec_settings(
             &cli,
@@ -1380,6 +1434,11 @@ mod tests {
             &["/usr/bin"],
         )
         .map(|settings| settings.task.unwrap_or_default())
+    }
+
+    /// The task that dosr chooses for `cmd`, from the root settings file `root`.
+    fn find(root: &Path, method: StorageMethod, cmd: &str) -> SrResult<String> {
+        decide(root, method, cmd).map_err(|failure| failure.error)
     }
 
     /// The final policy of the book, under its heading in `book/src/configuration.md`, or `None`
@@ -1879,6 +1938,62 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
         ));
+    }
+
+    // dosr shows nothing of the policy, but tells the user where to read why it refused it, or a
+    // file of it, even when the other files only deny the command
+    #[test]
+    fn test_failure_says_whether_the_log_says_why() {
+        let json = StorageMethod::JSON;
+        let dir = PolicyDir::new("refused");
+        let root = dir.0.join("rootasrole.json");
+        let directory = dir.0.join("rootasrole.d");
+        std::fs::create_dir(&directory).unwrap();
+        let refused = directory.join("refused.json");
+        let ls = policy(user_role("t", "/usr/bin/ls", &[]));
+        let mut unversioned = policy(user_role("t", "/usr/bin/cat", &[]));
+        unversioned.as_object_mut().unwrap().remove("version");
+        let mut invalid = policy(user_role("t", "/usr/bin/cat", &[]));
+        invalid["roles"][0]["ssd"] = Value::from(3);
+        api::register_plugins();
+        let cat = || decide(&root, json, "/usr/bin/cat").unwrap_err();
+        let failure = |error, reason_logged| Failure {
+            error,
+            reason_logged,
+        };
+        // a policy directory: the other files still apply
+        let settings = root_settings(json, &directory, serde_json::json!([]));
+        write_file(&root, &settings, json, 0o600);
+        write_file(&directory.join("ls.json"), &ls, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, false));
+        write_file(&refused, &unversioned, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        write_file(&refused, &ls, json, 0o602);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        if cfg!(feature = "ssd") {
+            write_file(&refused, &invalid, json, 0o600);
+            assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        }
+        // a policy file
+        let settings = root_settings(json, &refused, serde_json::json!([]));
+        write_file(&root, &settings, json, 0o600);
+        write_file(&refused, &ls, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, false));
+        write_file(&refused, &unversioned, json, 0o600);
+        assert_eq!(cat(), failure(SrError::ConfigurationError, true));
+        write_file(&refused, &ls, json, 0o602);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        if cfg!(feature = "ssd") {
+            write_file(&refused, &invalid, json, 0o600);
+            assert_eq!(cat(), failure(SrError::ConfigurationError, true));
+        }
+        std::fs::remove_file(&refused).unwrap();
+        assert_eq!(cat(), failure(SrError::ExecutionFailed, true));
+        // a root file that cannot be read, or none
+        std::fs::write(&root, "not a root file").unwrap();
+        assert_eq!(cat(), failure(SrError::SystemError, true));
+        std::fs::remove_file(&root).unwrap();
+        assert_eq!(cat(), failure(SrError::ExecutionFailed, true));
     }
 
     /// The role, task and command chosen for `cmd` with the plugins, from `roles`.

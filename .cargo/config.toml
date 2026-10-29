@@ -45,6 +45,9 @@ RAR_PAM_SERVICE = "dosr"
 RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"
 RAR_CHSR_EDITOR_PATH = "/usr/bin/vim"
+# The command that shows the log of dosr, named to the user after an error whose reason is only
+# in the log; empty on a system without one.
+RAR_LOG_COMMAND = "journalctl -t dosr"
 RAR_TIMEOUT_TYPE = "ppid"
 RAR_TIMEOUT_DURATION = "00:05:00"
 RAR_TIMEOUT_MAX_USAGE = ""

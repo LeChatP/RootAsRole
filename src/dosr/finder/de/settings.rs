@@ -34,18 +34,12 @@ where
         let settings: Versioning<SettingsContent> = match rar_cfg_type {
             StorageMethod::JSON => RootNoConfigDeserializer
                 .deserialize(&mut serde_json::Deserializer::from_reader(buf))
-                .map_err(|e| {
-                    debug!("Failed to deserialize root settings: {e}");
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                })?,
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(buf);
                 RootNoConfigDeserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                    .map_err(|e| {
-                        debug!("Failed to deserialize root settings: {e}");
-                        io::Error::new(io::ErrorKind::InvalidData, e)
-                    })?
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
             }
         };
         debug!("Loaded root settings from {}", path.as_ref().display());

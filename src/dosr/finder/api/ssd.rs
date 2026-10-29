@@ -1,7 +1,7 @@
 #[cfg(feature = "hierarchy")]
 use std::collections::HashSet;
 
-use log::{debug, warn};
+use log::{debug, error, warn};
 use serde_json::Value;
 
 use crate::{
@@ -64,7 +64,10 @@ fn named<'r>(role: &'r DRoleFinder<'_>) -> SrResult<Vec<&'r str>> {
         Some(Value::String(name)) => Ok(vec![name.as_str()]),
         Some(Value::Array(names)) => Ok(names.iter().filter_map(Value::as_str).collect()),
         Some(value) => {
-            debug!("Invalid SSD value: {value:?}");
+            error!(
+                "The ssd of the role {} is neither a role nor a list of roles: {value}",
+                role.role
+            );
             Err(SrError::ConfigurationError)
         }
     }

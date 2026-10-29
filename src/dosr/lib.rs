@@ -71,6 +71,7 @@ use std::{io, process::Command};
 use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
 use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective};
 
+use crate::error::Failure;
 use crate::error::SrError;
 use crate::error::SrResult;
 use crate::finder::de::cred::CredOwnedData;
@@ -176,6 +177,19 @@ struct Cli {
 impl Default for Cli {
     fn default() -> Self {
         Self::builder().prompt(PAM_PROMPT).build()
+    }
+}
+
+/// The command that shows the log of dosr, set at build time; empty on a system without one.
+const RAR_LOG_COMMAND: &str = env!("RAR_LOG_COMMAND");
+
+/// What the user reads after an error whose reason is only in the log: dosr shows nothing of the
+/// policy, only where to read why, with `command` when the build names one.
+fn log_hint(command: &str) -> String {
+    if command.is_empty() {
+        "see the reason in the system log, or ask your system administrator".to_string()
+    } else {
+        format!("see the reason with `{command}`, or ask your system administrator")
     }
 }
 
@@ -358,12 +372,18 @@ pub fn dosr_main() {
         eprintln_ignore_io_error!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = main_inner() {
+    if let Err(Failure {
+        error: e,
+        reason_logged,
+    }) = main_inner()
+    {
         eprintln_ignore_io_error!("dosr: {e}");
         // whatever the error, it comes from the missing capabilities when dosr lacks them
         let missing = missing_privileges();
         if let Some(reason) = &missing {
             eprintln_ignore_io_error!("dosr: {reason}");
+        } else if e == SrError::ConfigurationError || reason_logged {
+            eprintln_ignore_io_error!("dosr: {}", log_hint(RAR_LOG_COMMAND));
         }
         if e == SrError::InsufficientPrivileges || missing.is_some() {
             error!(
@@ -395,7 +415,7 @@ pub fn dosr_main() {
 
 #[cfg(not(tarpaulin_include))]
 #[allow(clippy::too_many_lines)]
-fn main_inner() -> SrResult<()> {
+fn main_inner() -> Result<(), Failure> {
     use std::env;
 
     use crate::{
@@ -424,7 +444,7 @@ fn main_inner() -> SrResult<()> {
         #[cfg(not(feature = "timeout"))]
         {
             error!("The timeout feature is not enabled, cannot delete timestamp cookie");
-            return Err(SrError::InvalidAgruments);
+            return Err(SrError::InvalidAgruments.into());
         }
         #[cfg(feature = "timeout")]
         {
@@ -1206,6 +1226,20 @@ mod tests {
         // in the bounding set but not permitted: the file of dosr
         let reason = missing_privileges_reason(false, CapSet::empty(), all).unwrap();
         assert!(reason.contains("setcap"), "{reason}");
+    }
+
+    // the reason is only in the log: the user is told where to read it, with the command of the
+    // build, or else in the log of the system, and whom to ask
+    #[test]
+    fn test_log_hint() {
+        assert_eq!(
+            log_hint("journalctl -t dosr"),
+            "see the reason with `journalctl -t dosr`, or ask your system administrator"
+        );
+        assert_eq!(
+            log_hint(""),
+            "see the reason in the system log, or ask your system administrator"
+        );
     }
 
     #[test]

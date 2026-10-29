@@ -231,19 +231,24 @@ planted_policy() {
 EOF
 }
 
-# a policy file added without the immutable flag is refused, the same file with it is used
+# a policy file added without the immutable flag is refused, the same file with it is used; the
+# user is told where to read why, but not after a plain denial
 planted_policy_is_refused() {
     immutable_policy || return 77
     chattr -i "$POLICY_DIR"
     planted_policy "$(installed_version)" >"$PLANTED_POLICY"
     chmod 600 "$PLANTED_POLICY"
     chattr +i "$POLICY_DIR"
-    local without_flag with_flag
+    local without_flag with_flag terminal denied
     without_flag=$(as_user dosr /usr/bin/id -u 2>/dev/null)
+    terminal=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
     chattr +i "$PLANTED_POLICY"
     with_flag=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     remove_policy "$PLANTED_POLICY"
-    [ -z "$without_flag" ] && [ "$with_flag" = 0 ]
+    denied=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
+    [ -z "$without_flag" ] && [ "$with_flag" = 0 ] &&
+        grep -qF 'journalctl -t dosr' <<<"$terminal" &&
+        grep -qF "Permission denied" <<<"$denied" && ! grep -qF 'journalctl' <<<"$denied"
 }
 
 # a policy file of a version that gives it another meaning is refused, the immutable flag
@@ -255,12 +260,13 @@ old_policy_is_refused() {
         out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
         [ -z "$out" ] || allowed=1
     done
-    # the reason is in the log only: dosr shows nothing of the policy to the user who runs it
+    # the reason is in the log only: dosr shows nothing of the policy to the user who runs it,
+    # only the command that shows the log, with which this user reads it
     since=$(date '+%Y-%m-%d %H:%M:%S')
     sleep 1
     terminal=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
     for _ in 1 2 3 4 5; do
-        if journalctl -t dosr --since "$since" -o cat |
+        if as_user journalctl -t dosr --since "$since" -o cat |
             grep -qF "$PLANTED_POLICY: the policy has no version"; then
             logged=0
             break
@@ -271,7 +277,8 @@ old_policy_is_refused() {
     out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     remove_policy "$PLANTED_POLICY"
     [ "$allowed" -eq 0 ] && [ "$out" = 0 ] && [ "$logged" -eq 0 ] &&
-        ! grep -q "version" <<<"$terminal"
+        ! grep -q "version" <<<"$terminal" &&
+        grep -qF 'dosr: see the reason with `journalctl -t dosr`' <<<"$terminal"
 }
 
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
@@ -558,8 +565,8 @@ trap cleanup EXIT
 setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
 check "the policy, its directory included, is immutable" policy_is_immutable
-check "a policy file without the immutable flag is refused" planted_policy_is_refused
-check "a policy file of an older version, or without one, is refused, the reason in the log" old_policy_is_refused
+check "a policy file without the immutable flag is refused, the user told where the reason is" planted_policy_is_refused
+check "a policy file of an older version, or without one, is refused, the user told where the reason is" old_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "a regular expression without quotes" unquoted_regex
 check "a command written without arguments allows none" command_without_arguments_allows_none

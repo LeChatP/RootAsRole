@@ -341,15 +341,18 @@ fn test_json_and_cbor_decide_the_same() {
                         .cmd_path(cmd.to_string())
                         .cmd_args(args.iter().copied())
                         .build();
-                    outcome(find_best_exec_settings(
-                        &cli,
-                        &dummy_cred(),
-                        &root,
-                        &root,
-                        method,
-                        vec![("A", "B")],
-                        &["/usr/bin"],
-                    ))
+                    outcome(
+                        find_best_exec_settings(
+                            &cli,
+                            &dummy_cred(),
+                            &root,
+                            &root,
+                            method,
+                            vec![("A", "B")],
+                            &["/usr/bin"],
+                        )
+                        .map_err(|failure| failure.error),
+                    )
                 })
                 .collect();
             assert_eq!(
