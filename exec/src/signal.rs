@@ -229,6 +229,47 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     Ok(())
 }
 
+/// The signals that the caller of the runner ignores, as a mask (bit `n - 1` for signal `n`).
+///
+/// The command gets them ignored too, as without the runner: `nohup` ignores SIGHUP, a script SIGINT
+/// and SIGQUIT for its background jobs (sudo-rs `SignalsState`, sudo). Read before the runner
+/// sets its own handlers. SIGPIPE is left out: Rust ignores it before `main`, so what the caller
+/// wanted is not known, and the command gets its default action, as from `std::process`.
+#[must_use]
+pub fn ignored_by_the_caller() -> u64 {
+    let mut ignored = 0;
+    for signal in 1..32 {
+        if matches!(signal, libc::SIGPIPE | libc::SIGKILL | libc::SIGSTOP) {
+            continue;
+        }
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: a null new action only reads the current one into `action`, which outlives the call
+        let read = unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut action) };
+        if read == 0 && action.sa_sigaction == libc::SIG_IGN {
+            ignored |= 1 << (signal - 1);
+        }
+    }
+    ignored
+}
+
+/// In the child, before the exec: the signals of `ignored` ignored, every other one with its
+/// default action. Only `sigaction`, which is async-signal-safe.
+pub fn give_signals_to_the_command(ignored: u64) {
+    for signal in 1..32 {
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = if ignored >> (signal - 1) & 1 == 1 {
+            libc::SIG_IGN
+        } else {
+            libc::SIG_DFL
+        };
+        // SAFETY: SIG_IGN and SIG_DFL install no handler code; SIGKILL and SIGSTOP are refused
+        // (EINVAL), which leaves them as they are
+        unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) };
+    }
+}
+
 /// Send `signal` to `pid`, a child of this process that is not reaped yet, or to its process
 /// group (whose id is `pid`) with `process_group`.
 ///

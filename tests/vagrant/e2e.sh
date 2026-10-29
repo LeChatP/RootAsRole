@@ -1088,6 +1088,34 @@ signal_reaches_a_command_of_another_user() {
     return $rc
 }
 
+# the signals that the caller ignores stay ignored by the command, with a terminal and without:
+# nohup (SIGHUP) and trap '' INT, as under sudo; dosr gave every signal its default action (the
+# output into a file: nohup sends that of a command on a terminal to nohup.out)
+command_keeps_the_signals_that_the_caller_ignores() {
+    local out=/tmp/rar-e2e-sigign mode run line mask without rc=0
+    for mode in terminal none; do
+        without=''
+        for run in "" "dosr -r e2e -t shell"; do
+            rm -f "$out"
+            line="trap '' INT; nohup $run /usr/bin/sh -c 'grep SigIgn /proc/self/status >$out' 2>/dev/null"
+            if [ $mode = terminal ]; then
+                as_user script -qec "sh -c \"$line\"" /dev/null </dev/null >/dev/null 2>&1
+            else
+                as_user setsid sh -c "$line" </dev/null >/dev/null 2>&1
+            fi
+            mask=$(sed -n 's/^SigIgn:[[:space:]]*//p' "$out" 2>/dev/null)
+            if [ -z "$run" ]; then
+                without=$mask
+            elif [ -z "$mask" ] || [ "$mask" != "$without" ]; then
+                echo "$mode: ignored by the command $mask, without dosr $without" >&2
+                rc=1
+            fi
+        done
+    done
+    rm -f "$out"
+    return $rc
+}
+
 # the password prompt under ^Z and fg, and under ^C, in an interactive shell of the test user on a
 # pseudo-terminal: after fg the prompt shows again and the password is not echoed (bash gives the
 # terminal its echo back while dosr is stopped); ^C ends dosr by SIGINT, so that the shell drops
@@ -1232,5 +1260,6 @@ check "with its output into a pipe, the keystrokes go to the next program" keyst
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
+check "the signals that the caller ignores stay ignored by the command" command_keeps_the_signals_that_the_caller_ignores
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"

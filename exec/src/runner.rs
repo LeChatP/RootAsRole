@@ -14,7 +14,8 @@ use super::event::{EventRegistry, PollEvent, Process, StopReason};
 use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
 use super::signal::{
-    SignalStream, register_signal_handler, signal_child, terminate_child, terminate_process,
+    SignalStream, give_signals_to_the_command, ignored_by_the_caller, register_signal_handler,
+    signal_child, terminate_child, terminate_process,
 };
 use super::terminal::{ProcessId, TermSize, TerminalExt, UserTerm};
 
@@ -414,6 +415,8 @@ pub fn run_no_pty(
     mut command: Command,
     orchestrator: Orchestrator,
 ) -> io::Result<std::process::ExitStatus> {
+    // before the handlers of the runner
+    let ignored = ignored_by_the_caller();
     let original_set = block_all_signals();
 
     // initialize signals BEFORE spawning child to minimize race window
@@ -432,6 +435,7 @@ pub fn run_no_pty(
     unsafe {
         let ctx = PreExecContext::empty();
         command.pre_exec(move || {
+            give_signals_to_the_command(ignored);
             restore_signals(child_sigset);
             orchestrator.run(&ctx)
         });
@@ -553,6 +557,8 @@ fn run_in_pty(
     mut user_term: UserTerm,
     pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
 ) -> io::Result<std::process::ExitStatus> {
+    // before the handlers of the runner and of the monitor
+    let ignored = ignored_by_the_caller();
     let original_set = block_all_signals();
 
     // SAFETY: getpgrp does not access memory
@@ -666,6 +672,7 @@ fn run_in_pty(
             orchestrator,
             monitor_channel,
             original_set.as_ref(),
+            ignored,
             foreground && !exec_bg,
         );
 
@@ -1062,6 +1069,35 @@ mod tests {
             command.1,
             caller.1
         );
+    }
+
+    // a signal that the caller ignores stays ignored by the command (nohup, the background jobs
+    // of a script), also one that the runner handles (SIGTERM), as under sudo
+    #[test]
+    fn run_no_pty_keeps_the_signals_that_the_caller_ignores() {
+        let _guard = MUTEX.lock().unwrap();
+        let ignore = |signal| {
+            // SAFETY: SIG_IGN installs no handler code
+            unsafe { libc::signal(signal, libc::SIG_IGN) }
+        };
+        let previous = [ignore(libc::SIGHUP), ignore(libc::SIGTERM)];
+        let out = std::env::temp_dir().join(format!("rar-exec-ignored-{}", std::process::id()));
+        let mut command = Command::new("/usr/bin/cat");
+        command
+            .arg("/proc/self/status")
+            .stdout(fs::File::create(&out).expect("the output of the command"));
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        for (signal, action) in [libc::SIGHUP, libc::SIGTERM].into_iter().zip(previous) {
+            // SAFETY: the disposition that the test process had
+            unsafe { libc::signal(signal, action) };
+        }
+        let (_, ignored) =
+            signal_masks(&fs::read_to_string(&out).expect("the status of the command"));
+        let _ = fs::remove_file(&out);
+        assert!(status.success());
+        for signal in [libc::SIGHUP, libc::SIGTERM] {
+            assert_ne!(ignored & 1 << (signal - 1), 0, "{signal} in {ignored:x}");
+        }
     }
 
     // with a terminal, a failed setup of the pty stops before the command starts; without one,

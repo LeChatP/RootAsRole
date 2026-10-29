@@ -7,7 +7,8 @@ use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
 use crate::signal::{
-    SignalInfo, SignalStream, register_signal_handler, signal_child, terminate_child,
+    SignalInfo, SignalStream, give_signals_to_the_command, register_signal_handler, signal_child,
+    terminate_child,
 };
 use crate::terminal::{ProcessId, TerminalExt};
 use libc::SIGCHLD;
@@ -237,6 +238,7 @@ pub fn exec_monitor_process(
     orchestrator: Orchestrator,
     mut backchannel: Backchannel,
     original_set: Option<&libc::sigset_t>,
+    ignored: u64,
     foreground: bool,
 ) -> io::Result<()> {
     debug!("monitor: starting (foreground={foreground})");
@@ -293,11 +295,8 @@ pub fn exec_monitor_process(
     if pid == 0 {
         drop(err_reader); // Close reader end in child
 
-        // Restore default signal handlers
-        for sig in 1..32 {
-            // SAFETY: restoring the default disposition does not install any handler code
-            unsafe { libc::signal(sig, libc::SIG_DFL) };
-        }
+        // the signals that the caller ignores stay ignored, the others get their default action
+        give_signals_to_the_command(ignored);
 
         // Restore signal mask
         let set: libc::sigset_t = original_set.map_or_else(
