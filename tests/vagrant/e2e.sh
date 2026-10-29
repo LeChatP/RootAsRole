@@ -20,6 +20,8 @@ GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
 TTY_SCRIPT=/tmp/rar-e2e-tty.sh
 # the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
 LOG_COMMAND=(journalctl -t dosr -p info)
+# where dosr keeps the cookies of the authentications (RAR_TIMEOUT_STORAGE)
+TIMESTAMP_DIR=/var/run/rar/ts
 FAILED=0
 
 # 0: pass, 77: skip, anything else: fail
@@ -383,6 +385,51 @@ skipped_authentication_gives_no_cookie() {
     forget_authentications
 }
 
+# two commands of the same shell, the first one with the password, the second one with a wrong
+# password: "first=0 second=0" when the cookie of the first one spares the password
+two_authentications() {
+    as_user sh -c "printf '%s\\n' '$TEST_PASSWORD' | dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1
+        echo first=\$?
+        printf '%s\\n' wrong wrong wrong | dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1
+        echo second=\$?" | tr '\n' ' '
+}
+
+# the cookie of an authentication is written as root, in the directory of the build, the
+# privileged path that the unit tests replace (cfg(test) in timeout.rs): it belongs to root,
+# only root reads it, and it spares the password to the next command of the same shell
+cookie_is_written_by_root() {
+    local out cookie dir file
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    cookie="$TIMESTAMP_DIR/$(id -u "$TEST_USER")"
+    [ ! -e "$cookie" ] || return 1
+    out=$(two_authentications)
+    dir=$(stat -c '%u:%g %a' "$TIMESTAMP_DIR")
+    file=$(stat -c '%u:%g %a %h' "$cookie")
+    forget_authentications
+    [ "$out" = "first=0 second=0 " ] && [ "$dir" = "0:0 700" ] && [ "$file" = "0:0 600 1" ] || {
+        echo "$out, directory $dir, cookie $file" >&2
+        return 1
+    }
+}
+
+# a directory of cookies that the user owns is not trusted: the user could plant a cookie in
+# it; the password is asked again, and the cookie is not written there
+cookie_directory_of_the_user_is_refused() {
+    local out
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd || return 1
+    forget_authentications
+    chown "$TEST_USER" "$TIMESTAMP_DIR" || return 1
+    out=$(two_authentications)
+    chown root "$TIMESTAMP_DIR"
+    forget_authentications
+    [ "$out" = "first=0 second=1 " ] &&
+        [ ! -e "$TIMESTAMP_DIR/$(id -u "$TEST_USER")" ] || {
+        echo "$out" >&2
+        return 1
+    }
+}
+
 # a failed lookup of an actor disables the roles with a separation of duties: the members of
 # a group take more than the 1 MiB that the lookups of dosr allow, getgrnam_r fails with ERANGE
 ssd_role_disabled_by_a_failed_lookup() {
@@ -596,6 +643,8 @@ check "the bounding set is checked before running the command" bounding_set_is_c
 check "the variables of pam_env go through the env filter of the task" pam_env_is_filtered
 check "a wrong password is asked again, up to the tries of the policy" password_is_asked_again
 check "a task that skips the authentication gives no cookie" skipped_authentication_gives_no_cookie
+check "the cookie of an authentication is written by root and spares the next password" cookie_is_written_by_root
+check "a directory of cookies that the user owns is not trusted" cookie_directory_of_the_user_is_refused
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
