@@ -690,6 +690,33 @@ long_refused_attempt_is_logged() {
     return 1
 }
 
+# a command with 1 MB of arguments runs and is logged: RAR_COMMAND and SUDO_COMMAND hold the start
+# of its command line, 4096 bytes at most (the whole command line in a variable made the execve
+# fail beyond 128 KB, the longest string of an environment)
+long_command_runs_and_is_logged() {
+    local pad marker since out args=()
+    pad=$(head -c 100000 /dev/zero | tr '\0' a)
+    for _ in $(seq 10); do args+=("$pad"); done
+    marker="rar-e2e-long-$RANDOM"
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    # shellcheck disable=SC2016 # expanded by the shell of the command
+    out=$(as_user dosr -r e2e -t shell /usr/bin/sh -c 'echo ran $# ${#RAR_COMMAND} ${#SUDO_COMMAND}' \
+        "$marker" "${args[@]}" 2>&1)
+    read -r _ count rar sudo <<<"$out"
+    if [ "$count" != 10 ] || ! [ "$rar" -gt 0 ] 2>/dev/null || [ "$rar" -gt 4096 ] ||
+        ! [ "$sudo" -gt 0 ] 2>/dev/null || [ "$sudo" -gt 4096 ]; then
+        echo "dosr: $(head -c 200 <<<"$out")" >&2
+        return 1
+    fi
+    for _ in 1 2 3 4 5; do
+        journalctl -t dosr --since "$since" -o cat | grep -q "COMMAND=.*$marker" && return 0
+        sleep 1
+    done
+    echo "the execution is not in the journal" >&2
+    return 1
+}
+
 # after the PAM calls, the command starts with the identity that its task gives: a task without
 # setuid nor capabilities gives the uids, the capabilities and the securebits of the caller
 command_starts_with_the_identity_of_its_task() {
@@ -986,6 +1013,7 @@ check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller
 check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
 check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
 check "a refused attempt with long arguments is logged, cut into lines" long_refused_attempt_is_logged
+check "a command with 1 MB of arguments runs and is logged" long_command_runs_and_is_logged
 check "the command starts with the identity that its task gives" command_starts_with_the_identity_of_its_task
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options

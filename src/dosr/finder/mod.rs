@@ -24,7 +24,7 @@ use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups, NameLookupCache},
-        env::EnvFilter,
+        env::{EnvFilter, command_var},
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, TtyOwner},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         structs::GroupsFrom,
@@ -477,15 +477,7 @@ impl BestExecSettings {
                 opt_stack.calc_path(env_path),
                 cred,
                 result.cred.setuid.as_ref(),
-                format!(
-                    "{}{}",
-                    cli.cmd_path.display(),
-                    if cli.cmd_args.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", cli.cmd_args.join(" "))
-                    }
-                ),
+                command_var(&cli.cmd_path.display().to_string(), &cli.cmd_args),
             )
             .ok_or_else(|| {
                 error!("Internal Error with environment behavior");
