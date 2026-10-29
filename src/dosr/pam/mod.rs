@@ -97,9 +97,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_cleartext().map_err(|_| ErrorCode::BufferError)?;
         drop(term);
-        Ok(std::ffi::OsString::from(
-            String::from_utf8_lossy(&read).to_string(),
-        ))
+        answer(&read)
     }
 
     fn masked_prompt(&self, prompt: impl AsRef<std::ffi::OsStr>) -> PamResult<std::ffi::OsString> {
@@ -133,6 +131,16 @@ impl ConversationAdapter for SrConversationHandler<'_> {
         info!("{}", message.as_ref().to_string_lossy());
         println_ignore_io_error!("{}", message.as_ref().to_string_lossy());
     }
+}
+
+/// The answer to a question shown in clear: the bytes before the first NUL of the buffer, as
+/// typed. PAM refuses an answer that holds a NUL (`BufferError` from nonstick2), and the buffer
+/// holds NULs after the answer: the whole buffer made every such question fail (`pam_duo`,
+/// `pam_google_authenticator` with `echo_verification_code`, `pam_get_user`).
+fn answer(read: &[u8]) -> PamResult<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStrExt;
+    let answer = CStr::from_bytes_until_nul(read).map_err(|_| ErrorCode::BufferError)?;
+    Ok(std::ffi::OsStr::from_bytes(answer.to_bytes()).to_os_string())
 }
 
 /// The terminal and the requesting user of the transaction, like sudo sets them: modules such
@@ -591,6 +599,23 @@ mod tests {
             &user,
             &cli,
         );
+    }
+
+    // the answer to a question shown in clear stops at the first NUL of the buffer, and keeps the
+    // bytes as typed
+    #[test]
+    fn test_answer_ends_at_the_first_nul() {
+        let mut buffer = [0u8; 511];
+        buffer[..4].copy_from_slice(b"1234");
+        assert_eq!(answer(&buffer), Ok(OsStr::new("1234").to_os_string()));
+        assert_eq!(answer(&[0u8; 511]), Ok(std::ffi::OsString::new()));
+        buffer[..4].copy_from_slice(b"\xff\x00ab");
+        assert_eq!(
+            answer(&buffer),
+            Ok(OsStr::from_bytes(b"\xff").to_os_string())
+        );
+        // a full buffer has no NUL to end it
+        assert_eq!(answer(&[b'a'; 511]), Err(ErrorCode::BufferError));
     }
 
     #[test]

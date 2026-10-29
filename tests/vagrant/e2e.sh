@@ -22,6 +22,8 @@ TERMINAL_SCRIPT=/tmp/rar-e2e-terminal.sh
 OUTER_TTY=/tmp/rar-e2e-outer-tty
 # a command that the policy allows and that exec refuses: mode 0644
 NOT_EXECUTABLE=/var/tmp/rar-e2e-not-executable
+# a PAM module built for echo_on_question_is_answered, in the directory of pam_unix.so
+ECHO_ON_MODULE=pam_rar_e2e_echo_on.so
 # the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
 LOG_COMMAND=(journalctl -t dosr -p info)
 # where dosr keeps the cookies of the authentications (RAR_TIMEOUT_STORAGE)
@@ -216,6 +218,7 @@ cleanup() {
     remove_policy "$PLANTED_POLICY"
     remove_policy "$E2E_POLICY"
     rm -f "$TTY_SCRIPT" "$NOT_EXECUTABLE"
+    find /lib /usr/lib -name "$ECHO_ON_MODULE" -path '*security*' -delete 2>/dev/null
     userdel -r "$TEST_USER" 2>/dev/null
 }
 
@@ -633,6 +636,47 @@ pam_rootok_does_not_let_the_caller_in() {
     fi
     restore_pam_service
     forget_authentications
+}
+
+# a question that a PAM module shows in clear (PAM_PROMPT_ECHO_ON, as pam_duo asks its passcode)
+# gets its answer: the answer held the NULs that follow it in the buffer, which PAM refuses, so
+# the module got PAM_BUF_ERR and nobody could authenticate; the module built here asks "Code: "
+# and accepts 1234
+echo_on_question_is_answered() {
+    local dir src out rc=0
+    command -v gcc >/dev/null || return 77
+    dir=$(dirname "$(find /lib /usr/lib -name pam_unix.so -path '*security*' 2>/dev/null | head -n 1)")
+    [ -d "$dir" ] || return 77
+    src=$(mktemp --suffix=.c)
+    cat >"$src" <<'EOF'
+#include <security/pam_ext.h>
+#include <security/pam_modules.h>
+#include <stdlib.h>
+#include <string.h>
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    char *answer = NULL;
+    int ok = pam_prompt(pamh, PAM_PROMPT_ECHO_ON, &answer, "Code: ") == PAM_SUCCESS &&
+             answer && strcmp(answer, "1234") == 0;
+    free(answer);
+    return ok ? PAM_SUCCESS : PAM_AUTH_ERR;
+}
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    return PAM_SUCCESS;
+}
+EOF
+    gcc -shared -fPIC -o "$dir/$ECHO_ON_MODULE" "$src" -lpam || rc=1
+    rm -f "$src"
+    [ $rc = 0 ] || return 1
+    cp -p "$PAM_SERVICE" "$PAM_SERVICE_BACKUP" || return 1
+    sed -i "1a auth requisite $ECHO_ON_MODULE" "$PAM_SERVICE"
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
+    forget_authentications
+    out=$(printf '1234\n%s\n' "$TEST_PASSWORD" | as_user dosr -S -r e2e -t password /usr/bin/true 2>&1) || rc=1
+    restore_pam_service
+    rm -f "${dir:?}/$ECHO_ON_MODULE"
+    forget_authentications
+    [ $rc = 0 ] || echo "dosr: $(head -c 300 <<<"$out")" >&2
+    return $rc
 }
 
 # the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
@@ -1114,6 +1158,7 @@ check "the command that dosr names shows its lines, without the debug lines of P
 check "the PAM service of dosr opens no login session" pam_opens_no_login_session
 check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_faillock
 check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
+check "a question that PAM shows in clear gets its answer" echo_on_question_is_answered
 check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
 check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
 check "a refused attempt with long arguments is logged, cut into lines" long_refused_attempt_is_logged
