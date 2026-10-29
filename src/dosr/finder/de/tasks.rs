@@ -181,6 +181,16 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for TaskFinderDeserializer<'a> {
                         }
                     }
                 }
+                // -u and -g ask for a user and groups that the task sets, like a runas list of
+                // sudo: a task that does not set them would run the command as the caller, or
+                // with the groups of its user, not as asked
+                if let Some(filter) = self.cli.opt_filter.as_ref()
+                    && ((filter.user.is_some() && cred.setuid.is_none())
+                        || (filter.group.is_some() && cred.setgroups.is_none()))
+                {
+                    debug!("TaskFinderVisitor: the task does not set the user or the groups asked");
+                    return Ok(None);
+                }
                 Ok(Some(DTaskFinder {
                     id,
                     score,

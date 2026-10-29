@@ -1009,6 +1009,108 @@ fn test_a_group_that_the_task_does_not_give_is_never_granted() {
     assert_eq!(given, Some(Some(vec![asked])));
 }
 
+/// The user and the groups that the only task of a policy with `cred` gives, asked with `-u user`
+/// and `-g group`, or `None` when the task is refused.
+fn user_and_groups_given(
+    cred: &Value,
+    user: Option<u32>,
+    group: Option<u32>,
+) -> Option<(Option<u32>, Option<Vec<u32>>)> {
+    let mut task = json!({"name": "t", "commands": ["/usr/bin/ls"]});
+    if !cred.is_null() {
+        task["cred"] = cred.clone();
+    }
+    let uid = nix::unistd::getuid().as_raw();
+    let policy =
+        json!({"roles": [{"name": "r", "actors": [{"type": "user", "id": uid}], "tasks": [task]}]})
+            .to_string();
+    let filter = (user.is_some() || group.is_some()).then(|| {
+        FilterMatcher::builder()
+            .maybe_user(user)
+            .unwrap()
+            .maybe_group(group)
+            .unwrap()
+            .build()
+    });
+    let cli = Cli::builder()
+        .cmd_path("/usr/bin/ls".to_string())
+        .maybe_opt_filter(filter)
+        .build();
+    let cred = dummy_cred();
+    let data = crate::finder::de::ConfigFinderDeserializer {
+        cli: &cli,
+        cred: &cred,
+    }
+    .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+    .unwrap();
+    BestExecSettings::retrieve_settings(&cli, &cred, &data, USER_ENV, &["/usr/bin"])
+        .and_then(BestExecSettings::with_target_groups)
+        .ok()
+        .filter(|settings| settings.score.fully_matching())
+        .map(|settings| {
+            (
+                settings.cred.setuid.map(|user| user.uid.as_raw()),
+                settings
+                    .cred
+                    .setgroups
+                    .map(|groups| groups.iter().map(|g| g.gid.as_raw()).collect()),
+            )
+        })
+}
+
+// -u and -g ask for a user and groups that the task sets, like the runas list of a sudo rule: a
+// task that does not set them is refused, even for the caller (kanban #102)
+#[test]
+fn test_a_user_or_groups_that_the_task_does_not_set_are_refused() {
+    let caller = nix::unistd::getuid().as_raw();
+    let root = Some(0);
+    for (cred, user, group) in [
+        (json!(null), root, None),
+        (json!(null), Some(caller), None),
+        (json!({"setgid": "root"}), root, None),
+        (json!({"setgid": "root"}), root, root),
+        (json!(null), None, root),
+        (json!({"setuid": "root"}), None, root),
+        (json!({"setuid": "root"}), root, root),
+        (
+            json!({"setuid": "root", "setgid": {"from": "caller"}}),
+            None,
+            root,
+        ),
+    ] {
+        assert_eq!(
+            user_and_groups_given(&cred, user, group),
+            None,
+            "{cred} -u {user:?} -g {group:?}"
+        );
+        // the task is refused for the request alone
+        assert!(user_and_groups_given(&cred, None, None).is_some(), "{cred}");
+    }
+    // a task that sets them gives what is asked
+    for (cred, user, group, given) in [
+        (json!({"setuid": "root"}), root, None, (root, Some(vec![0]))),
+        (json!({"setgid": "root"}), None, root, (None, Some(vec![0]))),
+        (
+            json!({"setuid": "root", "setgid": "root"}),
+            root,
+            root,
+            (root, Some(vec![0])),
+        ),
+        (
+            json!({"setuid": {"default": "all"}, "setgid": {"default": "all"}}),
+            root,
+            root,
+            (root, Some(vec![0])),
+        ),
+    ] {
+        assert_eq!(
+            user_and_groups_given(&cred, user, group),
+            Some(given),
+            "{cred} -u {user:?} -g {group:?}"
+        );
+    }
+}
+
 /// The variables of `vars`, and the variables `extra` that the policy may set, that the command
 /// of the only task of `policy` receives, decided for a user whose environment is `vars`.
 fn received(policy: &Value, vars: &[(&str, &str)], extra: &[&str]) -> Vec<String> {
