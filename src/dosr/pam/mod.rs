@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 use nonstick2::{
     AuthnFlags, ConversationAdapter, EnvironMap, ErrorCode, LibPamTransaction, PamShared,
     Result as PamResult, TransactionBuilder, conv::Demux, items::Items, items::ItemsMut,
-    libpam::SessionActive,
+    libpam::AccountManaged, libpam::SessionActive,
 };
 use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
 
@@ -244,13 +244,22 @@ fn retry_authentication<T, U>(
     }
 }
 
-pub fn start_session<'a>(
+/// A PAM transaction of dosr in the state `S`.
+type Transaction<'a, S> = LibPamTransaction<Demux<SrConversationHandler<'a>>, S>;
+
+/// A transaction whose password and account are checked, before its session: dropped, it ends
+/// without one (`pam_end` only).
+pub type Authenticated<'a> = Transaction<'a, AccountManaged>;
+
+/// Check the password and the account of the caller, unless the task skips the authentication,
+/// and record the authentication for the timestamp of the task.
+pub fn authenticate<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     password: PasswordSettings,
     user: &Cred,
     cli: &Cli,
-) -> SrResult<LibPamTransaction<Demux<SrConversationHandler<'a>>, SessionActive>> {
+) -> SrResult<Authenticated<'a>> {
     // `dosr a | dosr b` would read both passwords from the terminal at the same time, each one
     // getting part of the keystrokes: the terminal is locked until this authentication is done,
     // and the other dosr checks its timestamp once it gets the lock (sudo-rs #1650).
@@ -316,20 +325,6 @@ pub fn start_session<'a>(
     })?;
     check_pam_user(&txn, user)?;
 
-    let txn = privileges::with_audit_write(|| {
-        txn.establish_credentials()
-            .map_err(|e| {
-                error!("Failed to establish credentials: {}", e.1);
-                SrError::SystemError
-            })?
-            .open_session()
-            .map_err(|e| {
-                error!("Failed to open session: {}", e.1);
-                SrError::SystemError
-            })
-    })?;
-    check_pam_user(&txn, user)?;
-
     // Failing to save the cookie only means that the user will be asked to authenticate again;
     // a task that skips the authentication keeps no cookie
     #[cfg(feature = "timeout")]
@@ -340,10 +335,44 @@ pub fn start_session<'a>(
     Ok(txn)
 }
 
-/// The end of the PAM session: closed as the caller, with `CAP_AUDIT_WRITE` only for the audit
-/// records of libpam.
-pub fn end_session<C: nonstick2::Conversation>(session: LibPamTransaction<C, SessionActive>) {
-    privileges::with_audit_write(|| drop(session));
+/// The PAM session of the command, closed when it is dropped, whatever ends dosr once it is open:
+/// as the caller, with `CAP_AUDIT_WRITE` only for the audit records of libpam.
+/// `std::process::exit` runs no destructor, dosr drops it before.
+pub struct Session<'a>(Option<Transaction<'a, SessionActive>>);
+
+impl Session<'_> {
+    /// The variables that PAM modules set for the session, see [`session_env`].
+    pub fn env(&self) -> Vec<(String, String)> {
+        self.0.as_ref().map_or_else(Vec::new, session_env)
+    }
+}
+
+impl Drop for Session<'_> {
+    fn drop(&mut self) {
+        privileges::with_audit_write(|| drop(self.0.take()));
+    }
+}
+
+/// Establish the credentials and open the session, for a command that runs: dosr opens none for
+/// a command that it refuses after the password, nor for `-i`.
+pub fn open_session<'a>(txn: Authenticated<'a>, user: &Cred) -> SrResult<Session<'a>> {
+    let session = Session(Some(privileges::with_audit_write(|| {
+        txn.establish_credentials()
+            .map_err(|e| {
+                error!("Failed to establish credentials: {}", e.1);
+                SrError::SystemError
+            })?
+            .open_session()
+            .map_err(|e| {
+                error!("Failed to open session: {}", e.1);
+                SrError::SystemError
+            })
+    })?));
+    if let Some(txn) = &session.0 {
+        // another user: the session is closed when dropped
+        check_pam_user(txn, user)?;
+    }
+    Ok(session)
 }
 
 #[cfg(test)]
@@ -385,6 +414,18 @@ mod tests {
             max_usage: Some(3),
             extra_fields: Map::default(),
         }
+    }
+
+    /// The password, the account and the session, as for a command that runs.
+    fn start_session<'a>(
+        authentication: SAuthentication,
+        timeout: &STimeout,
+        password: PasswordSettings,
+        user: &Cred,
+        cli: &Cli,
+    ) -> SrResult<Session<'a>> {
+        authenticate(authentication, timeout, password, user, cli)
+            .and_then(|txn| open_session(txn, user))
     }
 
     /// The error of `start_session`: none with the capabilities to check the account as root,

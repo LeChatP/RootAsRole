@@ -20,6 +20,8 @@ GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
 TTY_SCRIPT=/tmp/rar-e2e-tty.sh
 TERMINAL_SCRIPT=/tmp/rar-e2e-terminal.sh
 OUTER_TTY=/tmp/rar-e2e-outer-tty
+# a command that the policy allows and that exec refuses: mode 0644
+NOT_EXECUTABLE=/var/tmp/rar-e2e-not-executable
 # the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
 LOG_COMMAND=(journalctl -t dosr -p info)
 # where dosr keeps the cookies of the authentications (RAR_TIMEOUT_STORAGE)
@@ -81,6 +83,8 @@ installed_version() {
 
 setup() {
     id "$TEST_USER" >/dev/null 2>&1 || useradd -m "$TEST_USER"
+    printf '#!/bin/sh\n' >"$NOT_EXECUTABLE"
+    chmod 644 "$NOT_EXECUTABLE"
     printf '%s\n' "[Unit]" "Description=RootAsRole end-to-end test unit" \
         "[Service]" "ExecStart=/bin/sleep infinity" >"/etc/systemd/system/$UNIT.service"
     systemctl daemon-reload
@@ -135,6 +139,7 @@ setup() {
         "commands": ["/usr/bin/id ^-G$"]
       },
       { "name": "alternation", "commands": ["/usr/bin/echo ^one|two$"] },
+      { "name": "not-executable", "commands": ["$NOT_EXECUTABLE"] },
       {
         "name": "missing-group",
         "cred": { "setgid": "rar-e2e-missing" },
@@ -201,7 +206,7 @@ cleanup() {
     systemctl daemon-reload
     remove_policy "$PLANTED_POLICY"
     remove_policy "$E2E_POLICY"
-    rm -f "$TTY_SCRIPT"
+    rm -f "$TTY_SCRIPT" "$NOT_EXECUTABLE"
     userdel -r "$TEST_USER" 2>/dev/null
 }
 
@@ -585,31 +590,83 @@ pam_rootok_does_not_let_the_caller_in() {
 # the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
 # which dosr only has in the effective set during the PAM calls (Arch, whose auditd is started
 # for the check)
+# the runs of dosr that stop between the password and the command: -i, a task whose
+# capabilities are outside the bounding set, and a command that exec refuses
+show_a_task() {
+    as_user dosr -i -r e2e -t service /usr/bin/systemctl start "$UNIT"
+}
+
+refuse_a_task_outside_the_bounding_set() {
+    capsh --drop=cap_net_raw --user="$TEST_USER" -- -c 'dosr -r e2e -t net-raw /usr/bin/true'
+}
+
+start_a_command_that_cannot_start() {
+    as_user dosr -r e2e -t not-executable "$NOT_EXECUTABLE"
+}
+
+# the types of the audit records of dosr that the function $1 adds
+audit_records_of() {
+    local lines
+    lines=$(wc -l </var/log/audit/audit.log)
+    "$1" >/dev/null 2>&1
+    sleep 1
+    tail -n +"$((lines + 1))" /var/log/audit/audit.log | grep 'exe="/usr/bin/dosr"' |
+        grep -o '^type=[A-Z_]*' | sort -u | tr '\n' ' '
+}
+
+give_the_password() {
+    printf '%s\n' "$TEST_PASSWORD" | as_user dosr -S -r e2e -t password /usr/bin/true
+}
+
+# a command that is started has the records of its session; -i and a refusal after the password
+# have none, like sudo -l, and a command that cannot start has the end of its session too
 audit_records_name_dosr() {
-    local started='' lines records
+    local started='' records shown refused not_started
     command -v auditctl >/dev/null && systemctl cat auditd.service >/dev/null 2>&1 || return 77
     if ! systemctl is-active -q auditd; then
         systemctl start auditd || return 1
         started=1
         sleep 1
     fi
-    lines=$(wc -l </var/log/audit/audit.log)
     echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
     forget_authentications
-    printf '%s\n' "$TEST_PASSWORD" |
-        as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1
-    sleep 1
-    records=$(tail -n +"$((lines + 1))" /var/log/audit/audit.log | grep 'exe="/usr/bin/dosr"' |
-        grep -o '^type=[A-Z_]*' | sort -u | tr '\n' ' ')
+    records=$(audit_records_of give_the_password)
     forget_authentications
+    shown=$(audit_records_of show_a_task)
+    refused=$(audit_records_of refuse_a_task_outside_the_bounding_set)
+    not_started=$(audit_records_of start_a_command_that_cannot_start)
     if [ -n "$started" ]; then
         auditctl --signal stop >/dev/null
         auditctl -e 0 >/dev/null
     fi
-    [ "$records" = "type=CRED_ACQ type=CRED_DISP type=USER_ACCT type=USER_AUTH type=USER_END type=USER_START " ] || {
-        echo "audit records of dosr: $records" >&2
+    [ "$records" = "type=CRED_ACQ type=CRED_DISP type=USER_ACCT type=USER_AUTH type=USER_END type=USER_START " ] &&
+        [ "$shown" = "type=USER_ACCT " ] && [ "$refused" = "type=USER_ACCT " ] &&
+        [ "$not_started" = "type=CRED_ACQ type=CRED_DISP type=USER_ACCT type=USER_END type=USER_START " ] || {
+        echo "audit records of dosr: $records; -i: $shown; refused: $refused; not started: $not_started" >&2
         return 1
     }
+}
+
+# pam_unix logs no session opened without its close: -i and a refusal after the password open
+# none, a command that cannot start closes its own, like a command that runs
+pam_session_only_for_a_command_that_is_started() {
+    local since out sessions
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    show_a_task >/dev/null || return 1
+    out=$(refuse_a_task_outside_the_bounding_set 2>&1) && return 1
+    grep -q 'cannot obtain' <<<"$out" || return 1
+    out=$(start_a_command_that_cannot_start 2>&1) && return 1
+    grep -qF "$NOT_EXECUTABLE : " <<<"$out" || return 1
+    as_user dosr -r e2e -t date /usr/bin/date >/dev/null || return 1
+    for _ in 1 2 3 4 5; do
+        sessions=$(journalctl --since "$since" -o cat |
+            sed -n 's/^pam_unix(dosr:session): session \(opened\|closed\) .*/\1/p' | tr '\n' ' ')
+        [ "$sessions" = "opened closed opened closed " ] && return 0
+        sleep 1
+    done
+    echo "sessions of pam_unix: $sessions" >&2
+    return 1
 }
 
 # after the PAM calls, the command starts with the identity that its task gives: a task without
@@ -830,7 +887,8 @@ check "the command that dosr names shows its lines, without the debug lines of P
 check "the PAM service of dosr opens no login session" pam_opens_no_login_session
 check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_faillock
 check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
-check "the audit records of PAM name dosr" audit_records_name_dosr
+check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
+check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
 check "the command starts with the identity that its task gives" command_starts_with_the_identity_of_its_task
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options

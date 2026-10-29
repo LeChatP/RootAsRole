@@ -421,7 +421,7 @@ fn main_inner() -> Result<(), Failure> {
     use crate::{
         RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
-        pam::{end_session, session_env, start_session},
+        pam::{authenticate, open_session},
     };
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
@@ -474,100 +474,19 @@ fn main_inner() -> Result<(), Failure> {
 
     debug!("Best exec settings: {execcfg:?}");
 
-    // Let the PAM session live until the end of the program
-    let session = start_session(
+    // the password is asked for a command refused next too, so that the policy is not revealed
+    let authenticated = authenticate(
         execcfg.auth,
         &execcfg.timeout,
         execcfg.password,
         &user,
         &args,
     )?;
-    // The variables that PAM modules set go through the filter of the policy, like the user's
-    execcfg
-        .env_filter
-        .add_vars(&mut execcfg.env, session_env(&session));
-
-    if !execcfg.score.fully_matching() {
-        println_ignore_io_error!(
-            "You are not allowed to execute this command, this incident will be reported."
-        );
-        error!(
-            "User {} tried to execute command : {} {:?} without the permission.",
-            &user.user.name,
-            args.cmd_path.display(),
-            args.cmd_args
-        );
-
-        std::process::exit(1);
+    if let Some(code) = stop_before_session(&user, &execcfg, &args) {
+        // no PAM session for a command that does not run, like sudo -l
+        drop(authenticated);
+        std::process::exit(code);
     }
-
-    // after authentication, so that the policy is not revealed, but before the execution is
-    // logged as granted: these capabilities can never be granted in this session
-    let missing = caps_outside_bounding(execcfg.cred.caps, capctl::bounding::probe());
-    if !missing.is_empty() {
-        let names = missing
-            .iter()
-            .map(|cap| cap.to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
-        eprintln_ignore_io_error!(
-            "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
-        );
-        error!(
-            "User {} cannot run {} with the task {:?} of the role {}: {names} are not in the bounding set (a container, or a session started with a strict bounding set)",
-            &user.user.name,
-            execcfg.final_path.display(),
-            execcfg.task,
-            execcfg.role
-        );
-        std::process::exit(1);
-    }
-
-    if args.info {
-        println_ignore_io_error!(
-            "Role: {}",
-            if execcfg.role.is_empty() {
-                "None"
-            } else {
-                &execcfg.role
-            }
-        );
-        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
-        print_ignore_io_error!(
-            "Execute as user: {}",
-            if let Some(u) = execcfg.cred.setuid {
-                format!("{} ({})", u.name, u.uid)
-            } else {
-                "Your current user".to_string()
-            }
-        );
-        if let Some(gids) = execcfg.cred.setgroups.as_ref() {
-            print_ignore_io_error!(" and group(s): ");
-            let groups = gids
-                .iter()
-                .map(|g| format!("{} ({})", g.name, g.gid))
-                .collect::<Vec<_>>()
-                .join(", ");
-            println_ignore_io_error!("{groups}");
-        } else {
-            println_ignore_io_error!(" your current group(s)");
-        }
-        println_ignore_io_error!(
-            "With capabilities: {}",
-            capabilities_display(execcfg.cred.caps)
-        );
-        println_ignore_io_error!(
-            "Command: {} {:?}",
-            execcfg.final_path.display(),
-            args.cmd_args
-        );
-        std::process::exit(0);
-    }
-
-    info!("{}", execution_log_line(&user, &execcfg, &args));
-
-    // Build the command
-    let mut command_builder = Command::new(&execcfg.final_path);
 
     // The command runs in the directory asked with -D, else in the one forced by the policy.
     // It is entered by the pre-exec steps, once the target user is set.
@@ -583,6 +502,16 @@ fn main_inner() -> Result<(), Failure> {
             error!("The working directory contains a NUL character");
             SrError::InvalidAgruments
         })?;
+
+    // The PAM session lives until the command ends: it is closed when dropped
+    let session = open_session(authenticated, &user)?;
+    // The variables that PAM modules set go through the filter of the policy, like the user's
+    execcfg.env_filter.add_vars(&mut execcfg.env, session.env());
+
+    info!("{}", execution_log_line(&user, &execcfg, &args));
+
+    // Build the command
+    let mut command_builder = Command::new(&execcfg.final_path);
     configure_pre_exec(
         execcfg.umask.0,
         execcfg.cred.clone(),
@@ -621,12 +550,96 @@ fn main_inner() -> Result<(), Failure> {
         Err(e) => {
             error!("{e}");
             eprintln_ignore_io_error!("dosr: {} : {}", cfinal_path.display(), e);
+            drop(session);
             std::process::exit(1);
         }
     };
     // the PAM session ends here, after the command
-    end_session(session);
+    drop(session);
     exit_like(status)
+}
+
+/// Where dosr stops after the password, before the PAM session: the command is not allowed, the
+/// task needs capabilities that this session cannot obtain, or `-i` only shows the task. The exit
+/// code of dosr then.
+#[cfg(not(tarpaulin_include))]
+fn stop_before_session(user: &Cred, execcfg: &finder::BestExecSettings, args: &Cli) -> Option<i32> {
+    if !execcfg.score.fully_matching() {
+        println_ignore_io_error!(
+            "You are not allowed to execute this command, this incident will be reported."
+        );
+        error!(
+            "User {} tried to execute command : {} {:?} without the permission.",
+            &user.user.name,
+            args.cmd_path.display(),
+            args.cmd_args
+        );
+
+        return Some(1);
+    }
+
+    // after authentication, so that the policy is not revealed, but before the execution is
+    // logged as granted: these capabilities can never be granted in this session
+    let missing = caps_outside_bounding(execcfg.cred.caps, capctl::bounding::probe());
+    if !missing.is_empty() {
+        let names = missing
+            .iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln_ignore_io_error!(
+            "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
+        );
+        error!(
+            "User {} cannot run {} with the task {:?} of the role {}: {names} are not in the bounding set (a container, or a session started with a strict bounding set)",
+            &user.user.name,
+            execcfg.final_path.display(),
+            execcfg.task,
+            execcfg.role
+        );
+        return Some(1);
+    }
+
+    if args.info {
+        println_ignore_io_error!(
+            "Role: {}",
+            if execcfg.role.is_empty() {
+                "None"
+            } else {
+                &execcfg.role
+            }
+        );
+        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
+        print_ignore_io_error!(
+            "Execute as user: {}",
+            execcfg.cred.setuid.as_ref().map_or_else(
+                || "Your current user".to_string(),
+                |u| format!("{} ({})", u.name, u.uid)
+            )
+        );
+        if let Some(gids) = execcfg.cred.setgroups.as_ref() {
+            print_ignore_io_error!(" and group(s): ");
+            let groups = gids
+                .iter()
+                .map(|g| format!("{} ({})", g.name, g.gid))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println_ignore_io_error!("{groups}");
+        } else {
+            println_ignore_io_error!(" your current group(s)");
+        }
+        println_ignore_io_error!(
+            "With capabilities: {}",
+            capabilities_display(execcfg.cred.caps)
+        );
+        println_ignore_io_error!(
+            "Command: {} {:?}",
+            execcfg.final_path.display(),
+            args.cmd_args
+        );
+        return Some(0);
+    }
+    None
 }
 
 /// The user that gets the pseudo-terminal of the command, when it is not the caller: the user
