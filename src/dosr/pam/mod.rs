@@ -115,11 +115,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
             .read_password(&pam_prompt)
             .map_err(|_| ErrorCode::BufferError)?;
         drop(term);
-        let os_str = CStr::from_bytes_until_nul(&read)
-            .map_err(|_| ErrorCode::BufferError)?
-            .to_str()
-            .map_err(|_| ErrorCode::BufferError)?;
-        Ok(std::ffi::OsString::from(os_str))
+        answer(&read)
     }
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
@@ -133,10 +129,12 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 }
 
-/// The answer to a question shown in clear: the bytes before the first NUL of the buffer, as
-/// typed. PAM refuses an answer that holds a NUL (`BufferError` from nonstick2), and the buffer
-/// holds NULs after the answer: the whole buffer made every such question fail (`pam_duo`,
-/// `pam_google_authenticator` with `echo_verification_code`, `pam_get_user`).
+/// The answer to a question, shown in clear or hidden: the bytes before the first NUL of the
+/// buffer, as typed. PAM refuses an answer that holds a NUL (`BufferError` from nonstick2), and
+/// the buffer holds NULs after the answer: the whole buffer made every question shown in clear
+/// fail (`pam_duo`, `pam_google_authenticator` with `echo_verification_code`, `pam_get_user`).
+/// PAM compares bytes: a password that is not UTF-8 (typed on a Latin-1 terminal) was refused
+/// when it was taken as text, as `su` and sudo-rs give it as it is.
 fn answer(read: &[u8]) -> PamResult<std::ffi::OsString> {
     use std::os::unix::ffi::OsStrExt;
     let answer = CStr::from_bytes_until_nul(read).map_err(|_| ErrorCode::BufferError)?;

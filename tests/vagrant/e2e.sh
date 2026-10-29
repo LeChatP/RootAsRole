@@ -707,6 +707,18 @@ give_the_password() {
     printf '%s\n' "$TEST_PASSWORD" | as_user dosr -S -r e2e -t password /usr/bin/true
 }
 
+# a password that is not UTF-8 (typed on a Latin-1 terminal, where é is the byte 0xe9) is given to
+# PAM as typed: dosr took it as text and refused it, the right one included
+password_that_is_not_utf8_is_accepted() {
+    local rc=0
+    printf '%s:p\351ss-rar-e2e\n' "$TEST_USER" | chpasswd || return 1
+    forget_authentications
+    printf 'p\351ss-rar-e2e\n' | as_user dosr -S -r e2e -t password /usr/bin/true >/dev/null 2>&1 || rc=1
+    echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
+    forget_authentications
+    return $rc
+}
+
 # the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
 # which dosr only has in the effective set during the PAM calls (Arch, whose auditd is started
 # for the check); a command that is started has the records of its session; -i and a refusal
@@ -1161,6 +1173,7 @@ check "the PAM service of dosr opens no login session" pam_opens_no_login_sessio
 check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_faillock
 check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
 check "a question that PAM shows in clear gets its answer" echo_on_question_is_answered
+check "a password that is not UTF-8 is given to PAM as typed" password_that_is_not_utf8_is_accepted
 check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
 check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
 check "a refused attempt with long arguments is logged, cut into lines" long_refused_attempt_is_logged
