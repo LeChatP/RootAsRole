@@ -46,8 +46,10 @@ RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"
 RAR_CHSR_EDITOR_PATH = "/usr/bin/vim"
 # The command that shows the log of dosr, named to the user after an error whose reason is only
-# in the log; empty on a system without one.
-RAR_LOG_COMMAND = "journalctl -t dosr"
+# in the log; empty on a system without one. `-p info` leaves out the debug lines of the PAM
+# modules: pam_unix tries setuid(0) before running unix_chkpwd, and logs at debug level that a
+# caller who is not root cannot (Linux-PAM 1.6.0 and later); dosr logs nothing below info.
+RAR_LOG_COMMAND = "journalctl -t dosr -p info"
 RAR_TIMEOUT_TYPE = "ppid"
 RAR_TIMEOUT_DURATION = "00:05:00"
 RAR_TIMEOUT_MAX_USAGE = ""

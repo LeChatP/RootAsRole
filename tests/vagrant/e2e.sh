@@ -18,6 +18,8 @@ BIG_GROUP=rar-e2e-big
 GROUP_BACKUP=/etc/.group.rar-e2e
 GSHADOW_BACKUP=/etc/.gshadow.rar-e2e
 TTY_SCRIPT=/tmp/rar-e2e-tty.sh
+# the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
+LOG_COMMAND=(journalctl -t dosr -p info)
 FAILED=0
 
 # 0: pass, 77: skip, anything else: fail
@@ -247,7 +249,7 @@ planted_policy_is_refused() {
     remove_policy "$PLANTED_POLICY"
     denied=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
     [ -z "$without_flag" ] && [ "$with_flag" = 0 ] &&
-        grep -qF 'journalctl -t dosr' <<<"$terminal" &&
+        grep -qF "${LOG_COMMAND[*]}" <<<"$terminal" &&
         grep -qF "Permission denied" <<<"$denied" && ! grep -qF 'journalctl' <<<"$denied"
 }
 
@@ -266,7 +268,7 @@ old_policy_is_refused() {
     sleep 1
     terminal=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
     for _ in 1 2 3 4 5; do
-        if as_user journalctl -t dosr --since "$since" -o cat |
+        if as_user "${LOG_COMMAND[@]}" --since "$since" -o cat |
             grep -qF "$PLANTED_POLICY: the policy has no version"; then
             logged=0
             break
@@ -278,7 +280,7 @@ old_policy_is_refused() {
     remove_policy "$PLANTED_POLICY"
     [ "$allowed" -eq 0 ] && [ "$out" = 0 ] && [ "$logged" -eq 0 ] &&
         ! grep -q "version" <<<"$terminal" &&
-        grep -qF 'dosr: see the reason with `journalctl -t dosr`' <<<"$terminal"
+        grep -qF "dosr: see the reason with \`${LOG_COMMAND[*]}\`" <<<"$terminal"
 }
 
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
@@ -459,6 +461,24 @@ dosr_logs_under_its_name() {
     return 1
 }
 
+# what the user reads with the command that dosr names: the lines of dosr, without the debug
+# lines of the PAM modules (pam_unix logs that it cannot setuid(0) as the user), and dosr logs no
+# debug line in release
+log_command_shows_the_lines_of_dosr() {
+    local since view all
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    as_user dosr /usr/bin/date >/dev/null || return 1
+    for _ in 1 2 3 4 5; do
+        view=$(as_user "${LOG_COMMAND[@]}" --since "$since" -o cat)
+        grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" && break
+        sleep 1
+    done
+    all=$(journalctl -t dosr --since "$since" -o cat)
+    grep -q 'TASK=date ;.*COMMAND=/usr/bin/date' <<<"$view" &&
+        ! grep -q 'setuid failed' <<<"$view" && ! grep -q 'match_path' <<<"$all"
+}
+
 # chsr is confined by Landlock, even without vim: one missing optional path made the whole ruleset
 # fail; root itself cannot make chsr read a file outside the policy
 chsr_is_confined_by_landlock() {
@@ -580,6 +600,7 @@ check "a failed lookup of an actor disables the roles with ssd" ssd_role_disable
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
 check "the executions are logged under the name dosr" dosr_logs_under_its_name
+check "the command that dosr names shows its lines, without the debug lines of PAM" log_command_shows_the_lines_of_dosr
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
