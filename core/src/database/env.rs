@@ -701,6 +701,26 @@ mod tests {
     }
 
     #[test]
+    fn test_final_env_with_two_paths_of_the_user() {
+        // sudo CVE-2010-1646: a second PATH in the environment of the user bypassed secure_path;
+        // the path options give the only PATH, whatever the user has, even kept by name
+        let target = cred();
+        for behavior in [EnvBehavior::Delete, EnvBehavior::Keep] {
+            let env = resolved(behavior, &["PATH"], &[], &[]);
+            let final_env = env
+                .final_env(
+                    [("PATH", "/tmp/a"), ("PATH", "/tmp/b")],
+                    ["/usr/bin"],
+                    &target,
+                    None,
+                    String::new(),
+                )
+                .unwrap();
+            assert_eq!(final_env.get("PATH").unwrap(), "/usr/bin", "{behavior:?}");
+        }
+    }
+
+    #[test]
     fn test_final_env_without_any_directory_has_no_path() {
         let target = cred();
         // even a PATH of the user that the policy keeps by name, or one set by PAM

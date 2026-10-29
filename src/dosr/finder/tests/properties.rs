@@ -949,6 +949,66 @@ fn test_files_written_by_core_decide_the_same() {
     assert!(allowed > CASES / 4, "{allowed} decisions allow the command");
 }
 
+// sudo CVE-2010-2956: sudo -g gave a group that the rule did not list. A group asked with -g that
+// the task does not give is refused, or changes nothing: the command gets the groups that the
+// task gives without -g
+#[test]
+fn test_a_group_that_the_task_does_not_give_is_never_granted() {
+    let uid = nix::unistd::getuid().as_raw();
+    // nogroup on Debian, nobody on Arch: neither the caller nor root is in it
+    let asked = 65534;
+    let groups = |cred: &Value, group: Option<u32>| {
+        let mut task = json!({"name": "t", "commands": ["/usr/bin/ls"]});
+        if !cred.is_null() {
+            task["cred"] = cred.clone();
+        }
+        let policy = json!({"roles": [{"name": "r", "actors": [{"type": "user", "id": uid}], "tasks": [task]}]})
+            .to_string();
+        let cli = Cli::builder()
+            .cmd_path("/usr/bin/ls".to_string())
+            .maybe_opt_filter(group.map(|gid| FilterMatcher::builder().group(gid).unwrap().build()))
+            .build();
+        let cred = dummy_cred();
+        let data = crate::finder::de::ConfigFinderDeserializer {
+            cli: &cli,
+            cred: &cred,
+        }
+        .deserialize(&mut serde_json::Deserializer::from_str(&policy))
+        .unwrap();
+        BestExecSettings::retrieve_settings(&cli, &cred, &data, USER_ENV, &["/usr/bin"])
+            .and_then(BestExecSettings::with_target_groups)
+            .ok()
+            .filter(|settings| settings.score.fully_matching())
+            .map(|settings| {
+                settings
+                    .cred
+                    .setgroups
+                    .map(|groups| groups.iter().map(|g| g.gid.as_raw()).collect::<Vec<_>>())
+            })
+    };
+    for cred in [
+        json!(null),
+        json!({"setuid": "root"}),
+        json!({"setgid": "root"}),
+        json!({"setuid": "root", "setgid": {"default": "none", "fallback": "root", "add": [["root"]]}}),
+        json!({"setuid": "root", "setgid": {"from": "caller"}}),
+    ] {
+        match groups(&cred, Some(asked)) {
+            None => {}
+            Some(given) => {
+                assert_eq!(Some(given.clone()), groups(&cred, None), "{cred}");
+                assert!(!given.is_some_and(|given| given.contains(&asked)), "{cred}");
+            }
+        }
+    }
+    // a task that gives the group: -g gets it
+    let given = groups(
+        &json!({"setgid": {"default": "none", "add": [[asked]]}}),
+        Some(asked),
+    );
+    assert_eq!(given, Some(Some(vec![asked])));
+}
+
 /// The variables of `vars`, and the variables `extra` that the policy may set, that the command
 /// of the only task of `policy` receives, decided for a user whose environment is `vars`.
 fn received(policy: &Value, vars: &[(&str, &str)], extra: &[&str]) -> Vec<String> {

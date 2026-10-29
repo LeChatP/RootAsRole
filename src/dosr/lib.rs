@@ -1010,6 +1010,28 @@ mod tests {
     }
 
     #[test]
+    fn test_getopt_refuses_users_and_groups_that_do_not_exist() {
+        // sudo CVE-2019-14287: -u#-1 ran the command as root, since setresuid(-1) changes
+        // nothing; dosr takes users and groups by their names, which -1 and 4294967295 are not
+        for (option, value) in [
+            ("-u", "#-1"),
+            ("-u", "-1"),
+            ("-u", "4294967295"),
+            ("-g", "-1"),
+            ("-g", "4294967295"),
+            ("-g", "root,-1"),
+        ] {
+            assert!(
+                matches!(
+                    getopt(["dosr", option, value, "id"]),
+                    Err(SrError::InvalidAgruments)
+                ),
+                "{option} {value}"
+            );
+        }
+    }
+
+    #[test]
     fn test_getopt_missing_prompt() {
         assert!(matches!(
             getopt(["dosr", "-p"]),
