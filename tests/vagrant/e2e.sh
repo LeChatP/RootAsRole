@@ -679,9 +679,6 @@ EOF
     return $rc
 }
 
-# the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
-# which dosr only has in the effective set during the PAM calls (Arch, whose auditd is started
-# for the check)
 # the runs of dosr that stop between the password and the command: -i, a task whose
 # capabilities are outside the bounding set, and a command that exec refuses
 show_a_task() {
@@ -710,8 +707,11 @@ give_the_password() {
     printf '%s\n' "$TEST_PASSWORD" | as_user dosr -S -r e2e -t password /usr/bin/true
 }
 
-# a command that is started has the records of its session; -i and a refusal after the password
-# have none, like sudo -l, and a command that cannot start has the end of its session too
+# the audit records of PAM name dosr, like those of sudo: libpam sends them with CAP_AUDIT_WRITE,
+# which dosr only has in the effective set during the PAM calls (Arch, whose auditd is started
+# for the check); a command that is started has the records of its session; -i and a refusal
+# after the password have none, like sudo -l, and a command that cannot start has the end of its
+# session too
 audit_records_name_dosr() {
     local started='' records shown refused not_started
     command -v auditctl >/dev/null && systemctl cat auditd.service >/dev/null 2>&1 || return 77
@@ -743,6 +743,8 @@ audit_records_name_dosr() {
 # none, a command that cannot start closes its own, like a command that runs
 pam_session_only_for_a_command_that_is_started() {
     local since out sessions
+    # --since takes whole seconds: the sessions of the check before, in the same second, would count
+    sleep 1
     since=$(date '+%Y-%m-%d %H:%M:%S')
     sleep 1
     show_a_task >/dev/null || return 1
