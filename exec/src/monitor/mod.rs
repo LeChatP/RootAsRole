@@ -6,7 +6,9 @@ use std::process::Command;
 use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
-use crate::signal::{SignalInfo, SignalStream, register_signal_handler, terminate_process};
+use crate::signal::{
+    SignalInfo, SignalStream, register_signal_handler, signal_child, terminate_child,
+};
 use crate::terminal::{ProcessId, TerminalExt};
 use libc::SIGCHLD;
 use log::{debug, error, trace, warn};
@@ -95,12 +97,12 @@ impl Process for MonitorClosure {
                     Ok(MonitorMessage::Signal(sig)) => {
                         debug!("monitor: signal from parent {sig}");
                         if is_forward_signal_allowed(sig) {
+                            // the command is the child of the monitor, not reaped while it is set
                             if let Some(pid) = self.command_pid {
                                 if sig == libc::SIGALRM {
-                                    terminate_process(pid, false);
-                                } else {
-                                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                                    unsafe { libc::kill(pid, sig) };
+                                    terminate_child(pid, false);
+                                } else if let Err(e) = signal_child(pid, sig, false) {
+                                    warn!("monitor: cannot forward signal {sig}: {e}");
                                 }
                             }
                         } else {
@@ -196,10 +198,9 @@ impl MonitorClosure {
             if is_forward_signal_allowed(info.signal) {
                 debug!("monitor: forwarding signal {}", info.signal);
                 if info.signal == libc::SIGALRM {
-                    terminate_process(pid, false);
-                } else {
-                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                    unsafe { libc::kill(pid, info.signal) };
+                    terminate_child(pid, false);
+                } else if let Err(e) = signal_child(pid, info.signal, false) {
+                    warn!("monitor: cannot forward signal {}: {e}", info.signal);
                 }
             }
         }
@@ -431,7 +432,7 @@ pub fn exec_monitor_process(
 
     // Cleanup: the command still runs although the monitor is done (the runner is gone)
     if let Some(pid) = monitor.command_pid {
-        terminate_process(pid, true);
+        terminate_child(pid, true);
         let mut status = 0;
         // SAFETY: waitpid only writes the exit status through a pointer to a local integer
         unsafe { libc::waitpid(pid, &raw mut status, 0) };

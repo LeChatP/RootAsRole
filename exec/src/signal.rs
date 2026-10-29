@@ -229,6 +229,63 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     Ok(())
 }
 
+/// Send `signal` to `pid`, a child of this process that is not reaped yet, or to its process
+/// group (whose id is `pid`) with `process_group`.
+///
+/// The runner may run with the uids of its caller and file capabilities, as dosr does: a command
+/// that runs as root or as another user does not take its signals (`EPERM`), where the monitor of
+/// sudo runs as root. `CAP_KILL` is then raised for this call only, when it is permitted, and
+/// dropped after. Only for a child that is not reaped: until then its pid, and the id of its
+/// group, cannot be another process's.
+///
+/// # Errors
+/// The error of `kill(2)`, or `EINVAL` for a pid that is not positive (`kill(0)` would signal
+/// the group of the runner, `kill(-1)` every process it may signal).
+pub fn signal_child(pid: libc::pid_t, signal: libc::c_int, process_group: bool) -> io::Result<()> {
+    if pid <= 0 {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+    let send = || {
+        // SAFETY: kill and killpg do not access memory, they only send a signal
+        let sent = unsafe {
+            if process_group {
+                libc::killpg(pid, signal)
+            } else {
+                libc::kill(pid, signal)
+            }
+        };
+        if sent == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    };
+    match send() {
+        Err(e) if e.raw_os_error() == Some(libc::EPERM) => with_cap_kill(send).unwrap_or(Err(e)),
+        sent => sent,
+    }
+}
+
+/// Run `send` with `CAP_KILL` in the effective set, `None` when it is not permitted. The effective
+/// set is given back after it, or the process aborts: it never goes on with `CAP_KILL`.
+fn with_cap_kill(send: impl FnOnce() -> io::Result<()>) -> Option<io::Result<()>> {
+    use capctl::{Cap, CapState};
+    let mut state = CapState::get_current().ok()?;
+    if !state.permitted.has(Cap::KILL) {
+        return None;
+    }
+    let effective = state.effective;
+    state.effective.add(Cap::KILL);
+    state.set_current().ok()?;
+    let sent = send();
+    state.effective = effective;
+    if let Err(e) = state.set_current() {
+        log::error!("cannot drop CAP_KILL after a signal to the command: {e}");
+        std::process::abort();
+    }
+    Some(sent)
+}
+
 /// How long a command is given to end after `SIGHUP` and `SIGTERM`, before `SIGKILL`, like sudo.
 pub const TERMINATION_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -242,16 +299,33 @@ pub fn terminate_process(pid: libc::pid_t, process_group: bool) {
     if pid <= 0 {
         return;
     }
-    let send = |signal| {
+    terminate(|signal| {
         // SAFETY: kill and killpg do not access memory, they only send a signal
         unsafe {
             if process_group {
-                libc::killpg(pid, signal)
+                libc::killpg(pid, signal);
             } else {
-                libc::kill(pid, signal)
+                libc::kill(pid, signal);
             }
-        };
-    };
+        }
+    });
+}
+
+/// [`terminate_process`] for a child that is not reaped yet, with the signals of
+/// [`signal_child`]: a command that runs as another user is ended too.
+pub fn terminate_child(pid: libc::pid_t, process_group: bool) {
+    if pid <= 0 {
+        return;
+    }
+    terminate(|signal| {
+        if let Err(e) = signal_child(pid, signal, process_group) {
+            log::debug!("cannot send signal {signal} to the command {pid}: {e}");
+        }
+    });
+}
+
+/// `SIGHUP`, `SIGTERM`, then `SIGKILL` once [`TERMINATION_DELAY`] has passed.
+fn terminate(send: impl Fn(libc::c_int)) {
     send(libc::SIGHUP);
     send(libc::SIGTERM);
     std::thread::sleep(TERMINATION_DELAY);
@@ -304,6 +378,38 @@ mod tests {
             "the shell ended on its own: {status:?}"
         );
         assert!(cleaned, "the shell cleaned up");
+    }
+
+    // a process of another user (init) takes no signal from the runner without CAP_KILL; with it
+    // permitted, the signal goes, and the effective set is given back after (signal 0 only checks)
+    #[test]
+    fn signal_child_raises_cap_kill_for_the_call_only() {
+        use capctl::{Cap, CapState};
+        // the effective set empty, as dosr runs: with CAP_KILL only permitted (a VM, as a user
+        // with the ambient capability kill), the call has to raise it
+        let mut state = CapState::get_current().unwrap();
+        state.effective.clear();
+        state.set_current().unwrap();
+        let before = CapState::get_current().unwrap();
+        let sent = signal::signal_child(1, 0, false);
+        if before.permitted.has(Cap::KILL) {
+            sent.unwrap();
+        } else {
+            assert_eq!(sent.unwrap_err().raw_os_error(), Some(libc::EPERM));
+        }
+        assert_eq!(CapState::get_current().unwrap(), before);
+        assert_eq!(
+            signal::signal_child(0, libc::SIGTERM, false)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EINVAL)
+        );
+        assert_eq!(
+            signal::signal_child(-1, libc::SIGTERM, true)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EINVAL)
+        );
     }
 
     // A command that ignores SIGHUP and SIGTERM is killed once the delay has passed.

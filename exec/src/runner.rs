@@ -13,7 +13,9 @@ use crate::orchestrator::{Orchestrator, PreExecContext};
 use super::event::{EventRegistry, PollEvent, Process, StopReason};
 use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
-use super::signal::{SignalStream, register_signal_handler, terminate_process};
+use super::signal::{
+    SignalStream, register_signal_handler, signal_child, terminate_child, terminate_process,
+};
 use super::terminal::{ProcessId, TermSize, TerminalExt, UserTerm};
 
 pub struct SimpleFileLogger {
@@ -456,19 +458,19 @@ pub fn run_no_pty(
                             return Ok(status);
                         }
                     }
-                    libc::SIGALRM => terminate_process(child_pid, false),
+                    // the command is not reaped: try_wait reaps it, and the loop then returns
+                    libc::SIGALRM => terminate_child(child_pid, false),
                     libc::SIGWINCH => {
-                        // SAFETY: kill does not access memory, it only sends a signal to the command
-                        unsafe { libc::kill(child_pid, libc::SIGWINCH) };
+                        let _ = signal_child(child_pid, libc::SIGWINCH, false);
                     }
                     _ => {
                         if info.pid > 0 && info.pid == child_pid {
                             continue;
                         }
-                        // Forward signal
-                        if is_forward_signal_allowed(info.signal) {
-                            // SAFETY: kill does not access memory, it only sends a signal to the command
-                            unsafe { libc::kill(child_pid, info.signal) };
+                        if is_forward_signal_allowed(info.signal)
+                            && let Err(e) = signal_child(child_pid, info.signal, false)
+                        {
+                            warn!("runner(no_pty): cannot forward signal {}: {e}", info.signal);
                         }
                     }
                 }

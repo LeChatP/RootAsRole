@@ -858,6 +858,7 @@ dependencies = [
 name = "rootasrole-exec"
 version = "4.3.0"
 dependencies = [
+ "capctl",
  "libc",
  "log",
  "ringbuf",

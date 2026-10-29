@@ -166,6 +166,8 @@ setup() {
         },
         "commands": ["/usr/bin/true"]
       },
+      { "name": "sleep-root", "cred": { "setuid": "root" }, "commands": ["/usr/bin/sleep ^41$"] },
+      { "name": "sleep-nobody", "cred": { "setuid": "nobody" }, "commands": ["/usr/bin/sleep ^41$"] },
       {
         "name": "once",
         "options": {
@@ -1050,6 +1052,42 @@ command_gets_the_core_limit_of_the_caller() {
     fi
 }
 
+# a signal sent to dosr reaches its command when it runs as root or as another user, with a
+# terminal (the monitor forwards it) and without (dosr does), as under sudo: they have the uids of
+# the caller and raise CAP_KILL for the kill of their child only; the kill failed with EPERM, and
+# the command went on (timeout(1), kill $! in a script, a supervisor)
+signal_reaches_a_command_of_another_user() {
+    local mode task dosr target rc=0
+    for mode in terminal none; do
+        for task in sleep-root sleep-nobody; do
+            if [ $mode = terminal ]; then
+                as_user script -qec "dosr -r e2e -t $task /usr/bin/sleep 41" /dev/null \
+                    </dev/null >/dev/null 2>&1 &
+            else
+                as_user setsid dosr -r e2e -t $task /usr/bin/sleep 41 </dev/null >/dev/null 2>&1 &
+            fi
+            sleep 1.5
+            # the oldest dosr of the run: the one that the caller knows, not its monitor
+            dosr=$(pgrep -o -f "^dosr -r e2e -t $task ")
+            target=$(pgrep -f "^/usr/bin/sleep 41$")
+            if [ -z "$dosr" ] || [ -z "$target" ]; then
+                echo "$mode $task: the command did not start" >&2
+                rc=1
+            else
+                as_user kill -TERM "$dosr"
+                sleep 2
+                if ps -p "$target" >/dev/null; then
+                    echo "$mode $task: the command still runs after SIGTERM to dosr" >&2
+                    rc=1
+                fi
+            fi
+            pkill -f "^/usr/bin/sleep 41$"
+            wait
+        done
+    done
+    return $rc
+}
+
 # the password prompt under ^Z and fg, and under ^C, in an interactive shell of the test user on a
 # pseudo-terminal: after fg the prompt shows again and the password is not echoed (bash gives the
 # terminal its echo back while dosr is stopped); ^C ends dosr by SIGINT, so that the shell drops
@@ -1193,5 +1231,6 @@ check "with its output into a pipe, dosr leaves the user's terminal as it is" te
 check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
+check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"
