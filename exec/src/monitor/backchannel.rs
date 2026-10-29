@@ -223,10 +223,11 @@ impl Backchannel {
     /// Returns an error if deserialization fails, if reading from the stream fails, or if the message is too large.
     pub fn recv_monitor_message(&mut self) -> io::Result<MonitorMessage> {
         let data = self.read_frame()?;
-        // SAFETY: bytes come from our own serializer over a trusted local socket.
-        let msg =
-            unsafe { rkyv::from_bytes_unchecked::<MonitorMessage, rkyv::rancor::Error>(&data) }
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        // checked like the messages of the monitor: the monitor keeps the permitted capabilities
+        // of the runner while the command runs, corrupt bytes are an error there, not undefined
+        // behaviour
+        let msg = rkyv::from_bytes::<MonitorMessage, rkyv::rancor::Error>(&data)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         trace!("backchannel: recv monitor message {msg:?}");
         Ok(msg)
     }
@@ -312,6 +313,25 @@ mod tests {
         parent
             .set_nonblocking(true)
             .expect("keep nonblocking mode configurable");
+    }
+
+    // a frame whose bytes are no message is refused by both ends, as InvalidData
+    #[test]
+    fn backchannel_refuses_bytes_that_are_no_message() {
+        let (mut parent, mut monitor) = Backchannel::pair().expect("create backchannel pair");
+        let frame = |stream: &mut UnixStream| {
+            let bytes = [0xff_u8; 8];
+            stream
+                .write_all(&u32::try_from(bytes.len()).unwrap().to_le_bytes())
+                .unwrap();
+            stream.write_all(&bytes).unwrap();
+        };
+        frame(parent.get_mut());
+        let error = monitor.recv_monitor_message().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        frame(monitor.get_mut());
+        let error = parent.recv_parent_message().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
