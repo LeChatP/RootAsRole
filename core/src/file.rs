@@ -27,8 +27,9 @@ use crate::{
         versionning::{VersionedData, Versioning},
     },
     util::{
-        RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, has_privileges, is_immutable,
-        open_lock_with_privileges, read_with_privileges, with_mutable_config, write_config,
+        RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, cbor_at_end, has_privileges,
+        is_immutable, open_lock_with_privileges, read_with_privileges, with_mutable_config,
+        write_config,
     },
 };
 
@@ -41,10 +42,17 @@ fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::V
             debug!("Failed to read the document: {e}");
             io::Error::new(io::ErrorKind::InvalidData, e)
         }),
-        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file)).map_err(|e| {
-            debug!("Failed to read the document: {e}");
-            io::Error::new(io::ErrorKind::InvalidData, e)
-        }),
+        StorageMethod::CBOR => {
+            let mut reader = cbor4ii::core::utils::IoReader::new(BufReader::new(file));
+            let document =
+                serde_json::Value::deserialize(&mut cbor4ii::serde::Deserializer::new(&mut reader))
+                    .map_err(|e| {
+                        debug!("Failed to read the document: {e}");
+                        io::Error::new(io::ErrorKind::InvalidData, e)
+                    })?;
+            cbor_at_end(&mut reader).inspect_err(|e| debug!("Failed to read the document: {e}"))?;
+            Ok(document)
+        }
     }
 }
 pub const POLICY_MIGRATIONS: &[Migration<Rc<RefCell<SPolicy>>>] = &[];
@@ -1334,6 +1342,34 @@ mod tests {
         assert_eq!(root_after, root_before);
         assert!(data_after.contains("r1"), "{data_after}");
         assert!(!data_after.contains("storage"), "{data_after}");
+    }
+
+    // what follows the value in a policy file makes it invalid, in CBOR as in JSON (chsr):
+    // the CBOR reader stopped after the first value
+    #[test]
+    fn test_read_document_refuses_data_after_the_value() {
+        let path = std::env::temp_dir().join(format!("rar-read-document-{}", std::process::id()));
+        let value = serde_json::json!({"version": "4.3.0", "x": [1, 2]});
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let (mut bytes, after): (Vec<u8>, &[u8]) = match method {
+                StorageMethod::JSON => (serde_json::to_vec(&value).unwrap(), b"{}"),
+                StorageMethod::CBOR => {
+                    (cbor4ii::serde::to_vec(Vec::new(), &value).unwrap(), &[0xf6])
+                }
+            };
+            std::fs::write(&path, &bytes).unwrap();
+            let read = read_document(method, &File::open(&path).unwrap());
+            assert_eq!(read.unwrap(), value, "{method}");
+            bytes.extend_from_slice(after);
+            std::fs::write(&path, &bytes).unwrap();
+            let read = read_document(method, &File::open(&path).unwrap());
+            assert_eq!(
+                read.unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{method}"
+            );
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

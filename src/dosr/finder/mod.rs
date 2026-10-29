@@ -30,7 +30,9 @@ use rootasrole_core::{
         structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
-    util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
+    util::{
+        StorageMethod, cbor_at_end, check_immutable, check_others_permissions, read_with_privileges,
+    },
 };
 use serde::de::DeserializeSeed;
 
@@ -167,32 +169,35 @@ where
         }
         let reader = BufReader::new(file);
         let settings = match settings_file.data.data.method {
+            // what follows the policy in the file makes it invalid, as for chsr
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
+                let data = config_finder_deserializer
+                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
+                    .map_err(|e| e.to_string())
+                    .and_then(|data| {
+                        cbor_at_end(&mut io_reader)
+                            .map(|()| data)
+                            .map_err(|e| e.to_string())
+                    });
                 BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &readable(
-                        file_path,
-                        config_finder_deserializer
-                            .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader)),
-                    )
-                    .map_err(FileError::Refused)?,
+                    &readable(file_path, data).map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
                 )
             }
             StorageMethod::JSON => {
-                let io_reader = serde_json::de::IoRead::new(reader);
+                let mut deserializer =
+                    serde_json::Deserializer::new(serde_json::de::IoRead::new(reader));
+                let data = config_finder_deserializer
+                    .deserialize(&mut deserializer)
+                    .and_then(|data| deserializer.end().map(|()| data));
                 BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &readable(
-                        file_path,
-                        config_finder_deserializer
-                            .deserialize(&mut serde_json::Deserializer::new(io_reader)),
-                    )
-                    .map_err(FileError::Refused)?,
+                    &readable(file_path, data).map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
                 )
@@ -1792,6 +1797,70 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/ls"),
             Err(SrError::PermissionDenied)
         ));
+    }
+
+    // a file that holds more than its value (two policies put together, the end of a longer former
+    // content) is refused, in JSON and in CBOR, as the root file and as the policy file: the CBOR
+    // reader stopped after the first value, and dosr did not look at the end of JSON either; the
+    // white space after JSON is not data
+    #[test]
+    fn test_data_after_the_policy_is_refused() {
+        let append = |path: &Path, bytes: &[u8]| {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(bytes)
+                .unwrap();
+        };
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let after: &[u8] = match method {
+                StorageMethod::JSON => b"{}",
+                StorageMethod::CBOR => &[0xf6],
+            };
+            let dir = PolicyDir::new(&format!("after-{method}"));
+            let root = dir.0.join("rootasrole");
+            let roles = user_role("t", "/usr/bin/ls", &[]);
+            write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+            if method == StorageMethod::JSON {
+                append(&root, b"\n");
+            }
+            assert_eq!(find(&root, method, "/usr/bin/ls").unwrap(), "t", "{method}");
+            append(&root, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: root file"
+            );
+
+            let data = dir.0.join("policy");
+            let settings = root_settings(method, &data, serde_json::json!([]));
+            write_file(&root, &settings, method, 0o600);
+            write_file(
+                &data,
+                &policy(user_role("t", "/usr/bin/ls", &[])),
+                method,
+                0o600,
+            );
+            assert_eq!(find(&root, method, "/usr/bin/ls").unwrap(), "t", "{method}");
+            append(&data, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: policy file"
+            );
+            // the root file alone: only its own reader sees what follows its settings
+            write_file(
+                &data,
+                &policy(user_role("t", "/usr/bin/ls", &[])),
+                method,
+                0o600,
+            );
+            append(&root, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: root settings"
+            );
+        }
     }
 
     // the layout that chsr convert -r cbor writes: a root file in JSON that names a policy file

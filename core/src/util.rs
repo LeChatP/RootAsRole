@@ -918,6 +918,25 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
         .and_then(|file| Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?))
 }
 
+/// Whether a CBOR reader is at the end of the file once the policy is read.
+///
+/// A JSON reader refuses what follows the value (`serde_json::Deserializer::end`); a CBOR one stopped after its first
+/// value and read a file that holds more (two policies put together, the end of a longer former
+/// content) up to there, without a word: it is refused the same.
+///
+/// # Errors
+/// `InvalidData` when bytes follow the value, or the error of the reader.
+pub fn cbor_at_end<'de, R: cbor4ii::core::dec::Read<'de>>(reader: &mut R) -> io::Result<()> {
+    match reader.fill(1) {
+        Ok(rest) if rest.as_ref().is_empty() => Ok(()),
+        Ok(_) => Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "data after the end of the policy",
+        )),
+        Err(e) => Err(io::Error::new(ErrorKind::InvalidData, e.to_string())),
+    }
+}
+
 /// # Errors
 /// Returns an error if the file cannot be opened with the required privileges
 pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
