@@ -1237,6 +1237,52 @@ keystrokes_go_to_the_end_of_the_pipeline() {
     }
 }
 
+# a command that makes its terminal raw, as an editor does, gets the keys as they are typed: Enter
+# as a carriage return (C-j and Enter differ in emacs or fzf), ^S and ^Q (save and quit in nano and
+# micro), which the user's terminal must not take for flow control while dosr relays it
+raw_command_gets_the_keys_as_typed() {
+    command -v python3 >/dev/null || return 77
+    TEST_USER=$TEST_USER python3 - <<'EOF'
+import os, pty, select, sys, time
+
+# timeout in the foreground: in its own process group, dd would be stopped by SIGTTIN
+script = ("stty raw -echo -ixon; echo READY; "
+          "timeout --foreground 5 dd bs=1 count=3 2>/dev/null | od -An -tx1; stty sane")
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("runuser", ["runuser", "-u", os.environ["TEST_USER"], "--",
+                          "dosr", "-r", "e2e", "-t", "shell", "/usr/bin/sh", "-c", script])
+out = b""
+
+def read_until(needle, timeout):
+    global out
+    end = time.time() + timeout
+    while needle not in out and time.time() < end:
+        if select.select([fd], [], [], 0.1)[0]:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                return
+            if not data:
+                return
+            out += data
+
+read_until(b"READY", 10)
+time.sleep(0.5)
+for key in (b"\r", b"\x13", b"\x11"):
+    os.write(fd, key)
+    time.sleep(0.3)
+read_until(b"\x00", 8)
+os.waitpid(pid, 0)
+# the output of od, before the OSC 3008 sequence that systemd 258 writes at the end of the session
+got = out.split(b"READY", 1)[-1].split(b"\x1b", 1)[0].split()
+if got[:3] != [b"0d", b"13", b"11"]:
+    print(f"the command got {b' '.join(got[:3]).decode()!r} for Enter, ^S, ^Q: {out!r}",
+          file=sys.stderr)
+    sys.exit(1)
+EOF
+}
+
 # dosr dumps no core while it holds the policy and the PAM handle, whatever fs.suid_dumpable and
 # kernel.core_pattern say: killed by SIGQUIT at its prompt (with the effective uid of root),
 # it leaves no core, through a file (RLIMIT_CORE) or a pipe (not dumpable), even with
@@ -1503,6 +1549,7 @@ check "tty owner target gives the terminal to the user of the command" terminal_
 check "the command gets the terminal settings and the signals of the user" command_gets_the_terminal_and_the_signals_of_the_user
 check "with its output into a pipe, dosr leaves the user's terminal as it is" terminal_of_a_pipeline_is_left_alone
 check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
+check "a command in raw mode gets Enter, ^S and ^Q as they are typed" raw_command_gets_the_keys_as_typed
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
