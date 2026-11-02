@@ -194,8 +194,13 @@ impl<L: Read + Write + AsFd, R: Read + Write + AsFd> Pipe<L, R> {
         let source = &mut self.right;
         let sink = &mut self.left;
 
-        if let Some(res) = buffer.consumer.write_into(sink, None) {
-            res?;
+        // write_into writes once, from the first of the two slices of the ring buffer only: when
+        // the buffer wraps around its end, a single call would leave the second slice behind the
+        // bytes read below
+        while let Some(res) = buffer.consumer.write_into(sink, None) {
+            if res? == 0 {
+                return Err(io::ErrorKind::WriteZero.into());
+            }
         }
 
         let mut buf = [0u8; BUFFER_LEN];
@@ -334,7 +339,8 @@ impl<R: Read, W: Write> Buffer<R, W> {
 #[cfg(test)]
 mod tests {
     use crate::event::{EventRegistry, PollEvent, Process};
-    use crate::pipe::Pipe;
+    use crate::pipe::{BUFFER_LEN, Pipe};
+    use ringbuf::traits::Observer;
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
@@ -632,6 +638,62 @@ mod tests {
 
         let n = l_remote_clone.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], data);
+    }
+
+    #[test]
+    fn test_pipe_flush_left_after_the_buffer_wrapped() {
+        let (l_local, mut l_remote) = UnixStream::pair().unwrap();
+        let (r_local, mut r_remote) = UnixStream::pair().unwrap();
+
+        l_local.set_nonblocking(true).unwrap();
+        r_local.set_nonblocking(true).unwrap();
+        l_remote.set_nonblocking(true).unwrap();
+
+        let mut registry = EventRegistry::<TestProcess>::new();
+        let mut pipe = Pipe::new(
+            l_local,
+            r_local,
+            &mut registry,
+            TestEvent::PipeLeft,
+            TestEvent::PipeRight,
+            None,
+        );
+
+        let first = vec![b'a'; BUFFER_LEN * 3 / 4];
+        r_remote.write_all(&first).unwrap();
+        pipe.on_right_event(PollEvent::Readable, &mut registry)
+            .unwrap();
+        pipe.on_left_event(PollEvent::Writable, &mut registry)
+            .unwrap();
+
+        // the buffer is empty, its start is at 3/4: what comes next wraps around its end
+        let second: Vec<u8> = (0..=250).cycle().take(BUFFER_LEN * 3 / 4).collect();
+        r_remote.write_all(&second).unwrap();
+        pipe.on_right_event(PollEvent::Readable, &mut registry)
+            .unwrap();
+        pipe.on_right_event(PollEvent::Readable, &mut registry)
+            .unwrap();
+        assert_eq!(pipe.buffer_rl.consumer.occupied_len(), second.len());
+
+        // still in the pty when the command exits
+        let last = b"the last line of the command";
+        r_remote.write_all(last).unwrap();
+
+        pipe.flush_left().unwrap();
+
+        let mut received = Vec::new();
+        let mut buf = [0u8; BUFFER_LEN];
+        loop {
+            match l_remote.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => received.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) => panic!("{e}"),
+            }
+        }
+        let expected = [first.as_slice(), &second, last].concat();
+        assert_eq!(received.len(), expected.len());
+        assert!(received == expected, "the output is not in order");
     }
 
     #[test]
