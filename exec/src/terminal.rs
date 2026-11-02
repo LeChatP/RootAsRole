@@ -1,3 +1,14 @@
+//! The user's terminal and the helpers of the terminals, adapted from sudo-rs
+//! (`src/system/term/user_term.rs` and `src/system/term/mod.rs`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - `set_raw_mode` sets `ISIG` in `c_lflag` when it is asked to, where sudo-rs sets it in
+//!   `c_cflag`; dosr never asks, as sudo-rs: the pty of the command makes the signals.
+//! - without `preserve_oflag`, `c_oflag` is 0 instead of what `cfmakeraw` leaves: without `OPOST`,
+//!   the other output flags do nothing either way.
+//! - `restore` keeps the settings when it fails, so that a later call tries again; sudo-rs forgets
+//!   them.
+
 #![allow(dead_code)]
 
 use std::{

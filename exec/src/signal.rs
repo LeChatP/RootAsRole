@@ -1,3 +1,13 @@
+//! The signals of the runner and the monitor, adapted from sudo-rs (`src/system/signal/`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - the handler writes a [`SignalInfo`] of 16 bytes into a non-blocking pipe, where sudo-rs
+//!   writes the whole `siginfo_t` into a socket pair: a frame is smaller than `PIPE_BUF`, so each
+//!   write is atomic, and the event loop reads every frame until `EWOULDBLOCK`.
+//! - [`signal_child`] raises `CAP_KILL` for one call when a signal to the command is refused:
+//!   dosr runs with the uids of its caller and file capabilities, where the monitor of sudo runs
+//!   as root.
+
 use std::{
     io,
     os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd},

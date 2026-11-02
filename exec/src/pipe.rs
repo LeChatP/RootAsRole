@@ -1,3 +1,16 @@
+//! The pipe between the user's terminal and the pty of the command, adapted from sudo-rs
+//! (`src/exec/use_pty/pipe/`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - the ring buffer is the one of the `ringbuf` crate, whose `write_into` writes once, from the
+//!   first of its two slices: `flush_left` writes until the buffer is empty, where sudo-rs writes
+//!   both slices with one `write_vectored`.
+//! - an optional [`IoLogger`] gets what goes through, each way, to log the session.
+//! - `flush_left` stops at the end of the pty (a read of 0 bytes), where sudo-rs reads again, and
+//!   reads the pty whatever the state of its write handle.
+//! - a write to the pty that fails with `EPIPE` stops reading the user's terminal instead of
+//!   ending the event loop.
+
 use std::{
     io::{self, Read, Write},
     marker::PhantomData,

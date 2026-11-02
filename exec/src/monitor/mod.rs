@@ -1,3 +1,18 @@
+//! The monitor, between the runner and the command, adapted from sudo-rs
+//! (`src/exec/use_pty/monitor.rs`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - the command runs the pre-exec steps of an [`Orchestrator`] (credentials, capabilities,
+//!   workdir...) before its exec.
+//! - in the foreground, the command checks once that the pty is in its process group, and warns
+//!   otherwise, where sudo-rs waits for it: a command that reads the pty before the monitor gives
+//!   it is stopped by `SIGTTIN`, and the runner resumes it in the foreground.
+//! - the exit status is sent as soon as `SIGCHLD` reports it; after the red light, the monitor
+//!   gives the pty back to its own group and terminates what is left of the command, where sudo-rs
+//!   terminates first and sends the status after.
+//! - a signal goes to the process group of the command, as in sudo-rs, with `CAP_KILL` when the
+//!   command runs as another user (see `crate::signal::signal_child`).
+
 use std::io::{self, Write};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::process::CommandExt;

@@ -1,3 +1,16 @@
+//! The process that runs the command, adapted from sudo-rs: [`ExecRunner`] is the `ParentClosure`
+//! of `src/exec/use_pty/parent.rs`, with the pty, and `run_no_pty` its `src/exec/no_pty.rs`.
+//!
+//! Where it differs from sudo-rs, and why:
+//! - a message to the monitor is sent at once, not queued until the backchannel can be written:
+//!   it is a few bytes, which the buffer of the socket takes.
+//! - on `SIGTTOU` or `SIGTTIN` of the command, dosr in the foreground resumes it in the foreground
+//!   whether the terminal was raw already or not: sudo-rs only does when it was not raw yet, and
+//!   otherwise suspends itself, so a command that asked for the terminal twice stopped.
+//! - the pty is given to the caller by default, see `crate::pty`.
+//! - an optional [`IoLogger`] logs the session.
+//! - without a pty, the signals are read in a plain loop with `try_wait`, not an event loop.
+
 use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
@@ -271,7 +284,7 @@ impl ExecRunner {
 
         if matches!(signal, libc::SIGTTOU | libc::SIGTTIN) {
             // The command wants the terminal: when dosr is in the foreground, the command is
-            // resumed at once, whether the terminal was already raw or not (sudo-rs #1598).
+            // resumed at once, whether the terminal was already raw or not (see the doc of the module).
             if !self.foreground && self.check_foreground().is_err() {
                 // the user's terminal was revoked
                 return None;

@@ -1,3 +1,13 @@
+//! The event loop of the runner and the monitor, adapted from sudo-rs (`src/exec/event.rs`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - `poll` gives `POLLERR`, `POLLHUP` and `POLLNVAL` to the handler of the descriptor, which then
+//!   reads the end or the error: sudo-rs drops them, and a descriptor that only hangs up makes
+//!   `poll` return at once, again and again.
+//! - an error of `poll` other than `EINTR` panics, where sudo-rs polls again at once, forever: with
+//!   the descriptors that dosr keeps open, `EINVAL` (more of them than `RLIMIT_NOFILE`) cannot
+//!   happen, and `ENOMEM` leaves nothing better to do.
+
 use std::{
     ffi::c_short,
     fmt::Debug,
